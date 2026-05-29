@@ -527,6 +527,16 @@ pub struct AdaptationData {
     pub reason: crate::combat::ai::adapt::AdaptationReason,
     /// Score this plan had immediately before adaptation rescored it.
     pub original_score: f32,
+    /// The evaluation mode that was applied to this plan.
+    /// Used by `FinalizeStage` to read the real mode (not infer it from
+    /// `adaptation.is_some()`), enabling correct Flee vs LastStand routing.
+    ///
+    /// Schema: additive field. Old logs without this field default to `LastStand`
+    /// (the only mode that existed before Flee was added) — safe because all
+    /// adaptations in pre-Flee logs were ExpectedSelfLethal / ProtectSelf* variants,
+    /// which always produce `EvaluationMode::LastStand`.
+    #[serde(default = "crate::combat::ai::adapt::EvaluationMode::default_last_stand")]
+    pub mode: crate::combat::ai::adapt::EvaluationMode,
 }
 
 /// Record of a contract mask hit (ProtectSelf or KillableGate).

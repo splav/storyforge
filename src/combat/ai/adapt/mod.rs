@@ -55,10 +55,16 @@ pub use select::{apply_adaptation, pending_dot_before_next_action, select_evalua
 /// `Default` = score under the global `TacticalIntent` selected by
 /// `select_intent`. `LastStand` = score under the "final useful action"
 /// weighting via `evaluate_last_stand_step` in `intent_score()` — the
-/// global tactical intent is bypassed entirely.
+/// global tactical intent is bypassed entirely. `Flee` = score under the
+/// flee regime — unit maximises distance from the nearest enemy; offensive
+/// casts are suppressed, self-heal/self-buff are allowed.
 ///
 /// Populated by `apply_adaptation`; consumed by the scorer's per-plan
 /// intent rescore (passed as `mode` to `intent_score`).
+///
+/// **Invariants:**
+/// - `Forced { mode }` in `AdaptationReason` is a unit-level fact override:
+///   FACTS-ONLY, IDEMPOTENT, highest precedence over all other adaptation rules.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationMode {
@@ -69,6 +75,10 @@ pub enum EvaluationMode {
     /// Used when the plan either kills the actor (per-plan) or the global
     /// intent cannot be satisfied (global ProtectSelf → no defensive).
     LastStand,
+    /// Score under the Flee regime — maximise distance from nearest enemy.
+    /// Offensive casts score lowest (suppressed); self-heal/self-buff allowed.
+    /// Applied when a boss phase sets `ai_behavior = "flee"` on the unit.
+    Flee,
 }
 
 /// Fact-based reason an individual plan's evaluation regime was switched.
@@ -113,6 +123,13 @@ pub enum AdaptationReason {
     /// `pending_dot` = `pending_dot_before_next_action(active)`,
     /// `actor_hp` = `active.hp`.
     ProtectSelfFutile { pending_dot: i32, actor_hp: i32 },
+    /// A unit-level fact override imposed by a content phase transition
+    /// (`ai_behavior` field in PhaseDef). Highest precedence — short-circuits
+    /// all other adaptation rules. FACTS-ONLY, IDEMPOTENT.
+    ///
+    /// `mode` is the regime that was forced. Named "Forced" (not "Fleeing")
+    /// so future regimes (Patrol, Panic, …) can reuse this variant.
+    Forced { mode: EvaluationMode },
 }
 
 impl AdaptationReason {
@@ -123,7 +140,16 @@ impl AdaptationReason {
             Self::ExpectedSelfLethal { .. } => "expected_self_lethal",
             Self::ProtectSelfNoDefensive => "protect_self_no_defensive",
             Self::ProtectSelfFutile { .. } => "protect_self_futile",
+            Self::Forced { .. } => "forced",
         }
+    }
+}
+
+impl EvaluationMode {
+    /// Serde default for `AdaptationData.mode` field: pre-Flee logs had only
+    /// LastStand adaptations, so defaulting to LastStand is safe for old data.
+    pub fn default_last_stand() -> Self {
+        Self::LastStand
     }
 }
 

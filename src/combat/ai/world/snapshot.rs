@@ -180,6 +180,11 @@ pub struct UnitSnapshot {
     // → read it here in build_snapshot when the first quirk is introduced.
     #[serde(default)]
     pub ai_tuning_override: Option<AiTuningOverride>,
+    /// When set, overrides the evaluation mode for every plan this unit generates.
+    /// Sourced from a boss phase transition (`ai_behavior` field in PhaseDef).
+    /// Schema: additive field, `#[serde(default)]` → `None` on old logs.
+    #[serde(default)]
+    pub forced_mode: Option<crate::combat::ai::adapt::EvaluationMode>,
 }
 
 /// Snapshot-shaped mirror of `ActiveStatus` (components.rs). Drops `applier`
@@ -291,6 +296,12 @@ impl<'a> UnitView<'a> {
         self.state.statuses.iter().any(|s| {
             status_tags.get(&s.id).contains(StatusTagSet::COMPULSION)
         })
+    }
+
+    /// Override evaluation mode for this unit, if set by a boss phase transition.
+    /// `None` means normal tactical evaluation applies.
+    pub fn forced_mode(&self) -> Option<crate::combat::ai::adapt::EvaluationMode> {
+        self.cache.forced_mode
     }
 }
 
@@ -545,6 +556,15 @@ pub fn build_snapshot(
                 .map(|p| p.crit_fail_effect.clone())
                 .unwrap_or_default();
 
+            // Map AiBehaviorOverride ECS component to EvaluationMode.
+            let forced_mode = c.ai_behavior_override.map(|b| {
+                use crate::content::encounters::AiBehaviorKind;
+                use crate::combat::ai::adapt::EvaluationMode;
+                match b.kind {
+                    AiBehaviorKind::Flee => EvaluationMode::Flee,
+                }
+            });
+
             Some(UnitAiCache {
                 entity:              c.entity,
                 role,
@@ -560,6 +580,7 @@ pub fn build_snapshot(
                 ai_tuning_override: None,
                 abilities:           abilities.0.clone(),
                 caster_ctx:          caster_ctx.clone(),
+                forced_mode,
             })
         })
         .collect();

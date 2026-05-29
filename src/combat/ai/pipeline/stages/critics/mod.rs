@@ -431,6 +431,7 @@ mod tests {
             Some(AdaptationData {
                 reason: AdaptationReason::ProtectSelfNoDefensive,
                 original_score: 0.8,
+                mode: crate::combat::ai::adapt::EvaluationMode::LastStand,
             }),
             None, // Default mode
         ];

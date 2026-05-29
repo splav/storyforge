@@ -76,13 +76,16 @@ impl ScoreEffectStage for ProtectSelfMaskStage {
         let pre_scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
 
         // Collect adaptation modes from annotations (needed by apply_protect_self_mask).
+        // Read the real mode from AdaptationData rather than hardcoding LastStand —
+        // fleeing plans are non-Default and still skipped by the ProtectSelf mask,
+        // so self-heal/move plans survive correctly.
         let modes: Vec<_> = pool
             .annotations
             .iter()
             .map(|ann| {
                 ann.adaptation
                     .as_ref()
-                    .map(|_| EvaluationMode::LastStand)
+                    .map(|a| a.mode)
                     .unwrap_or(EvaluationMode::Default)
             })
             .collect();

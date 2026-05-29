@@ -651,6 +651,7 @@
             crit_fail_effect: CritFailEffect::default(),
             damage_horizon: vec![],
             ai_tuning_override: None,
+            forced_mode: None,
         };
 
         let json = serde_json::to_string(&unit).expect("serialize UnitSnapshot");

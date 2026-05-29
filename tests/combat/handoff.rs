@@ -702,6 +702,7 @@ fn summoned_unit_can_act_in_ai_turn() {
         ai_tuning_override: None,
         abilities: vec![],
         caster_ctx: Default::default(),
+        forced_mode: None,
     };
     let cache = AiCache::from_units(vec![
         make_cache_entry(regular_entity),

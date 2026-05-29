@@ -121,6 +121,17 @@ pub fn select_evaluation_modes(
     let active = ctx.active;
     let content = ctx.world.content;
 
+    // ── Highest precedence: forced mode from content phase transition ──────
+    // A unit with `forced_mode` set (e.g. Flee) short-circuits all other
+    // adaptation rules. FACTS-ONLY, IDEMPOTENT.
+    if let Some(m) = active.forced_mode() {
+        for i in 0..plans.len() {
+            adaptation.modes[i] = m;
+            adaptation.reasons[i] = Some(AdaptationReason::Forced { mode: m });
+        }
+        return adaptation;
+    }
+
     // ── Global rules under ProtectSelf ────────────────────────────────────
     if matches!(intent, TacticalIntent::ProtectSelf) {
         let any_defensive = raw
@@ -839,5 +850,49 @@ mod tests {
         );
         // The non-lethal bleed penalty still floors at 0.25 × input.
         assert!(scored[1] >= 0.25, "soft AoO bleed floor holds");
+    }
+
+    // ── select_evaluation_modes: forced mode ─────────────────────────────────
+
+    #[test]
+    fn forced_mode_flee_short_circuits_all_other_rules() {
+        // A unit with forced_mode=Flee must get mode=Flee + reason=Forced
+        // on ALL plans, regardless of ProtectSelf/ExpectedSelfLethal rules.
+        use crate::combat::ai::adapt::{AdaptationReason, EvaluationMode};
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(1) // critically low — would normally trigger ExpectedSelfLethal
+            .forced_mode(Some(EvaluationMode::Flee))
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .aoo(5.0, 1)
+            .build();
+        let plans = vec![
+            move_plan(vec![hex_from_offset(2, 0)]), // move away
+            move_plan(vec![hex_from_offset(-1, 0)]), // move away other dir
+        ];
+        let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
+
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let adaptation = select_evaluation_modes(&plans, &raw, &TacticalIntent::Reposition, &ctx);
+
+        for i in 0..plans.len() {
+            assert_eq!(
+                adaptation.modes[i],
+                EvaluationMode::Flee,
+                "plan[{i}] mode must be Flee"
+            );
+            assert!(
+                matches!(adaptation.reasons[i], Some(AdaptationReason::Forced { mode: EvaluationMode::Flee })),
+                "plan[{i}] reason must be Forced{{mode:Flee}}, got {:?}", adaptation.reasons[i]
+            );
+        }
     }
 }

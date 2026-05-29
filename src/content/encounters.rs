@@ -126,6 +126,19 @@ pub struct PhaseDef {
     /// Number of rounds (from phase activation) the player has to fulfil the
     /// new objective. Expires → defeat (boss escaped / time ran out).
     pub turn_limit: Option<u32>,
+    /// When set, overrides the unit's AI evaluation regime each turn.
+    pub ai_behavior: Option<AiBehaviorKind>,
+}
+
+/// AI evaluation-regime override applied when a boss phase fires.
+/// A unit with this override evaluates each turn under the specified regime
+/// instead of the normal tactical pipeline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiBehaviorKind {
+    /// Unit maximises distance from the nearest enemy each turn.
+    /// Offensive casts are suppressed; self-heal/self-buff are allowed.
+    Flee,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +258,8 @@ struct PhaseRecord {
     victory_override: Option<VictoryRecord>,
     #[serde(default)]
     turn_limit: Option<u32>,
+    #[serde(default)]
+    ai_behavior: Option<AiBehaviorKind>,
 }
 
 // ── Resolution helpers ──────────────────────────────────────────────────────
@@ -312,6 +327,7 @@ fn resolve_phase(
         flavor: p.flavor,
         victory_override: p.victory_override.map(|v| resolve_victory(path, enc_id, v)),
         turn_limit: p.turn_limit,
+        ai_behavior: p.ai_behavior,
     }
 }
 
@@ -521,5 +537,32 @@ heal_to_full = false
         let phase = resolve_phase("test", "enc1", record, &Default::default());
         assert!(phase.victory_override.is_none());
         assert!(phase.turn_limit.is_none());
+    }
+
+    /// A `PhaseRecord` with `ai_behavior = "flee"` resolves to `Some(AiBehaviorKind::Flee)`.
+    #[test]
+    fn phase_record_with_ai_behavior_flee_resolves_correctly() {
+        let toml_src = r#"
+hp_below_pct = 50
+heal_to_full = false
+ai_behavior = "flee"
+"#;
+        let record: PhaseRecord = toml::from_str(toml_src)
+            .expect("PhaseRecord must deserialize from TOML");
+        let phase = resolve_phase("test", "enc1", record, &Default::default());
+        assert_eq!(phase.ai_behavior, Some(AiBehaviorKind::Flee));
+    }
+
+    /// A `PhaseRecord` without `ai_behavior` resolves to `None` (additive default).
+    #[test]
+    fn phase_record_without_ai_behavior_resolves_to_none() {
+        let toml_src = r#"
+hp_below_pct = 75
+heal_to_full = false
+"#;
+        let record: PhaseRecord = toml::from_str(toml_src)
+            .expect("PhaseRecord must deserialize from TOML");
+        let phase = resolve_phase("test", "enc1", record, &Default::default());
+        assert!(phase.ai_behavior.is_none());
     }
 }

@@ -71,6 +71,16 @@ pub struct PartyMember;
 #[derive(Component, Default)]
 pub struct Enemy;
 
+/// Overrides the AI evaluation regime for this unit each turn.
+/// Written by `apply_phase_ecs_writes` when a boss phase carrying
+/// `ai_behavior` fires. Intentionally game-layer only — stores the
+/// content enum `AiBehaviorKind` rather than the AI-internal `EvaluationMode`
+/// so that the game/components layer does not import `combat::ai`.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct AiBehaviorOverride {
+    pub kind: crate::content::encounters::AiBehaviorKind,
+}
+
 /// ECS marker carrying the unit-template id for template-based combatants.
 /// Set by `spawn_combatants` for party members spawned from a `UnitTemplate`
 /// (e.g. non-acting NPCs via `party_add { template = "..." }`).
@@ -322,6 +332,7 @@ pub struct AiCombatantQ {
     pub combat_path: Option<&'static CombatPath>,
     pub summoned_by: Option<&'static SummonedBy>,
     pub reactions: Option<&'static Reactions>,
+    pub ai_behavior_override: Option<&'static AiBehaviorOverride>,
 }
 
 /// Player command input: ability selection, target cycling.

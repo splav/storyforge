@@ -343,6 +343,7 @@ mod tests {
         let adaptation = Some(AdaptationData {
             reason: AdaptationReason::ProtectSelfNoDefensive,
             original_score: 0.8,
+            mode: crate::combat::ai::adapt::EvaluationMode::LastStand,
         });
         let mut pool = PoolBuilder::new(plans)
             .scores(&[0.8, 0.6])
@@ -452,6 +453,7 @@ mod tests {
         let adaptation = Some(AdaptationData {
             reason: AdaptationReason::ProtectSelfNoDefensive,
             original_score: 0.8,
+            mode: crate::combat::ai::adapt::EvaluationMode::LastStand,
         });
         let mut pool = PoolBuilder::new(plans)
             .scores(&[0.8, 0.6])

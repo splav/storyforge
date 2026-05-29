@@ -57,6 +57,7 @@ impl PlanStage for ModeSelectionStage {
                     // original_score here is the Default-mode initial score
                     // (post-Viability, pre-Finalize). See module doc for semantics.
                     original_score: ann.score,
+                    mode: adaptation.modes[i],
                 });
             }
         }

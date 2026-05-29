@@ -151,6 +151,7 @@ impl UnitBuilder {
                 crit_fail_effect: Default::default(),
                 damage_horizon: Vec::new(),
                 ai_tuning_override: None,
+                forced_mode: None,
             },
         }
     }
@@ -265,6 +266,11 @@ impl UnitBuilder {
         self.inner.speed = speed;
         self
     }
+    /// Set the forced evaluation mode (e.g., `Some(EvaluationMode::Flee)`).
+    pub fn forced_mode(mut self, mode: Option<crate::combat::ai::adapt::EvaluationMode>) -> Self {
+        self.inner.forced_mode = mode;
+        self
+    }
     pub fn build(self) -> UnitSnapshot {
         self.inner
     }
@@ -353,6 +359,7 @@ impl UnitBuilder {
             ai_tuning_override:  u.ai_tuning_override.clone(),
             abilities:           u.abilities.clone(),
             caster_ctx:          u.caster_ctx.clone(),
+            forced_mode:         u.forced_mode,
         };
         (engine_unit, ai_cache)
     }
@@ -442,6 +449,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         ai_tuning_override:  u.ai_tuning_override.clone(),
         abilities:           u.abilities.clone(),
         caster_ctx:          u.caster_ctx.clone(),
+        forced_mode:         u.forced_mode,
     };
     (engine_unit, ai_cache)
 }
@@ -539,6 +547,7 @@ pub(crate) fn unit_view_to_snapshot(
         crit_fail_effect:     c.crit_fail_effect.clone(),
         damage_horizon:       c.damage_horizon.clone(),
         ai_tuning_override:   c.ai_tuning_override.clone(),
+        forced_mode:          c.forced_mode,
     }
 }
 

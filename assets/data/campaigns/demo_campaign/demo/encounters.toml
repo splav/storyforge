@@ -21,6 +21,18 @@ ability_ids = ["melee_attack"]
 hex_col     = 6
 hex_row     = 2
 
+# Фаза-демо механик wave 2: когда Страж ранен (HP ≤ 60% max), он ломается
+# и бежит. Цель боя меняется на «добить беглеца за 3 раунда» — если не успеть,
+# Страж уходит и бой проигран. Демонстрирует сразу три механики:
+# ai_behavior=flee (бегство), victory_override (смена цели), turn_limit (дедлайн).
+# Блок идёт ДО Налётчика: phases привязываются к предыдущему [[encounters.enemies]].
+[[encounters.enemies.phases]]
+hp_below_pct     = 60
+ai_behavior      = "flee"
+turn_limit       = 3
+victory_override = { type = "kill_target", enemy_name = "Страж", marker_color = [0.90, 0.20, 0.20] }
+flavor           = "Страж зверокровов дрогнул и бросился наутёк — добейте его, пока не привёл подмогу!"
+
 [[encounters.enemies]]
 name        = "Налётчик"
 race        = "beastblood"

@@ -600,6 +600,7 @@ mod tests {
                 crit_fail_effect: Default::default(),
                 damage_horizon: horizon,
                 ai_tuning_override: None,
+                forced_mode: None,
             }
         }
 

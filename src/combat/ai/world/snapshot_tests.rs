@@ -52,6 +52,7 @@ mod affordability_tests {
             crit_fail_effect: Default::default(),
             damage_horizon: Vec::new(),
             ai_tuning_override: None,
+            forced_mode: None,
         }
     }
 

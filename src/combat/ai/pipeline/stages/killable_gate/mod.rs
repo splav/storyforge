@@ -198,7 +198,7 @@ impl ScoreEffectStage for KillableGateStage {
             .map(|ann| {
                 ann.adaptation
                     .as_ref()
-                    .map(|_| EvaluationMode::LastStand)
+                    .map(|a| a.mode)
                     .unwrap_or(EvaluationMode::Default)
             })
             .collect();

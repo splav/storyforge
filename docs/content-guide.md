@@ -307,6 +307,25 @@ flavor       = "Старшина падает — но буря в его кро
 
 `flavor` — сюжетная строка. Показывается в попапе перехода и в combat log.
 
+#### Phase overrides: victory, deadline, AI behaviour
+
+A phase can do more than restat the boss — it can rewrite the fight's win condition, impose a round deadline, and flip the unit into a non-standard AI regime. All three are optional and independent.
+
+```toml
+[[encounters.enemies.phases]]
+hp_below_pct    = 30
+flavor          = "Босс бросает оружие и пытается бежать."
+ai_behavior     = "flee"                    # AI regime override (see below)
+turn_limit      = 3                          # rounds from THIS phase firing
+victory_override = { type = "kill_target", enemy_name = "Тибор Колм", marker_color = [0.9, 0.15, 0.15] }
+```
+
+- **`victory_override`** — replaces the encounter's `victory` condition the moment this phase fires. Same record format as the top-level `victory` field (`kill_target` / `keep_alive` / `all_enemies_dead` / `all_of`). Use it to shift the goal mid-fight, e.g. from "kill everyone" to "finish the fleeing boss". The override is total — the prior condition (including any `keep_alive` clauses) no longer applies once it activates.
+- **`turn_limit`** — a **round-based** deadline counted from the round the phase activates. If `turn_limit` rounds elapse and the override's target is still alive, the fight is **lost** (the boss "escaped"). Pair it with a `kill_target` `victory_override` so "catch them in N rounds" is enforceable. Counting is per round (full initiative cycle), not per actor-turn.
+- **`ai_behavior`** — forces the unit's AI evaluation regime for the rest of the fight. Currently the only value is `"flee"`: each turn the unit moves to **maximise distance from the nearest enemy**, **all offensive casts are suppressed**, and **self-heal / self-buff are allowed** (a fleeing boss may still try to patch itself up). When cornered (no move increases distance) it simply ends its turn. The unit does not retaliate even if it could land a lethal hit — by design (see [docs/ai/adaptation.md](ai/adaptation.md), `EvaluationMode::Flee`).
+
+Canonical combo (ch2 boss, "Колм"): at low HP the boss enters a phase that sets `ai_behavior = "flee"` + `turn_limit` + a `kill_target` `victory_override` on itself — the party must run it down and kill it before it gets away.
+
 ### Aura
 
 Passive radius effect. While the source is alive, targets in range matching `affects` get the status re-applied every TurnStart. Removed when source dies or target leaves range. Uses `duration = 1` under the hood; ability-applied statuses of the same id are NOT stomped.
@@ -369,6 +388,8 @@ victory = { type = "all_of", conditions = [
 ```
 
 `all_of` nests arbitrarily.
+
+A boss **phase** can replace the active victory condition mid-fight via `victory_override` (optionally with a round `turn_limit`) — see [Phase overrides](#phase-overrides-victory-deadline-ai-behaviour) above.
 
 ## Scenario (`scenario.toml` inside a scenario folder)
 

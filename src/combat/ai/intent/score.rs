@@ -232,6 +232,55 @@ pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32
     score
 }
 
+/// Score a single step under the **Flee** evaluation regime.
+///
+/// The fleeing unit maximises distance from the nearest enemy.
+/// Offensive casts are suppressed (scored lowest); self-heal/self-buff allowed.
+///
+/// Score shape:
+/// - `Move`: positive delta = moved farther away; non-improving ≤ 0; no enemies = 0.
+/// - `Cast` offensive (`SingleEnemy | Ground`): `-1.0` (suppressed).
+/// - `Cast` self-targeted (`Myself | SingleAlly` on self): `+0.3` (allowed).
+/// - Other casts: `0.0` (neutral).
+pub fn evaluate_flee_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32 {
+    let content = step_ctx.world.content;
+    let active = step_ctx.active;
+
+    // Collect enemies.
+    let enemies: Vec<_> = step_ctx.snap.enemies_of(active.team).collect();
+
+    // Distance to nearest enemy from a given tile (None if no enemies).
+    let nearest = |tile: Hex| -> Option<u32> {
+        enemies.iter().map(|e| tile.unsigned_distance_to(e.pos)).min()
+    };
+
+    match step {
+        ScoredStep::Move { caster_tile } => {
+            // Return positive for moves that increase distance to nearest enemy.
+            match (nearest(active.pos), nearest(*caster_tile)) {
+                (Some(cur), Some(new)) => new as f32 - cur as f32,
+                _ => 0.0, // No enemies present; no reason to flee.
+            }
+        }
+        ScoredStep::Cast { ability, target, .. } => {
+            if nearest(active.pos).is_none() {
+                // No enemies present — no flee objective; neutral.
+                return 0.0;
+            }
+            let Some(def) = content.abilities.get(*ability) else { return 0.0 };
+            match def.target_type {
+                // Offensive: suppressed — score lowest, will not be chosen.
+                TargetType::SingleEnemy | TargetType::Ground => -1.0,
+                // Self-targeted heal/buff: allowed.
+                TargetType::Myself | TargetType::SingleAlly
+                    if *target == active.entity() => 0.3,
+                // Other (ally-targeted non-self, etc.): neutral.
+                _ => 0.0,
+            }
+        }
+    }
+}
+
 pub fn intent_score(
     intent: &TacticalIntent,
     step: &ScoredStep,
@@ -242,6 +291,10 @@ pub fn intent_score(
     // LastStand evaluation regime: bypass intent-specific scoring.
     if mode == EvaluationMode::LastStand {
         return evaluate_last_stand_step(step, step_ctx);
+    }
+    // Flee evaluation regime: maximise distance from nearest enemy.
+    if mode == EvaluationMode::Flee {
+        return evaluate_flee_step(step, step_ctx);
     }
     let active = step_ctx.active;
     let snap = step_ctx.snap;
@@ -411,6 +464,184 @@ mod tests {
             target_pos: tile,
             caster_tile: tile,
         }
+    }
+
+    // ── evaluate_flee_step tests ─────────────────────────────────────────────
+
+    // Shared AbilityDef constructors for flee tests.
+    fn flee_test_offensive_ability(id: &'static str) -> (AbilityId, crate::content::abilities::AbilityDef) {
+        use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
+        use combat_engine::DiceExpr;
+        let id = AbilityId::from(id);
+        let def = AbilityDef {
+            id: id.clone(),
+            name: id.to_string(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 3 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+                requires_los: false,
+            },
+        };
+        (id, def)
+    }
+
+    fn flee_test_heal_ability(id: &'static str) -> (AbilityId, crate::content::abilities::AbilityDef) {
+        use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
+        use combat_engine::DiceExpr;
+        let id = AbilityId::from(id);
+        let def = AbilityDef {
+            id: id.clone(),
+            name: id.to_string(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::Myself,
+                range: AbilityRange { min: 0, max: 0 },
+                effect: EffectDef::Heal { dice: DiceExpr::new(1, 4, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+                requires_los: false,
+            },
+        };
+        (id, def)
+    }
+
+    #[test]
+    fn flee_step_farther_move_positive() {
+        // Actor at (0,0), enemy at (0,1), moves to (0,3): dist_before=1, dist_after=2 → +1.
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(0, 1);
+        let flee_pos  = hex_from_offset(0, 3);
+
+        let actor  = UnitBuilder::new(1, Team::Player, actor_pos).build();
+        let enemy  = UnitBuilder::new(2, Team::Enemy,  enemy_pos).build();
+        let snap   = snapshot_from(vec![actor.clone(), enemy], 1);
+        let content = ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::default();
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let step = ScoredStep::Move { caster_tile: flee_pos };
+        let score = evaluate_flee_step(&step, &ctx);
+        assert!(score > 0.0, "moving farther from enemy must score > 0, got {score}");
+    }
+
+    #[test]
+    fn flee_step_closer_move_non_positive() {
+        let actor_pos = hex_from_offset(0, 3);
+        let enemy_pos = hex_from_offset(0, 0);
+        let toward    = hex_from_offset(0, 1); // closer to enemy
+
+        let actor  = UnitBuilder::new(1, Team::Player, actor_pos).build();
+        let enemy  = UnitBuilder::new(2, Team::Enemy,  enemy_pos).build();
+        let snap   = snapshot_from(vec![actor.clone(), enemy], 1);
+        let content = ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::default();
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let step = ScoredStep::Move { caster_tile: toward };
+        let score = evaluate_flee_step(&step, &ctx);
+        assert!(score <= 0.0, "moving toward enemy must score ≤ 0, got {score}");
+    }
+
+    #[test]
+    fn flee_step_offensive_cast_lowest() {
+        let actor_pos = hex_from_offset(0, 3);
+        let enemy_pos = hex_from_offset(0, 0);
+
+        let actor  = UnitBuilder::new(1, Team::Player, actor_pos).build();
+        let enemy  = UnitBuilder::new(2, Team::Enemy,  enemy_pos).build();
+        let snap   = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
+
+        let (ability_id, def) = flee_test_offensive_ability("flee_test_hit");
+        let mut content = ContentView::load_global_for_tests();
+        content.abilities.insert(ability_id.clone(), def);
+
+        let difficulty = DifficultyProfile::default();
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let step = ScoredStep::Cast {
+            ability: &ability_id,
+            target: enemy.entity,
+            target_pos: enemy_pos,
+            caster_tile: actor_pos,
+        };
+        let score = evaluate_flee_step(&step, &ctx);
+        assert!(score < 0.0, "offensive cast must score < 0 under Flee, got {score}");
+    }
+
+    #[test]
+    fn flee_step_self_heal_positive() {
+        let actor_pos = hex_from_offset(0, 3);
+        let enemy_pos = hex_from_offset(0, 0);
+
+        let actor  = UnitBuilder::new(1, Team::Player, actor_pos).build();
+        let enemy  = UnitBuilder::new(2, Team::Enemy,  enemy_pos).build();
+        let snap   = snapshot_from(vec![actor.clone(), enemy], 1);
+
+        let (ability_id, def) = flee_test_heal_ability("flee_test_heal");
+        let mut content = ContentView::load_global_for_tests();
+        content.abilities.insert(ability_id.clone(), def);
+
+        let difficulty = DifficultyProfile::default();
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let step = ScoredStep::Cast {
+            ability: &ability_id,
+            target: actor.entity, // self-targeted
+            target_pos: actor_pos,
+            caster_tile: actor_pos,
+        };
+        let score = evaluate_flee_step(&step, &ctx);
+        assert!(score > 0.0, "self-heal under Flee must score > 0, got {score}");
+    }
+
+    #[test]
+    fn flee_step_no_enemies_returns_zero() {
+        let actor_pos = hex_from_offset(0, 0);
+        let move_pos  = hex_from_offset(0, 3);
+
+        // Only one unit (the actor/player) — no enemies in the snapshot.
+        let actor = UnitBuilder::new(1, Team::Player, actor_pos).build();
+        let snap  = snapshot_from(vec![actor.clone()], 1);
+        let content = ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::default();
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let step = ScoredStep::Move { caster_tile: move_pos };
+        let score = evaluate_flee_step(&step, &ctx);
+        assert_eq!(score, 0.0, "no enemies → flee step must return 0.0, got {score}");
     }
 
     #[test]

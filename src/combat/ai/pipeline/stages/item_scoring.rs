@@ -149,9 +149,14 @@ impl PlanStage for ItemScoringStage {
                 .iter()
                 .map(|item| {
                     let intent = item.intent_for_scoring();
+                    // Determine per-item evaluation mode.
+                    // Forced mode (e.g. Flee from a phase transition) takes
+                    // highest precedence — overrides item kind routing.
                     // P7: LastStand items use EvaluationMode::LastStand so that
                     // compute_plan_intent_sum routes to evaluate_last_stand_step.
-                    let item_mode = if item.kind == IntentKind::LastStand {
+                    let item_mode = if let Some(m) = ctx.scoring.active.forced_mode() {
+                        m
+                    } else if item.kind == IntentKind::LastStand {
                         EvaluationMode::LastStand
                     } else {
                         EvaluationMode::Default
@@ -480,6 +485,39 @@ mod tests {
         assert!(
             pool.annotations[0].per_item[1].eligible,
             "Reposition item must be eligible"
+        );
+    }
+
+    /// When the actor has `forced_mode = Some(Flee)`, `item_mode` must be
+    /// `EvaluationMode::Flee` for all agenda items (verify via compute not panicking
+    /// and per_item being populated — mode is internal to compute_plan_intent_sum).
+    #[test]
+    fn forced_flee_mode_resolves_item_mode_to_flee() {
+        use crate::combat::ai::adapt::EvaluationMode;
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .forced_mode(Some(EvaluationMode::Flee))
+            .build();
+        let snap = snapshot_from(vec![actor.clone()], 1);
+
+        let agenda = agenda_with_items(
+            PriorityBand::NormalTactical,
+            vec![
+                agenda_item(IntentKind::Reposition),
+                agenda_item(IntentKind::LastStand),
+            ],
+        );
+
+        let plans = vec![empty_plan()];
+        let mut annotation = PlanAnnotation::default();
+        annotation.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+
+        // run_stage_with_snap drives ItemScoringStage; it must complete without
+        // panic and produce per_item for both agenda items.
+        let pool = run_stage_with_snap(plans, vec![annotation], &agenda, actor, snap);
+        assert_eq!(
+            pool.annotations[0].per_item.len(),
+            2,
+            "per_item must be populated for all agenda items under forced Flee mode"
         );
     }
 

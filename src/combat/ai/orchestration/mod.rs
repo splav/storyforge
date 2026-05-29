@@ -490,11 +490,10 @@ pub fn write_decision_log_from_result(
         .annotations
         .iter()
         .map(|ann| {
-            if ann.adaptation.is_some() {
-                EvaluationMode::LastStand
-            } else {
-                EvaluationMode::Default
-            }
+            ann.adaptation
+                .as_ref()
+                .map(|a| a.mode)
+                .unwrap_or(EvaluationMode::Default)
         })
         .collect();
 

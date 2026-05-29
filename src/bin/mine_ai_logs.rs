@@ -534,6 +534,7 @@ impl Aggregate {
                     AdaptationReason::ExpectedSelfLethal { .. } => "expected_self_lethal".to_owned(),
                     AdaptationReason::ProtectSelfNoDefensive => "protect_self_no_defensive".to_owned(),
                     AdaptationReason::ProtectSelfFutile { .. } => "protect_self_futile".to_owned(),
+                    AdaptationReason::Forced { .. } => "forced".to_owned(),
                 })
                 .unwrap_or_else(|| "none".to_owned());
             *self.g1_chosen_by_adapt_reason.entry(adapt_key.clone()).or_default() += 1;

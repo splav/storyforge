@@ -44,9 +44,9 @@ use crate::game::combat_log::{
     CombatEvent, CombatLog, CritFailOutcomeEcs, SpawnBlockedReasonEcs, TurnSkipReasonEcs,
 };
 use crate::game::components::{
-    Abilities, ActionPoints, ActiveCombatant, AuraSource, BonusMovement, CombatPath, CombatStats,
-    Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana, Rage, Reactions,
-    Speed, StatusEffects, SummonedBy, TemplateRef, UnitToken, Vital, VictoryTarget,
+    Abilities, ActionPoints, ActiveCombatant, AiBehaviorOverride, AuraSource, BonusMovement,
+    CombatPath, CombatStats, Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana,
+    Rage, Reactions, Speed, StatusEffects, SummonedBy, TemplateRef, UnitToken, Vital, VictoryTarget,
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
@@ -595,6 +595,11 @@ fn apply_phase_ecs_writes(
             victory_override: phase.victory_override.clone(),
             turn_limit: phase.turn_limit,
         });
+    }
+
+    // Insert AI behavior override component if the phase specifies one.
+    if let Some(kind) = phase.ai_behavior {
+        commands.entity(ent).insert(AiBehaviorOverride { kind });
     }
 
     // Pop exactly once per event (spec §8).

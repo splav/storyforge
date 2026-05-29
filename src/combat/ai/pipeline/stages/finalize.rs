@@ -44,15 +44,19 @@ impl PlanStage for FinalizeStage {
         }
 
         // Derive per-plan EvaluationMode from adaptation annotations.
+        // Read the real mode stored on AdaptationData (set by ModeSelectionStage)
+        // rather than inferring it from `adaptation.is_some()`. This ensures
+        // that Flee plans get EvaluationMode::Flee (not LastStand), while
+        // LastStand adaptations keep EvaluationMode::LastStand — behaviour
+        // identical to before for existing adaptations.
         let modes: Vec<EvaluationMode> = pool
             .annotations
             .iter()
             .map(|ann| {
-                if ann.adaptation.is_some() {
-                    EvaluationMode::LastStand
-                } else {
-                    EvaluationMode::Default
-                }
+                ann.adaptation
+                    .as_ref()
+                    .map(|a| a.mode)
+                    .unwrap_or(EvaluationMode::Default)
             })
             .collect();
 
@@ -86,6 +90,17 @@ impl PlanStage for FinalizeStage {
                 rescore_mode: Some(modes[i]),
                 ..Default::default()
             };
+
+            // Flee re-stamp: Flee's objective (maximise distance) is opposed to the
+            // Default offensive base that rides through the PickBest agenda composition
+            // formula (composed = score_initial + intent_delta + ...). Re-stamp
+            // score_initial to the Flee-rescored value so the agenda path also evaluates
+            // correctly under the flee regime.
+            // Keyed on Flee specifically so LastStand (incidentally safe) and its
+            // replay baselines remain untouched.
+            if modes[i] == EvaluationMode::Flee {
+                ann.score_initial = new_score;
+            }
 
             // Invariant: ann.score == trace.compute() (base only, no effects).
             if new_score.is_finite() {
@@ -136,6 +151,7 @@ mod tests {
         let adaptation = Some(AdaptationData {
             reason: AdaptationReason::ProtectSelfNoDefensive,
             original_score: 0.5,
+            mode: EvaluationMode::LastStand,
         });
         let mut pool = PoolBuilder::new(plans)
             .scores(&[0.5])
@@ -305,6 +321,7 @@ mod tests {
         let adaptation_last_stand = Some(AdaptationData {
             reason: AdaptationReason::ProtectSelfNoDefensive,
             original_score: 0.5,
+            mode: EvaluationMode::LastStand,
         });
         let mut pool = PoolBuilder::new(plans)
             .scores(&[0.5, 0.8])
@@ -345,5 +362,52 @@ mod tests {
 
         // ── 5. Assert ──
         assert!(pool.is_empty(), "pool must remain empty");
+    }
+
+    /// A plan with `AdaptationData{mode:Flee}` must:
+    ///  1. have `rescore_mode == Some(Flee)` after finalize.
+    ///  2. have `score_initial` re-stamped to the new score.
+    #[test]
+    fn flee_mode_sets_rescore_mode_and_restamps_score_initial() {
+        use crate::combat::ai::adapt::EvaluationMode;
+
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let plans = vec![empty_plan()];
+
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool — with Flee adaptation ──
+        let adaptation_flee = Some(AdaptationData {
+            reason: AdaptationReason::ProtectSelfNoDefensive,
+            original_score: 0.5,
+            mode: EvaluationMode::Flee,
+        });
+        let initial_score = 0.5_f32;
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[initial_score])
+            .score_initials(&[initial_score])
+            .factors(vec![PlanFactorValues::default()])
+            .adaptations(vec![adaptation_flee])
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| FinalizeStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        let ann = &pool.annotations[0];
+        assert_eq!(
+            ann.score_trace.rescore_mode,
+            Some(EvaluationMode::Flee),
+            "Flee plan must record rescore_mode=Flee"
+        );
+        // score_initial must be re-stamped to new_score (Flee re-stamp).
+        let new_score = ann.score();
+        assert!(
+            (ann.score_initial - new_score).abs() < 1e-5,
+            "score_initial must be re-stamped to new_score={new_score}, got {}",
+            ann.score_initial
+        );
     }
 }

@@ -83,6 +83,12 @@ pub struct UnitAiCache {
     /// Schema: absent in pre-Phase-D logs → `CasterContext::default()`.
     #[serde(default)]
     pub caster_ctx: crate::content::abilities::CasterContext,
+    /// When set, overrides the evaluation mode for every plan this unit
+    /// generates. Sourced from `AiBehaviorOverride` ECS component (set by a
+    /// boss phase transition). `None` for normal units.
+    /// Schema: additive field, `#[serde(default)]` → `None` on old logs.
+    #[serde(default)]
+    pub forced_mode: Option<crate::combat::ai::adapt::EvaluationMode>,
 }
 
 /// Side-table of AI-derived per-unit metrics. Populated once at
@@ -178,6 +184,8 @@ mod cache_parity_tests {
                 "ai_tuning_override mismatch for {:?}", entity);
             assert_eq!(uc.abilities, u.cache.abilities,
                 "abilities mismatch for {:?}", entity);
+            assert_eq!(uc.forced_mode, u.cache.forced_mode,
+                "forced_mode mismatch for {:?}", entity);
         }
     }
 }

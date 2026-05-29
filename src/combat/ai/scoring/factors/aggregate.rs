@@ -433,6 +433,24 @@ pub fn compute_plan_intent_sum(
         return intent_sum;
     }
 
+    // Flee evaluation regime: bypass intent-specific routing, score every
+    // step through evaluate_flee_step directly.
+    if mode == EvaluationMode::Flee {
+        use crate::combat::ai::intent::score::evaluate_flee_step;
+        let base_discount = ctx.world.difficulty.plan_step_discount;
+        let mut intent_sum = 0.0f32;
+        let mut step_weight = 1.0f32;
+        for (idx, step) in plan.steps.iter().enumerate() {
+            let pre_snap = plan.pre_step_snapshot(idx, ctx.snap);
+            let Some(sim_actor) = pre_snap.unit(ctx.active.entity()) else { break; };
+            let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
+            let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
+            intent_sum += evaluate_flee_step(&scored_step, &step_ctx) * step_weight;
+            step_weight *= base_discount;
+        }
+        return intent_sum;
+    }
+
     debug_assert!(
         plan.sim_snapshots.is_empty() || plan.sim_snapshots.len() == plan.steps.len(),
         "TurnPlan sim_snapshots must align with steps, or be empty (deserialized)",
