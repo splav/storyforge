@@ -19,6 +19,7 @@ use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
+use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 #[cfg(test)]
@@ -341,6 +342,15 @@ fn enumerate_next_steps(
         snap: &sim.snapshot,
     };
 
+    // Flee regime: offensive abilities are suppressed entirely — the fleeing
+    // unit will not attack (spec §9: "mask на все offensive abilities —
+    // Cast-кандидаты выкидываются"). Dropping the candidates here (rather than
+    // only penalising them in `evaluate_flee_step`) is necessary because the
+    // offensive damage/tempo step-factors are scored independently of the
+    // intent column and would otherwise let an attack win on raw damage.
+    // Self-heal / self-buff (SingleAlly / Myself) casts and moves still pass.
+    let fleeing = matches!(actor.forced_mode(), Some(EvaluationMode::Flee));
+
     // Cast steps from the actor's current sim position. Read abilities
     // from the snapshot — same source `check_legality::actor_knows_ability`
     // will consult, so no dual-list drift. `rank_targets` already filters
@@ -348,6 +358,9 @@ fn enumerate_next_steps(
     // AI-policy gate on top.
     for ability_id in &actor.cache.abilities {
         let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
+        if fleeing && matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground) {
+            continue;
+        }
         let targets = rank_targets(def, actor, sim, &state);
         for (target, target_pos) in targets {
             if !ai_policy_ok(def, actor, target, target_pos, sim, ctx) {

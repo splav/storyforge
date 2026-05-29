@@ -85,6 +85,63 @@ fn build_snapshot_includes_dead_combatant() {
     );
 }
 
+/// Regression: an `AiBehaviorOverride { Flee }` ECS component must surface as
+/// `UnitAiCache.forced_mode == Some(EvaluationMode::Flee)` through the real
+/// `build_snapshot` query path (the unit-test parity check uses `snapshot_from`,
+/// which bypasses the ECS component → forced_mode mapping).
+#[test]
+fn build_snapshot_maps_ai_behavior_override_to_forced_mode() {
+    use storyforge::combat::ai::adapt::EvaluationMode;
+    use storyforge::content::encounters::AiBehaviorKind;
+    use storyforge::game::components::AiBehaviorOverride;
+
+    let mut app = movement_app();
+    app.insert_resource(DifficultyProfile::default());
+
+    let plain   = spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "Plain");
+    let fleeing = spawn_at(&mut app, hex_from_offset(4, 3), test_enemy(base_stats()), "Fleeing");
+    app.world_mut().entity_mut(fleeing).insert(AiBehaviorOverride { kind: AiBehaviorKind::Flee });
+
+    init_engine_state(&mut app);
+
+    #[allow(clippy::type_complexity)]
+    fn snapshot_system(
+        combatants: Query<AiCombatantQ, With<Combatant>>,
+        statuses:   Query<&StatusEffects>,
+        hex_map:    HexMap,
+        roles:      Query<&AxisProfile>,
+        content:    Res<storyforge::content::content_view::ActiveContent>,
+        difficulty: Res<DifficultyProfile>,
+        state_res:  Res<CombatStateRes>,
+        id_map:     Res<UnitIdMap>,
+    ) -> Vec<(Entity, Option<EvaluationMode>)> {
+        let keep_alive_entities = std::collections::HashSet::new();
+        let snap = build_snapshot(
+            1, &combatants, &statuses, &hex_map, &roles,
+            &content, &difficulty,
+            state_res.0.clone(),
+            &id_map,
+            &keep_alive_entities,
+        );
+        snap.cache.units.iter().map(|u| (u.entity, u.forced_mode)).collect()
+    }
+
+    let modes: Vec<(Entity, Option<EvaluationMode>)> = app
+        .world_mut()
+        .run_system_once(snapshot_system)
+        .expect("snapshot_system failed");
+
+    let plain_mode   = modes.iter().find(|(e, _)| *e == plain).expect("plain in cache").1;
+    let fleeing_mode = modes.iter().find(|(e, _)| *e == fleeing).expect("fleeing in cache").1;
+
+    assert_eq!(plain_mode, None, "unit without AiBehaviorOverride must have forced_mode == None");
+    assert_eq!(
+        fleeing_mode,
+        Some(EvaluationMode::Flee),
+        "unit with AiBehaviorOverride{{Flee}} must map to forced_mode == Some(Flee)",
+    );
+}
+
 /// Regression: a minimal combatant spawned via `npc_bundle` (no Abilities /
 /// CombatStats / Equipment) must appear in `build_snapshot` — it was silently
 /// dropped before AiCombatantQ fields were made Optional.

@@ -110,6 +110,50 @@
         }
     }
 
+    // ── Flee regime: offensive casts dropped at generation ─────────────────
+
+    /// Wave-2 §9: a unit in the Flee regime must NOT generate offensive Cast
+    /// candidates. Dropping them at generation (not just penalising the intent
+    /// score) is required — the offensive damage step-factor is scored
+    /// independently of the intent column and would otherwise let an attack
+    /// win on raw damage even under Flee.
+    #[test]
+    fn flee_regime_excludes_offensive_cast_candidates() {
+        let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
+
+        let mut content = empty_content();
+        let off = strike_def("strike", 1, 1);
+        content.abilities.insert(off.id.clone(), off);
+
+        let difficulty = DifficultyProfile::hard();
+        let ctx = make_ctx(&content, &difficulty);
+        let maps = empty_maps();
+
+        // Control: a non-fleeing unit DOES generate the offensive cast.
+        let plain = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).ap(1).ability_names(&["strike"]).build();
+        let plain_id = plain.entity;
+        let snap_plain = snapshot_from(vec![plain, target.clone()], 1);
+        let plans_plain = generate_plans(plain_id, &ctx, &snap_plain, &maps);
+        assert!(
+            plans_plain.iter().any(|p| p.steps.iter().any(|s| matches!(s, PlanStep::Cast { .. }))),
+            "control: a non-fleeing unit must generate the offensive cast",
+        );
+
+        // Fleeing: the same setup must yield NO Cast steps at all.
+        let fleeing = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).ap(1).ability_names(&["strike"])
+            .forced_mode(Some(crate::combat::ai::adapt::EvaluationMode::Flee))
+            .build();
+        let fleeing_id = fleeing.entity;
+        let snap_flee = snapshot_from(vec![fleeing, target], 1);
+        let plans_flee = generate_plans(fleeing_id, &ctx, &snap_flee, &maps);
+        assert!(
+            plans_flee.iter().all(|p| p.steps.iter().all(|s| !matches!(s, PlanStep::Cast { .. }))),
+            "fleeing unit must not generate any offensive Cast candidate",
+        );
+    }
+
     // ── Annotation outcomes match sim outcomes ─────────────────────────────
 
     #[test]

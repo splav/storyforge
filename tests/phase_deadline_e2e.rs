@@ -89,7 +89,6 @@ fn apply_phase_overrides_sets_objective_deadline_and_marker() {
     // Push the intent.
     app.world_mut().resource_mut::<BridgeQueues>().phase_overrides.push(PhaseOverrideIntent {
         entity: boss,
-        new_name: "Boss Phase Two".to_string(),
         victory_override: Some(VictoryCondition::KillTarget {
             enemy_name: "Boss Phase Two".to_string(),
             marker_color: [1.0, 0.0, 0.0],
@@ -144,7 +143,6 @@ fn apply_phase_overrides_turn_limit_only() {
 
     app.world_mut().resource_mut::<BridgeQueues>().phase_overrides.push(PhaseOverrideIntent {
         entity: enemy,
-        new_name: "Runner".to_string(),
         victory_override: None,
         turn_limit: Some(4),
     });

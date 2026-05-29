@@ -385,8 +385,6 @@ pub struct BridgeTurnLifecycle {
 /// already has a 7-tuple query) need not also take the objective/deadline resources.
 pub struct PhaseOverrideIntent {
     pub entity: Entity,
-    /// Resolved post-phase name of the phasing unit (for VictoryTarget marker match).
-    pub new_name: String,
     pub victory_override: Option<crate::content::encounters::VictoryCondition>,
     pub turn_limit: Option<u32>,
 }
@@ -591,7 +589,6 @@ fn apply_phase_ecs_writes(
     if phase.victory_override.is_some() || phase.turn_limit.is_some() {
         overrides.push(PhaseOverrideIntent {
             entity: ent,
-            new_name: next_name,
             victory_override: phase.victory_override.clone(),
             turn_limit: phase.turn_limit,
         });
@@ -725,15 +722,16 @@ pub fn apply_phase_overrides_system(
 ) {
     for intent in std::mem::take(&mut queues.phase_overrides) {
         if let Some(ov) = intent.victory_override {
-            if let crate::content::encounters::VictoryCondition::KillTarget { enemy_name, marker_color, .. } = &ov {
-                // Attach the target marker so check_victory_system's target_alive
-                // bool + the UI ring track the new objective. Validation guarantees
-                // enemy_name == the phasing unit's post-phase name.
-                debug_assert_eq!(enemy_name, &intent.new_name,
-                    "override KillTarget target must equal phasing unit name");
-                if enemy_name == &intent.new_name {
-                    commands.entity(intent.entity).insert(VictoryTarget { marker_color: *marker_color });
-                }
+            if let crate::content::encounters::VictoryCondition::KillTarget { marker_color, .. } = &ov {
+                // The override always targets the phasing unit itself; load-time
+                // validation (`validate_scenario`) guarantees the KillTarget enemy_name
+                // equals the phasing enemy's config name. KillTarget victory is
+                // marker-based (see `check_combat_end`), so attach the VictoryTarget
+                // marker to the phasing entity unconditionally — its `target_alive` bool
+                // and the UI ring then track the new objective. (Matching by display
+                // `Name` would be wrong: combat names carry a race prefix, e.g.
+                // "Зверокров Страж" vs the bare config name "Страж".)
+                commands.entity(intent.entity).insert(VictoryTarget { marker_color: *marker_color });
             }
             objective.0 = ov;
             ui_dirty.0 |= UiDirtyFlags::PHASE_HINT;
