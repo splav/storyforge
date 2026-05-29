@@ -9,7 +9,7 @@ use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
 use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Faction, Team};
 use crate::game::messages::RestartCombat;
-use crate::game::resources::{CombatObjective, SelectionState, UiDirty, UiDirtyFlags};
+use crate::game::resources::{CombatContext, CombatObjective, PhaseDeadline, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 const CLR_HINT: Color = Color::srgb(0.55, 0.55, 0.30);
@@ -169,12 +169,24 @@ pub fn update_phase_hint(
     active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
     objective: Res<CombatObjective>,
+    deadline: Res<PhaseDeadline>,
+    combat_ctx: Res<CombatContext>,
     combatants: Query<(&Name, &Faction, &ActionPoints), With<Combatant>>,
     mut phase_q: Query<&mut Text, With<HudPhase>>,
 ) {
     if !dirty.0.contains(UiDirtyFlags::PHASE_HINT) {
         return;
     }
+
+    // Round-based phase deadline (e.g. "kill the fleeing boss in N rounds"):
+    // append the remaining-rounds counter so the player can see the timer.
+    // `PHASE_HINT` is re-dirtied on every active-combatant change (see
+    // `hex_grid::visuals`), so this ticks down each round automatically.
+    let deadline_suffix = deadline.0.as_ref().map(|dl| {
+        let elapsed = combat_ctx.round.saturating_sub(dl.phase_started_round);
+        let left = dl.limit.saturating_sub(elapsed);
+        format!("  (осталось раундов: {left})")
+    });
     let Ok(mut t) = phase_q.single_mut() else {
         return;
     };
@@ -189,7 +201,10 @@ pub fn update_phase_hint(
                 .map(|(n, _, _)| n.as_str())
                 .unwrap_or("Враг");
 
-            let goal = objective.0.objective_text();
+            let mut goal = objective.0.objective_text();
+            if let Some(suffix) = &deadline_suffix {
+                goal.push_str(suffix);
+            }
             if actor_info.is_some() {
                 let mut hints: Vec<&str> = Vec::new();
                 if sel.move_mode {
