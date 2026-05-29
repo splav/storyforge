@@ -974,7 +974,7 @@ fn projector_writes_statuses_from_engine_state() {
             id: StatusId::from("poison"),
             rounds_remaining: 3,
             dot_per_tick: 2,
-            applier: actor_uid,
+            applier: combat_engine::state::EffectSource::Unit(actor_uid),
         });
     }
 
@@ -1069,7 +1069,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             id: StatusId::from("burning"),
             rounds_remaining: 2,
             dot_per_tick: 1,
-            applier: actor_uid,
+            applier: combat_engine::state::EffectSource::Unit(actor_uid),
         });
     }
 
@@ -2092,7 +2092,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
             id: poison_id.clone(),
             rounds_remaining: 3,
             dot_per_tick: 0,   // flat tick = 0; damage comes from hp_percent_dot in StatusDef
-            applier: hero_uid,
+            applier: combat_engine::state::EffectSource::Unit(hero_uid),
         });
     });
 

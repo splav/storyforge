@@ -223,16 +223,16 @@ fn effect_for_target(
     match effect {
         EffectDef::Damage { dice } => {
             let raw = (roll!(*dice) + caster.str_mod) as f32;
-            Some(Effect::Damage { target, raw, source, pierces: false })
+            Some(Effect::Damage { target, raw, source: crate::state::EffectSource::Unit(source), pierces: false })
         }
         EffectDef::SpellDamage { dice } => {
             let raw = (roll!(*dice) + caster.int_mod + caster.spell_power) as f32;
-            Some(Effect::Damage { target, raw, source, pierces: true })
+            Some(Effect::Damage { target, raw, source: crate::state::EffectSource::Unit(source), pierces: true })
         }
         EffectDef::WeaponAttack => {
             let dice = caster.weapon_dice?;
             let raw = (roll!(dice) + caster.str_mod) as f32;
-            Some(Effect::Damage { target, raw, source, pierces: false })
+            Some(Effect::Damage { target, raw, source: crate::state::EffectSource::Unit(source), pierces: false })
         }
         EffectDef::Heal { dice } => {
             let amount = (roll!(*dice) + caster.int_mod + caster.spell_power).max(0);
@@ -475,7 +475,7 @@ fn step_inner(
                         effect_queue.push_back(Effect::Damage {
                             target: *actor,
                             raw,
-                            source: *actor,
+                            source: crate::state::EffectSource::Unit(*actor),
                             pierces: false,
                         });
                     }
@@ -485,7 +485,7 @@ fn step_inner(
                             status: status_id.clone(),
                             rounds: 3, // Phase 2 step 6f: fixed 3-round duration.
                             dot_per_tick: 0,
-                            applier: *actor,
+                            applier: crate::state::EffectSource::Unit(*actor),
                         });
                     }
                 }
@@ -535,7 +535,7 @@ fn step_inner(
                                     status: status_app.status.clone(),
                                     rounds: status_app.duration_rounds,
                                     dot_per_tick: 0,
-                                    applier: *actor,
+                                    applier: crate::state::EffectSource::Unit(*actor),
                                 });
                             }
                         }
@@ -545,7 +545,7 @@ fn step_inner(
                                 status: status_app.status.clone(),
                                 rounds: status_app.duration_rounds,
                                 dot_per_tick: 0,
-                                applier: *actor,
+                                applier: crate::state::EffectSource::Unit(*actor),
                             });
                         }
                     }

@@ -12,7 +12,7 @@ use combat_engine::{
     PoolKind, RegenRule, StatusBonuses, StatusId,
     content::ContentView,
     effect::{Effect, apply_effect},
-    state::{CombatState, RoundPhase, Team, Unit, UnitId},
+    state::{CombatState, EffectSource, RoundPhase, Team, Unit, UnitId},
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ fn hp_pool_dual_write_invariant_after_damage() {
     // Apply 5 raw damage (no armor → final = 5).
     apply_effect(
         &mut state,
-        &Effect::Damage { target, raw: 5, source, pierces: false },
+        &Effect::Damage { target, raw: 5.0, source: EffectSource::Unit(source), pierces: false },
         &NoContent,
     );
 

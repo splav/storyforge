@@ -4,7 +4,7 @@ use storyforge::combat_engine::{
     content::ContentView,
     dice::{DiceExpr, ExpectedValue},
     reaction::{expand_reaction, scan_reactions, Reaction},
-    state::{CombatState, RoundPhase, Team, Unit, UnitId},
+    state::{CombatState, EffectSource, RoundPhase, Team, Unit, UnitId},
 };
 use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
@@ -215,7 +215,7 @@ fn expand_reaction_emits_decrement_then_damage() {
     assert!(matches!(
         effects[1],
         Effect::Damage { target, source, pierces: false, .. }
-        if target == UnitId(1) && source == UnitId(2)
+        if target == UnitId(1) && source == EffectSource::Unit(UnitId(2))
     ));
 }
 

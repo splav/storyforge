@@ -17,7 +17,7 @@ pub enum Event {
     UnitMoved { actor: UnitId, from: Hex, to: Hex },
     UnitDamaged {
         target: UnitId,
-        source: UnitId,
+        source: crate::state::EffectSource,
         raw: f32,
         mitigation: i32,
         pierces: bool,
@@ -29,7 +29,7 @@ pub enum Event {
     /// One DoT tick was applied to `target` from `status` originally cast by `source`.
     /// Emitted by `effect_to_event(TickDot)` when `dot_per_tick == 0` AND
     /// `hp_percent_dot == 0` (buff-only status tick with no damage component).
-    StatusTicked { target: UnitId, status: StatusId, source: UnitId },
+    StatusTicked { target: UnitId, status: StatusId, source: crate::state::EffectSource },
     /// Fused event emitted when a DoT tick deals damage.  Replaces the previous
     /// `StatusTicked + UnitDamaged` pair with a single atomic event so consumers
     /// never need to correlate two events.
@@ -37,7 +37,7 @@ pub enum Event {
     /// `mitigation` is always 0 (DoT pierces armor). `pierces` is always true.
     DotDamaged {
         target: UnitId,
-        source: UnitId,
+        source: crate::state::EffectSource,
         source_status: StatusId,
         raw: f32,
         mitigation: i32,

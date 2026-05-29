@@ -584,7 +584,7 @@ mod tests {
             id: combat_engine::StatusId::from("poisoned"),
             rounds_remaining: 2,
             dot_per_tick: 3,
-            applier: UnitId(snap_unit.entity.to_bits()),
+            applier: combat_engine::state::EffectSource::Unit(UnitId(snap_unit.entity.to_bits())),
         }];
         let ks = estimate_kill_soon(
             get_def(&content, "melee_attack"), &target, &melee_caster(0), &content,

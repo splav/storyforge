@@ -235,7 +235,7 @@ fn det_dot_tick_during_dead_skip() {
         id: dot_id.clone(),
         rounds_remaining: 3,
         dot_per_tick: 4,
-        applier: UnitId(2),
+        applier: combat_engine::state::EffectSource::Unit(UnitId(2)),
     });
 
     let mut state = CombatState::new(vec![a, b, c], 1, RoundPhase::ActorTurn, SEED);

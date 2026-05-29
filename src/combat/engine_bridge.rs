@@ -207,7 +207,7 @@ pub fn from_ecs(
                             id: s.id.clone(),
                             rounds_remaining: s.rounds_remaining,
                             dot_per_tick: s.dot_per_tick,
-                            applier: entity_to_uid(s.applier),
+                            applier: combat_engine::state::EffectSource::Unit(entity_to_uid(s.applier)),
                         })
                         .collect()
                 })
@@ -961,7 +961,11 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         Event::UnitDamaged { target, amount, raw, mitigation, pierces, source } => {
             if let Some(mv) = ctx.move_.as_mut() {
                 if mv.pending_aoo_target == Some(*target) {
-                    let Some(attacker_ent) = ctx.id_map.get_entity(*source) else {
+                    let source_uid = match source {
+                        combat_engine::state::EffectSource::Unit(u) => *u,
+                        combat_engine::state::EffectSource::Env(_) => unreachable!("env source not yet produced (commit A)"),
+                    };
+                    let Some(attacker_ent) = ctx.id_map.get_entity(source_uid) else {
                         mv.pending_aoo_target = None;
                         return;
                     };
@@ -1012,7 +1016,11 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             // no-op: DotDamaged not produced during Cast or Move actions
             if ctx.cast.is_none() && ctx.move_.is_none() {
                 let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
-                let Some(src_ent) = ctx.id_map.get_entity(*source) else { return };
+                let source_uid = match source {
+                    combat_engine::state::EffectSource::Unit(u) => *u,
+                    combat_engine::state::EffectSource::Env(_) => unreachable!("env source not yet produced (commit A)"),
+                };
+                let Some(src_ent) = ctx.id_map.get_entity(source_uid) else { return };
                 ctx.log.push(CombatEvent::DotDamaged {
                     target: tgt_ent,
                     source: src_ent,
@@ -1582,21 +1590,24 @@ pub fn project_state_to_ecs(
 
             // Merge statuses: preserve ECS entries the engine doesn't know about.
             if let Some(mut status_effects) = status_effects_opt {
-                let engine_known: std::collections::HashSet<(&combat_engine::StatusId, UnitId)> =
+                let engine_known: std::collections::HashSet<(&combat_engine::StatusId, combat_engine::state::EffectSource)> =
                     unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
 
                 let preserved: Vec<crate::game::components::ActiveStatus> = status_effects
                     .0
                     .iter()
                     .filter(|ecs_s| {
-                        !engine_known.contains(&(&ecs_s.id, entity_to_uid(ecs_s.applier)))
+                        !engine_known.contains(&(&ecs_s.id, combat_engine::state::EffectSource::Unit(entity_to_uid(ecs_s.applier))))
                     })
                     .cloned()
                     .collect();
 
                 let mut new_list: Vec<crate::game::components::ActiveStatus> = preserved;
                 for engine_s in &unit.statuses {
-                    let applier_entity = id_map.get_entity(engine_s.applier).unwrap_or(entity);
+                    let applier_entity = match engine_s.applier {
+                        combat_engine::state::EffectSource::Unit(uid) => id_map.get_entity(uid).unwrap_or(entity),
+                        combat_engine::state::EffectSource::Env(_) => unreachable!("env source not yet produced (commit A)"),
+                    };
                     new_list.push(crate::game::components::ActiveStatus {
                         id: engine_s.id.clone(),
                         rounds_remaining: engine_s.rounds_remaining,
@@ -1927,7 +1938,7 @@ mod tests {
                 status: StatusId::from("defending"),
                 rounds: 1,
                 dot_per_tick: 0,
-                applier: UnitId(1),
+                applier: combat_engine::state::EffectSource::Unit(UnitId(1)),
             },
             &view,
         );

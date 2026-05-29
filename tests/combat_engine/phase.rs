@@ -11,7 +11,7 @@
 use storyforge::combat_engine::{
     content::{ContentView, PhaseEntry},
     event::Event,
-    state::{CombatState, RoundPhase, Team, Unit, UnitId},
+    state::{CombatState, EffectSource, RoundPhase, Team, Unit, UnitId},
     StatusDef, StatusId,
 };
 
@@ -160,7 +160,7 @@ fn phase_trigger_fires_at_threshold() {
     // Apply a Damage effect of 25 raw (armor=0 → final=25; hp 60→35).
     let (derived, _ctx) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 25.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 25.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
 
@@ -189,7 +189,7 @@ fn non_triggering_damage_no_enter_phase() {
 
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 10.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 10.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
 
@@ -220,7 +220,7 @@ fn preempt_death_phase_revives_unit() {
     // actual engine code: hp = (60 - 70).max(0) = 0; 0 * 100 <= 100 * 50 → trigger.
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 70.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 70.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
 
@@ -267,7 +267,7 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
     // Trigger with 20 raw damage (hp 60→40, crosses 50%).
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 20.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 20.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
 
@@ -335,7 +335,7 @@ fn multi_threshold_each_damage_fires_own_phase() {
     // First Damage (55 raw, no armor → final=55, hp 100→45, crosses 50%).
     let (derived1, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 55.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 55.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
     let has_phase0 = derived1.iter().any(|e| matches!(e, Effect::EnterPhase { unit, phase_idx } if *unit == boss && *phase_idx == 0));
@@ -363,7 +363,7 @@ fn multi_threshold_each_damage_fires_own_phase() {
     // The new max_hp is 120 now; threshold is 25% of 120 = 30; hp=25 <= 30 → fires.
     let (derived2, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 20.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 20.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
     // After enemy_phases.remove(0), the next pending phase is at local index 0.
@@ -395,7 +395,7 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
     // Damage "other" to 0 (lethal).
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: other, raw: 15.0, source: attacker, pierces: false },
+        &Effect::Damage { target: other, raw: 15.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
 
@@ -429,14 +429,14 @@ fn preempt_death_no_died_event_in_stream() {
 
     let (derived, ctx_damage) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 100.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 100.0, source: EffectSource::Unit(attacker), pierces: false },
         &content,
     );
 
     // Simulate the effect pump: collect all events including cascade.
     let mut events: Vec<Event> = vec![];
     if let Some(ev) = effect_to_event(
-        &Effect::Damage { target: boss, raw: 100.0, source: attacker, pierces: false },
+        &Effect::Damage { target: boss, raw: 100.0, source: EffectSource::Unit(attacker), pierces: false },
         &state,
         None,
         &ctx_damage,

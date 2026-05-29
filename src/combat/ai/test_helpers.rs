@@ -293,7 +293,7 @@ impl UnitBuilder {
             id: s.id.clone(),
             rounds_remaining: s.rounds_remaining,
             dot_per_tick: s.dot_per_tick,
-            applier: uid,
+            applier: combat_engine::state::EffectSource::Unit(uid),
         }).collect();
         let crit_fail_outcome = match &u.crit_fail_effect {
             Cfe::Miss          => Out::Miss,
@@ -383,7 +383,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         id: s.id.clone(),
         rounds_remaining: s.rounds_remaining,
         dot_per_tick: s.dot_per_tick,
-        applier: uid,
+        applier: combat_engine::state::EffectSource::Unit(uid),
     }).collect();
     let crit_fail_outcome = match &u.crit_fail_effect {
         Cfe::Miss          => Out::Miss,

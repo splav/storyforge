@@ -13,7 +13,7 @@ use combat_engine::{
 use combat_engine::action::Action;
 use combat_engine::effect::{ApplyCtx, DamageCtx, Effect};
 use combat_engine::event::{Event, TurnSkipReason};
-use combat_engine::state::{ActiveStatus, RoundPhase, Team, Unit, UnitId};
+use combat_engine::state::{ActiveStatus, EffectSource, EnvId, RoundPhase, Team, Unit, UnitId};
 use combat_engine::trace::{InitLine, StepLine, SCHEMA_VERSION};
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
@@ -243,8 +243,18 @@ fn effect_damage() {
     roundtrip(Effect::Damage {
         target: uid(2),
         raw: 15.0,
-        source: uid(1),
+        source: EffectSource::Unit(uid(1)),
         pierces: false,
+    });
+}
+
+#[test]
+fn effect_damage_env_source() {
+    roundtrip(Effect::Damage {
+        target: uid(2),
+        raw: 5.0,
+        source: EffectSource::Env(EnvId(0)),
+        pierces: true,
     });
 }
 
@@ -260,7 +270,18 @@ fn effect_apply_status() {
         status: sid("poison"),
         rounds: 3,
         dot_per_tick: 5,
-        applier: uid(1),
+        applier: EffectSource::Unit(uid(1)),
+    });
+}
+
+#[test]
+fn effect_apply_status_env_applier() {
+    roundtrip(Effect::ApplyStatus {
+        target: uid(2),
+        status: sid("burning"),
+        rounds: 2,
+        dot_per_tick: 3,
+        applier: EffectSource::Env(EnvId(0)),
     });
 }
 

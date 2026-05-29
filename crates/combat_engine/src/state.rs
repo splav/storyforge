@@ -22,6 +22,95 @@ use crate::StatusId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct UnitId(pub u64);
 
+/// Opaque environment-object identifier. Used as the payload for
+/// `EffectSource::Env`. No environment objects are constructed yet —
+/// this variant is reserved for the trap/hazard system (a later commit).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord,
+         serde::Serialize, serde::Deserialize)]
+pub struct EnvId(pub u32);
+
+/// Who produced a damage or status effect — either a living unit or an
+/// environment object (trap, hazard, etc.).
+///
+/// `EffectSource::Env` is defined here for forward-compatibility but is
+/// **never constructed** in this commit; it arrives with the trap system.
+/// Consumers that cannot handle env sources yet should call
+/// `.as_unit()` and `unreachable!` / skip on `None`.
+///
+/// **Backward-compatible deserialization.** Before schema v45 this field was a
+/// bare `UnitId` (serialized as an integer). The hand-written `Deserialize`
+/// below accepts BOTH the legacy bare-integer form (→ `Unit`) and the current
+/// externally-tagged enum form (`{"Unit": n}` / `{"Env": n}`), so v43/v44 logs
+/// and engine traces keep parsing without a fixture rebuild — mirroring the
+/// `de_legacy_pool` approach used for legacy resource pools. Serialization is
+/// always the new tagged form (writes are v45).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum EffectSource {
+    Unit(UnitId),
+    Env(EnvId),
+}
+
+impl EffectSource {
+    /// Returns `Some(UnitId)` if this source is a unit, `None` if it is
+    /// an environment object.
+    pub fn as_unit(self) -> Option<UnitId> {
+        match self {
+            EffectSource::Unit(u) => Some(u),
+            EffectSource::Env(_) => None,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EffectSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct EffectSourceVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for EffectSourceVisitor {
+            type Value = EffectSource;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a legacy bare unit id (integer) or an EffectSource enum map")
+            }
+
+            // Legacy form: a bare integer was the old `UnitId` source.
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<EffectSource, E> {
+                Ok(EffectSource::Unit(UnitId(v)))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<EffectSource, E> {
+                if v < 0 {
+                    return Err(E::custom("negative unit id in legacy EffectSource"));
+                }
+                Ok(EffectSource::Unit(UnitId(v as u64)))
+            }
+
+            // Current form: externally-tagged enum `{"Unit": n}` / `{"Env": n}`.
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<EffectSource, A::Error> {
+                #[derive(serde::Deserialize)]
+                enum Tagged {
+                    Unit(UnitId),
+                    Env(EnvId),
+                }
+                let tagged = <Tagged as serde::Deserialize>::deserialize(
+                    serde::de::value::MapAccessDeserializer::new(map),
+                )?;
+                Ok(match tagged {
+                    Tagged::Unit(u) => EffectSource::Unit(u),
+                    Tagged::Env(e) => EffectSource::Env(e),
+                })
+            }
+        }
+
+        deserializer.deserialize_any(EffectSourceVisitor)
+    }
+}
+
 // ── Resource pools ────────────────────────────────────────────────────────────
 
 /// A (current, max) resource pool that may or may not exist on a unit.
@@ -41,7 +130,7 @@ pub struct ActiveStatus {
     /// distinguish ability-applied from aura-applied entries.  Engine itself
     /// doesn't read this in Phase 2 — recorded for the projector + Phase 3
     /// DoT tick attribution.
-    pub applier: UnitId,
+    pub applier: EffectSource,
 }
 
 // ── Team ──────────────────────────────────────────────────────────────────────
@@ -776,7 +865,7 @@ impl CombatState {
             .flat_map(|u| {
                 u.statuses
                     .iter()
-                    .filter(|s| s.applier == actor)
+                    .filter(|s| s.applier == EffectSource::Unit(actor))
                     .flat_map(move |s| {
                         [
                             Effect::TickDot { target: u.id, status: s.id.clone() },
@@ -832,7 +921,7 @@ pub(crate) fn apply_template_initial_statuses(unit: &mut Unit, template: &UnitTe
             id: status_id.clone(),
             rounds_remaining: crate::PERMANENT_DURATION,
             dot_per_tick: 0,
-            applier: unit.id,
+            applier: EffectSource::Unit(unit.id),
         });
     }
 }

@@ -692,7 +692,7 @@ fn cast_applies_status_to_target() {
     assert_eq!(s.id, StatusId::from("poison"));
     assert_eq!(s.rounds_remaining, 3);
     assert_eq!(s.dot_per_tick, 0, "Phase 2: dot_per_tick always 0");
-    assert_eq!(s.applier, UnitId(1));
+    assert_eq!(s.applier, combat_engine::state::EffectSource::Unit(UnitId(1)));
 }
 
 /// Status with `on: MySelf` lands on the actor, not the targeted unit.
@@ -739,7 +739,7 @@ fn cast_applies_status_to_self_via_myself() {
     let s = &caster.statuses[0];
     assert_eq!(s.id, StatusId::from("iron_skin"));
     assert_eq!(s.rounds_remaining, 2);
-    assert_eq!(s.applier, UnitId(1), "applier = caster");
+    assert_eq!(s.applier, combat_engine::state::EffectSource::Unit(UnitId(1)), "applier = caster");
 }
 
 // ── Step 6f tests: crit-fail ─────────────────────────────────────────────────
@@ -910,7 +910,7 @@ fn cast_crit_fail_apply_status() {
     let s = &caster.statuses[0];
     assert_eq!(s.id, StatusId::from("exhaustion"));
     assert_eq!(s.rounds_remaining, 3, "fixed 3-round duration");
-    assert_eq!(s.applier, UnitId(1), "applier = caster");
+    assert_eq!(s.applier, combat_engine::state::EffectSource::Unit(UnitId(1)), "applier = caster");
     assert_eq!(state.unit(UnitId(2)).unwrap().statuses.len(), 0, "target unaffected");
 }
 

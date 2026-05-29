@@ -43,7 +43,7 @@ pub enum Effect {
     /// Deduct `by` action points from the actor.
     DecrementAP { actor: UnitId, by: i32 },
     /// Deal raw (pre-mitigation) damage from `source` to `target`.
-    Damage { target: UnitId, raw: f32, source: UnitId, pierces: bool },
+    Damage { target: UnitId, raw: f32, source: crate::state::EffectSource, pierces: bool },
     /// Restore HP on `target`, after first neutralizing active DoT
     /// statuses (Bevy parity — see `apply_effects.rs:73-114`).
     /// `amount` is the raw heal pool; final HP gain may be less if DoTs
@@ -61,7 +61,7 @@ pub enum Effect {
         status: StatusId,
         rounds: u32,
         dot_per_tick: i32,
-        applier: UnitId,
+        applier: crate::state::EffectSource,
     },
     /// Remove all entries with `status` id from `target`.  Derives
     /// `RefreshAggregates` if any were removed.
@@ -147,7 +147,7 @@ pub struct DamageCtx {
 /// `mitigation` is always 0 (DoT pierces armor). `pierces` is always true.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DotDamageCtx {
-    pub source: crate::state::UnitId,
+    pub source: crate::state::EffectSource,
     pub source_status: crate::StatusId,
     pub raw: f32,
     pub mitigation: i32,
@@ -332,10 +332,12 @@ pub fn apply_effect(
             // `heal_to_full=true`, the cascade restores HP above 0 before any
             // Death check sees the unit — the boss never enters `Dead` state.
             // See spec §8 "Phase preempts Death — derived-effect ordering".
-            let mut derived = vec![
-                Effect::GainRage { target: *source },
-                Effect::GainRage { target: *target },
-            ];
+            // Env sources don't accumulate rage — only unit sources do.
+            let mut derived: Vec<Effect> = Vec::new();
+            if let crate::state::EffectSource::Unit(u) = source {
+                derived.push(Effect::GainRage { target: *u });
+            }
+            derived.push(Effect::GainRage { target: *target });
 
             let max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
             if let Some((phase_idx, _transition)) =
@@ -633,7 +635,10 @@ pub fn apply_effect(
                 };
 
                 // Derive the same cascade that Effect::Damage would have derived.
-                derived.push(Effect::GainRage { target: applier });
+                // Env sources don't accumulate rage.
+                if let crate::state::EffectSource::Unit(u) = applier {
+                    derived.push(Effect::GainRage { target: u });
+                }
                 derived.push(Effect::GainRage { target: *target });
 
                 let cur_max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);

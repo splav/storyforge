@@ -368,8 +368,8 @@
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 44, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 45, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=45), got: {result:?}",
         );
     }
 
@@ -379,8 +379,8 @@
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 44, .. })),
-            "v26 must produce UnsupportedSchema(found=26, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 45, .. })),
+            "v26 must produce UnsupportedSchema(found=26, required=45), got: {result:?}",
         );
     }
 
@@ -390,8 +390,8 @@
         let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 44, .. })),
-            "v28 must produce UnsupportedSchema(found=28, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 45, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=45), got: {result:?}",
         );
     }
 
@@ -401,8 +401,8 @@
         let json = r#"{"event_type":"actor_tick","schema_version":29}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 44, .. })),
-            "v29 must produce UnsupportedSchema(found=29, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 45, .. })),
+            "v29 must produce UnsupportedSchema(found=29, required=45), got: {result:?}",
         );
     }
 
@@ -412,8 +412,8 @@
         let json = r#"{"event_type":"actor_tick","schema_version":30}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 44, .. })),
-            "v30 must produce UnsupportedSchema(found=30, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 45, .. })),
+            "v30 must produce UnsupportedSchema(found=30, required=45), got: {result:?}",
         );
     }
 
@@ -423,8 +423,8 @@
         let json = r#"{"event_type":"actor_tick","schema_version":31}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 44, .. })),
-            "v31 must produce UnsupportedSchema(found=31, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 45, .. })),
+            "v31 must produce UnsupportedSchema(found=31, required=45), got: {result:?}",
         );
     }
 
@@ -574,8 +574,8 @@
         }"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 44, .. })),
-            "v32 must produce UnsupportedSchema(found=32, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 45, .. })),
+            "v32 must produce UnsupportedSchema(found=32, required=45), got: {result:?}",
         );
     }
 
@@ -599,8 +599,8 @@
         }"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 33, required: 44, .. })),
-            "v33 must produce UnsupportedSchema(found=33, required=44) after Phase A3, got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 33, required: 45, .. })),
+            "v33 must produce UnsupportedSchema(found=33, required=45) after Phase A3, got: {result:?}",
         );
     }
 
@@ -613,7 +613,7 @@
             panic!("expected UnsupportedSchema, got: {result:?}");
         };
         assert_eq!(found, 31);
-        assert_eq!(required, 44);
+        assert_eq!(required, 45);
     }
 
     /// v36 `UnitSnapshot` serializes `base_speed` explicitly and round-trips
@@ -673,8 +673,8 @@
         let json = r#"{"event_type":"actor_tick","schema_version":35}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 35, required: 44, .. })),
-            "v35 must produce UnsupportedSchema(found=35, required=44) after Phase A3, got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 35, required: 45, .. })),
+            "v35 must produce UnsupportedSchema(found=35, required=45) after Phase A3, got: {result:?}",
         );
     }
 
@@ -685,7 +685,7 @@
         let json = r#"{"event_type":"actor_tick","schema_version":42}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 42, required: 44, .. })),
-            "v42 must produce UnsupportedSchema(found=42, required=44), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 42, required: 45, .. })),
+            "v42 must produce UnsupportedSchema(found=42, required=45), got: {result:?}",
         );
     }

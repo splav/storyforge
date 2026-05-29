@@ -126,7 +126,7 @@ pub fn expand_reaction(
                 Effect::Damage {
                     target: *victim,
                     raw,
-                    source: *from,
+                    source: crate::state::EffectSource::Unit(*from),
                     pierces: false,
                 },
             ]

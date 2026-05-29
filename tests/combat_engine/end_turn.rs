@@ -117,7 +117,7 @@ fn status(id: &str, rounds: u32, dot: i32, applier: UnitId) -> ActiveStatus {
         id: StatusId(id.to_string()),
         rounds_remaining: rounds,
         dot_per_tick: dot,
-        applier,
+        applier: combat_engine::state::EffectSource::Unit(applier),
     }
 }
 
@@ -290,7 +290,7 @@ fn sirota_dot_propagates_when_dead_unit_skipped() {
         id: dot_id.clone(),
         rounds_remaining: 3,
         dot_per_tick: 5,
-        applier,
+        applier: combat_engine::state::EffectSource::Unit(applier),
     });
 
     let b = make_unit(2, false); // dead

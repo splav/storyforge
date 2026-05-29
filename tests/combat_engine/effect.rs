@@ -7,7 +7,7 @@ use storyforge::combat_engine::{
     content::{ContentView, StatusBonuses},
     effect::{apply_effect, ApplyCtx, Effect},
     event::{effect_to_event, Event},
-    state::{ActiveStatus, CombatState, RoundPhase, Team, Unit, UnitId},
+    state::{ActiveStatus, CombatState, EffectSource, RoundPhase, Team, Unit, UnitId},
 };
 use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
@@ -168,7 +168,7 @@ fn damage_nonlethal_derives_rage_source_then_target() {
 
     let (derived, ctx) = apply_effect(
         &mut state,
-        &Effect::Damage { target: UnitId(2), raw: 5.0, source: UnitId(1), pierces: false },
+        &Effect::Damage { target: UnitId(2), raw: 5.0, source: EffectSource::Unit(UnitId(1)), pierces: false },
         &StubContent::neutral(),
     );
 
@@ -192,7 +192,7 @@ fn damage_lethal_derives_rage_source_rage_target_death_target_in_order() {
 
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: UnitId(2), raw: 10.0, source: UnitId(1), pierces: false },
+        &Effect::Damage { target: UnitId(2), raw: 10.0, source: EffectSource::Unit(UnitId(1)), pierces: false },
         &StubContent::neutral(),
     );
 
@@ -214,7 +214,7 @@ fn damage_armor_reduces_final_damage() {
     // Source has armor=8, target has armor=0. raw=5 on target → final = max(1,5)=5.
     apply_effect(
         &mut state,
-        &Effect::Damage { target: UnitId(2), raw: 5.0, source: UnitId(1), pierces: false },
+        &Effect::Damage { target: UnitId(2), raw: 5.0, source: EffectSource::Unit(UnitId(1)), pierces: false },
         &StubContent::neutral(),
     );
     assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 15);
@@ -225,7 +225,7 @@ fn damage_armor_reduces_final_damage() {
     state = state_with(vec![heavy]);
     apply_effect(
         &mut state,
-        &Effect::Damage { target: UnitId(3), raw: 3.0, source: UnitId(3), pierces: false },
+        &Effect::Damage { target: UnitId(3), raw: 3.0, source: EffectSource::Unit(UnitId(3)), pierces: false },
         &StubContent::neutral(),
     );
     // final_damage_f32(3.0, 5.0, 0.0, false) = max(1, 3-5) = 1
@@ -241,7 +241,7 @@ fn damage_pierces_ignores_armor() {
 
     apply_effect(
         &mut state,
-        &Effect::Damage { target: UnitId(1), raw: 8.0, source: UnitId(1), pierces: true },
+        &Effect::Damage { target: UnitId(1), raw: 8.0, source: EffectSource::Unit(UnitId(1)), pierces: true },
         &StubContent::neutral(),
     );
     // pierces=true → armor ignored: final = max(1, 8) = 8; hp = 20-8 = 12
@@ -307,7 +307,7 @@ fn decrement_reactions_clamps_at_zero() {
 
 #[test]
 fn death_sets_hp_to_zero_and_unit_is_dead() {
-    let mut u = make_unit(1, 0, 20); // hp=0 from constructor
+    let u = make_unit(1, 0, 20); // hp=0 from constructor
     let mut state = state_with(vec![u]);
 
     let (derived, _) = apply_effect(
@@ -332,7 +332,7 @@ fn refresh_aggregates_recomputes_speed_from_statuses() {
         id: "haste".into(),
         rounds_remaining: 2,
         dot_per_tick: 0,
-        applier: UnitId(1),
+        applier: EffectSource::Unit(UnitId(1)),
     }];
     let mut state = state_with(vec![u]);
 
@@ -353,7 +353,7 @@ fn refresh_aggregates_recomputes_armor_bonus_from_statuses() {
     u.armor = 2;
     u.armor_bonus = 0;
     u.statuses = vec![ActiveStatus {
-        applier: UnitId(1),
+        applier: EffectSource::Unit(UnitId(1)),
         id: "iron_skin".into(),
         rounds_remaining: 1,
         dot_per_tick: 0,
@@ -430,7 +430,7 @@ fn heal_full_neutralizes_dot_then_restores_hp() {
         id: StatusId::from("poison"),
         rounds_remaining: 3,
         dot_per_tick: 2,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     let mut state = state_with(vec![u]);
 
@@ -456,7 +456,7 @@ fn heal_partial_dot_consumes_all_heal_no_hp_restored() {
         id: StatusId::from("poison"),
         rounds_remaining: 3,
         dot_per_tick: 8,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     let mut state = state_with(vec![u]);
 
@@ -482,13 +482,13 @@ fn heal_neutralizes_multiple_dots_in_order() {
         id: StatusId::from("poison"),
         rounds_remaining: 3,
         dot_per_tick: 2,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     u.statuses.push(ActiveStatus {
         id: StatusId::from("burning"),
         rounds_remaining: 2,
         dot_per_tick: 3,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     let mut state = state_with(vec![u]);
 
@@ -597,7 +597,7 @@ fn apply_status_pushes_new_entry() {
             status: StatusId::from("poison"),
             rounds: 3,
             dot_per_tick: 2,
-            applier: UnitId(2),
+            applier: EffectSource::Unit(UnitId(2)),
         },
         &StubContent::neutral(),
     );
@@ -606,7 +606,7 @@ fn apply_status_pushes_new_entry() {
     assert_eq!(unit.statuses[0].id, StatusId::from("poison"));
     assert_eq!(unit.statuses[0].rounds_remaining, 3);
     assert_eq!(unit.statuses[0].dot_per_tick, 2);
-    assert_eq!(unit.statuses[0].applier, UnitId(2));
+    assert_eq!(unit.statuses[0].applier, EffectSource::Unit(UnitId(2)));
     assert_eq!(derived.len(), 1);
     assert!(matches!(derived[0], Effect::RefreshAggregates { unit: UnitId(1) }));
 }
@@ -621,7 +621,7 @@ fn apply_status_replaces_existing_with_same_id() {
         id: StatusId::from("burning"),
         rounds_remaining: 1, // about to expire
         dot_per_tick: 1,
-        applier: UnitId(3),
+        applier: EffectSource::Unit(UnitId(3)),
     });
     let mut state = state_with(vec![u]);
 
@@ -632,7 +632,7 @@ fn apply_status_replaces_existing_with_same_id() {
             status: StatusId::from("burning"),
             rounds: 4, // refreshed duration
             dot_per_tick: 3,
-            applier: UnitId(2),
+            applier: EffectSource::Unit(UnitId(2)),
         },
         &StubContent::neutral(),
     );
@@ -640,7 +640,7 @@ fn apply_status_replaces_existing_with_same_id() {
     assert_eq!(unit.statuses.len(), 1, "still one burning entry — replaced not appended");
     assert_eq!(unit.statuses[0].rounds_remaining, 4);
     assert_eq!(unit.statuses[0].dot_per_tick, 3);
-    assert_eq!(unit.statuses[0].applier, UnitId(2));
+    assert_eq!(unit.statuses[0].applier, EffectSource::Unit(UnitId(2)));
 }
 
 // ── RemoveStatus ─────────────────────────────────────────────────────────────
@@ -652,13 +652,13 @@ fn remove_status_filters_by_id_and_derives_refresh() {
         id: StatusId::from("haste"),
         rounds_remaining: 3,
         dot_per_tick: 0,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     u.statuses.push(ActiveStatus {
         id: StatusId::from("poison"),
         rounds_remaining: 5,
         dot_per_tick: 2,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     let mut state = state_with(vec![u]);
 
@@ -702,7 +702,7 @@ fn status_with_dot(id: &str, dot_per_tick: i32, applier: u64) -> ActiveStatus {
         id: StatusId::from(id),
         rounds_remaining: 3,
         dot_per_tick,
-        applier: UnitId(applier),
+        applier: EffectSource::Unit(UnitId(applier)),
     }
 }
 
@@ -726,7 +726,7 @@ fn tick_dot_with_dot_per_tick_damages_target_via_pierce() {
 
     // dot_damage ctx carries the fused breakdown.
     let dot = ctx.dot_damage.as_ref().expect("dot_damage must be populated");
-    assert_eq!(dot.source, UnitId(2));
+    assert_eq!(dot.source, EffectSource::Unit(UnitId(2)));
     assert_eq!(dot.source_status, StatusId::from("poison"));
     assert!((dot.raw - 3.0).abs() < f32::EPSILON);
     assert_eq!(dot.mitigation, 0);
@@ -824,7 +824,7 @@ fn tick_dot_emits_status_ticked_event() {
         id: StatusId::from("poison"),
         rounds_remaining: 2,
         dot_per_tick: 3,
-        applier: UnitId(42),
+        applier: EffectSource::Unit(UnitId(42)),
     });
     let state = state_with(vec![target]);
 
@@ -836,7 +836,7 @@ fn tick_dot_emits_status_ticked_event() {
         event,
         Some(Event::StatusTicked {
             target: UnitId(1),
-            source: UnitId(42),
+            source: EffectSource::Unit(UnitId(42)),
             ref status,
         }) if status == &StatusId::from("poison")
     ));
@@ -853,7 +853,7 @@ fn tick_dot_emits_dot_damaged_event_when_damage_present() {
     let effect = Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") };
     let ctx = ApplyCtx {
         dot_damage: Some(DotDamageCtx {
-            source: UnitId(42),
+            source: EffectSource::Unit(UnitId(42)),
             source_status: StatusId::from("poison"),
             raw: 3.0,
             mitigation: 0,
@@ -868,7 +868,7 @@ fn tick_dot_emits_dot_damaged_event_when_damage_present() {
         event,
         Some(Event::DotDamaged {
             target: UnitId(1),
-            source: UnitId(42),
+            source: EffectSource::Unit(UnitId(42)),
             amount: 3,
             pierces: true,
             mitigation: 0,
@@ -887,7 +887,7 @@ fn expire_status_decrements_rounds() {
         id: StatusId::from("poison"),
         rounds_remaining: 3,
         dot_per_tick: 2,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     let mut state = state_with(vec![u]);
 
@@ -912,7 +912,7 @@ fn expire_status_removes_at_zero() {
         id: StatusId::from("poison"),
         rounds_remaining: 1,
         dot_per_tick: 2,
-        applier: UnitId(2),
+        applier: EffectSource::Unit(UnitId(2)),
     });
     let mut state = state_with(vec![u]);
 
@@ -960,8 +960,8 @@ fn expire_status_silent_when_absent() {
 fn death_derives_remove_status_per_local_status() {
     let mut u = make_unit(1, 0, 20);
     u.statuses = vec![
-        ActiveStatus { id: StatusId::from("burning"), rounds_remaining: 2, dot_per_tick: 3, applier: UnitId(2) },
-        ActiveStatus { id: StatusId::from("stunned"), rounds_remaining: 2, dot_per_tick: 0, applier: UnitId(3) },
+        ActiveStatus { id: StatusId::from("burning"), rounds_remaining: 2, dot_per_tick: 3, applier: EffectSource::Unit(UnitId(2)) },
+        ActiveStatus { id: StatusId::from("stunned"), rounds_remaining: 2, dot_per_tick: 0, applier: EffectSource::Unit(UnitId(3)) },
     ];
     let mut state = state_with(vec![u]);
 
@@ -991,8 +991,8 @@ fn death_derives_remove_status_per_local_status() {
 fn death_with_duplicate_status_ids_dedups_to_one_remove() {
     let mut u = make_unit(1, 0, 20);
     u.statuses = vec![
-        ActiveStatus { id: StatusId::from("poison"), rounds_remaining: 3, dot_per_tick: 2, applier: UnitId(2) },
-        ActiveStatus { id: StatusId::from("poison"), rounds_remaining: 1, dot_per_tick: 1, applier: UnitId(3) },
+        ActiveStatus { id: StatusId::from("poison"), rounds_remaining: 3, dot_per_tick: 2, applier: EffectSource::Unit(UnitId(2)) },
+        ActiveStatus { id: StatusId::from("poison"), rounds_remaining: 1, dot_per_tick: 1, applier: EffectSource::Unit(UnitId(3)) },
     ];
     let mut state = state_with(vec![u]);
 
@@ -1016,12 +1016,12 @@ fn death_with_duplicate_status_ids_dedups_to_one_remove() {
 fn death_does_not_touch_sirota_statuses_on_other_units() {
     let mut unit_a = make_unit(1, 0, 20);
     unit_a.statuses = vec![
-        ActiveStatus { id: StatusId::from("poisoned"), rounds_remaining: 2, dot_per_tick: 1, applier: UnitId(99) },
+        ActiveStatus { id: StatusId::from("poisoned"), rounds_remaining: 2, dot_per_tick: 1, applier: EffectSource::Unit(UnitId(99)) },
     ];
     let mut unit_b = make_unit(2, 20, 20);
     // cursed applied BY unit A onto B (applier == A).
     unit_b.statuses = vec![
-        ActiveStatus { id: StatusId::from("cursed"), rounds_remaining: 3, dot_per_tick: 0, applier: UnitId(1) },
+        ActiveStatus { id: StatusId::from("cursed"), rounds_remaining: 3, dot_per_tick: 0, applier: EffectSource::Unit(UnitId(1)) },
     ];
     let mut state = state_with(vec![unit_a, unit_b]);
 
@@ -1047,7 +1047,7 @@ fn death_does_not_touch_sirota_statuses_on_other_units() {
 fn death_cascade_from_damage_clears_statuses() {
     let mut target = make_unit(1, 1, 20);
     target.statuses = vec![
-        ActiveStatus { id: StatusId::from("haste"), rounds_remaining: 2, dot_per_tick: 0, applier: UnitId(2) },
+        ActiveStatus { id: StatusId::from("haste"), rounds_remaining: 2, dot_per_tick: 0, applier: EffectSource::Unit(UnitId(2)) },
     ];
     let source = make_unit(2, 20, 20);
     let mut state = state_with(vec![target, source]);
@@ -1056,7 +1056,7 @@ fn death_cascade_from_damage_clears_statuses() {
     // Apply lethal Damage manually and drain the derived queue.
     let (mut queue, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: UnitId(1), raw: 100.0, source: UnitId(2), pierces: true },
+        &Effect::Damage { target: UnitId(1), raw: 100.0, source: EffectSource::Unit(UnitId(2)), pierces: true },
         &content,
     );
     while let Some(eff) = queue.first().cloned() {

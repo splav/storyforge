@@ -310,7 +310,7 @@ fn magister_skips_turns() {
         id: EngineStatusId::from("stunned"),
         rounds_remaining: PERMANENT_DURATION,
         dot_per_tick: 0,
-        applier: magister_id,
+        applier: combat_engine::state::EffectSource::Unit(magister_id),
     });
 
     let mut state = CombatState::new(vec![hero, magister], 1, RoundPhase::ActorTurn, 0);
@@ -499,7 +499,7 @@ fn apply_initial_statuses_engine_side() {
         stunned.rounds_remaining, PERMANENT_DURATION,
         "initial status must have PERMANENT_DURATION"
     );
-    assert_eq!(stunned.applier, unit_id, "unit is its own applier for initial statuses");
+    assert_eq!(stunned.applier, combat_engine::state::EffectSource::Unit(unit_id), "unit is its own applier for initial statuses");
 
     // Idempotency: call again — stunned must not be duplicated.
     state.apply_initial_statuses(&StubWithTemplate);

@@ -224,7 +224,15 @@ use crate::game::hex::Hex;
 /// pre-dates this bit will deserialize correctly — `from_bits_truncate`
 /// ignores unknown bits, so backward read is safe. `unit_value` now
 /// adds `tuning.thresholds.objective_value_bonus` for such units.
-pub const SCHEMA_VERSION: u32 = 44;
+/// v44 → v45: `EffectSource` enum introduced. `Effect::Damage.source`,
+/// `Effect::ApplyStatus.applier`, `DotDamageCtx.source`,
+/// `ActiveStatus.applier`, and corresponding `Event` fields widened from
+/// bare `UnitId` to `EffectSource { Unit(UnitId) | Env(EnvId) }`.
+/// All existing (unit-sourced) flows are behavior-identical.
+/// `EffectSource::Env` variant exists for forward-compatibility with the
+/// trap/hazard system but is not yet constructed anywhere.
+/// v44 logs are incompatible — clean break.
+pub const SCHEMA_VERSION: u32 = 45;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init
@@ -1506,10 +1514,15 @@ struct SchemaHeader {
 /// Rebuild logs from a v37+ playtest to use replay/mining tools.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
-    // v43 is the minimum supported version (SCHEMA_VERSION − 1).
-    // v43 → v44: AiTags::OPPONENT_OBJECTIVE bit (0x100) added; unit_value objective bonus.
-    //   Schema-additive: v43 tags fields deserialize via from_bits_truncate (new bit reads as 0).
-    // v42 → v43: CombatState.blocked_hexes added (Wave 1 ch2). Clean break.
+    // v43 is the minimum supported version.
+    // v44 → v45: EffectSource enum introduced. ActiveStatus.applier, Effect::Damage.source,
+    //   Effect::ApplyStatus.applier, DotDamageCtx.source, and Event source fields widened from
+    //   bare UnitId (integer) to EffectSource {"Unit": int} | {"Env": int}. This is
+    //   READ-compatible: `EffectSource`'s hand-written Deserialize accepts the legacy bare
+    //   integer (→ Unit) as well as the tagged form, so v43/v44 logs keep parsing without a
+    //   fixture rebuild (mirrors the de_legacy_pool approach). Writes use the new v45 form.
+    // v43 → v44: AiTags::OPPONENT_OBJECTIVE bit added; schema-additive (from_bits_truncate).
+    // v42 → v43: CombatState.blocked_hexes added (Wave 1 ch2).
     // All logs below v43 are rejected — rebuild from a v43+ playtest.
     const MIN_SUPPORTED: u32 = 43;
     if header.schema_version < MIN_SUPPORTED {
