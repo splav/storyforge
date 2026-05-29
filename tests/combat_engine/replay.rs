@@ -15,7 +15,7 @@
 
 use hexx::Hex;
 
-use combat_engine::{
+use storyforge::combat_engine::{
     AbilityDef, AbilityId, AbilityRange, AoEShape, DiceExpr, DiceRng, EffectDef,
     PhaseEntry, StatusDef, StatusId, TargetType,
     action::Action,
@@ -40,27 +40,25 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
 
 fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
-    use combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: uid(id),
+    use storyforge::combat_engine::{PoolKind, RegenRule};
+    Unit::new(
+        uid(id),
         team,
         pos,
-        hp,
-        max_hp,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 4,
-        speed: 4,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: vec![],
-        enemy_phases: vec![],
-        pools: combat_engine::enum_map::enum_map! {
+        0,
+        0,
+        0,
+        4,
+        4,
+        1,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        vec![],
+        vec![],
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((hp, max_hp)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -68,7 +66,7 @@ fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
             PoolKind::Ap     => Some((3, 3)),
             PoolKind::Mp     => Some((6, 6)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -76,7 +74,8 @@ fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-    }
+        None,
+    )
 }
 
 /// Build `InitLine` from a `CombatState` and a seed.
@@ -188,10 +187,10 @@ fn replay_pure_move_no_enemies() {
 
     struct NoContent;
     impl ContentView for NoContent {
-        
+
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     let path = vec![Hex::new(0, 0), Hex::new(1, 0), Hex::new(2, 0)];
@@ -231,10 +230,10 @@ fn replay_move_with_aoo_chain() {
 
     struct AooContent;
     impl ContentView for AooContent {
-        
+
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     // Stepping from (0,0) → (-1,0): distance from (-1,0) to enemy (1,0) = 2
@@ -283,6 +282,7 @@ fn replay_cast_damage_basic() {
         target_type: TargetType::SingleEnemy,
         aoe: AoEShape::None,
         friendly_fire: false,
+        requires_los: false,
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 2) },
         statuses: vec![],
     };
@@ -292,12 +292,12 @@ fn replay_cast_damage_basic() {
         ability_id: AbilityId,
     }
     impl ContentView for DamageContent {
-        
+
         fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
             if id == &self.ability_id { Some(&self.ability) } else { None }
         }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     let content = DamageContent { ability: ability.clone(), ability_id: ability_id.clone() };
@@ -355,6 +355,7 @@ fn replay_phase_trigger() {
         target_type: TargetType::SingleEnemy,
         aoe: AoEShape::None,
         friendly_fire: false,
+        requires_los: false,
         // 1d6 + 60 will always exceed 50 hp out of 100
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 60) },
         statuses: vec![],
@@ -365,12 +366,12 @@ fn replay_phase_trigger() {
         ability_id: AbilityId,
     }
     impl ContentView for PhaseContent {
-        
+
         fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
             if id == &self.ability_id { Some(&self.ability) } else { None }
         }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     let content = PhaseContent { ability, ability_id: ability_id.clone() };
@@ -410,10 +411,10 @@ fn replay_endturn_advances_queue() {
 
     struct NoContent;
     impl ContentView for NoContent {
-        
+
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     let actions = vec![Action::EndTurn { actor: uid(1) }];
@@ -438,10 +439,10 @@ fn replay_event_divergence_detected() {
 
     struct NoContent;
     impl ContentView for NoContent {
-        
+
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     let path = vec![Hex::new(0, 0), Hex::new(1, 0)];
@@ -507,18 +508,19 @@ fn replay_rng_count_divergence_detected() {
         target_type: TargetType::SingleEnemy,
         aoe: AoEShape::None,
         friendly_fire: false,
+        requires_los: false,
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
         statuses: vec![],
     };
 
     struct DmgContent { ability: AbilityDef, id: AbilityId }
     impl ContentView for DmgContent {
-        
+
         fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
             if id == &self.id { Some(&self.ability) } else { None }
         }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     let content = DmgContent { ability, id: ability_id.clone() };
@@ -585,10 +587,10 @@ fn measure_trace_size_per_round() {
 
     struct SizeContent;
     impl ContentView for SizeContent {
-        
+
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
     }
 
     let init = init_line_for(&state, SEED);

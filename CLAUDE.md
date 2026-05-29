@@ -70,7 +70,8 @@ cargo check  --features dev      # быстрая проверка без лин
 cargo clippy --features dev      # линтер
 
 # Тесты — через cargo-nextest (3× быстрее warm, 10× при filter)
-cargo nextest run --features dev                            # все ~1150 тестов (~4 s warm)
+cargo nextest run --workspace --features dev               # ВСЕ тесты воркспейса: ~1347 (~4 s warm)
+cargo nextest run --features dev                            # только storyforge pkg: ~1315 (см. note ниже)
 cargo nextest run --features dev -E 'test(/combat::ai/)'    # только AI tests (~2.6 s warm)
 cargo nextest run --features dev -E 'test(=foo)'            # один конкретный тест
 cargo test        --features dev --doc                      # doc-tests (nextest их не умеет)
@@ -79,6 +80,23 @@ cargo test        --features dev --doc                      # doc-tests (nextest
 cargo build --release
 cargo bench
 ```
+
+> **Важно про охват тестов.** `dev` — фича пакета `storyforge`, поэтому
+> `cargo nextest run --features dev` **без** `--workspace` собирает test-таргеты
+> только этого пакета: интеграционные тесты движка из `tests/combat_engine/*.rs`
+> (подключены через `tests/combat_engine.rs`) проходят, а inline `#[cfg(test)]`
+> внутри `crates/combat_engine/src/*.rs` — **нет**.
+>
+> Канон для полного прогона — `cargo nextest run --workspace --features dev`:
+> `--features dev` применяется к `storyforge` (где фича объявлена) и игнорируется
+> для членов воркспейса без неё (`combat_engine`, `combat_ai`) — ошибки не будет,
+> а inline-тесты движка попадут в прогон. Используй эту команду в CI / перед
+> коммитом.
+>
+> Не клади новые engine-тесты в `crates/combat_engine/tests/` (такой каталог
+> намеренно удалён): он собирается только под `-p combat_engine`, поэтому при
+> прогоне через `storyforge` молча исключается. Публичные интеграционные тесты —
+> в `tests/combat_engine/`; white-box тесты приватных внутренностей — inline в src.
 
 Установка nextest: `cargo install cargo-nextest --locked`.
 
@@ -136,8 +154,15 @@ Bevy ECS тактическая RPG. Состояния: `AppState` (Boot → St
 
 ### Tests
 
-- `tests/combat.rs` — интеграционные (validation 3 + effects 3)
-- Юнит-тесты: `Vital`, `TurnQueue`, `DiceRng`, `hex_distance`, `find_path`
+Полный гайд — [docs/testing.md](docs/testing.md) (слои, расположение хелперов,
+нейминг, мутационное тестирование, decision-tree). Кратко:
+
+- **Полный прогон:** `cargo nextest run --workspace --features dev` (~1347).
+  Без `--workspace` inline-тесты крейта `combat_engine` молча не запускаются.
+- `tests/combat_engine/*.rs` — engine + bridge (и Bevy-free pure-engine: replay,
+  serde, rng_count, purity, …), один бинарь через `tests/combat_engine.rs`.
+- `tests/combat/*.rs` — full-app сценарии. `tests/common/` — общие хелперы.
+- Inline `#[cfg(test)]` — white-box тесты приватных внутренностей крейта.
 
 ## graphify
 

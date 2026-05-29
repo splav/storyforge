@@ -1,9 +1,9 @@
 //! Verifies that `aura_membership_set` returns a BTreeSet with stable iteration
 //! order across 10 calls on the same state (Phase 5 gate §7 item 3).
 
-use combat_engine::{AbilityId, AuraDef, StatusId, TeamRelation};
-use combat_engine::content::{ContentView, StatusDef};
-use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
+use storyforge::combat_engine::{AbilityId, AuraDef, StatusId, TeamRelation};
+use storyforge::combat_engine::content::{ContentView, StatusDef};
+use storyforge::combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
 use hexx::Hex;
 
 // ── Minimal ContentView stub ──────────────────────────────────────────────────
@@ -12,9 +12,9 @@ use hexx::Hex;
 struct AuraContent;
 
 impl ContentView for AuraContent {
-    fn ability_def(&self, _: &AbilityId) -> Option<&combat_engine::content::AbilityDef> { None }
+    fn ability_def(&self, _: &AbilityId) -> Option<&storyforge::combat_engine::content::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<combat_engine::content::UnitTemplate> { None }
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::content::UnitTemplate> { None }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -23,27 +23,25 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 fn sid(s: &str) -> StatusId { StatusId(s.to_string()) }
 
 fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
-    use combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: uid(id),
+    use storyforge::combat_engine::{PoolKind, RegenRule};
+    Unit::new(
+        UnitId(id),
         team,
         pos,
-        hp: 10,
-        max_hp: 10,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+        0,
+        0,
+        0,
+        3,
+        3,
+        1,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((10, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -51,7 +49,7 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -59,7 +57,8 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-    }
+        None,
+    )
 }
 
 // ── Test ──────────────────────────────────────────────────────────────────────

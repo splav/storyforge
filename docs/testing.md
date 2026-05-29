@@ -13,10 +13,25 @@ Each layer tests its own contract; cross-layer concerns sit at the higher layer.
 
 | Layer | Where | What it tests | Setup cost |
 |---|---|---|---|
-| **Pure engine** | `crates/combat_engine/tests/*.rs` | `combat_engine::*` (no Bevy, no ECS). Replay, serde, RNG counting. | Lowest. Manual `CombatState` construction. |
-| **Engine + bridge** | `tests/combat_engine/*.rs` | `engine_bridge.rs` — ECS projection, message translation, content view. | Medium. Bevy `App` with minimal plugins. |
+| **Pure engine** | `tests/combat_engine/*.rs` (e.g. `replay.rs`, `serde_roundtrip.rs`, `rng_count.rs`, `purity.rs`, `aura_determinism.rs`, `trace_helpers.rs`) | `storyforge::combat_engine::*` only — no Bevy, no ECS in the test body. Replay, serde, RNG counting, determinism. | Lowest. Manual `CombatState` construction. |
+| **Engine + bridge** | `tests/combat_engine/*.rs` (e.g. `bridge_smoke.rs`, `legality_parity.rs`) | `engine_bridge.rs` — ECS projection, message translation, content view. | Medium. Bevy `App` with minimal plugins. |
 | **Full app** | `tests/combat/*.rs` | End-to-end combat scenarios, AI decisions, animations. | Highest. Full `MinimalPlugins` + content load. |
-| **Inline unit** | `#[cfg(test)] mod tests` inside source files (or sibling `<name>_tests.rs` via `#[path]`) | Single-function or struct-level contracts. | Module-local. |
+| **Inline unit (engine-internal)** | `#[cfg(test)] mod tests` inside `crates/combat_engine/src/*.rs` | White-box tests of crate-**private** internals (e.g. `start_actor_turn`, content-hash, turn-queue). | Module-local. **Only built under `-p combat_engine` / `--workspace`** — see "Running" note below. |
+| **Inline unit (storyforge)** | `#[cfg(test)] mod tests` inside `src/*.rs` (or sibling `<name>_tests.rs` via `#[path]`) | Single-function or struct-level contracts. | Module-local. |
+
+> **Pure-engine tests live in the `storyforge` package now.** They build inside a
+> Bevy-dependent package but stay Bevy-free in their *imports* (only
+> `storyforge::combat_engine::*`). They are wired into the single
+> `tests/combat_engine.rs` binary via `#[path]`. The old
+> `crates/combat_engine/tests/` directory was removed — see "Running" below for why.
+>
+> **Running the full suite.** `cargo nextest run --features dev` (without
+> `--workspace`) builds test targets of the **`storyforge` package only**, so the
+> engine-internal inline tests in `crates/combat_engine/src/*.rs` are silently
+> skipped. Use **`cargo nextest run --workspace --features dev`** to run everything
+> (the `dev` feature applies to `storyforge` and is ignored for members that lack
+> it). Do **not** add tests under `crates/combat_engine/tests/` — that target is
+> only built under `-p combat_engine`, so it is silently excluded from the default run.
 
 **Rule:** test at the lowest layer that can prove the property. A pure
 deterministic function → inline unit test. A schedule interaction → bridge
@@ -63,10 +78,17 @@ before splitting. The hard lesson from `bridge_smoke.rs` (1834 LOC of mixed
 movement/cast/projector/phase/trace) is that >1000 LOC of mixed concerns is
 unmaintainable; <600 LOC is usually fine even if it spans 2-3 areas.
 
-### Pure-engine crate (`crates/combat_engine/tests/`)
+### Pure-engine tests (`tests/combat_engine/*.rs`)
 
-For tests that should not depend on Bevy or game-side content. Currently:
-`replay.rs`, `serde_roundtrip.rs`, `rng_count.rs`.
+Tests that exercise `combat_engine` with no Bevy / game-side content live
+alongside the bridge tests in `tests/combat_engine/` (one binary, wired via
+`tests/combat_engine.rs`). Keep their bodies Bevy-free — import only
+`storyforge::combat_engine::*`. Examples: `replay.rs`, `serde_roundtrip.rs`,
+`rng_count.rs`, `purity.rs`, `aura_determinism.rs`, `trace_helpers.rs`.
+
+The `combat_engine` crate keeps **only** inline `#[cfg(test)]` modules (for
+crate-private internals). There is intentionally no `crates/combat_engine/tests/`
+directory — it would be silently excluded from the default run (see §1 "Running").
 
 ---
 
@@ -308,8 +330,8 @@ What are you testing?
 │   → tests/combat/<concern>.rs (use tests/common/apps/engine.rs harness).
 │
 ├── A parity between two implementations?
-│   ├── Engine internals vs sim (no ECS) → crates/combat_engine/tests/ or
-│   │   tests/combat_engine/parity.rs.
+│   ├── Engine internals vs sim (no ECS) → tests/combat_engine/parity.rs
+│   │   (or another Bevy-free tests/combat_engine/<concern>.rs).
 │   ├── ECS-bridge legality vs engine legality → tests/combat_engine/legality_parity.rs.
 │   └── Real combat vs sim (full-app behavioural parity) → tests/combat/sim_parity.rs.
 │

@@ -56,3 +56,10 @@ mod legality_parity;
 
 #[path = "combat_engine/determinism.rs"]
 mod determinism;
+
+#[path = "combat_engine/purity.rs"] mod purity;
+#[path = "combat_engine/rng_count.rs"] mod rng_count;
+#[path = "combat_engine/aura_determinism.rs"] mod aura_determinism;
+#[path = "combat_engine/serde_roundtrip.rs"] mod serde_roundtrip;
+#[path = "combat_engine/replay.rs"] mod replay;
+#[path = "combat_engine/trace_helpers.rs"] mod trace_helpers;

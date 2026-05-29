@@ -44,7 +44,7 @@ fn engine_src_has_no_forbidden_imports() {
     // Resolve path relative to the crate manifest so the test works regardless
     // of the CWD Cargo picks for test binaries.
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let src_dir = manifest_dir.join("src");
+    let src_dir = manifest_dir.join("crates/combat_engine/src");
 
     let mut files = Vec::new();
     collect_rs_files(&src_dir, &mut files);

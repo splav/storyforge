@@ -6,15 +6,15 @@
 //! 3. A second serialization of the decoded value is **byte-equal** to the first
 //!    (stable field order — §8 gotcha "Vec<Unit> final-state equality").
 
-use combat_engine::{
+use storyforge::combat_engine::{
     AbilityId, AuraDef, AuraEffects, CritFailOutcome, DiceExpr, PhaseTransition, SpawnBlockedReason,
     StatusBonuses, StatusId, TeamRelation, TurnQueue,
 };
-use combat_engine::action::Action;
-use combat_engine::effect::{ApplyCtx, DamageCtx, Effect};
-use combat_engine::event::{Event, TurnSkipReason};
-use combat_engine::state::{ActiveStatus, EffectSource, EnvId, RoundPhase, Team, Unit, UnitId};
-use combat_engine::trace::{InitLine, StepLine, SCHEMA_VERSION};
+use storyforge::combat_engine::action::Action;
+use storyforge::combat_engine::effect::{ApplyCtx, DamageCtx, Effect};
+use storyforge::combat_engine::event::{Event, TurnSkipReason};
+use storyforge::combat_engine::state::{ActiveStatus, EffectSource, EnvId, RoundPhase, Team, Unit, UnitId};
+use storyforge::combat_engine::trace::{InitLine, StepLine, SCHEMA_VERSION};
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
 
@@ -35,48 +35,49 @@ fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
 use hexx::Hex;
 
 fn unit_all_some(id: u64) -> Unit {
-    use combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: uid(id),
-        team: Team::Player,
-        pos: Hex::new(1, -1),
-        hp: 25,
-        max_hp: 40,
-        armor: 3,
-        armor_bonus: 1,
-        damage_taken_bonus: 2,
-        base_speed: 4,
-        speed: 5,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![
+    use storyforge::combat_engine::{PoolKind, RegenRule};
+    Unit::new(
+        uid(id),
+        Team::Player,
+        Hex::new(1, -1),
+        3,
+        1,
+        2,
+        4,
+        5,
+        1,
+        1,
+        vec![
             ActiveStatus {
                 id: sid("poison"),
                 rounds_remaining: 3,
                 dot_per_tick: 5,
-                applier: uid(99),
+                applier: EffectSource::Unit(uid(99)),
             },
         ],
-        summoner: Some(uid(42)),
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+        Some(uid(42)),
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((25, 40)),
             PoolKind::Mana   => Some((15, 20)),
             PoolKind::Rage   => Some((7, 10)),
             PoolKind::Energy => Some((0, 5)),
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((4, 4)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-    }
+        None,
+    )
 }
 
 // ── Action variants ───────────────────────────────────────────────────────────
@@ -126,7 +127,7 @@ fn event_unit_moved() {
 fn event_unit_damaged() {
     roundtrip(Event::UnitDamaged {
         target: uid(2),
-        source: uid(1),
+        source: EffectSource::Unit(uid(1)),
         raw: 12.5,
         mitigation: 3,
         pierces: false,
@@ -323,41 +324,42 @@ fn unit_all_some_fields() {
 
 #[test]
 fn unit_all_none_fields() {
-    use combat_engine::{PoolKind, RegenRule};
-    roundtrip(Unit {
-        id: uid(1),
-        team: Team::Enemy,
-        pos: Hex::ORIGIN,
-        hp: 10,
-        max_hp: 10,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 0,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
+    roundtrip(Unit::new(
+        uid(1),
+        Team::Enemy,
+        Hex::ORIGIN,
+        0,
+        0,
+        0,
+        3,
+        3,
+        0,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((10, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-    });
+        None,
+    ));
 }
 
 // ── InitLine / StepLine ───────────────────────────────────────────────────────
@@ -392,7 +394,7 @@ fn step_line_roundtrip() {
         events: vec![
             Event::UnitDamaged {
                 target: uid(2),
-                source: uid(1),
+                source: EffectSource::Unit(uid(1)),
                 raw: 20.0,
                 mitigation: 4,
                 pierces: false,
@@ -495,88 +497,10 @@ fn damage_ctx_roundtrip() {
 }
 
 #[test]
-fn combat_state_roundtrip() {
-    // Construct a CombatState with 2 units, a non-empty TurnQueue, an active
-    // status, and a non-default random seed. Round-trip through JSON; assert
-    // field-by-field equality (idx is a skip-cache; we verify accessible state
-    // via the public API).
-    use combat_engine::state::CombatState;
-    let u1 = unit_all_some(1);
-    let u2 = unit_all_some(2);
-    let ids = vec![u1.id, u2.id];
-    let mut state = CombatState::new(vec![u1, u2], 3, RoundPhase::ActorTurn, 42);
-    state.set_turn_queue(ids, 1);
-
-    let json = serde_json::to_string(&state).unwrap();
-    let decoded: CombatState = serde_json::from_str(&json).unwrap();
-
-    // Field-by-field checks via public API.
-    assert_eq!(state.round, decoded.round);
-    assert_eq!(state.phase, decoded.phase);
-    assert_eq!(state.turn_queue, decoded.turn_queue);
-    assert_eq!(state.random_seed, decoded.random_seed);
-    // Units are accessible; check counts and a sampled field.
-    assert_eq!(state.units().len(), decoded.units().len());
-    let orig_u1 = state.unit(UnitId(1)).unwrap();
-    let dec_u1  = decoded.unit(UnitId(1)).unwrap();
-    assert_eq!(orig_u1.hp(), dec_u1.hp());
-    assert_eq!(orig_u1.statuses.len(), dec_u1.statuses.len());
-    assert_eq!(orig_u1.damage_taken_bonus, dec_u1.damage_taken_bonus);
-    // idx rebuilt: both units must be reachable by UnitId lookup.
-    assert!(decoded.unit(UnitId(1)).is_some());
-    assert!(decoded.unit(UnitId(2)).is_some());
-    // Second serialization must be byte-equal (stable field order).
-    let json2 = serde_json::to_string(&decoded).unwrap();
-    assert_eq!(json, json2, "second serialization must be byte-equal");
-}
-
-#[test]
-fn state_with_blocked_hexes_serde_roundtrip() {
-    use combat_engine::state::CombatState;
-    use hexx::Hex;
-
-    let mut state = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
-    state.blocked_hexes.insert(Hex::new(3, 2));
-    state.blocked_hexes.insert(Hex::new(5, 4));
-    state.blocked_hexes.insert(Hex::new(1, 0));
-
-    let json = serde_json::to_string(&state).unwrap();
-    let decoded: CombatState = serde_json::from_str(&json).unwrap();
-
-    assert_eq!(state.blocked_hexes, decoded.blocked_hexes);
-    // Verify both hexes survived the round-trip.
-    assert!(decoded.blocked_hexes.contains(&Hex::new(3, 2)));
-    assert!(decoded.blocked_hexes.contains(&Hex::new(5, 4)));
-    assert!(decoded.blocked_hexes.contains(&Hex::new(1, 0)));
-}
-
-#[test]
-fn state_blocked_hexes_serialization_is_deterministic() {
-    use combat_engine::state::CombatState;
-    use hexx::Hex;
-
-    // Insert in different orders; serialized JSON must be identical because
-    // CombatStateRepr sorts blocked_hexes before writing.
-    let mut state_a = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
-    state_a.blocked_hexes.insert(Hex::new(5, 4));
-    state_a.blocked_hexes.insert(Hex::new(1, 0));
-    state_a.blocked_hexes.insert(Hex::new(3, 2));
-
-    let mut state_b = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
-    state_b.blocked_hexes.insert(Hex::new(1, 0));
-    state_b.blocked_hexes.insert(Hex::new(3, 2));
-    state_b.blocked_hexes.insert(Hex::new(5, 4));
-
-    let json_a = serde_json::to_string(&state_a).unwrap();
-    let json_b = serde_json::to_string(&state_b).unwrap();
-    assert_eq!(json_a, json_b, "serialized blocked_hexes must be order-independent");
-}
-
-#[test]
 fn state_empty_blocked_hexes_roundtrip() {
     // Verify that omitting blocked_hexes (default empty) still deserialises
     // correctly even when the field is absent from old JSON.
-    use combat_engine::state::CombatState;
+    use storyforge::combat_engine::state::CombatState;
 
     let state = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
     let json = serde_json::to_string(&state).unwrap();

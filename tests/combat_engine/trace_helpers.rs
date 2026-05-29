@@ -1,8 +1,8 @@
 //! Focused tests for `trace::post_state_hash` and `serialize_init` (Phase 5 step 5a).
 
-use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
-use combat_engine::trace::{parse_init, post_state_hash, serialize_init, InitLine, SCHEMA_VERSION};
-use combat_engine::TurnQueue;
+use storyforge::combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
+use storyforge::combat_engine::trace::{parse_init, post_state_hash, serialize_init, InitLine, SCHEMA_VERSION};
+use storyforge::combat_engine::TurnQueue;
 use hexx::Hex;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -10,41 +10,42 @@ use hexx::Hex;
 fn uid(n: u64) -> UnitId { UnitId(n) }
 
 fn make_unit(id: u64, hp: i32) -> Unit {
-    use combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: uid(id),
-        team: Team::Player,
-        pos: Hex::new(id as i32, 0),
-        hp,
-        max_hp: 30,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
+    Unit::new(
+        uid(id),
+        Team::Player,
+        Hex::new(id as i32, 0),
+        0,
+        0,
+        0,
+        3,
+        3,
+        1,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((hp, 30)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-    }
+        None,
+    )
 }
 
 fn make_state(units: Vec<Unit>) -> CombatState {

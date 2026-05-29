@@ -1186,7 +1186,7 @@ mod tests {
             id: StatusId(id.into()),
             rounds_remaining: rounds,
             dot_per_tick: dot,
-            applier,
+            applier: EffectSource::Unit(applier),
         }
     }
 
@@ -1291,7 +1291,7 @@ mod tests {
         use crate::PoolKind;
         let uid = UnitId(3);
         let mut unit = make_unit(uid, 0, 2, Some((1, 10)));
-        unit.hp = 0;
+        unit.pools[PoolKind::Hp] = Some((0, 10));
         unit.pools[PoolKind::Mp] = Some((0, 3)); // depleted
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
@@ -1310,8 +1310,7 @@ mod tests {
         let victim = UnitId(2);
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
-        victim_unit.hp = 20;
-        victim_unit.max_hp = 20;
+        victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
         victim_unit.statuses.push(make_status("burning", applier, 3, 3));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
@@ -1351,8 +1350,6 @@ mod tests {
         let victim = UnitId(2);
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
-        victim_unit.hp = 10;
-        victim_unit.max_hp = 10;
         // dot_per_tick = 0 → zero-damage tick; StubContent has hp_percent_dot = 0.
         victim_unit.statuses.push(make_status("haste", applier, 2, 0));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
@@ -1382,8 +1379,7 @@ mod tests {
         let victim = UnitId(2);
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
-        victim_unit.hp = 20;
-        victim_unit.max_hp = 20;
+        victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
         victim_unit.statuses.push(make_status("poison", applier, 2, 3));
         victim_unit.statuses.push(make_status("burning", applier, 2, 2));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
@@ -1412,8 +1408,7 @@ mod tests {
         let victim = UnitId(2);
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
-        victim_unit.hp = 20;
-        victim_unit.max_hp = 20;
+        victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
         victim_unit.statuses.push(make_status("burning", applier, 1, 3));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
@@ -1434,10 +1429,9 @@ mod tests {
         let applier = UnitId(1);
         let victim = UnitId(2);
         let mut applier_unit = make_unit(applier, 0, 2, Some((1, 10)));
-        applier_unit.hp = 0;
+        applier_unit.pools[crate::PoolKind::Hp] = Some((0, 10));
         let mut victim_unit = make_unit(victim, 0, 2, None);
-        victim_unit.hp = 20;
-        victim_unit.max_hp = 20;
+        victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
         victim_unit.statuses.push(make_status("poison", applier, 2, 4));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
@@ -1463,8 +1457,7 @@ mod tests {
         let victim = UnitId(2);
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
-        victim_unit.hp = 1;
-        victim_unit.max_hp = 20;
+        victim_unit.pools[crate::PoolKind::Hp] = Some((1, 20));
         victim_unit.statuses.push(make_status("burning", applier, 3, 5));
         victim_unit.statuses.push(make_status("slowed", UnitId(99), 2, 0));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
@@ -1545,7 +1538,7 @@ mod tests {
             id: StatusId("vuln".into()),
             rounds_remaining: 3,
             dot_per_tick: 0,
-            applier: uid,
+            applier: EffectSource::Unit(uid),
         });
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = VulnContent;

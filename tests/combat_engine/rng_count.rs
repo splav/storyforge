@@ -4,7 +4,7 @@
 /// `DiceSource::roll_d` invocations consumed by each `step()` call, and that
 /// `ExpectedValue::call_count()` stays at 0 (deterministic source).
 
-use combat_engine::{
+use storyforge::combat_engine::{
     AbilityId,
     UnitTemplate,
     action::Action,
@@ -21,41 +21,42 @@ use hexx::Hex;
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
-    use combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: UnitId(id),
+    use storyforge::combat_engine::{PoolKind, RegenRule};
+    Unit::new(
+        UnitId(id),
         team,
         pos,
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 6,
-        speed: 6,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+        0,
+        0,
+        0,
+        6,
+        6,
+        1,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((20, 20)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
             PoolKind::Ap     => Some((4, 4)),
             PoolKind::Mp     => Some((10, 10)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-    }
+        None,
+    )
 }
 
 // ── ContentView stubs ─────────────────────────────────────────────────────────
@@ -134,8 +135,7 @@ fn move_no_aoo_consumes_zero_rolls() {
 #[test]
 fn move_with_one_aoo_consumes_one_roll() {
     // Actor at ZERO, enemy at (1,0). Actor moves to (-1,0) to disengage.
-    let mut actor = make_unit(1, Team::Player, Hex::ZERO);
-    actor.hp = 20;
+    let actor = make_unit(1, Team::Player, Hex::ZERO);
 
     let enemy_pos = Hex::new(1, 0);
     let mut enemy = make_unit(2, Team::Enemy, enemy_pos);
@@ -193,6 +193,7 @@ fn cast_3_targets_consumes_d20_plus_3_damage_rolls() {
         target_type: TargetType::Ground,
         aoe: AoEShape::Circle { radius: 1 },
         friendly_fire: false,
+        requires_los: false,
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
         statuses: vec![],
     };
