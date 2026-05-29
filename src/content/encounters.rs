@@ -6,6 +6,17 @@ use crate::game::components::CombatStats;
 use serde::Deserialize;
 use std::collections::HashMap;
 
+/// A resolved environmental hazard object placed on the grid.
+///
+/// `kind` is always `Hazard` for now; future commits may add other env kinds.
+/// `hex` and `ability` are the only content-facing fields — the engine fields
+/// (`id`, `triggered`, `revealed`) are filled in at bootstrap time.
+#[derive(Debug, Clone)]
+pub struct EnvObjectDef {
+    pub hex: hexx::Hex,
+    pub ability: AbilityId,
+}
+
 #[derive(Debug, Clone)]
 pub struct EncounterDef {
     pub id: String,
@@ -15,6 +26,9 @@ pub struct EncounterDef {
     /// Static obstacle hexes — blocks movement and LOS. Populated into
     /// `CombatState.blocked_hexes` on bootstrap.
     pub obstacles: Vec<hexx::Hex>,
+    /// Environmental hazard objects (traps, etc.) placed on the grid.
+    /// Populated into `CombatState.environment` on bootstrap.
+    pub environment: Vec<EnvObjectDef>,
 }
 
 
@@ -163,6 +177,8 @@ struct EncounterRecord {
     victory: Option<VictoryRecord>,
     #[serde(default)]
     obstacles: Vec<ObstacleRecord>,
+    #[serde(default)]
+    environment: Vec<EnvRecord>,
 }
 
 /// A static obstacle tile as declared in `encounters.toml`.
@@ -171,6 +187,16 @@ struct EncounterRecord {
 struct ObstacleRecord {
     hex_col: i32,
     hex_row: i32,
+}
+
+/// A hidden environmental hazard as declared in `encounters.toml`.
+///
+/// TOML syntax: `[[encounters.environment]]` with fields `hex_col`, `hex_row`, `ability`.
+#[derive(Deserialize)]
+struct EnvRecord {
+    hex_col: i32,
+    hex_row: i32,
+    ability: String,
 }
 
 #[derive(Deserialize)]
@@ -487,6 +513,14 @@ pub fn load_encounters_from_str(
                 .obstacles
                 .into_iter()
                 .map(|o| crate::game::hex::hex_from_offset(o.hex_col, o.hex_row))
+                .collect(),
+            environment: enc
+                .environment
+                .into_iter()
+                .map(|e| EnvObjectDef {
+                    hex: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
+                    ability: AbilityId::from(e.ability.as_str()),
+                })
                 .collect(),
         })
         .collect()

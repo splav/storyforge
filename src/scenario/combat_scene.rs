@@ -10,8 +10,8 @@ use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPh
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions,
-    PhaseDeadline, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
+    CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, GameDb, HexCorpses,
+    HexPositions, PhaseDeadline, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
 };
 use crate::combat::enemy_popup::PopupCursor;
 use crate::ui::animation::AnimationQueue;
@@ -30,6 +30,7 @@ fn spawn_combatants(
     scenario: &ScenarioState,
     objective: &mut CombatObjective,
     blocked_hexes: &mut CombatBlockedHexes,
+    environment: &mut CombatEnvironment,
     tag_cache: &AbilityTagCache,
 ) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
@@ -46,6 +47,19 @@ fn spawn_combatants(
 
     objective.0 = enc.victory.clone();
     blocked_hexes.0 = enc.obstacles.clone();
+    environment.0 = enc
+        .environment
+        .iter()
+        .enumerate()
+        .map(|(idx, def)| combat_engine::state::EnvObject {
+            id: combat_engine::state::EnvId(idx as u32),
+            hex: def.hex,
+            kind: combat_engine::state::EnvKind::Hazard,
+            ability: def.ability.clone(),
+            triggered: false,
+            revealed: false,
+        })
+        .collect();
     let content = &scen.content;
 
     // Pre-compute the set of names that have a KeepAlive condition at any depth
@@ -249,6 +263,7 @@ pub fn spawn_combat_scene(
     mut ctx: ResMut<CombatContext>,
     mut objective: ResMut<CombatObjective>,
     mut blocked_hexes: ResMut<CombatBlockedHexes>,
+    mut environment: ResMut<CombatEnvironment>,
     mut log: ResMut<CombatLog>,
     mut cursor: ResMut<ConsoleCursor>,
     mut popup_cursor: ResMut<PopupCursor>,
@@ -256,7 +271,7 @@ pub fn spawn_combat_scene(
     mut deadline: ResMut<PhaseDeadline>,
     tag_cache: Res<AbilityTagCache>,
 ) {
-    spawn_combatants(&mut commands, &db, &scenario, &mut objective, &mut blocked_hexes, &tag_cache);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective, &mut blocked_hexes, &mut environment, &tag_cache);
     spawn_background(&mut commands, &db, &scenario, &asset_server, &windows);
     reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue, &mut deadline);
 }
@@ -339,6 +354,7 @@ pub fn restart_combat_system(
     mut objective: ResMut<CombatObjective>,
     mut reset_bundle: (
         ResMut<CombatBlockedHexes>,
+        ResMut<CombatEnvironment>,
         ResMut<CombatLog>,
         ResMut<ConsoleCursor>,
         ResMut<PopupCursor>,
@@ -352,7 +368,7 @@ pub fn restart_combat_system(
         return;
     }
 
-    let (blocked_hexes, log, cursor, popup_cursor, anim_queue, deadline) = &mut reset_bundle;
+    let (blocked_hexes, environment, log, cursor, popup_cursor, anim_queue, deadline) = &mut reset_bundle;
 
     // 1. Save initiative by name.
     preset.0.clear();
@@ -378,7 +394,7 @@ pub fn restart_combat_system(
     // reads the same RestartCombat message via its own independent reader.
 
     // 3. Spawn fresh combatants + reset state.
-    spawn_combatants(&mut commands, &db, &scenario, &mut objective, blocked_hexes, &tag_cache);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective, blocked_hexes, environment, &tag_cache);
     reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue, deadline);
 
     // 4. → StartRound, где assign_hex_positions создаст токены,

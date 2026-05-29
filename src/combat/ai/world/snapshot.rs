@@ -476,10 +476,15 @@ pub fn build_snapshot(
     roles: &Query<&AxisProfile>,
     content: &ContentView,
     difficulty: &DifficultyProfile,
-    combat_state: combat_engine::state::CombatState,
+    mut combat_state: combat_engine::state::CombatState,
     id_map: &UnitIdMap,
     keep_alive_entities: &std::collections::HashSet<Entity>,
 ) -> BattleSnapshot {
+    // AI revealed-only filter: strip hidden traps from the planner's sim so
+    // AI units do not "cheat" by avoiding traps they cannot see.  Only revealed
+    // env objects enter the snapshot — hidden ones are absent from planning.
+    combat_state.environment.retain(|e| e.revealed);
+
     let horizon_rounds = difficulty.damage_horizon_rounds;
     // Build AiCache directly from ECS components.
     // Dead combatants are included (hp=0 marker); accessors like `enemies_of`

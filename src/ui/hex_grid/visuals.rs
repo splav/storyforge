@@ -352,12 +352,16 @@ pub fn update_hex_visuals(
         let fill_entity = map.any_at(pos);
 
         let is_obstacle = engine_state.0.blocked_hexes.contains(&pos);
+        let is_revealed_trap = engine_state.0.environment.iter()
+            .any(|e| e.hex == pos && e.revealed);
 
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
             mat.0 = match fill_entity {
                 None => {
                     if is_obstacle {
                         mats.obstacle.clone()
+                    } else if is_revealed_trap {
+                        mats.trap.clone()
                     } else if is_aoe {
                         mats.aoe_preview.clone()
                     } else if is_in_move {

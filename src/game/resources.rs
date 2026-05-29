@@ -30,6 +30,13 @@ pub struct CombatObjective(pub crate::content::encounters::VictoryCondition);
 #[derive(Resource, Default, Clone)]
 pub struct CombatBlockedHexes(pub Vec<hexx::Hex>);
 
+/// Environmental hazard objects for the currently active combat encounter.
+/// Populated from `EncounterDef.environment` in `spawn_combatants` and
+/// pushed into `CombatState.environment` during `bootstrap_combat_state`.
+/// Cleared on restart/exit together with the engine mirrors.
+#[derive(Resource, Default, Clone)]
+pub struct CombatEnvironment(pub Vec<combat_engine::state::EnvObject>);
+
 /// Active round-based phase deadline. Set when a boss phase carrying a
 /// `turn_limit` activates; checked each Finalize by `check_phase_deadline_system`.
 /// `None` when no timed phase is active. Reset to `None` on combat (re)start.

@@ -194,6 +194,8 @@ fn bootstrap_combat_state_populates_blocked_hexes() {
         .init_resource::<storyforge::game::resources::TurnQueue>()
         .init_resource::<storyforge::game::resources::CombatContext>()
         .init_resource::<CombatBlockedHexes>()
+        .init_resource::<storyforge::game::resources::CombatEnvironment>()
+        .init_resource::<storyforge::game::resources::UiDirty>()
         .init_resource::<storyforge::content::content_view::ActiveContent>()
         .init_resource::<storyforge::combat::DiceRngRes>()
         .init_resource::<storyforge::game::combat_log::CombatLog>()

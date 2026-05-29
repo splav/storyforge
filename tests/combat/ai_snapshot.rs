@@ -142,6 +142,79 @@ fn build_snapshot_maps_ai_behavior_override_to_forced_mode() {
     );
 }
 
+/// Hidden traps must be absent from the AI snapshot; revealed traps must appear.
+///
+/// This enforces the commit-C invariant: `build_snapshot` strips `!revealed`
+/// env objects so the planner cannot "cheat" by simulating outcomes on hexes
+/// it has no knowledge of.
+#[test]
+fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
+    use combat_engine::state::{EnvId, EnvKind, EnvObject};
+    use storyforge::game::hex::hex_from_offset;
+
+    let mut app = movement_app();
+    app.insert_resource(DifficultyProfile::default());
+
+    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    spawn_at(&mut app, hex_from_offset(4, 3), test_enemy(base_stats()), "B");
+    init_engine_state(&mut app);
+
+    // Seed engine state with one hidden and one revealed trap.
+    {
+        let mut cs = app.world_mut().resource_mut::<CombatStateRes>();
+        cs.0.environment = vec![
+            EnvObject {
+                id: EnvId(0),
+                hex: hex_from_offset(2, 3),
+                kind: EnvKind::Hazard,
+                ability: combat_engine::AbilityId::from("spike_trap"),
+                triggered: false,
+                revealed: false,  // hidden — must NOT appear in snapshot
+            },
+            EnvObject {
+                id: EnvId(1),
+                hex: hex_from_offset(5, 3),
+                kind: EnvKind::Hazard,
+                ability: combat_engine::AbilityId::from("spike_trap"),
+                triggered: true,
+                revealed: true,   // revealed — must appear in snapshot
+            },
+        ];
+    }
+
+    fn snapshot_system(
+        combatants: Query<AiCombatantQ, With<Combatant>>,
+        statuses:   Query<&StatusEffects>,
+        hex_map:    HexMap,
+        roles:      Query<&AxisProfile>,
+        content:    Res<storyforge::content::content_view::ActiveContent>,
+        difficulty: Res<DifficultyProfile>,
+        state_res:  Res<CombatStateRes>,
+        id_map:     Res<UnitIdMap>,
+    ) -> Vec<bool> {
+        let keep_alive_entities = std::collections::HashSet::new();
+        let snap = build_snapshot(
+            1, &combatants, &statuses, &hex_map, &roles,
+            &content, &difficulty,
+            state_res.0.clone(),
+            &id_map,
+            &keep_alive_entities,
+        );
+        snap.state.environment.iter().map(|e| e.revealed).collect()
+    }
+
+    let revealed_flags: Vec<bool> = app
+        .world_mut()
+        .run_system_once(snapshot_system)
+        .expect("snapshot_system failed");
+
+    assert_eq!(
+        revealed_flags,
+        vec![true],
+        "snapshot must contain exactly the revealed trap (hidden one must be stripped)",
+    );
+}
+
 /// Regression: a minimal combatant spawned via `npc_bundle` (no Abilities /
 /// CombatStats / Equipment) must appear in `build_snapshot` — it was silently
 /// dropped before AiCombatantQ fields were made Optional.

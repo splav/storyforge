@@ -33,6 +33,14 @@ turn_limit       = 3
 victory_override = { type = "kill_target", enemy_name = "Страж", marker_color = [0.90, 0.20, 0.20] }
 flavor           = "Страж зверокровов дрогнул и бросился наутёк — добейте его, пока не привёл подмогу!"
 
+# Скрытая шипастая ловушка на пути между партией и врагами.
+# Остаётся невидимой до срабатывания; раскрывается (revealed=true) при входе
+# любого юнита на hex. Демонстрирует механику environmental traps (commit C).
+[[encounters.environment]]
+hex_col = 4
+hex_row = 3
+ability = "spike_trap"
+
 [[encounters.enemies]]
 name        = "Налётчик"
 race        = "beastblood"

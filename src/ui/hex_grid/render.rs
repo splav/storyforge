@@ -30,6 +30,8 @@ pub const CLR_BORDER_MOVE: Color = Color::srgb(0.30, 0.65, 0.25);
 pub const CLR_AOE_PREVIEW: Color = Color::srgba(0.22, 0.12, 0.06, 0.4);
 pub const CLR_BORDER_AOE: Color = Color::srgb(0.70, 0.35, 0.10);
 pub const CLR_OBSTACLE: Color = Color::srgba(0.40, 0.25, 0.10, 0.85);
+/// Revealed environmental hazard (trap). Dark red/orange, distinct from obstacle brown.
+pub const CLR_TRAP: Color = Color::srgba(0.65, 0.10, 0.05, 0.80);
 
 // ── Components ────────────────────────────────────────────────────────────────
 
@@ -87,6 +89,7 @@ pub struct HexMaterials {
     pub aoe_preview: Handle<ColorMaterial>,
     pub border_aoe: Handle<ColorMaterial>,
     pub obstacle: Handle<ColorMaterial>,
+    pub trap: Handle<ColorMaterial>,
     pub token_player: Handle<ColorMaterial>,
     pub token_enemy: Handle<ColorMaterial>,
     pub token_dead: Handle<ColorMaterial>,
@@ -181,6 +184,7 @@ pub fn setup_hex_grid(
         aoe_preview: materials.add(ColorMaterial::from_color(CLR_AOE_PREVIEW)),
         border_aoe: materials.add(ColorMaterial::from_color(CLR_BORDER_AOE)),
         obstacle: materials.add(ColorMaterial::from_color(CLR_OBSTACLE)),
+        trap: materials.add(ColorMaterial::from_color(CLR_TRAP)),
         token_player: materials.add(ColorMaterial::from_color(Color::srgb(0.12, 0.22, 0.45))),
         token_enemy: materials.add(ColorMaterial::from_color(Color::srgb(0.45, 0.10, 0.08))),
         token_dead: materials.add(ColorMaterial::from_color(Color::srgb(0.3, 0.3, 0.3))),

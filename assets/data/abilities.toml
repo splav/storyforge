@@ -201,3 +201,15 @@ summon_template   = "storm_spirit"
 summon_max_active = 2
 range             = 0
 costs             = [{ resource = "mana", amount = 3 }]
+
+[[abilities]]
+id          = "spike_trap"
+name        = "Шипастая ловушка"
+target_type = "single_enemy"
+effect      = "damage"
+dice_count  = 1
+dice_sides  = 6
+range       = 0
+statuses    = [
+    { id = "disoriented", on = "target", duration = 2 },
+]

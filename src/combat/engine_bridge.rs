@@ -52,8 +52,8 @@ use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, RestartCombat};
 use crate::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatObjective, HexCorpses, HexPositions,
-    PhaseDeadline, PhaseDeadlineState, TurnQueue, UiDirty, UiDirtyFlags,
+    CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, HexCorpses,
+    HexPositions, PhaseDeadline, PhaseDeadlineState, TurnQueue, UiDirty, UiDirtyFlags,
 };
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
@@ -366,6 +366,7 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 /// * `animations`      — movement animations to push into `AnimationQueue` (post-projection)
 /// * `phases`          — `(UnitId, phase_idx)` phase-transition pairs (post-projection)
 /// * `phase_overrides` — victory-override/deadline intents queued by phase transitions (post-projection)
+/// * `env_revealed`    — true when at least one `EnvRevealed` event fired this frame (post-projection)
 #[derive(Resource, Default)]
 pub struct BridgeQueues {
     pub deaths: Vec<UnitId>,
@@ -373,6 +374,10 @@ pub struct BridgeQueues {
     pub animations: Vec<PendingAnim>,
     pub phases: Vec<(UnitId, usize)>,
     pub phase_overrides: Vec<PhaseOverrideIntent>,
+    /// Set to `true` when an `EnvRevealed` engine event fires this step.
+    /// Consumed in `apply_bridge_queues_post_projection` to trigger `HEX_FILL`
+    /// so the trap tile appears immediately after reveal.
+    pub env_revealed: bool,
 }
 
 /// Turn-lifecycle sub-queue inside [`BridgeQueues`].
@@ -697,6 +702,7 @@ pub fn apply_bridge_queues_post_projection(
     active_content: Res<ActiveContent>,
     tag_cache: Res<AbilityTagCache>,
     mut anim_queue: ResMut<AnimationQueue>,
+    mut dirty: ResMut<UiDirty>,
     mut q: Query<(
         &mut EnemyPhases,
         &mut Vital,
@@ -710,6 +716,12 @@ pub fn apply_bridge_queues_post_projection(
     // Animations
     for anim in std::mem::take(&mut queues.animations) {
         anim_queue.0.push_back(anim);
+    }
+
+    // EnvRevealed: trigger HEX_FILL so the trap tile renders on the same frame
+    // the trap fires. The flag is set by translate_one(EnvRevealed).
+    if std::mem::take(&mut queues.env_revealed) {
+        dirty.0 |= UiDirtyFlags::HEX_FILL;
     }
 
     // Phase transitions — move phases out first so we can borrow phase_overrides independently.
@@ -1243,8 +1255,10 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
                 ctx.log.push(CombatEvent::HazardTriggered { victim: victim_ent });
             }
         }
-        // EnvRevealed: no-op in commit B; tile visibility lands in commit C.
-        Event::EnvRevealed { .. } => {}
+        // EnvRevealed: flag the bridge so post-projection drains it into UiDirty.
+        Event::EnvRevealed { .. } => {
+            ctx.queues.env_revealed = true;
+        }
     }
 }
 
@@ -1718,6 +1732,7 @@ pub fn bootstrap_combat_state(
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
     active_content: Res<ActiveContent>,
     blocked_hexes: Res<CombatBlockedHexes>,
+    environment: Res<CombatEnvironment>,
     mut log: ResMut<CombatLog>,
     mut queues: ResMut<BridgeQueues>,
 ) {
@@ -1739,6 +1754,9 @@ pub fn bootstrap_combat_state(
 
     // ── Static obstacle hexes from encounter definition ───────────────────────
     state.blocked_hexes = blocked_hexes.0.iter().copied().collect();
+
+    // ── Environmental objects from encounter definition ───────────────────────
+    state.environment = environment.0.clone();
 
     // ── Populate per-unit combat fields ──────────────────────────────────────
 
