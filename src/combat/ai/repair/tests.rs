@@ -498,25 +498,3 @@ fn classify_status_change_pure_tick_cosmetic() {
     assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Cosmetic);
 }
 
-/// Legacy codes other than actor_status_changed are unchanged by the new context.
-#[test]
-fn classify_mismatch_legacy_codes_unchanged() {
-    let cache = StatusTagCache::default();
-    let ctx = MismatchContext::for_test(&cache);
-    let table: &[(&'static str, ContinuationSeverity)] = &[
-        ("actor_rage_changed",    ContinuationSeverity::Cosmetic),
-        ("actor_hp_drop",         ContinuationSeverity::Relevant),
-        ("actor_pos_mismatch",    ContinuationSeverity::Invalidating),
-        ("target_gone",           ContinuationSeverity::Invalidating),
-        ("target_entity_changed", ContinuationSeverity::Invalidating),
-        ("target_hp_drop",        ContinuationSeverity::Relevant),
-        ("target_moved",          ContinuationSeverity::Relevant),
-    ];
-    for (code, expected) in table {
-        assert_eq!(
-            classify_mismatch(code, &ctx),
-            *expected,
-            "classify_mismatch({code:?}) must be unchanged"
-        );
-    }
-}

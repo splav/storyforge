@@ -105,11 +105,6 @@ fn aoo_triggers_on_disengage() {
 fn aoo_does_not_fire_when_still_adjacent() {
     let mover_pos = hex_from_offset(0, 0);
     let enemy_pos = hex_from_offset(1, 0);
-    // Move to another neighbor of the enemy — still adjacent.
-    let _dest_pos = hex_from_offset(0, 1); // unused; real dest computed below
-    // We'll use a position that is definitely still adjacent (distance=1 to enemy).
-    // Since exact adjacency depends on hex layout, we just test the rule:
-    // if dest is still adjacent, no AoO.
     let mut mover = make_unit(1, Team::Player, 1);
     mover.pos = mover_pos;
     let mut enemy = make_unit(2, Team::Enemy, 1);
@@ -118,8 +113,7 @@ fn aoo_does_not_fire_when_still_adjacent() {
     let state = state_with(vec![mover, enemy]);
     let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
 
-    // Find a neighbor of enemy_pos that is not mover_pos (so the mover
-    // moves to a different adjacent hex — still adjacent to the enemy).
+    // Find a neighbor of enemy_pos that is not mover_pos — still adjacent to the enemy.
     let dest_still_adj = enemy_pos
         .all_neighbors()
         .into_iter()

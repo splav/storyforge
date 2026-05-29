@@ -206,7 +206,7 @@ fn enrich_ai_scenarios() {
         "tests/ai_scenarios/snapshots/continuation_ttl_expires/log.jsonl",
         "tests/ai_scenarios/snapshots/focus_target_melee_basic/log.jsonl",
         "tests/ai_scenarios/snapshots/road_bridge/log.jsonl",
-        "tests/baselines/baseline_v36.jsonl",
+        "tests/baselines/baseline_v44.jsonl",
     ];
     for rel in files {
         let path = root.join(rel);

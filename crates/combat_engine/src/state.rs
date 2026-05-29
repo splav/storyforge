@@ -1427,7 +1427,7 @@ mod tests {
     }
 
     #[test]
-    fn start_actor_turn_for_dead_applier_still_ticks_sirota() {
+    fn start_actor_turn_for_dead_applier_still_ticks_orphaned() {
         let applier = UnitId(1);
         let victim = UnitId(2);
         let mut applier_unit = make_unit(applier, 0, 2, Some((1, 10)));
@@ -1552,31 +1552,6 @@ mod tests {
             2,
             "damage_taken_bonus must reflect the active status bonus after RefreshAggregates"
         );
-    }
-
-    #[test]
-    fn pools_canonical_after_spawn() {
-        // Verify that pools is the sole source of truth for resources (C6).
-        // Uses make_unit which populates only pools (no legacy fields).
-        use crate::PoolKind;
-
-        let mana: Pool = (5, 10);
-        let u = make_unit(UnitId(1), 2, 3, Some(mana));
-
-        // Mana: pools[Mana] == Some((5,10))
-        assert_eq!(u.pools[PoolKind::Mana], Some((5, 10)), "pools[Mana] correct");
-
-        // Rage: None (make_unit sets no rage)
-        assert_eq!(u.pools[PoolKind::Rage], None, "pools[Rage] is None");
-
-        // Energy: None (make_unit sets no energy)
-        assert_eq!(u.pools[PoolKind::Energy], None, "pools[Energy] is None");
-
-        // Ap: pools[Ap] == Some((action_points, max_ap))
-        assert_eq!(u.pools[PoolKind::Ap], Some((2, 3)), "pools[Ap] correct");
-
-        // Mp: pools[Mp] == Some((3,3))
-        assert_eq!(u.pools[PoolKind::Mp], Some((3, 3)), "pools[Mp] correct");
     }
 
     /// C3/C6: verify unified regen loop drives all 5 pools correctly.

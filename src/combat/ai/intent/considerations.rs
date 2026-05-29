@@ -277,21 +277,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn feasibility_reads_viability_when_plan_provided() {
-        // In 11.3, plan overlay is not implemented — feasibility stays 1.0.
-        // This test documents the 11.4 TODO: once plan_for_item is wired in,
-        // feasibility should reflect viability score.  For now verify it's 1.0.
-        let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
-        // Assertion: 1.0 until 11.4 wires the plan overlay.
-        assert!(
-            (c.feasibility - 1.0).abs() < 1e-6,
-            "feasibility must be 1.0 in 11.3 (plan overlay deferred to 11.4), got {}",
-            c.feasibility
-        );
-    }
-
     // ── 3. leverage ───────────────────────────────────────────────────────────
 
     #[test]
@@ -305,22 +290,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn leverage_high_for_cast_with_high_enemy_damage() {
-        // In 11.3, leverage stays 0.0 (no plan overlay yet).
-        // This test documents the expected 11.4 behaviour: a cast plan
-        // with high enemy_damage should produce leverage near 1.0.
-        // For now verify the 11.3 default.
-        let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
-        // 11.3: always 0.0 (plan overlay deferred to 11.4).
-        assert!(
-            c.leverage.abs() < 1e-6,
-            "leverage is 0.0 in 11.3 (plan overlay deferred to 11.4), got {}",
-            c.leverage
-        );
-    }
-
     // ── 4. safety ────────────────────────────────────────────────────────────
 
     #[test]
@@ -330,22 +299,6 @@ mod tests {
         assert!(
             (c.safety - 1.0).abs() < 1e-6,
             "safety default must be 1.0 when no plan provided, got {}",
-            c.safety
-        );
-    }
-
-    #[test]
-    fn safety_low_when_terminal_exposure_high() {
-        // In 11.3, safety stays 1.0 (no plan overlay yet).
-        // This test documents the 11.4 behaviour: high terminal exposure
-        // should drive safety toward 0.0.
-        // For now verify the 11.3 default.
-        let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
-        // 11.3: always 1.0 (plan overlay deferred to 11.4).
-        assert!(
-            (c.safety - 1.0).abs() < 1e-6,
-            "safety is 1.0 in 11.3 (plan overlay deferred to 11.4), got {}",
             c.safety
         );
     }

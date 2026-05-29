@@ -476,42 +476,15 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     );
 }
 
-// ── step_recursion_depth_capped ───────────────────────────────────────────────
-
-/// Reaction depth limit: more than 100 reaction expansions → ReactionDepthExceeded.
-/// We set up a corridor with many adjacent enemies to exhaust the counter.
+/// All 6 hex neighbours of the mover fire AoO simultaneously; all must resolve
+/// without error (6 < 100 reaction cap). This is the deepest geometrically
+/// reachable reaction chain from a single step.
+///
+/// Note: a true 100+ depth test requires an AoO-on-AoO mechanic not present
+/// in Phase 0 — testing that cap belongs in the bench suite.
 #[test]
-fn step_recursion_depth_capped() {
-    // Place 101 enemies all adjacent to the mover's start; mover moves away.
-    // Each has reactions_left=1 and a weapon. Since scan_reactions runs after
-    // each MovePosition, all 101 reactions fire for the single step.
-    // This exceeds the 100-reaction cap and must return ReactionDepthExceeded.
-
+fn deep_reaction_chain_all_resolve() {
     let start = hex_from_offset(5, 5);
-    // Enemies placed at start (same hex) — distance 0, not 1. That won't trigger AoO.
-    // We need enemies at distance 1. A hex has 6 neighbors; we can only get 6 truly
-    // adjacent positions, so 101 is unreachable from a single step.
-    // Instead: test with a large depth via a single-step path and many enemies at
-    // distance 1 — max is 6 for one hex. That gives 6 reactions, well under 100.
-    //
-    // Alternative: a long path (e.g. 101 steps) where one enemy triggers AoO on
-    // every step (stays adjacent to each step in the path). This doesn't work either
-    // because `scan_reactions` fires on disengagement only.
-    //
-    // The real depth-cap test requires a *retaliation* mechanic (AoO on AoO), which
-    // Phase 0 doesn't have. A realistic test would need a ContentView that causes
-    // each AoO to enqueue further AoOs. But `expand_reaction` only emits
-    // `DecrementReactions + Damage`, and the Damage-derived `GainRage/Death` don't
-    // trigger further `scan_reactions` (only MovePosition does).
-    //
-    // Therefore a true recursion-depth test requires either:
-    //   a) synthetic modifications to how reactions work (out of scope), or
-    //   b) a path long enough that scan_reactions fires 101+ times per step.
-    //
-    // For Phase 0 we verify the error path exists by constructing a scenario
-    // with a 6-neighbor trigger (max geometrically possible) and confirm < 100.
-    // The cap itself is tested via a unit test on the constant.
-
     let dest = hex_from_offset(5, 10); // far away
     let path = vec![dest];
 
@@ -529,22 +502,16 @@ fn step_recursion_depth_capped() {
     all_units.extend(neighbors);
 
     let mut state = CombatState::new(all_units, 1, RoundPhase::ActorTurn, 0);
-    let content = StubContent::with_weapon(DiceExpr::new(0, 6, 1)); // 1 damage
+    let content = StubContent::with_weapon(DiceExpr::new(0, 6, 1)); // 1 damage each
 
-    // 6 reactions from one step — under 100, should succeed (no cap hit).
+    // 6 reactions from one step — under 100, should succeed (mover survives 6 × 1 = 6 damage, hp=14).
     let result = step(
         &mut state,
         Action::Move { actor: UnitId(1), path },
         &mut ExpectedValue,
         &content,
     );
-    // 6 < 100, so we expect success (the mover survives 6 × 1 damage = 6, hp=14).
-    assert!(result.is_ok(), "6 reactions should not exceed the 100-reaction depth cap");
-
-    // Now verify the error variant: reset state and trigger with more than 100.
-    // We can't easily do this geometrically in Phase 0 (max 6 neighbors), so
-    // we test the constant is correct via the module.
-    // (A proper stress test belongs in the bench suite.)
+    assert!(result.is_ok(), "6 simultaneous AoOs should not exceed the 100-reaction depth cap");
 }
 
 // ── Action::EndTurn ───────────────────────────────────────────────────────────

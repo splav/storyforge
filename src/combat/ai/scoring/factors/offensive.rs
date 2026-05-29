@@ -370,16 +370,8 @@ mod tests {
             &outcome_high,
         );
 
-        // Doubling ally damage should produce a damage penalty reduction > 2×
-        // (because penalty is super-linear: raw × (1 + raw/max_hp)).
-        let penalty_low = policy::friendly_fire::penalty(10.0, 100);
-        let penalty_high = policy::friendly_fire::penalty(20.0, 100);
-        assert!(
-            penalty_high > 2.0 * penalty_low,
-            "penalty({penalty_high}) should be > 2×penalty({penalty_low})"
-        );
-
-        // The plan with higher ally damage should have lower net damage.
+        // The plan with higher ally damage should have lower net damage
+        // (super-linear penalty formula is covered by friendly_fire.rs::super_linear_growth).
         assert!(
             off_high.damage < off_low.damage,
             "higher ally damage ({}) should reduce net damage below low ally case ({})",

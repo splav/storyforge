@@ -218,13 +218,7 @@ fn start_round_resets_reactions_for_alive_units_only() {
 
 #[test]
 fn start_round_resets_queue_index_even_when_advanced() {
-    let unit = make_unit(uid(1), true, 1);
-    let mut state = CombatState::new(vec![unit], 1, RoundPhase::PreRound, 0);
-    state.set_turn_queue(vec![uid(1)], 0);
-    state.turn_queue.index = 0; // confirm starting at non-zero is reset
-    state.turn_queue.index = 0; // (already 0 for len-1; just document intent)
-
-    // Put a multi-unit queue at a non-zero index to verify reset.
+    // Multi-unit queue at a non-zero index must be reset by start_round.
     let u2 = make_unit(uid(2), true, 1);
     let mut state2 = CombatState::new(vec![make_unit(uid(1), true, 1), u2], 1, RoundPhase::PreRound, 0);
     state2.set_turn_queue(vec![uid(1), uid(2)], 1);

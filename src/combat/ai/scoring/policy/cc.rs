@@ -33,26 +33,18 @@ pub fn value(cc_turns: f32, vulnerability: f32, armor_shred: f32) -> f32 {
 mod tests {
     use super::*;
 
+    // weights are placeholder 1.0; expand when non-trivial
     #[test]
-    fn all_zero_gives_zero() {
+    fn cc_value_zero_and_additive() {
+        // Zero case.
         assert_eq!(value(0.0, 0.0, 0.0), 0.0);
-    }
-
-    #[test]
-    fn additive_over_components() {
-        let v = value(10.0, 5.0, 3.0);
-        assert!((v - 18.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn each_component_contributes_independently() {
+        // Additive: 10 + 5 + 3 = 18.
+        assert!((value(10.0, 5.0, 3.0) - 18.0).abs() < 1e-6);
+        // Each component contributes independently.
         assert!((value(10.0, 0.0, 0.0) - 10.0).abs() < 1e-6);
         assert!((value(0.0, 5.0, 0.0) - 5.0).abs() < 1e-6);
         assert!((value(0.0, 0.0, 3.0) - 3.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn monotonic_in_each_component() {
+        // Monotonic in each dimension.
         assert!(value(20.0, 5.0, 3.0) > value(10.0, 5.0, 3.0));
         assert!(value(10.0, 10.0, 3.0) > value(10.0, 5.0, 3.0));
         assert!(value(10.0, 5.0, 6.0) > value(10.0, 5.0, 3.0));

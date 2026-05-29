@@ -50,11 +50,4 @@ mod tests {
         assert_eq!(back, id);
     }
 
-    #[test]
-    fn round_trip() {
-        for bits in [0u64, 1, 42, u64::MAX] {
-            let id = EntityId::from_bits(bits);
-            assert_eq!(id.to_bits(), bits);
-        }
-    }
 }

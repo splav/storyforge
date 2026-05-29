@@ -1,11 +1,11 @@
 //! Golden baseline guard for the AI scoring pipeline.
 //!
-//! Runs `replay_ai_log --compare-golden tests/baselines/baseline_v36.jsonl <fixtures>` and
+//! Runs `replay_ai_log --compare-golden tests/baselines/baseline_v44.jsonl <fixtures>` and
 //! fails on any divergence. Behaviour-preserving refactors should keep this at
 //! `0 / N diverged`; intentional behaviour changes require recapturing the
 //! baseline (see `docs/ai/extension-checklist.md` § SCHEMA_VERSION bump).
 //!
-//! Skips with a recapture instruction when `tests/baselines/baseline_v36.jsonl` is absent
+//! Skips with a recapture instruction when `tests/baselines/baseline_v44.jsonl` is absent
 //! — clones come without a baseline, and we don't want a missing artifact to
 //! mask other test failures.
 
@@ -68,7 +68,7 @@ fn golden_baseline_zero_diff() {
             "SKIP golden_baseline_zero_diff: {BASELINE_REL} missing.\n\
              Recapture with:\n  \
              cargo run --release --bin replay_ai_log -- --capture-golden \\\n    \
-             tests/baselines/baseline_v38.jsonl tests/ai_scenarios/snapshots/*/log.jsonl"
+             tests/baselines/baseline_v44.jsonl tests/ai_scenarios/snapshots/*/log.jsonl"
         );
         return;
     }

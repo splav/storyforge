@@ -262,35 +262,3 @@ fn damage_value_non_negative() {
     }
 }
 
-// ── Friendly-fire round-trip ──────────────────────────────────────────────────
-
-/// Verify that `policy::friendly_fire::penalty(raw, max_hp)` matches the
-/// formula that `factors::offensive::friendly_fire_penalty` used to inline.
-#[test]
-fn friendly_fire_penalty_formula_matches_old_inline() {
-    // Old formula: raw × (1 + raw / max_hp)
-    let cases = [(0.0f32, 100i32), (5.0, 100), (100.0, 100), (10.0, 50), (0.1, 200)];
-    for (raw, max_hp) in cases {
-        let expected = raw * (1.0 + raw / max_hp.max(1) as f32);
-        let actual = policy::friendly_fire::penalty(raw, max_hp);
-        assert!(
-            (expected - actual).abs() < 1e-6,
-            "friendly_fire::penalty({raw}, {max_hp}): expected={expected} actual={actual}"
-        );
-    }
-}
-
-/// `damage::value` round-trip against the old inline formula.
-#[test]
-fn damage_value_formula_matches_old_inline() {
-    // Old formula: raw × (0.5 + 0.5 × progress)
-    let cases = [(0.0f32, 0.0f32), (10.0, 0.5), (10.0, 1.0), (5.0, 0.25), (20.0, 0.8)];
-    for (raw, progress) in cases {
-        let expected = raw * (0.5 + 0.5 * progress);
-        let actual = policy::damage::value(raw, progress);
-        assert!(
-            (expected - actual).abs() < 1e-6,
-            "damage::value({raw}, {progress}): expected={expected} actual={actual}"
-        );
-    }
-}

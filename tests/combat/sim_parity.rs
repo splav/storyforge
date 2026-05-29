@@ -1,54 +1,9 @@
 //! Parity tests: AI sim vs real combat for canonical scenarios.
 //!
-//! Step 12.0: skeleton + sentinel test only. Per-drift parity tests are
-//! added incrementally:
-//!   - 12.1 (status reflow): `parity_haste_speed_real_vs_sim`,
-//!     `parity_armor_buff_mitigation_real_vs_sim`
-//!   - 12.2 (AoO): `parity_aoo_real_vs_sim`,
-//!     `parity_aoo_decrements_reactions_real_vs_sim`
-//!   - 12.3 (rage): `parity_rage_real_vs_sim`, `parity_rage_aoe_real_vs_sim`
-
-/// Summary of differences between the AI sim and real combat for a single
-/// scenario run.
-#[derive(Debug, Default)]
-pub struct ParityReport {
-    /// HP difference (sim − real); 0 means identical.
-    pub hp_drift: i32,
-    /// Position differed between sim and real.
-    pub pos_drift: bool,
-    /// Status list differed between sim and real.
-    pub statuses_drift: bool,
-    /// Rage difference (sim − real); 0 means identical.
-    pub rage_drift: i32,
-    /// Speed difference (sim − real); 0 means identical.
-    pub speed_drift: i32,
-}
-
-impl ParityReport {
-    pub fn is_clean(&self) -> bool {
-        self.hp_drift == 0
-            && !self.pos_drift
-            && !self.statuses_drift
-            && self.rage_drift == 0
-            && self.speed_drift == 0
-    }
-}
-
-/// Run a named parity scenario and return the diff report.
-///
-/// Step 12.0: stub — always returns a clean report.
-/// Real implementations added per-drift in steps 12.1–12.3.
-pub fn run_parity_scenario(_name: &str) -> ParityReport {
-    ParityReport::default()
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-#[test]
-fn parity_no_op_scenario_zero_drift() {
-    let report = run_parity_scenario("no_op");
-    assert!(report.is_clean(), "no-op scenario must have zero drift, got {:?}", report);
-}
+//! Each test exercises one drift dimension (status reflow, AoO, rage) on the
+//! sim side and verifies the result matches the expected formula from the real
+//! combat pipeline. Full Bevy integration per test is noted in the per-test
+//! TODO comments.
 
 /// Parity check: after a haste status (speed_bonus=+2) is applied, the sim's
 /// `unit.speed` equals `base_speed + 2`.

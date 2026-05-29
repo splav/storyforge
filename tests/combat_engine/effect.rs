@@ -307,7 +307,8 @@ fn decrement_reactions_clamps_at_zero() {
 
 #[test]
 fn death_sets_hp_to_zero_and_unit_is_dead() {
-    let u = make_unit(1, 0, 20); // hp=0 from constructor
+    // Start from positive HP so the Death effect actually drives hp to zero.
+    let u = make_unit(1, 10, 20);
     let mut state = state_with(vec![u]);
 
     let (derived, _) = apply_effect(
@@ -316,6 +317,7 @@ fn death_sets_hp_to_zero_and_unit_is_dead() {
         &StubContent::neutral(),
     );
 
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 0);
     assert!(!state.unit(UnitId(1)).unwrap().is_alive());
     assert!(derived.is_empty());
 }

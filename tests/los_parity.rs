@@ -187,19 +187,17 @@ fn engine_action_state_is_blocked_los_matches_has_los() {
     assert!(!engine_blocked_los(a, a, &blocked), "self-LOS should never be blocked");
 }
 
-/// Property test: backends agree on is_blocked_los for random inputs.
+/// Property test: all three backends agree on is_blocked_los for random inputs.
 ///
 /// Since the refactor that moved `is_blocked_los` to a default-impl in the
 /// trait (over abstract `blocked_hexes()` getter), parity is structural —
 /// each backend overrides only the getter, the LOS algorithm is a single
-/// shared default-impl calling `combat_engine::geom::has_los`. The Bevy
-/// backend therefore cannot diverge unless it overrides `is_blocked_los`
-/// directly (which production code does not). This test stays as a
-/// regression guard against accidental future overrides on engine/snapshot
-/// sides; the Bevy override is exercised by the dedicated fixed-case test
-/// `bevy_actions_is_blocked_los_matches_has_los`.
+/// shared default-impl calling `combat_engine::geom::has_los`. This test is
+/// a regression guard against accidental future overrides on any backend.
 ///
-/// Uses a deterministic PRNG (no external crate needed) to generate 200 cases.
+/// Uses a deterministic PRNG (no external crate needed).
+/// n_cases is 60 (reduced from 200) because `bevy_blocked_los` spins up a
+/// `MinimalPlugins` App per call — 60 cases keep the test well under 10 s.
 #[test]
 fn prop_all_three_backends_agree_on_los() {
     // Simple LCG for reproducible pseudo-random numbers without external deps.
@@ -217,7 +215,7 @@ fn prop_all_three_backends_agree_on_los() {
 
     let mut rng = Lcg(0xdeadbeef_cafebabe);
     let mut failures = 0usize;
-    let n_cases = 200;
+    let n_cases = 60;
 
     for i in 0..n_cases {
         let from_col = rng.range(0, 8);
@@ -240,15 +238,16 @@ fn prop_all_three_backends_agree_on_los() {
         let expected = direct_blocked_los(from, to, &blocked);
         let snap_r   = snapshot_blocked_los(from, to, &blocked);
         let eng_r    = engine_blocked_los(from, to, &blocked);
+        let bevy_r   = bevy_blocked_los(from, to, &blocked);
 
-        if snap_r != expected || eng_r != expected {
+        if snap_r != expected || eng_r != expected || bevy_r != expected {
             eprintln!(
                 "case {i}: from=({from_col},{from_row}) to=({to_col},{to_row}) \
-                 blocked={n_blockers} expected={expected} snap={snap_r} eng={eng_r}"
+                 blocked={n_blockers} expected={expected} snap={snap_r} eng={eng_r} bevy={bevy_r}"
             );
             failures += 1;
         }
     }
 
-    assert_eq!(failures, 0, "{failures}/{n_cases} property-test cases failed (snapshot/engine vs has_los)");
+    assert_eq!(failures, 0, "{failures}/{n_cases} property-test cases failed (snapshot/engine/bevy vs has_los)");
 }

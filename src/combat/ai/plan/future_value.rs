@@ -753,10 +753,15 @@ mod tests {
         );
 
         let scores = score_plans_prototype(&[end_turn, move_cast], &intent, &ctx);
-        // The move+cast plan should outscore end-turn when facing an enemy.
-        // This is a smoke test — not strict under all configurations.
         assert_eq!(scores.len(), 2);
         assert!(scores.iter().all(|s| s.is_finite()), "all scores must be finite");
+        // scores[0] = end_turn (no steps), scores[1] = move+cast toward enemy.
+        // The move+cast plan should outscore end-turn when the actor can reach and attack.
+        assert!(
+            scores[1] > scores[0],
+            "move+cast score ({}) should exceed end-turn score ({}) when actor can attack",
+            scores[1], scores[0]
+        );
     }
 
     // ── P1 intent-aware FV tests ──────────────────────────────────────────────
@@ -904,26 +909,4 @@ mod tests {
         assert!(attack_default > 0.0, "sanity: melee_attack scores >0 in default path");
     }
 
-    // ── plateau_tie_rate helper test ──────────────────────────────────────────
-
-    /// Unit test for the plateau detection formula used in replay_ai_log.
-    /// Isolated here so the formula is pinned independently of the binary.
-    #[test]
-    fn plateau_tie_rate_formula() {
-        // Synthetic scores: spread < 0.05 among top-3 → plateau.
-        let scores = [1.0f32, 0.98, 0.97, 0.80, 0.70];
-        let k = 5.min(scores.len());
-        let top_k = &scores[..k];
-        let top = top_k[0];
-        let plateau_count = top_k.iter().filter(|&&s| top - s < 0.05).count();
-        assert!(plateau_count >= 3, "three scores within 0.05 of top → plateau");
-
-        // Non-plateau: clear winner.
-        let scores2 = [1.0f32, 0.80, 0.60];
-        let k2 = 5.min(scores2.len());
-        let top_k2 = &scores2[..k2];
-        let top2 = top_k2[0];
-        let plateau_count2 = top_k2.iter().filter(|&&s| top2 - s < 0.05).count();
-        assert!(plateau_count2 < 3, "spread > 0.05 → no plateau");
-    }
 }
