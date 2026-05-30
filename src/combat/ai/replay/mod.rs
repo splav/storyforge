@@ -222,6 +222,7 @@ pub fn primary_effect_from_steps(
         EffectDef::GrantMovement { .. } => "GrantMovement",
         EffectDef::RestoreResources => "RestoreResources",
         EffectDef::Summon { .. } => "Summon",
+        EffectDef::RevealEnvInRange { .. } => "RevealEnvInRange",
         EffectDef::None => "None",
     };
     Some(label.to_string())

@@ -69,6 +69,14 @@ hex_row = 2
 hex_col = 4
 hex_row = 4
 
+# Hidden trap within ~2 hexes of the party spawn side.  Remains invisible
+# (revealed=false) until a unit steps on it OR the Ranger's scout_traps
+# passive auto-reveals it at turn start.
+[[encounters.environment]]
+hex_col = 2
+hex_row = 3
+ability = "spike_trap"
+
 [[encounters.enemies]]
 name        = "Воин"
 race        = "stormborn"

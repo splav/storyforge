@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use storyforge::combat_engine::{
     action::Action,
-    content::{AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusApplication, StatusOn, TargetType},
+    content::{AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, PassiveTrigger, StatusApplication, StatusOn, TargetType},
     dice::ExpectedValue,
     event::Event,
     state::{CombatState, EffectSource, EnvId, EnvKind, EnvObject, RoundPhase, Team, Unit, UnitId},
@@ -63,6 +63,7 @@ fn trap_ability(n: u32, status: Option<&str>) -> AbilityDef {
             status: StatusId::from(s), on: StatusOn::Target, duration_rounds: 2,
         }]).unwrap_or_default(),
         requires_los: false,
+        passive: None,
     }
 }
 
@@ -168,4 +169,75 @@ fn env_round_trips_through_serde() {
     assert_eq!(decoded.environment.len(), 2);
     assert!(decoded.environment.iter().any(|e| e.id == EnvId(1) && e.hex == hex_from_offset(3, 0)));
     assert!(decoded.environment.iter().any(|e| e.id == EnvId(2)));
+}
+
+// ── Passive reveal (Kael "scout_traps") ─────────────────────────────────────────
+
+/// A `RevealEnvInRange` passive with `TurnStart` reveals hidden hazards within
+/// range only, and is idempotent (a second resolve emits no new EnvRevealed).
+#[test]
+fn passive_reveal_in_range_only_and_idempotent() {
+    let scout = AbilityDef {
+        passive: Some(PassiveTrigger::TurnStart),
+        effect: EffectDef::RevealEnvInRange { range: 2 },
+        ..AbilityDef::default()
+    };
+    let content = Stub::new("scout", scout);
+
+    let mut u = unit(1, Team::Player, 0, 10, None);
+    u.passives = vec![AbilityId::from("scout")];
+    let mut state = CombatState::new(vec![u], 1, RoundPhase::ActorTurn, 0);
+    // caster at (0,0): hazard 10 at col 1 (in range), hazard 20 at col 5 (out).
+    state.environment = vec![hazard(10, 1), hazard(20, 5)];
+
+    let ev = state.resolve_turn_start_passives(UnitId(1), &content);
+
+    let revealed = |id: u32| state.environment.iter().find(|e| e.id == EnvId(id)).unwrap().revealed;
+    assert!(revealed(10), "in-range hazard must be revealed");
+    assert!(!revealed(20), "out-of-range hazard must stay hidden");
+    assert_eq!(
+        ev.iter().filter(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(10))).count(),
+        1, "exactly one EnvRevealed for the in-range hazard",
+    );
+    assert!(!ev.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(20))));
+
+    // Idempotent: re-firing reveals nothing new.
+    let ev2 = state.resolve_turn_start_passives(UnitId(1), &content);
+    assert!(ev2.is_empty(), "already-revealed hazards emit no new EnvRevealed");
+}
+
+/// A unit without the passive ability reveals nothing.
+#[test]
+fn no_passive_no_reveal() {
+    let content = Stub::new("scout", AbilityDef {
+        passive: Some(PassiveTrigger::TurnStart),
+        effect: EffectDef::RevealEnvInRange { range: 5 },
+        ..AbilityDef::default()
+    });
+    let u = unit(1, Team::Player, 0, 10, None); // passives empty by default
+    let mut state = CombatState::new(vec![u], 1, RoundPhase::ActorTurn, 0);
+    state.environment = vec![hazard(10, 1)];
+
+    let ev = state.resolve_turn_start_passives(UnitId(1), &content);
+    assert!(ev.is_empty(), "no passive → no events");
+    assert!(!state.environment[0].revealed, "no passive → hazard stays hidden");
+}
+
+/// The passive fires through the real turn-start entry (`start_actor_turn`) and
+/// consumes zero RNG (deterministic hex-distance scan).
+#[test]
+fn passive_reveal_via_start_actor_turn_zero_rng() {
+    let content = Stub::new("scout", AbilityDef {
+        passive: Some(PassiveTrigger::TurnStart),
+        effect: EffectDef::RevealEnvInRange { range: 2 },
+        ..AbilityDef::default()
+    });
+    let mut u = unit(1, Team::Player, 0, 10, None);
+    u.passives = vec![AbilityId::from("scout")];
+    let mut state = CombatState::new(vec![u], 1, RoundPhase::ActorTurn, 0);
+    state.environment = vec![hazard(10, 1)];
+
+    let events = state.start_actor_turn(UnitId(1), &content);
+    assert!(state.environment[0].revealed, "start_actor_turn must fire the reveal passive");
+    assert!(events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(10))));
 }

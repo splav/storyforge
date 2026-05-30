@@ -25,8 +25,8 @@ use serde::Deserialize;
 
 use crate::{
     content::{
-        AbilityDef, AbilityRange, AoEShape, ContentView, Cost, EffectDef, StatusApplication,
-        StatusBonuses, StatusDef, StatusOn, TargetType, UnitTemplate,
+        AbilityDef, AbilityRange, AoEShape, ContentView, Cost, EffectDef, PassiveTrigger,
+        StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, UnitTemplate,
     },
     dice::DiceExpr,
     AbilityId, ResourceKind, StatusId,
@@ -161,6 +161,13 @@ struct AbilityRecord {
     summon_max_active: Option<u32>,
     #[serde(default)]
     requires_los: bool,
+    /// Reveal radius for `effect = "reveal_env_in_range"`.  Defaults to 2.
+    #[serde(default)]
+    reveal_range: Option<i32>,
+    /// If `"turn_start"`, this ability is a passive that auto-fires at the
+    /// start of the owner's turn.
+    #[serde(default)]
+    passive: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -384,7 +391,16 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
             }),
             max_active: r.summon_max_active,
         },
+        "reveal_env_in_range" => EffectDef::RevealEnvInRange {
+            range: r.reveal_range.unwrap_or(2),
+        },
         other => panic!("{path}: ability '{}' unknown effect '{other}'", r.id),
+    };
+
+    let passive = match r.passive.as_deref() {
+        None | Some("") => None,
+        Some("turn_start") => Some(PassiveTrigger::TurnStart),
+        Some(other) => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
     };
 
     let target_type = match r.target_type.as_str() {
@@ -437,6 +453,7 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
         effect,
         statuses,
         requires_los: r.requires_los,
+        passive,
     }
 }
 

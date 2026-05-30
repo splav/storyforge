@@ -134,6 +134,7 @@ fn det_cast_ap_exhaustion_s6() {
         effect: EffectDef::Damage { dice: storyforge::combat_engine::dice::DiceExpr::new(1, 6, 0) }, // scenario 1
         statuses: vec![],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::new().with_ability("strike", ability);
 
@@ -251,6 +252,7 @@ fn det_phase_transition() {
         },
         statuses: vec![],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::new().with_ability("heavy_blow", ability);
 
@@ -310,6 +312,7 @@ fn det_aoe_multi_target_cast() {
         },
         statuses: vec![],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::new().with_ability("fireball", ability);
 

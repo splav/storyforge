@@ -66,6 +66,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         (id, def)
@@ -93,6 +94,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         (id, def)
@@ -386,6 +388,7 @@
             }],
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         let melee = AbilityDef {
@@ -406,6 +409,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         content.abilities.insert(stun_shot.id.clone(), stun_shot.clone());
@@ -501,6 +505,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         let weak = AbilityDef {
@@ -521,6 +526,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         content.abilities.insert(strong.id.clone(), strong.clone());
@@ -614,6 +620,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         content.abilities.insert(hit.id.clone(), hit);
@@ -667,6 +674,7 @@
                     statuses: Vec::new(),
                     key: None,
                     requires_los: false,
+                    passive: None,
                 },
             }
         }
@@ -690,6 +698,7 @@
                     statuses: Vec::new(),
                     key: None,
                     requires_los: false,
+                    passive: None,
                 },
             }
         }

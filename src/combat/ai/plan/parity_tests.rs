@@ -95,6 +95,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         }
     }
@@ -364,6 +365,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
         content.abilities.insert(def.id.clone(), def.clone());
@@ -842,6 +844,7 @@ mod tests {
             }],
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
 
@@ -976,6 +979,7 @@ mod tests {
             }],
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
 
@@ -998,6 +1002,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
 
@@ -1250,6 +1255,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
 
@@ -1357,6 +1363,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         };
 

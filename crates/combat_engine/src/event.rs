@@ -269,6 +269,18 @@ pub fn effect_to_event(
                 team,
             })
         }
+        // Passive reveal: no event for the range scan, only for the individual reveal.
+        Effect::RevealEnvInRange { .. } => None,
+        // Individual reveal: emit EnvRevealed only if the env was newly revealed
+        // (ctx.env_revealed is false when idempotent no-op).
+        Effect::RevealEnv { id } => {
+            if ctx.env_revealed {
+                Some(Event::EnvRevealed { env_id: *id })
+            } else {
+                None
+            }
+        }
+
         // TurnSkipped events flow via ctx.turn_skip_events drained by the pump loop.
         Effect::AdvanceTurn => None,
         // state.round was already incremented in BumpRound's apply arm before

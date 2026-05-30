@@ -189,6 +189,7 @@ fn effect_eq(a: &EffectDef, b: &EffectDef) -> bool {
         (Summon { template_id: ta, max_active: ma }, Summon { template_id: tb, max_active: mb }) => {
             ta == tb && ma == mb
         }
+        (RevealEnvInRange { range: ra }, RevealEnvInRange { range: rb }) => ra == rb,
         _ => false,
     }
 }

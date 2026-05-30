@@ -1834,6 +1834,27 @@ pub fn bootstrap_combat_state(
         }
     }
 
+    // passives: filter each unit's ability list to ids whose engine def has
+    // passive.is_some(); store them so resolve_turn_start_passives can fire.
+    // Reuses aoo_q which already queries &Abilities — no extra system param needed.
+    for (entity, _equipment, _stats, abilities, _is_dead) in aoo_q.iter() {
+        let Some(uid) = id_map.get_id(entity) else { continue };
+        let passive_ability_ids: Vec<combat_engine::AbilityId> = abilities
+            .0
+            .iter()
+            .filter(|aid| {
+                active_content
+                    .abilities
+                    .get(*aid)
+                    .is_some_and(|def| def.passive.is_some())
+            })
+            .cloned()
+            .collect();
+        if let Some(unit) = state.unit_mut(uid) {
+            unit.passives = passive_ability_ids;
+        }
+    }
+
     // ── Set engine turn queue from ECS ────────────────────────────────────────
     let uid_order: Vec<UnitId> = ecs_queue
         .order

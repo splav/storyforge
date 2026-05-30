@@ -128,6 +128,18 @@ pub enum Effect {
 
     /// Set `unit.base_speed` to `base_speed`.  No derived effects.
     SetBaseSpeed { unit: UnitId, base_speed: i32 },
+
+    // ── Passive ability effects ───────────────────────────────────────────
+
+    /// Scan `state.environment` for unrevealed hazards within `range` hexes
+    /// of `caster`.  Derives one `RevealEnv { id }` per match.
+    /// No own event.  Zero rng.
+    RevealEnvInRange { caster: UnitId, range: i32 },
+
+    /// Set the `revealed` flag to `true` on the env object with `id`.
+    /// Idempotent: if already revealed, no-op (no event emitted).
+    /// Emits `Event::EnvRevealed { env_id: id }`.
+    RevealEnv { id: crate::state::EnvId },
 }
 
 /// Structured damage breakdown produced by the `Damage` effect arm.
@@ -208,6 +220,11 @@ pub struct ApplyCtx {
     /// `effect_to_event`.  Dual-emitted alongside legacy per-pool events in C4;
     /// legacy events will be removed in a follow-up cleanup.
     pub pool_events: Vec<crate::event::Event>,
+    /// Set by `RevealEnv` when the env object was newly revealed (was hidden
+    /// before this effect).  `false` when the object was already revealed
+    /// (idempotent no-op) — `effect_to_event` emits `EnvRevealed` only when
+    /// this is `true`.
+    pub env_revealed: bool,
 }
 
 fn skip_or_settle_current(
@@ -784,6 +801,47 @@ pub fn apply_effect(
                 u.speed = *base_speed;
             }
             (vec![], ApplyCtx::default())
+        }
+
+        // ── Passive reveal effects ────────────────────────────────────────────
+
+        Effect::RevealEnvInRange { caster, range } => {
+            // Read caster position; bail if caster is unknown.
+            let caster_pos = match state.unit(*caster) {
+                Some(u) => u.pos,
+                None => return (vec![], ApplyCtx::default()),
+            };
+            // Collect ids of in-range unrevealed hazards.
+            let targets: Vec<crate::state::EnvId> = state
+                .environment
+                .iter()
+                .filter(|e| {
+                    matches!(e.kind, crate::state::EnvKind::Hazard)
+                        && !e.revealed
+                        && caster_pos.unsigned_distance_to(e.hex) as i32 <= *range
+                })
+                .map(|e| e.id)
+                .collect();
+            let derived: Vec<Effect> = targets
+                .into_iter()
+                .map(|id| Effect::RevealEnv { id })
+                .collect();
+            (derived, ApplyCtx::default())
+        }
+
+        Effect::RevealEnv { id } => {
+            // Set revealed = true; idempotent.
+            let changed = if let Some(e) = state.environment.iter_mut().find(|e| e.id == *id) {
+                if !e.revealed {
+                    e.revealed = true;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            (vec![], ApplyCtx { env_revealed: changed, ..ApplyCtx::default() })
         }
 
         Effect::BumpRound => {

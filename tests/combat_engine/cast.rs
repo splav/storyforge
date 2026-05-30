@@ -137,6 +137,7 @@ fn single_enemy_ability() -> AbilityDef {
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
         statuses: vec![],
         requires_los: false,
+        passive: None,
     }
 }
 
@@ -482,6 +483,7 @@ fn cast_aoe_damages_targets_in_per_target_order() {
         effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 2) },
         statuses: vec![],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::with_ability("fireball", ability)
         .with_caster(UnitId(1), CasterContext { str_mod: 0, ..Default::default() });
@@ -583,6 +585,7 @@ fn cast_heal_restores_target_hp() {
         effect: EffectDef::Heal { dice: DiceExpr::new(1, 4, 0) },
         statuses: vec![],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::with_ability("heal", ability)
         .with_caster(UnitId(1), CasterContext { int_mod: 2, spell_power: 1, ..Default::default() });
@@ -636,6 +639,7 @@ fn cast_aoe_heal_restores_multiple_targets() {
         effect: EffectDef::Heal { dice: DiceExpr::new(0, 1, 4) },
         statuses: vec![],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::with_ability("group_heal", ability);
 
@@ -721,6 +725,7 @@ fn cast_applies_status_to_self_via_myself() {
             on: StatusOn::MySelf,
         }],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::with_ability("iron_skin", ability);
 
@@ -1067,6 +1072,7 @@ fn cast_applies_status_to_each_aoe_target() {
             on: StatusOn::Target,
         }],
         requires_los: false,
+        passive: None,
     };
     let content = StubContent::with_ability("flame_wave", ability);
 
@@ -1136,6 +1142,7 @@ fn summon_ability(max_active: Option<u32>) -> AbilityDef {
         effect: EffectDef::Summon { template_id: "imp".to_string(), max_active },
         statuses: vec![],
         requires_los: false,
+        passive: None,
     }
 }
 

@@ -30,6 +30,15 @@ pub enum CritFailOutcome {
     ApplyStatus(StatusId),
 }
 
+/// When a passive ability auto-fires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PassiveTrigger {
+    /// Fire automatically at the start of the owner's turn (zero cost, no crit-fail,
+    /// no targeting, zero rng).
+    TurnStart,
+}
+
 /// Cached caster stats needed for damage / heal formulas.
 /// Mirrors `crate::content::abilities::CasterContext`.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -83,6 +92,10 @@ pub enum EffectDef {
     /// Summon a unit from a content template.  Engine fans out `Effect::Spawn`.
     /// `max_active` caps live summons from the same summoner; `None` = no cap.
     Summon { template_id: String, max_active: Option<u32> },
+    /// Passive: reveal hidden hazards within `range` hexes of the caster.
+    /// Used by the `scout_traps` ability (turn-start passive).
+    /// No damage, no cost, no crit-fail, zero rng.
+    RevealEnvInRange { range: i32 },
 }
 
 /// Per-status stat bonuses relevant to engine aggregate recomputation.
@@ -163,6 +176,10 @@ pub struct AbilityDef {
     /// target.  LOS is checked via `ActionState::is_blocked_los`.
     /// Default: false (melee and self-cast abilities never need LOS).
     pub requires_los: bool,
+    /// When `Some`, this ability is a passive that auto-fires on the given
+    /// trigger (no player input, no cost, no crit-fail).
+    /// `None` means the ability is active (player-activated).
+    pub passive: Option<PassiveTrigger>,
 }
 
 impl Default for AbilityDef {
@@ -178,6 +195,7 @@ impl Default for AbilityDef {
             effect: EffectDef::None,
             statuses: vec![],
             requires_los: false,
+            passive: None,
         }
     }
 }

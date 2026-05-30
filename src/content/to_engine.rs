@@ -73,6 +73,9 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
             EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
             // Summon is out of engine scope in Phase 2.
             EffectDef::Summon { .. } => EngineEffectDef::None,
+            EffectDef::RevealEnvInRange { range } => {
+                EngineEffectDef::RevealEnvInRange { range: *range }
+            }
         },
         statuses: def
             .statuses
@@ -87,6 +90,7 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
             })
             .collect(),
         requires_los: def.requires_los,
+        passive: def.passive,
     }
 }
 

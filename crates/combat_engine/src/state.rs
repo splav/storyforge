@@ -266,6 +266,14 @@ pub struct Unit {
     /// Used by `CombatState::apply_initial_statuses` to look up statuses that
     /// must be applied at combat start (engine-side, idempotent).
     pub template_id: Option<String>,
+
+    /// Passive ability ids for this unit.
+    ///
+    /// Populated transiently at combat init from ECS `Abilities` component
+    /// (filtered to abilities with `passive.is_some()`).  Not serialized to
+    /// trace files — defaults to empty on deserialization.  The engine reads
+    /// this list in `resolve_turn_start_passives` to auto-fire passives.
+    pub passives: Vec<crate::AbilityId>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -302,6 +310,12 @@ struct UnitWire {
     // ── template id (optional; absent in older traces) ──────────────────────
     #[serde(default)]
     pub template_id: Option<String>,
+
+    // ── passives (transient; not serialized to trace files) ─────────────────
+    // Always defaulted to empty on deserialization — the bridge re-populates
+    // this from ECS at combat init, so stored traces round-trip cleanly.
+    #[serde(default, skip_serializing)]
+    pub passives: Vec<crate::AbilityId>,
 
     // ── legacy fields (pre-C6, for backward-compat deserialization only) ───
     // Silently ignored on read if `pools` is already populated.
@@ -407,6 +421,9 @@ impl From<UnitWire> for Unit {
             pools,
             regen_per_pool: w.regen_per_pool,
             template_id: w.template_id,
+            // Passives are transient — always empty after deserialization.
+            // The bridge re-populates them from ECS at combat init.
+            passives: w.passives,
         }
     }
 }
@@ -433,6 +450,9 @@ impl From<Unit> for UnitWire {
             pools: u.pools,
             regen_per_pool: u.regen_per_pool,
             template_id: u.template_id,
+            // Passives are transient; skip_serializing ensures they are never
+            // written to trace files, so serde-default-to-empty is correct.
+            passives: u.passives,
             // Legacy fields never written — only read for backward compat.
             action_points: None,
             max_ap: None,
@@ -508,6 +528,7 @@ impl Unit {
             pools,
             regen_per_pool,
             template_id,
+            passives: Vec::new(),
         }
     }
 
@@ -885,6 +906,7 @@ impl CombatState {
         }
 
         events.extend(self.tick_actor_statuses(actor, content));
+        events.extend(self.resolve_turn_start_passives(actor, content));
         events
     }
 
@@ -929,6 +951,81 @@ impl CombatState {
                 break;
             }
 
+            let prev_pos = match &eff {
+                Effect::MovePosition { actor, .. } => self.unit(*actor).map(|u| u.pos),
+                _ => None,
+            };
+            let (derived, ctx) = apply_effect(self, &eff, content);
+            if let Some(ev) = effect_to_event(&eff, self, prev_pos, &ctx) {
+                events.push(ev);
+            }
+            for d in derived {
+                queue.push_back(d);
+            }
+        }
+
+        events
+    }
+
+    /// Auto-fire all `TurnStart` passive abilities owned by `actor`.
+    ///
+    /// Modeled on `tick_actor_statuses`: pumps a local effect queue through
+    /// the standard `apply_effect` cascade and returns the resulting event
+    /// stream.  Zero rng, zero cost, no crit-fail.
+    ///
+    /// Called from `start_actor_turn` AFTER the status-tick phase so the
+    /// event stream reads: regen → status ticks → passive reveals.
+    ///
+    /// Does nothing when `actor.passives` is empty (the common case for every
+    /// non-passive unit).
+    pub fn resolve_turn_start_passives(
+        &mut self,
+        actor: UnitId,
+        content: &dyn crate::content::ContentView,
+    ) -> Vec<crate::event::Event> {
+        use std::collections::VecDeque;
+        use crate::effect::{apply_effect, Effect};
+        use crate::event::effect_to_event;
+        use crate::content::PassiveTrigger;
+
+        // Collect initial effects from TurnStart passives.
+        let initial: Vec<Effect> = {
+            let passives = match self.unit(actor) {
+                Some(u) => u.passives.clone(),
+                None => return vec![],
+            };
+            passives
+                .into_iter()
+                .filter_map(|aid| {
+                    let def = content.ability_def(&aid)?;
+                    if def.passive != Some(PassiveTrigger::TurnStart) {
+                        return None;
+                    }
+                    match &def.effect {
+                        crate::content::EffectDef::RevealEnvInRange { range } => {
+                            Some(Effect::RevealEnvInRange { caster: actor, range: *range })
+                        }
+                        // Other effect kinds are not passive-resolvable yet.
+                        _ => None,
+                    }
+                })
+                .collect()
+        };
+
+        if initial.is_empty() {
+            return vec![];
+        }
+
+        let mut queue: VecDeque<Effect> = initial.into();
+        let mut events: Vec<crate::event::Event> = Vec::new();
+        let mut steps = 0;
+        const MAX_PASSIVE_DEPTH: usize = 200;
+
+        while let Some(eff) = queue.pop_front() {
+            steps += 1;
+            if steps > MAX_PASSIVE_DEPTH {
+                break;
+            }
             let prev_pos = match &eff {
                 Effect::MovePosition { actor, .. } => self.unit(*actor).map(|u| u.pos),
                 _ => None,

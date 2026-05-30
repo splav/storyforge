@@ -150,6 +150,7 @@ mod tests {
             }],
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         }
     }

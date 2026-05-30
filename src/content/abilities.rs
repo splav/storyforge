@@ -18,8 +18,9 @@ pub use combat_engine::AoEShape;
 
 
 
-// EffectDef is re-exported from the engine — the canonical source of truth.
+// EffectDef and PassiveTrigger are re-exported from the engine.
 pub use combat_engine::EffectDef;
+use combat_engine::PassiveTrigger as EngineTrigger;
 
 /// Extension trait that adds bridge-side effect computation to `EffectDef`.
 /// Requires `CasterContext`, which is a bridge/game-layer type.
@@ -57,7 +58,8 @@ impl EffectCalcExt for EffectDef {
             EffectDef::None
             | EffectDef::GrantMovement { .. }
             | EffectDef::RestoreResources
-            | EffectDef::Summon { .. } => None,
+            | EffectDef::Summon { .. }
+            | EffectDef::RevealEnvInRange { .. } => None,
         }
     }
 }
@@ -204,6 +206,13 @@ struct AbilityRecord {
     ai_tags_override: Option<Vec<String>>,
     #[serde(default)]
     requires_los: bool,
+    /// Reveal radius for `effect = "reveal_env_in_range"`.  Defaults to 2.
+    #[serde(default)]
+    reveal_range: Option<i32>,
+    /// If `"turn_start"`, this ability is a passive that auto-fires at the
+    /// start of the owner's turn.
+    #[serde(default)]
+    passive: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -278,7 +287,15 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     }),
                     max_active: r.summon_max_active,
                 }, false),
+                "reveal_env_in_range" => (EffectDef::RevealEnvInRange {
+                    range: r.reveal_range.unwrap_or(2),
+                }, false),
                 other => panic!("{path}: unknown effect '{other}'"),
+            };
+            let passive = match r.passive.as_deref() {
+                None | Some("") => None,
+                Some("turn_start") => Some(EngineTrigger::TurnStart),
+                Some(other) => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
             };
             let statuses = r
                 .statuses
@@ -340,6 +357,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     effect,
                     statuses,
                     requires_los: r.requires_los,
+                    passive,
                 },
             }
         })

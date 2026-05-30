@@ -268,6 +268,7 @@ fn ability_line(def: &AbilityDef) -> String {
         EffectDef::GrantMovement { distance } => parts.push(format!("+{} движ", distance)),
         EffectDef::RestoreResources => parts.push("ресурсы +1".into()),
         EffectDef::Summon { template_id, .. } => parts.push(format!("призыв ({template_id})")),
+        EffectDef::RevealEnvInRange { range } => parts.push(format!("ловушки r{range}")),
         EffectDef::None => {}
     }
 

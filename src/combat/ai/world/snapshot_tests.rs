@@ -75,6 +75,7 @@ mod affordability_tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         }
     }
@@ -501,6 +502,7 @@ mod computation_tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
+                passive: None,
             },
         }
     }

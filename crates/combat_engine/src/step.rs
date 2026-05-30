@@ -240,10 +240,12 @@ fn effect_for_target(
         }
         // Per-actor effects — not dispatched through this fn.
         // None: status-only ability (statuses handled below).
+        // RevealEnvInRange: passive-only, never cast actively.
         EffectDef::None
         | EffectDef::GrantMovement { .. }
         | EffectDef::RestoreResources
-        | EffectDef::Summon { .. } => None,
+        | EffectDef::Summon { .. }
+        | EffectDef::RevealEnvInRange { .. } => None,
     }
 }
 

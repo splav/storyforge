@@ -156,7 +156,7 @@ pub mod turn_queue;
 
 pub use dice::{DiceExpr, DiceRng};
 pub use geom::has_los;
-pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PhaseEntry, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
+pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PassiveTrigger, PhaseEntry, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
 pub use effect::{final_damage_f32, SpawnBlockedReason};
 pub use targeting::aoe_cells;
 pub use toml_content_view::{TomlContentView, LoadError};

@@ -581,6 +581,7 @@ fn effect_line_ru(def: &AbilityDef, ctx: Option<&CasterContext>) -> String {
             Some(cap) => format!("призыв {template_id} (не более {cap})"),
             None => format!("призыв {template_id}"),
         },
+        EffectDef::RevealEnvInRange { range } => format!("обнаружить ловушки (радиус {range})"),
     }
 }
 

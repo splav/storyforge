@@ -49,5 +49,5 @@ main_hand    = "dagger"
 chest        = "leather_vest"
 legs         = "leather_pants"
 feet         = "leather_boots"
-ability_ids  = ["melee_attack", "bow_shot", "paralyzing_shot", "field_medic", "poison_shot"]
+ability_ids  = ["melee_attack", "bow_shot", "paralyzing_shot", "field_medic", "poison_shot", "scout_traps"]
 energy_max   = 6
