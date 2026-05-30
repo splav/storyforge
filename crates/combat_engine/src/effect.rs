@@ -227,7 +227,7 @@ pub struct ApplyCtx {
     pub env_revealed: bool,
 }
 
-fn skip_or_settle_current(
+pub(crate) fn skip_or_settle_current(
     state: &mut CombatState,
     content: &dyn ContentView,
 ) -> (Vec<Effect>, ApplyCtx) {
@@ -255,7 +255,12 @@ fn skip_or_settle_current(
     });
     let is_stunned_by_aura = state.aura_effects_on(actor, content).skips_turn;
     if is_stunned_by_status || is_stunned_by_aura {
+        // Tick the stunned actor's statuses (sirota-DoT + status expiry for
+        // statuses applied BY this actor) so that 1-turn stuns expire properly
+        // and DoTs on victims tick each round even when their source is stunned.
+        let tick_events = state.tick_actor_statuses(actor, content);
         let mut ctx = ApplyCtx::default();
+        ctx.turn_skip_events.extend(tick_events);
         ctx.turn_skip_events.push(crate::event::Event::TurnSkipped {
             actor,
             reason: TurnSkipReason::Stunned,

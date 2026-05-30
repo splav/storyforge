@@ -3,6 +3,8 @@
 //! Covers: mid-round handoff, end-of-round wrap, dead-skip, stunned-skip
 //! (direct status), all-stunned budget break, sirota DoT during dead-skip,
 //! NotCurrent rejection.
+//!
+//! Also covers `settle_round_start` (Change B): round-start cursor settlement.
 
 use storyforge::combat_engine::{
     action::{Action, ActionError},
@@ -311,4 +313,174 @@ fn all_stunned_budget_breaks_loop() {
     // ActionStarted must be first; total events should be reasonable.
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
     assert!(events.len() < 50, "too many events — possible loop: {} events", events.len());
+}
+
+// ── settle_round_start tests ─────────────────────────────────────────────────
+
+/// settle_round_start with a healthy (no stun) roster → settles on cursor 0,
+/// emits RoundStarted then TurnStarted, no TurnSkipped, round not incremented.
+#[test]
+fn settle_round_start_no_stun_lands_on_first_actor() {
+    let mut state = make_state(
+        vec![make_unit(1, true), make_unit(2, true)],
+        vec![uid(1), uid(2)],
+        0,
+    );
+    // round is already 1 from make_state
+
+    let events = state.settle_round_start(&StubContent::new());
+
+    // Must emit RoundStarted{1}, then TurnStarted{A} (plus start_actor_turn events).
+    assert!(events.iter().any(|e| matches!(e, Event::RoundStarted { round: 1 })),
+        "must emit RoundStarted{{1}}; got: {:?}", events);
+    assert!(events.iter().any(|e| matches!(e, Event::TurnStarted { actor } if *actor == uid(1))),
+        "must emit TurnStarted{{A}}; got: {:?}", events);
+    assert!(!events.iter().any(|e| matches!(e, Event::TurnSkipped { .. })),
+        "no TurnSkipped expected; got: {:?}", events);
+    // round must not have been incremented
+    assert_eq!(state.round, 1);
+    // cursor stays on 0
+    assert_eq!(state.turn_queue.index, 0);
+}
+
+/// settle_round_start with actor at index 0 stunned → emits RoundStarted,
+/// TurnSkipped{A,Stunned}, TurnStarted{B}. Round counter not double-incremented.
+#[test]
+fn settle_round_start_skips_stunned_first_actor() {
+    let stun_id = StatusId("stun".to_string());
+    let mut a = make_unit(1, true);
+    // stun applied by uid(1) itself so that the tick is "self-applied"
+    // (tick_actor_statuses looks for statuses where applier == actor)
+    a.statuses.push(status("stun", 2, 0, uid(1)));
+
+    let mut state = make_state(
+        vec![a, make_unit(2, true)],
+        vec![uid(1), uid(2)],
+        0,
+    );
+    let content = StubContent::new().with_status(stun_id, make_def(true));
+
+    let events = state.settle_round_start(&content);
+
+    // Must contain: RoundStarted, TurnSkipped{A,Stunned}, TurnStarted{B} — in that order.
+    let rs_pos = events.iter().position(|e| matches!(e, Event::RoundStarted { .. }))
+        .expect("RoundStarted must appear");
+    let skip_pos = events.iter().position(|e| {
+        matches!(e, Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(1))
+    }).expect("TurnSkipped{A,Stunned} must appear");
+    let ts_pos = events.iter().position(|e| {
+        matches!(e, Event::TurnStarted { actor } if *actor == uid(2))
+    }).expect("TurnStarted{B} must appear");
+
+    assert!(rs_pos < skip_pos, "RoundStarted must precede TurnSkipped");
+    assert!(skip_pos < ts_pos, "TurnSkipped must precede TurnStarted");
+
+    // Round must NOT be double-incremented.
+    assert_eq!(state.round, 1, "round must stay at 1, not be bumped");
+}
+
+/// 1-turn stun: a unit stunned for rounds_remaining=1, where applier==actor.
+/// After settle_round_start skips it, the stun's ExpireStatus ticks so that
+/// on the NEXT skip-check the unit is no longer stunned.
+#[test]
+fn one_turn_stun_expires_after_skip() {
+    let stun_id = StatusId("stun".to_string());
+    let mut a = make_unit(1, true);
+    // Self-applied 1-round stun: actor is both bearer and applier.
+    a.statuses.push(status("stun", 1, 0, uid(1)));
+
+    let mut state = make_state(
+        vec![a, make_unit(2, true)],
+        vec![uid(1), uid(2)],
+        0,
+    );
+    let content = StubContent::new().with_status(stun_id.clone(), make_def(true));
+
+    // Run settle — this should skip A (stunned) and tick the 1-round stun.
+    let events = state.settle_round_start(&content);
+
+    // A must have been skipped.
+    assert!(events.iter().any(|e| {
+        matches!(e, Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(1))
+    }), "A must be skipped as stunned");
+
+    // After the tick, A's stun should be gone (rounds_remaining decremented from 1 → 0 → removed).
+    let a_unit = state.unit(uid(1)).expect("A must still exist");
+    let still_stunned = a_unit.statuses.iter().any(|s| s.id == stun_id);
+    assert!(!still_stunned,
+        "stun must have expired after 1-round tick; statuses: {:?}", a_unit.statuses);
+}
+
+/// A DoT (poison) on a stunned unit ticks (deals damage) when the unit is
+/// skipped via settle_round_start. The poison applier == the stunned actor.
+#[test]
+fn stunned_skip_ticks_dot_on_victim() {
+    let poison_id = StatusId("poison".to_string());
+    let stun_id = StatusId("stun".to_string());
+
+    // A is stunned; B is A's victim with a DoT applied by A.
+    let mut a = make_unit(1, true);
+    a.statuses.push(status("stun", 2, 0, uid(99))); // stun bearer (applier=99, irrelevant)
+
+    let mut b = make_unit(2, true);
+    b.statuses.push(ActiveStatus {
+        id: poison_id.clone(),
+        rounds_remaining: 3,
+        dot_per_tick: 5,
+        applier: combat_engine::state::EffectSource::Unit(uid(1)), // applied BY A
+    });
+
+    let mut state = make_state(
+        vec![a, b],
+        vec![uid(1), uid(2)],
+        0,
+    );
+    let content = StubContent::new()
+        .with_status(stun_id, make_def(true))
+        .with_status(poison_id, make_def(false));
+
+    let events = state.settle_round_start(&content);
+
+    // A must be skipped.
+    assert!(events.iter().any(|e| {
+        matches!(e, Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(1))
+    }), "A must be TurnSkipped{{Stunned}}");
+
+    // DoT damage on B must appear BEFORE TurnSkipped{A}.
+    let skip_pos = events.iter().position(|e| {
+        matches!(e, Event::TurnSkipped { actor, .. } if *actor == uid(1))
+    }).unwrap();
+    let dot_pos = events.iter().position(|e| {
+        matches!(e, Event::DotDamaged { target, .. } if *target == uid(2))
+    }).expect("DotDamaged on B must appear");
+    assert!(dot_pos < skip_pos, "DotDamaged must precede TurnSkipped");
+}
+
+/// All-stunned roster → settle_round_start terminates within budget (no hang),
+/// emits skips, no panic. No TurnStarted emitted (no valid actor).
+#[test]
+fn settle_round_start_all_stunned_terminates() {
+    let stun_id = StatusId("stun".to_string());
+    let mut a = make_unit(1, true);
+    a.statuses.push(status("stun", 2, 0, uid(99)));
+    let mut b = make_unit(2, true);
+    b.statuses.push(status("stun", 2, 0, uid(99)));
+
+    let mut state = make_state(
+        vec![a, b],
+        vec![uid(1), uid(2)],
+        0,
+    );
+    let content = StubContent::new().with_status(stun_id, make_def(true));
+
+    let events = state.settle_round_start(&content);
+
+    // Must not panic and must emit a bounded number of events.
+    assert!(events.len() < 50, "budget guard must bound events; got {}", events.len());
+    // RoundStarted must appear.
+    assert!(events.iter().any(|e| matches!(e, Event::RoundStarted { .. })),
+        "RoundStarted must appear; got: {:?}", events);
+    // No TurnStarted — no valid actor found.
+    assert!(!events.iter().any(|e| matches!(e, Event::TurnStarted { .. })),
+        "TurnStarted must not appear for all-stunned roster");
 }

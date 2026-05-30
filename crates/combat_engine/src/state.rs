@@ -1209,6 +1209,131 @@ impl CombatState {
 
         set
     }
+
+    // ── Round-start cursor settlement (chunk 1 — used by bridge in chunk 2) ──
+
+    /// Shared advance-turn pump: drains `seed` effects through the
+    /// `AdvanceTurn`/`BumpRound` cascade, collecting all skip + pool events.
+    ///
+    /// This REPLICATES the budget-bounded drain discipline that `step_inner`
+    /// uses for the `EndTurn` cascade (derived-effects-to-front, same budget).
+    /// `step_inner` does NOT call this helper today — keep the two in sync if
+    /// `AdvanceTurn`/`BumpRound` semantics change. The divergence surface is
+    /// small: only `AdvanceTurn`/`BumpRound`-derived effects are expected in
+    /// `seed` (the caller must not seed move/damage effects here), and those
+    /// cascades never produce Cast/Move/AoO sub-queues.
+    fn pump_advance_turn(
+        &mut self,
+        seed: std::collections::VecDeque<crate::effect::Effect>,
+        content: &dyn crate::content::ContentView,
+        budget: &mut usize,
+    ) -> Vec<crate::event::Event> {
+        use std::collections::VecDeque;
+        use crate::effect::{apply_effect, Effect};
+        use crate::event::effect_to_event;
+
+        let mut events: Vec<crate::event::Event> = Vec::new();
+        let mut queue: VecDeque<Effect> = seed;
+
+        while let Some(eff) = queue.pop_front() {
+            if matches!(&eff, Effect::AdvanceTurn | Effect::BumpRound) {
+                if *budget == 0 {
+                    break;
+                }
+                *budget -= 1;
+            }
+
+            let (derived, mut ctx) = apply_effect(self, &eff, content);
+
+            // Emit the corresponding event (RoundStarted for BumpRound, etc.).
+            if let Some(ev) = effect_to_event(&eff, self, None, &ctx) {
+                events.push(ev);
+            }
+
+            // Drain pool events (from BumpRound's RefreshAggregates cascade).
+            events.append(&mut ctx.pool_events);
+
+            // Drain skip events (TurnSkipped + tick events from stun/dead skips).
+            events.append(&mut ctx.turn_skip_events);
+
+            // Derived effects go to the FRONT (matches step_inner ordering).
+            for ef in derived.into_iter().rev() {
+                queue.push_front(ef);
+            }
+        }
+
+        events
+    }
+
+    /// Settle the turn cursor from its current position at round-start.
+    ///
+    /// Call this once after the turn queue has been set to index=0 (e.g. after
+    /// bootstrap or `BumpRound`).  It:
+    /// 1. Emits `Event::RoundStarted { round: self.round }`.
+    /// 2. Skips dead/stunned actors via the same `AdvanceTurn` pump as `step()`.
+    /// 3. Starts the first non-dead, non-stunned actor's turn:
+    ///    emits `Event::TurnStarted` then `start_actor_turn` events.
+    /// 4. If the budget exhausts before finding a valid actor (all dead/stunned),
+    ///    returns what it has — no panic, no infinite loop.
+    ///
+    /// The round counter must already be correct at call time (do NOT call
+    /// `BumpRound` — that would double-increment the round).
+    pub fn settle_round_start(
+        &mut self,
+        content: &dyn crate::content::ContentView,
+    ) -> Vec<crate::event::Event> {
+        use std::collections::VecDeque;
+        use crate::effect::Effect;
+
+        let mut events: Vec<crate::event::Event> = Vec::new();
+
+        // 1. Emit RoundStarted — always, even if all actors are dead/stunned.
+        events.push(crate::event::Event::RoundStarted { round: self.round });
+
+        // Budget: generous enough to cross one full round of skips.
+        let mut budget: usize = self.turn_queue.order.len() * 3 + 8;
+
+        // 2. Check the current cursor actor.  If dead/stunned, derive
+        //    AdvanceTurn and let the pump settle the cascade.
+        let (skip_effects, mut skip_ctx) =
+            crate::effect::skip_or_settle_current(self, content);
+
+        // Collect skip events from the initial check.
+        events.append(&mut skip_ctx.turn_skip_events);
+
+        if !skip_effects.is_empty() {
+            // Cursor needs to advance — pump the cascade.
+            let seed: VecDeque<Effect> = skip_effects.into_iter().collect();
+            let pump_events = self.pump_advance_turn(seed, content, &mut budget);
+            events.extend(pump_events);
+        }
+
+        // 3. After settling, start the turn for the current actor only if it
+        //    is alive AND not stunned (budget exhaustion may leave cursor on a
+        //    stunned actor when all actors are stunned/dead).
+        let cursor = self.turn_queue.current();
+        let is_valid = cursor.is_some_and(|id| {
+            let alive = self.unit(id).is_some_and(|u| u.is_alive());
+            if !alive { return false; }
+            // Check for stun via status or aura — mirror skip_or_settle_current.
+            let by_status = self.unit(id).is_some_and(|u| {
+                u.statuses.iter().any(|s| {
+                    content.status_def(&s.id).is_some_and(|d| d.skips_turn)
+                })
+            });
+            let by_aura = self.aura_effects_on(id, content).skips_turn;
+            !by_status && !by_aura
+        });
+
+        if is_valid {
+            let next_actor = cursor.unwrap();
+            // Mirror step_inner: TurnStarted first, then start_actor_turn events.
+            events.push(crate::event::Event::TurnStarted { actor: next_actor });
+            events.extend(self.start_actor_turn(next_actor, content));
+        }
+
+        events
+    }
 }
 
 #[cfg(test)]
