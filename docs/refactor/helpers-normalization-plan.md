@@ -34,7 +34,7 @@ Audit signals **superseded by H0 audit** (see §3.H0). The original predictions
 — those helpers were renamed or lifted between the original plan and the audit.
 Current real duplicates are listed in §3.H0.
 
-- **3 "parity" files** (`crates/combat_engine/tests/parity.rs`, `tests/combat_engine/legality_parity.rs`, `tests/combat/sim_parity.rs`) — they test **different pairs**, so no body consolidation, but scene-setup builders may be sharable.
+- **3 "parity" files** (`crates/combat_engine/tests/parity.rs`, `tests/combat_engine/legality_parity.rs`, `src/combat/ai/plan/parity_tests.rs`) — they test **different pairs**, so no body consolidation, but scene-setup builders may be sharable. (Note: `tests/combat/sim_parity.rs` was relocated to `src/combat/ai/plan/parity_tests.rs` in Phase 3.)
 
 ---
 
@@ -280,8 +280,9 @@ Acceptance:
 - **Not refactoring production code** (e.g. `UnitView` / `UnitSnapshot`
   duplication noticed during Phase 4b). That's a separate plan — documented
   in `testing.md §10` as a known smell.
-- **Not merging `parity.rs` / `sim_parity.rs` / `legality_parity.rs`** under
-  a single shared engine — they test different pairs, see H4.
+- **Not merging `parity.rs` / `parity_tests.rs` / `legality_parity.rs`** under
+  a single shared engine — they test different pairs, see H4. (`sim_parity.rs`
+  relocated to `src/combat/ai/plan/parity_tests.rs`, Phase 3.)
 
 ---
 

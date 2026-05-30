@@ -6,7 +6,7 @@
 //! Module-wide `allow(dead_code)`: items here are used only from `#[cfg(test)]`
 //! mod blocks across the lib and from integration tests. The lib (non-test)
 //! build still compiles this module (it's `pub mod`, needed by integration
-//! tests like `tests/combat/sim_parity.rs`), so every helper looks dead to
+//! tests like `src/combat/ai/plan/parity_tests.rs`), so every helper looks dead to
 //! the lib pass and would otherwise spam warnings.
 #![allow(dead_code)]
 

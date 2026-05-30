@@ -333,7 +333,8 @@ What are you testing?
 │   ├── Engine internals vs sim (no ECS) → tests/combat_engine/parity.rs
 │   │   (or another Bevy-free tests/combat_engine/<concern>.rs).
 │   ├── ECS-bridge legality vs engine legality → tests/combat_engine/legality_parity.rs.
-│   └── Real combat vs sim (full-app behavioural parity) → tests/combat/sim_parity.rs.
+│   ├── Sim-vs-shared-core parity (drift dimensions: speed reflow, AoO, rage) → src/combat/ai/plan/parity_tests.rs (Layer 1b section).
+   └── True full-app real-vs-sim parity (drive BOTH real pipeline AND sim, then diff) → NOT YET IMPLEMENTED.
 │
 ├── A read of asset/TOML content?
 │   → Inline test in `content/` module if it's about parsing; otherwise an

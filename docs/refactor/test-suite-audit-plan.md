@@ -26,7 +26,8 @@ Canonical full run (must stay green): `cargo nextest run --workspace --features 
 
 1. **sim_parity.rs** → delete the stub `ParityReport`/`run_parity_scenario`
    scaffold (Phase 0, done); relocate the honest `*_real_vs_sim` tests to the AI
-   layer (Phase 3).
+   layer (Phase 3, done — 7 tests moved to `src/combat/ai/plan/parity_tests.rs`,
+   old file + wiring deleted).
 2. **role.rs:531** legacy snapshot → **retire** (Phase 4; legacy fn already deleted).
 3. **Parameterization mechanism** → add **`rstest`** as a dev-dependency (Phase 4).
 4. **los_parity.rs:204** ("all_three_backends" runs only 2) → **add the missing
@@ -39,7 +40,7 @@ Canonical full run (must stay green): `cargo nextest run --workspace --features 
 | **0** | Pure deletions & renames (zero-value / tautological tests) | S | Very low | ✅ committed `572d197` |
 | **1** | Shared engine-`Unit` builder + `StubContent` (kill ~20× `make_unit` + stub explosion) | L | Low-med | ✅ complete & green, uncommitted |
 | **2** | Reuse `bridge_app()` + dedup `replay_bin` | M | Low-med | ✅ complete & green, uncommitted |
-| **3** | Relocate layer-inverted tests + finish sim_parity relocation | M | Medium | ⬜ not started |
+| **3** | Relocate layer-inverted tests + finish sim_parity relocation | M | Medium | ✅ Part A done (sim_parity → parity_tests.rs); equipment.rs relocation deferred |
 | **4** | Parameterize/split too-long tests (rstest), retire `role.rs:531` snapshot | L | Medium | ⬜ not started |
 
 **Ordering logic:** delete dead tests first (shrinks surface before refactoring),
@@ -183,11 +184,19 @@ zero-equivalent). Config: `new()`/`Default`, `with_ability`, `with_status`,
   gained a `#[path="common/mod.rs"] mod common;` declaration.
 - Net ~−77 LOC. `cargo nextest run --workspace --features dev` → 1332 / 1 skipped.
 
-## Phase 3 — relocate layer-inverted tests (not started)
+## Phase 3 — relocate layer-inverted tests (Part A done 2026-05-30)
 
-Move tests that live at the wrong layer to their proper home; relocate the
-honest `sim_parity` `*_real_vs_sim` tests to the AI layer (scaffold already
-deleted in Phase 0).
+**Part A: sim_parity relocation — DONE.**
+The 7 honest `*_real_vs_sim` tests (haste speed reflow, armor-buff mitigation,
+AoO damage, AoO reactions decrement, rage single-target, rage AoE, AoO rage
+grant) were moved verbatim into `src/combat/ai/plan/parity_tests.rs` (Layer 1b
+sub-section). `tests/combat/sim_parity.rs` and its `mod sim_parity` wiring in
+`tests/combat.rs` were deleted. Net test count unchanged (1332 / 1 skipped).
+
+**Current state:** `tests/combat/equipment.rs` was surveyed as a candidate for
+relocation (layer-inverted test that uses the full Bevy harness for content-only
+logic). Relocation deferred to a later phase by user decision — it requires
+non-trivial content-layer refactoring and is low-risk to leave in place.
 
 ## Phase 4 — parameterize / split too-long tests (not started)
 

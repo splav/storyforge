@@ -32,9 +32,6 @@ mod movement;
 #[path = "combat/replay_assert.rs"]
 mod replay_assert;
 
-#[path = "combat/sim_parity.rs"]
-mod sim_parity;
-
 #[path = "combat/ai_snapshot.rs"]
 mod ai_snapshot;
 
