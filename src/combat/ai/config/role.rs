@@ -513,195 +513,71 @@ mod tests {
         );
     }
 
-    // ── New tests: parity + override ────────────────────────────────────
+    // ── tag_axis_vote rule pins (replaced the retired legacy-comparison snapshot) ──
 
-    /// Compare `tag_axis_vote` (9.B) against the pre-9.B `ability_vote` for every
-    /// ability in abilities.toml.  7 abilities shift intentionally (semantic improvements);
-    /// all remaining ≥11 must be byte-identical to legacy.
-    ///
-    /// Intended shifts:
-    ///   taunt      — DEFENSIVE+PEEL hits Peel branch → [0.7,0,0,0,0.3] vs legacy Tank [1,0,0,0,0]
-    ///   rush       — MOBILITY is aggro move, not self-buff → [0,0.9,0,0,0] vs legacy Tank [3,0,0,0,0]
-    ///   move       — utility toggle has empty tags → [0,0,0,0,0] vs legacy Tank [1,0,0,0,0]
-    ///   rest       — resource restore has empty tags → [0,0,0,0,0] vs legacy Tank [1,0,0,0,0]
-    ///   burn       — DOT status is not CC → empty [0,0,0,0,0] vs legacy Control [0,0,0,2,0]
-    ///   backstab   — DOT(poison) on damage is not CC → [0,3,0,0,0] vs legacy [0,3,0,1.2,0]
-    ///   poison_shot — DOT(poison) on ranged damage is not CC → [0,0,4,0,0] vs legacy [0,0,4,1.6,0]
+    // Helper: compute weight the same way infer_profile does.
+    fn ability_weight(def: &crate::content::abilities::AbilityDef) -> f32 {
+        1.0 + def.costs.iter().map(|c| c.amount as f32).sum::<f32>()
+    }
+
+    /// `field_medic` is SingleAlly+Heal → Rescue tag → all weight on Support (v[4]).
+    /// Axis order: [Tank=0, Melee=1, Ranged=2, Control=3, Support=4].
+    /// costs=[{energy,1}] → weight=2.0.
     #[test]
-    fn tag_axis_vote_diff_from_legacy_is_intended() {
-        use crate::combat::ai::world::tags::cache::build_caches;
-        use crate::content::abilities::{EffectDef, TargetType, AoEShape};
-        use std::collections::HashMap;
+    fn tag_axis_vote_rescue_ability_votes_pure_support() {
+        let (content, ac) = db_with_cache();
+        let id = AbilityId::from("field_medic");
+        let def = &content.abilities[&id];
+        let tags = ac.effective(&id);
+        let w = ability_weight(def);
+        let v = tag_axis_vote(tags, def, w);
+        assert!((v[4] - w).abs() < 1e-5, "Support should equal weight {w}, got {}", v[4]);
+        assert_eq!([v[0], v[1], v[2], v[3]], [0.0, 0.0, 0.0, 0.0], "non-Support axes must be zero");
+    }
 
-        let content = ContentView::load_global_for_tests();
-        let (_, ac) = build_caches(&content);
+    /// `backstab` is OFFENSIVE melee; its status (poisoned) is DOT not CC →
+    /// no ApplyCC tag → pure Melee (v[1]), Control (v[3]) must be 0.
+    /// costs=[{energy,2}] → weight=3.0.
+    #[test]
+    fn tag_axis_vote_dot_damage_votes_zero_on_control() {
+        let (content, ac) = db_with_cache();
+        let id = AbilityId::from("backstab");
+        let def = &content.abilities[&id];
+        let tags = ac.effective(&id);
+        let w = ability_weight(def);
+        let v = tag_axis_vote(tags, def, w);
+        assert_eq!(v[3], 0.0, "Control axis must be 0 for DOT-only status (DOT ≠ CC)");
+        assert!(v[1] > 0.0, "Melee axis should be positive for melee damage, got {}", v[1]);
+    }
 
-        // Inline copy of pre-9.B ability_vote logic (removed in 9.B).
-        fn legacy_ability_vote(def: &crate::content::abilities::AbilityDef) -> [f32; 5] {
-            let cost: f32 = def.costs.iter().map(|c| c.amount as f32).sum();
-            let weight = 1.0 + cost;
-            let mut v = [0.0f32; 5];
+    /// `taunt` has DEFENSIVE+PEEL tags → Peel branch: Tank=0.7*weight, Support=0.3*weight.
+    /// costs=none → weight=1.0; expected: v[0]=0.7, v[4]=0.3, v[1..3]=0.
+    #[test]
+    fn tag_axis_vote_taunt_splits_tank_and_support() {
+        let (content, ac) = db_with_cache();
+        let id = AbilityId::from("taunt");
+        let def = &content.abilities[&id];
+        let tags = ac.effective(&id);
+        let w = ability_weight(def);
+        let v = tag_axis_vote(tags, def, w);
+        assert!((v[0] - 0.7 * w).abs() < 1e-5, "Tank should be 0.7*weight={}, got {}", 0.7 * w, v[0]);
+        assert!((v[4] - 0.3 * w).abs() < 1e-5, "Support should be 0.3*weight={}, got {}", 0.3 * w, v[4]);
+        assert_eq!([v[1], v[2], v[3]], [0.0, 0.0, 0.0], "Melee/Ranged/Control must be zero");
+    }
 
-            let has_damage = matches!(
-                def.effect,
-                EffectDef::Damage { .. } | EffectDef::SpellDamage { .. } | EffectDef::WeaponAttack,
-            );
-
-            if def.target_type == TargetType::SingleAlly
-                && matches!(def.effect, EffectDef::Heal { .. })
-            {
-                v[4] += weight;
-                return v;
-            }
-            if matches!(def.effect, EffectDef::Summon { .. }) {
-                v[4] += weight * 0.7;
-                v[2] += weight * 0.3;
-                return v;
-            }
-            if def.target_type == TargetType::Myself && !has_damage {
-                v[0] += weight;
-                return v;
-            }
-            if has_damage {
-                let is_spell = matches!(def.effect, EffectDef::SpellDamage { .. });
-                let is_aoe = def.aoe != AoEShape::None;
-                let is_ranged_phys = def.range.min >= 2;
-                if is_aoe || is_spell || is_ranged_phys {
-                    v[2] += weight;
-                } else {
-                    v[1] += weight;
-                }
-                if !def.statuses.is_empty() {
-                    v[3] += weight * 0.4;
-                }
-                return v;
-            }
-            if !def.statuses.is_empty() {
-                v[3] += weight;
-                return v;
-            }
-            v[1] += weight * 0.3;
-            v
-        }
-
-        // Expected divergences: (new_axis_vote, rationale).
-        // Values must match tag_axis_vote output exactly (same weight formula: 1+cost).
-        let expected_shifts: HashMap<&str, ([f32; 5], &str)> = [
-            (
-                "taunt",
-                (
-                    [0.7, 0.0, 0.0, 0.0, 0.3],
-                    "DEFENSIVE+PEEL → Peel branch (Tank 0.7 + Support 0.3); \
-                     legacy Myself+no-damage → pure Tank was inaccurate for an aggro-redirect",
-                ),
-            ),
-            (
-                "rush",
-                (
-                    [0.0, 0.90000004, 0.0, 0.0, 0.0],
-                    "MOBILITY → Melee 0.3×weight(3)=0.9; \
-                     legacy Myself+no-damage → Tank 3 was wrong — rush is an aggressive mobility tool",
-                ),
-            ),
-            (
-                "move",
-                (
-                    [0.0, 0.0, 0.0, 0.0, 0.0],
-                    "ToggleMoveMode → empty tags → zero vote; \
-                     legacy Myself+no-damage → Tank 1 was noise (utility, not defensive)",
-                ),
-            ),
-            (
-                "rest",
-                (
-                    [0.0, 0.0, 0.0, 0.0, 0.0],
-                    "RestoreResources → empty tags → zero vote; \
-                     legacy Myself+no-damage → Tank 1 was noise (utility, not defensive)",
-                ),
-            ),
-            (
-                "burn",
-                (
-                    [0.0, 0.0, 0.0, 0.0, 0.0],
-                    "Applies Burning(Cosmetic) — not Buff, not CC → empty tags → zero vote; \
-                     legacy !statuses.is_empty() → Control 2 was wrong (DOT ≠ crowd-control)",
-                ),
-            ),
-            (
-                "backstab",
-                (
-                    [0.0, 3.0, 0.0, 0.0, 0.0],
-                    "OFFENSIVE melee; Poisoned(DOT) is not CC → no ApplyCC tag → pure Melee 3; \
-                     legacy damage+statuses → +Control 1.2 spuriously (DOT ≠ CC)",
-                ),
-            ),
-            (
-                "poison_shot",
-                (
-                    [0.0, 0.0, 4.0, 0.0, 0.0],
-                    "OFFENSIVE ranged; Poisoned(DOT) is not CC → no ApplyCC tag → pure Ranged 4; \
-                     legacy damage+statuses → +Control 1.6 spuriously (DOT ≠ CC)",
-                ),
-            ),
-        ]
-        .into_iter()
-        .collect();
-
-        let mut unexpected: Vec<String> = Vec::new();
-        let mut parity_count = 0usize;
-
-        for (id, def) in &content.abilities {
-            let id_str = id.0.as_str();
-            let cost: f32 = def.costs.iter().map(|c| c.amount as f32).sum();
-            let weight = 1.0 + cost;
-            let tags = ac.effective(id);
-            let new_vote = tag_axis_vote(tags, def, weight);
-            let legacy_vote = legacy_ability_vote(def);
-
-            let differs = new_vote.iter().zip(legacy_vote.iter())
-                .any(|(a, b)| (a - b).abs() > 1e-6);
-
-            if !differs {
-                parity_count += 1;
-                continue;
-            }
-
-            if let Some((expected_new, rationale)) = expected_shifts.get(id_str) {
-                // Verify the new vote matches the pinned expected value.
-                let new_matches = new_vote.iter().zip(expected_new.iter())
-                    .all(|(a, b)| (a - b).abs() < 1e-5);
-                assert!(
-                    new_matches,
-                    "{}: new vote changed — expected {:?} but got {:?}\n  rationale: {}",
-                    id_str, expected_new, new_vote, rationale
-                );
-                // Verify legacy indeed differs (documents the divergence is real).
-                let legacy_differs_from_new = expected_new.iter().zip(legacy_vote.iter())
-                    .any(|(a, b)| (a - b).abs() > 1e-6);
-                assert!(
-                    legacy_differs_from_new,
-                    "{}: expected legacy to differ from new vote {:?}, but they're equal",
-                    id_str, expected_new
-                );
-            } else {
-                unexpected.push(format!(
-                    "{}: new={:?} legacy={:?}",
-                    id_str, new_vote, legacy_vote
-                ));
-            }
-        }
-
-        assert!(
-            unexpected.is_empty(),
-            "unexpected parity divergences (not in expected_shifts):\n{}",
-            unexpected.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")
-        );
-
-        assert!(
-            parity_count >= 11,
-            "expected parity for ≥11 abilities (18 total, 7 intended shifts), got {}",
-            parity_count
-        );
+    /// `summon_storm_spirit` has Summon tag → Support=0.7*weight, Ranged=0.3*weight.
+    /// costs=[{mana,3}] → weight=4.0; expected: v[4]=2.8, v[2]=1.2, others=0.
+    #[test]
+    fn tag_axis_vote_summon_splits_support_and_ranged() {
+        let (content, ac) = db_with_cache();
+        let id = AbilityId::from("summon_storm_spirit");
+        let def = &content.abilities[&id];
+        let tags = ac.effective(&id);
+        let w = ability_weight(def);
+        let v = tag_axis_vote(tags, def, w);
+        assert!((v[4] - 0.7 * w).abs() < 1e-5, "Support should be 0.7*weight={}, got {}", 0.7 * w, v[4]);
+        assert!((v[2] - 0.3 * w).abs() < 1e-5, "Ranged should be 0.3*weight={}, got {}", 0.3 * w, v[2]);
+        assert_eq!([v[0], v[1], v[3]], [0.0, 0.0, 0.0], "Tank/Melee/Control must be zero");
     }
 
     /// Actor with ability `melee_attack` overridden to `[support]`

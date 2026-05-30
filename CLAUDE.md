@@ -70,7 +70,7 @@ cargo check  --features dev      # быстрая проверка без лин
 cargo clippy --features dev      # линтер
 
 # Тесты — через cargo-nextest (3× быстрее warm, 10× при filter)
-cargo nextest run --workspace --features dev               # ВСЕ тесты воркспейса: ~1332 (~4 s warm)
+cargo nextest run --workspace --features dev               # ВСЕ тесты воркспейса: ~1335 (~4 s warm)
 cargo nextest run --features dev                            # только storyforge pkg: ~1300 (см. note ниже)
 cargo nextest run --features dev -E 'test(/combat::ai/)'    # только AI tests (~2.6 s warm)
 cargo nextest run --features dev -E 'test(=foo)'            # один конкретный тест
@@ -157,7 +157,7 @@ Bevy ECS тактическая RPG. Состояния: `AppState` (Boot → St
 Полный гайд — [docs/testing.md](docs/testing.md) (слои, расположение хелперов,
 нейминг, мутационное тестирование, decision-tree). Кратко:
 
-- **Полный прогон:** `cargo nextest run --workspace --features dev` (~1332).
+- **Полный прогон:** `cargo nextest run --workspace --features dev` (~1335).
   Без `--workspace` inline-тесты крейта `combat_engine` молча не запускаются.
 - `tests/combat_engine/*.rs` — engine + bridge (и Bevy-free pure-engine: replay,
   serde, rng_count, purity, …), один бинарь через `tests/combat_engine.rs`.

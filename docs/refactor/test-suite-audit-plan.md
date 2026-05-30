@@ -198,11 +198,21 @@ relocation (layer-inverted test that uses the full Bevy harness for content-only
 logic). Relocation deferred to a later phase by user decision — it requires
 non-trivial content-layer refactoring and is low-risk to leave in place.
 
-## Phase 4 — parameterize / split too-long tests (not started)
+## Phase 4 — parameterize / split too-long tests (DONE)
 
-Add `rstest` dev-dep; table-drive the long heal/damage tests **with
-behavioral/relative asserts, never formula echoes**; retire the `role.rs:531`
-legacy snapshot; split oversized tests.
+`rstest` dev-dep was reconsidered and DROPPED — no real parameterization target
+existed after survey; adding an external dev-dep for one or two tests was not
+justified.
+
+`role.rs:531` (`tag_axis_vote_diff_from_legacy_is_intended`) was retired: the
+~185-line legacy-comparison snapshot (including inline `legacy_ability_vote` copy)
+was deleted and replaced with 4 slim behavioral rule-pin tests:
+- `tag_axis_vote_rescue_ability_votes_pure_support`
+- `tag_axis_vote_dot_damage_votes_zero_on_control`
+- `tag_axis_vote_taunt_splits_tank_and_support`
+- `tag_axis_vote_summon_splits_support_and_ranged`
+
+Net: −1 test + 4 tests = **+3** (1332 → 1335 / 1 skipped).
 
 ---
 
@@ -222,7 +232,7 @@ legacy snapshot; split oversized tests.
   - **Intentionally NOT migrated:** `aura.rs`'s `AuraContent` — it doubles as the
     aura-geometry config carrier (`with_aura` reads its `radius`/`status_id`/
     `applies_to`), so it is not a plain `ContentView` stub. Left untouched.
-  - `cargo nextest run --workspace --features dev` → **1332 passed / 1 skipped**.
+  - `cargo nextest run --workspace --features dev` → **1335 passed / 1 skipped**.
     `graphify update .` run.
 - **Pre-existing unrelated breakage:** `benches/engine_move.rs:37` missing
   `forced_mode` — a benchmark file, not compiled by the test suite. Untouched by
