@@ -15,52 +15,18 @@ use std::process::Command;
 use storyforge::combat_engine::{
     DiceRng,
     action::Action,
-    state::{CombatState, RoundPhase, Team, Unit, UnitId},
+    state::{CombatState, RoundPhase, UnitId},
     step::step,
     trace::{SCHEMA_VERSION, InitLine, StepLine, post_state_hash_hex, serialize_init, serialize_step},
     TomlContentView,
 };
-use storyforge::game::hex::hex_from_offset;
+
+use crate::common::engine_unit::EngineUnitBuilder;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn make_unit(id: u64) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        UnitId(id),
-        Team::Player,
-        hex_from_offset(id as i32, 0),
-        0,
-        0,
-        0,
-        6,
-        6,
-        1,
-        1,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        vec![],
-        vec![],
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((20, 20)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((6, 6)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+fn make_unit(id: u64) -> storyforge::combat_engine::state::Unit {
+    EngineUnitBuilder::new(id).pos(id as i32, 0).build()
 }
 
 fn make_init(state: &CombatState, seed: u64) -> InitLine {

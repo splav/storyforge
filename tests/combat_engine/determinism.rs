@@ -12,8 +12,6 @@
 //! 4. `det_phase_transition` — Damage crosses phase threshold → EnterPhase cascade.
 //! 5. `det_aoe_multi_target_cast` — AoE fireball hits 3 enemies (per-target ordering).
 
-use std::collections::HashMap;
-
 use storyforge::combat_engine::{
     action::Action,
     content::{
@@ -25,83 +23,16 @@ use storyforge::combat_engine::{
     state::{ActiveStatus, CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
     trace::post_state_hash_hex,
-    AbilityId, PoolKind, RegenRule, StatusDef, StatusId,
+    AbilityId, PoolKind, StatusDef, StatusId,
 };
 use storyforge::game::hex::hex_from_offset;
 
-// ── Minimal ContentView stub ──────────────────────────────────────────────────
+use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 
-struct DeterminismContent {
-    abilities: HashMap<AbilityId, AbilityDef>,
-    status_defs: HashMap<StatusId, StatusDef>,
-}
-
-impl DeterminismContent {
-    fn empty() -> Self {
-        Self { abilities: HashMap::new(), status_defs: HashMap::new() }
-    }
-
-    fn with_ability(mut self, id: &str, def: AbilityDef) -> Self {
-        self.abilities.insert(AbilityId::from(id), def);
-        self
-    }
-
-    fn with_status(mut self, id: StatusId, def: StatusDef) -> Self {
-        self.status_defs.insert(id, def);
-        self
-    }
-}
-
-impl ContentView for DeterminismContent {
-    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-        self.abilities.get(id)
-    }
-    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
-        self.status_defs.get(id)
-    }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
-        None
-    }
-}
-
-// ── Unit builder ─────────────────────────────────────────────────────────────
+// ── Unit helper ───────────────────────────────────────────────────────────────
 
 fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
-    Unit::new(
-        UnitId(id),
-        team,
-        hex_from_offset(pos_col, pos_row),
-        0,  // armor
-        0,  // armor_bonus
-        0,  // damage_taken_bonus
-        6,  // base_speed
-        6,  // speed
-        1,  // reactions_left
-        1,  // reactions_max
-        vec![],
-        None,
-        Default::default(),
-        None,
-        vec![],
-        vec![],
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((20, 20)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((6, 6)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id).team(team).pos(pos_col, pos_row).build()
 }
 
 // ── Trace harness ────────────────────────────────────────────────────────────
@@ -204,7 +135,7 @@ fn det_cast_ap_exhaustion_s6() {
         statuses: vec![],
         requires_los: false,
     };
-    let content = DeterminismContent::empty().with_ability("strike", ability);
+    let content = StubContent::new().with_ability("strike", ability);
 
     let actions = vec![Action::Cast {
         actor: UnitId(1),
@@ -249,7 +180,7 @@ fn det_dot_tick_during_dead_skip() {
         bonuses: StatusBonuses::default(),
         hp_percent_dot: 0,
     };
-    let content = DeterminismContent::empty().with_status(dot_id, dot_def);
+    let content = StubContent::new().with_status(dot_id, dot_def);
 
     let actions = vec![Action::EndTurn { actor: UnitId(1) }];
 
@@ -272,7 +203,7 @@ fn det_move_with_aoo_reaction() {
     let mut state = CombatState::new(vec![mover, enemy], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
 
-    let content = DeterminismContent::empty();
+    let content = StubContent::new();
 
     // Move mover away from the adjacent enemy: (1,0) → (2,0) → (3,0).
     let actions = vec![Action::Move {
@@ -321,7 +252,7 @@ fn det_phase_transition() {
         statuses: vec![],
         requires_los: false,
     };
-    let content = DeterminismContent::empty().with_ability("heavy_blow", ability);
+    let content = StubContent::new().with_ability("heavy_blow", ability);
 
     let actions = vec![Action::Cast {
         actor: caster_id,
@@ -380,7 +311,7 @@ fn det_aoe_multi_target_cast() {
         statuses: vec![],
         requires_los: false,
     };
-    let content = DeterminismContent::empty().with_ability("fireball", ability);
+    let content = StubContent::new().with_ability("fireball", ability);
 
     let actions = vec![Action::Cast {
         actor: actor_id,

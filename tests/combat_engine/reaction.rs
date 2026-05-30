@@ -1,71 +1,24 @@
 //! Step 5 unit tests: `scan_reactions` + `expand_reaction`.
 
 use storyforge::combat_engine::{
-    content::ContentView,
     dice::{DiceExpr, ExpectedValue},
     reaction::{expand_reaction, scan_reactions, Reaction},
     state::{CombatState, EffectSource, RoundPhase, Team, Unit, UnitId},
 };
-use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
+
+use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-#[allow(dead_code)]
-struct StubContent {
-    /// Previously used for ContentView::aoo_dice (removed in 5c.1).
-    /// Kept for constructor compatibility; no longer read by the engine.
-    aoo_dice: Option<DiceExpr>,
-}
-
-impl StubContent {
-    fn with_weapon(d: DiceExpr) -> Self { Self { aoo_dice: Some(d) } }
-    fn no_weapon() -> Self { Self { aoo_dice: None } }
-}
-
-impl ContentView for StubContent {
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-}
-
+/// speed=4, Mp=4 — reaction defaults.
 fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        UnitId(id),
-        team,
-        hex_from_offset(0, 0),
-        0,
-        0,
-        0,
-        4,
-        4,
-        reactions,
-        1,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((20, 20)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((4, 4)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id)
+        .team(team)
+        .speed(4)
+        .mp(4, 4)
+        .reactions(reactions, 1)
+        .build()
 }
 
 fn state_with(units: Vec<Unit>) -> CombatState {
@@ -88,7 +41,7 @@ fn aoo_triggers_on_disengage() {
     enemy.aoo_dice = Some(DiceExpr::new(1, 6, 0));
 
     let state = state_with(vec![mover, enemy]);
-    let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
+    let content = StubContent::new();
 
     let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_pos, &content);
 
@@ -111,7 +64,7 @@ fn aoo_does_not_fire_when_still_adjacent() {
     enemy.pos = enemy_pos;
 
     let state = state_with(vec![mover, enemy]);
-    let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
+    let content = StubContent::new();
 
     // Find a neighbor of enemy_pos that is not mover_pos — still adjacent to the enemy.
     let dest_still_adj = enemy_pos
@@ -137,7 +90,7 @@ fn aoo_does_not_fire_when_no_reactions() {
     enemy.pos = enemy_pos;
 
     let state = state_with(vec![mover, enemy]);
-    let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
+    let content = StubContent::new();
 
     let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_pos, &content);
     assert!(reactions.is_empty(), "no AoO when enemy has no reactions left");
@@ -156,7 +109,7 @@ fn aoo_does_not_fire_when_enemy_has_no_weapon() {
     enemy.pos = enemy_pos;
 
     let state = state_with(vec![mover, enemy]);
-    let content = StubContent::no_weapon();
+    let content = StubContent::new();
 
     let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_pos, &content);
     assert!(reactions.is_empty(), "no AoO when enemy has no weapon");
@@ -176,7 +129,7 @@ fn aoo_does_not_fire_from_dead_enemy() {
     enemy.pools[storyforge::combat_engine::PoolKind::Hp] = Some((0, 20)); // dead
 
     let state = state_with(vec![mover, enemy]);
-    let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
+    let content = StubContent::new();
 
     let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_pos, &content);
     assert!(reactions.is_empty(), "dead enemy cannot fire AoO");
@@ -192,7 +145,7 @@ fn expand_reaction_emits_decrement_then_damage() {
 
     let reaction = Reaction::OpportunityAttack { from: UnitId(2), victim: UnitId(1) };
     let dice = DiceExpr::new(1, 6, 0);
-    let content = StubContent::with_weapon(dice);
+    let content = StubContent::new();
     let mut rng = ExpectedValue;
 
     // Attacker (UnitId(2)) needs aoo_dice for expand_reaction's eligibility check.
@@ -230,7 +183,7 @@ fn aoo_triggers_when_enemy_disengages_from_player() {
     attacker.aoo_dice = Some(DiceExpr::new(1, 6, 0));
 
     let state = state_with(vec![mover, attacker]);
-    let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
+    let content = StubContent::new();
 
     let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_pos, &content);
 
@@ -246,7 +199,7 @@ fn aoo_triggers_when_enemy_disengages_from_player() {
 #[test]
 fn expand_reaction_returns_empty_when_no_weapon() {
     let reaction = Reaction::OpportunityAttack { from: UnitId(2), victim: UnitId(1) };
-    let content = StubContent::no_weapon();
+    let content = StubContent::new();
     let mut rng = ExpectedValue;
 
     // Attacker (UnitId(2)) has no weapon (caster_context.weapon_dice = None by default).

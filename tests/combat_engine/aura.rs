@@ -25,43 +25,14 @@ use storyforge::combat_engine::{
 fn uid(n: u64) -> UnitId { UnitId(n) }
 
 fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
     let hp = if alive { 10 } else { 0 };
-    Unit::new(
-        id,
-        team,
-        pos,
-        0,
-        0,
-        0,
-        3,
-        3,
-        1,
-        1,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((hp, 10)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((20, 20)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    crate::common::engine_unit::EngineUnitBuilder::new(id.0)
+        .team(team)
+        .pos_hex(pos)
+        .hp(hp, 10)
+        .speed(3)
+        .mp(20, 20)
+        .build()
 }
 
 /// Build a `CombatState` from a unit list; turn-queue set to `order` at index 0.

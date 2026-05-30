@@ -255,53 +255,26 @@ fn magister_is_stunned_at_combat_start() {
 fn magister_skips_turns() {
     use storyforge::combat_engine::{
         action::Action,
-        content::{ContentView, StatusBonuses, StatusDef, UnitTemplate},
+        content::StatusDef,
         dice::DiceRng,
         event::{Event, TurnSkipReason},
         state::{ActiveStatus as EngineStatus, CombatState, RoundPhase, Team as EngineTeam, Unit, UnitId},
         step::step,
-        AbilityId, PoolKind, RegenRule, StatusId as EngineStatusId,
+        StatusId as EngineStatusId,
     };
 
     let hero_id = UnitId(1);
     let magister_id = UnitId(2);
 
     let make_unit = |id: UnitId, team: EngineTeam, col: i32, row: i32| -> Unit {
-        Unit::new(
-            id,
-            team,
-            storyforge::game::hex::hex_from_offset(col, row),
-            0,
-            0,
-            0,
-            3,
-            3,
-            1,
-            1,
-            vec![],
-            None,
-            Default::default(),
-            None,
-            vec![],
-            vec![],
-            storyforge::combat_engine::enum_map::enum_map! {
-                PoolKind::Hp     => Some((10, 10)),
-                PoolKind::Mana   => None,
-                PoolKind::Rage   => None,
-                PoolKind::Energy => None,
-                PoolKind::Ap     => Some((1, 1)),
-                PoolKind::Mp     => Some((3, 3)),
-            },
-            storyforge::combat_engine::enum_map::enum_map! {
-                PoolKind::Hp     => RegenRule::None,
-                PoolKind::Mana   => RegenRule::Increment(1),
-                PoolKind::Rage   => RegenRule::None,
-                PoolKind::Energy => RegenRule::Increment(1),
-                PoolKind::Ap     => RegenRule::RefillToMax,
-                PoolKind::Mp     => RegenRule::RefillToMax,
-            },
-            None,
-        )
+        crate::common::engine_unit::EngineUnitBuilder::new(id.0)
+            .team(team)
+            .pos(col, row)
+            .hp_full(10)
+            .speed(3)
+            .ap(1, 1)
+            .mp(3, 3)
+            .build()
     };
 
     let hero = make_unit(hero_id, EngineTeam::Player, 0, 0);
@@ -315,21 +288,11 @@ fn magister_skips_turns() {
 
     let mut state = CombatState::new(vec![hero, magister], 1, RoundPhase::ActorTurn, 0);
     state.set_turn_queue(vec![hero_id, magister_id], 0);
-    // Prime hero's turn.
-    struct StunContent;
-    static STUNNED_DEF: std::sync::LazyLock<StatusDef> =
-        std::sync::LazyLock::new(|| StatusDef { skips_turn: true, ..Default::default() });
-    impl ContentView for StunContent {
-        fn status_bonuses(&self, _: &EngineStatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn status_def(&self, id: &EngineStatusId) -> Option<&StatusDef> {
-            if id.0.as_str() == "stunned" { Some(&STUNNED_DEF) } else { None }
-        }
-        fn ability_def(&self, _: &AbilityId) -> Option<&storyforge::combat_engine::content::AbilityDef> { None }
-        fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
-    }
+    let content = crate::common::engine_unit::StubContent::new()
+        .with_status(EngineStatusId::from("stunned"), StatusDef { skips_turn: true, ..Default::default() });
 
     let mut rng = DiceRng::with_seed(42);
-    let result = step(&mut state, Action::EndTurn { actor: hero_id }, &mut rng, &StunContent);
+    let result = step(&mut state, Action::EndTurn { actor: hero_id }, &mut rng, &content);
     let (events, _ctx) = result.expect("EndTurn must succeed");
 
     let skipped_magister = events.iter().any(|e| {
@@ -395,48 +358,20 @@ fn engine_sees_magister_as_ally_of_hero() {
 fn apply_initial_statuses_engine_side() {
     use storyforge::combat_engine::{
         content::{ContentView as EngineContentView, StatusBonuses, StatusDef, UnitTemplate},
-        state::{CombatState, RoundPhase, Team as EngineTeam, Unit, UnitId},
+        state::{CombatState, RoundPhase, UnitId},
         AbilityId, PoolKind, RegenRule, StatusId as EngineStatusId,
     };
 
     let unit_id = UnitId(1);
 
     // Build a unit with template_id = "test_template" and no initial statuses.
-    let unit = Unit::new(
-        unit_id,
-        EngineTeam::Player,
-        storyforge::game::hex::hex_from_offset(0, 0),
-        0,  // armor
-        0,  // armor_bonus
-        0,  // damage_taken_bonus
-        3,  // base_speed
-        3,  // speed
-        1,  // reactions_left
-        1,  // reactions_max
-        vec![],
-        None,
-        Default::default(),
-        None,
-        vec![],
-        vec![],
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((10, 10)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((1, 1)),
-            PoolKind::Mp     => Some((3, 3)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        Some("test_template".to_string()),
-    );
+    let unit = crate::common::engine_unit::EngineUnitBuilder::new(unit_id.0)
+        .hp_full(10)
+        .speed(3)
+        .ap(1, 1)
+        .mp(3, 3)
+        .template("test_template")
+        .build();
 
     let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
 

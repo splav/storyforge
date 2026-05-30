@@ -11,13 +11,17 @@
 
 use storyforge::combat_engine::{
     content::ContentView,
-    state::{CombatState, RoundPhase, Team, Unit, UnitId},
+    state::{CombatState, RoundPhase, Unit, UnitId},
     turn_queue::TurnQueue,
 };
-use hexx::Hex;
+
+use crate::common::engine_unit::EngineUnitBuilder;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Returns `Some(&STUB_STATUS_DEF)` for every status — used by `start_round`
+/// which queries status bonuses on reactions reset. Distinct from StubContent
+/// (which returns None for unknown statuses).
 struct StubContent;
 
 static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef = storyforge::combat_engine::StatusDef {
@@ -39,44 +43,15 @@ impl ContentView for StubContent {
 
 fn uid(n: u64) -> UnitId { UnitId(n) }
 
+/// speed=3, Mp=3, reactions_left=0, hp depends on alive.
 fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
     let hp = if alive { 10 } else { 0 };
-    Unit::new(
-        id,
-        Team::Player,
-        Hex::ZERO,
-        0,  // armor
-        0,  // armor_bonus
-        0,  // damage_taken_bonus
-        3,  // base_speed
-        3,  // speed
-        0,  // reactions_left
-        reactions_max,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((hp, 10)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((3, 3)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id.0)
+        .hp(hp, 10)
+        .speed(3)
+        .mp(3, 3)
+        .reactions(0, reactions_max)
+        .build()
 }
 
 // ── TurnQueue: default / new / current / is_empty ────────────────────────────

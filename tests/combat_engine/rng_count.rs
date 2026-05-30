@@ -18,45 +18,18 @@ use storyforge::combat_engine::{
 };
 use hexx::Hex;
 
+use crate::common::engine_unit::EngineUnitBuilder;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+/// Ap=4, Mp=10 — rng_count defaults.
 fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        UnitId(id),
-        team,
-        pos,
-        0,
-        0,
-        0,
-        6,
-        6,
-        1,
-        1,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((20, 20)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((4, 4)),
-            PoolKind::Mp     => Some((10, 10)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id)
+        .team(team)
+        .pos_hex(pos)
+        .ap(4, 4)
+        .mp(10, 10)
+        .build()
 }
 
 // ── ContentView stubs ─────────────────────────────────────────────────────────

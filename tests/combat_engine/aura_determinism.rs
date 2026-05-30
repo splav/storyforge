@@ -1,64 +1,26 @@
 //! Verifies that `aura_membership_set` returns a BTreeSet with stable iteration
 //! order across 10 calls on the same state (Phase 5 gate §7 item 3).
 
-use storyforge::combat_engine::{AbilityId, AuraDef, StatusId, TeamRelation};
-use storyforge::combat_engine::content::{ContentView, StatusDef};
+use storyforge::combat_engine::{AuraDef, StatusId, TeamRelation};
 use storyforge::combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
 use hexx::Hex;
 
-// ── Minimal ContentView stub ──────────────────────────────────────────────────
-
-/// Minimal stub — aura geometry now lives on Unit.auras (5c.1).
-struct AuraContent;
-
-impl ContentView for AuraContent {
-    fn ability_def(&self, _: &AbilityId) -> Option<&storyforge::combat_engine::content::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::content::UnitTemplate> { None }
-}
+use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn uid(n: u64) -> UnitId { UnitId(n) }
 fn sid(s: &str) -> StatusId { StatusId(s.to_string()) }
 
+/// hp=10, speed=3, Mp=3 — aura_determinism defaults.
 fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        UnitId(id),
-        team,
-        pos,
-        0,
-        0,
-        0,
-        3,
-        3,
-        1,
-        1,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((10, 10)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((3, 3)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id)
+        .team(team)
+        .pos_hex(pos)
+        .hp_full(10)
+        .speed(3)
+        .mp(3, 3)
+        .build()
 }
 
 // ── Test ──────────────────────────────────────────────────────────────────────
@@ -84,7 +46,7 @@ fn aura_membership_set_iteration_order_is_stable() {
     let mut state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
     state.set_turn_queue(order, 0);
 
-    let content = AuraContent;
+    let content = StubContent::new();
 
     // Collect 10 snapshots of the iteration order.
     let snapshots: Vec<Vec<(UnitId, UnitId, StatusId)>> = (0..10)
@@ -123,7 +85,7 @@ fn aura_membership_set_sorted_by_unit_id() {
     let mut state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
     state.set_turn_queue(vec![src, tgt_a, tgt_b], 0);
 
-    let content = AuraContent;
+    let content = StubContent::new();
 
     let triples: Vec<_> = state.aura_membership_set(&content).into_iter().collect();
     assert_eq!(triples.len(), 2);

@@ -9,88 +9,46 @@
 //! - Event::PhaseEntered carries correct prev_max_hp / new_max_hp.
 
 use storyforge::combat_engine::{
-    content::{ContentView, PhaseEntry},
+    content::PhaseEntry,
     event::Event,
     state::{CombatState, EffectSource, RoundPhase, Team, Unit, UnitId},
-    StatusDef, StatusId,
 };
+
+use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn uid(n: u64) -> UnitId { UnitId(n) }
 
+/// Enemy unit, speed=3, Mp=3.
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        uid(id),
-        Team::Enemy,
-        hexx::Hex::ZERO,
-        0,  // armor
-        0,  // armor_bonus
-        0,  // damage_taken_bonus
-        3,  // base_speed
-        3,  // speed
-        1,  // reactions_left
-        1,  // reactions_max
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((hp, max_hp)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((3, 3)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id)
+        .team(Team::Enemy)
+        .pos_hex(hexx::Hex::ZERO)
+        .hp(hp, max_hp)
+        .speed(3)
+        .mp(3, 3)
+        .build()
 }
 
-/// Build a boss unit with pre-set phase triggers.
+/// Boss unit with pre-set phase triggers.
 fn make_boss(id: u64, hp: i32, max_hp: i32, phases: Vec<PhaseEntry>) -> Unit {
     let mut u = make_unit(id, hp, max_hp);
     u.enemy_phases = phases;
     u
 }
 
+/// Attacker: Player, pos (2,0), hp=30, Ap=3, Mp=3, reactions_left=0.
 fn make_attacker(id: u64) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        uid(id),
-        Team::Player,
-        hexx::Hex::new(2, 0),
-        0, 0, 0, 3, 3, 0, 1,
-        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((30, 30)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((3, 3)),
-            PoolKind::Mp     => Some((3, 3)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id)
+        .team(Team::Player)
+        .pos_hex(hexx::Hex::new(2, 0))
+        .hp_full(30)
+        .speed(3)
+        .ap(3, 3)
+        .mp(3, 3)
+        .reactions(0, 1)
+        .build()
 }
 
 fn make_state(units: Vec<Unit>, order: Vec<UnitId>) -> CombatState {
@@ -99,42 +57,9 @@ fn make_state(units: Vec<Unit>, order: Vec<UnitId>) -> CombatState {
     s
 }
 
-/// Minimal ContentView stub for phase tests — no status/ability data needed.
-struct PhaseContent;
-
-impl PhaseContent {
-    fn new(_boss_id: UnitId, _pct: i32, _new_max_hp: i32, _heal_to_full: bool) -> Self {
-        // Phase data now lives on Unit.enemy_phases; this stub carries none.
-        Self
-    }
-}
-
-impl ContentView for PhaseContent {
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
-        -> Option<&storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-}
-
-/// Minimal ContentView stub for two-phase tests.
-///
-/// Phase data lives on `Unit.enemy_phases`. The engine's `Effect::EnterPhase`
-/// handler pops `enemy_phases[0]` automatically after consuming the transition.
-struct TwoPhaseContent;
-
-impl TwoPhaseContent {
-    fn new(_boss_id: UnitId, _pct0: i32, _pct1: i32, _new_max_hp: i32) -> Self {
-        // Phase data is now set on the unit via make_boss(); this stub carries none.
-        Self
-    }
-}
-
-impl ContentView for TwoPhaseContent {
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
-        -> Option<&storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-}
+// Phase data lives on Unit.enemy_phases; content stubs carry none.
+fn phase_content() -> StubContent { StubContent::new() }
+fn two_phase_content() -> StubContent { StubContent::new() }
 
 // Helper to apply raw damage to a unit via the effect system.
 // We use Effect::Damage directly via apply_effect to isolate phase checks.
@@ -155,7 +80,7 @@ fn phase_trigger_fires_at_threshold() {
         ],
         vec![attacker, boss],
     );
-    let content = PhaseContent::new(boss, 50, 120, false);
+    let content = phase_content();
 
     // Apply a Damage effect of 25 raw (armor=0 → final=25; hp 60→35).
     let (derived, _ctx) = apply_effect(
@@ -185,7 +110,7 @@ fn non_triggering_damage_no_enter_phase() {
         ],
         vec![attacker, boss],
     );
-    let content = PhaseContent::new(boss, 50, 120, false);
+    let content = phase_content();
 
     let (derived, _) = apply_effect(
         &mut state,
@@ -214,7 +139,7 @@ fn preempt_death_phase_revives_unit() {
         ],
         vec![attacker, boss],
     );
-    let content = PhaseContent::new(boss, 50, 120, true);
+    let content = phase_content();
 
     // Phase triggers here (hp goes to 0 clamped by `u.hp() = (u.hp() - dmg).max(0)`):
     // actual engine code: hp = (60 - 70).max(0) = 0; 0 * 100 <= 100 * 50 → trigger.
@@ -262,7 +187,7 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
         ],
         vec![attacker, boss],
     );
-    let content = PhaseContent::new(boss, 50, 150, false);
+    let content = phase_content();
 
     // Trigger with 20 raw damage (hp 60→40, crosses 50%).
     let (derived, _) = apply_effect(
@@ -330,7 +255,7 @@ fn multi_threshold_each_damage_fires_own_phase() {
         ],
         vec![attacker, boss],
     );
-    let content = TwoPhaseContent::new(boss, 50, 25, 120);
+    let content = two_phase_content();
 
     // First Damage (55 raw, no armor → final=55, hp 100→45, crosses 50%).
     let (derived1, _) = apply_effect(
@@ -390,7 +315,7 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
         ],
         vec![attacker, boss],
     );
-    let content = PhaseContent::new(boss, 50, 120, true);
+    let content = phase_content();
 
     // Damage "other" to 0 (lethal).
     let (derived, _) = apply_effect(
@@ -425,7 +350,7 @@ fn preempt_death_no_died_event_in_stream() {
         ],
         vec![attacker, boss],
     );
-    let content = PhaseContent::new(boss, 50, 100, true);
+    let content = phase_content();
 
     let (derived, ctx_damage) = apply_effect(
         &mut state,

@@ -324,42 +324,16 @@ fn unit_all_some_fields() {
 
 #[test]
 fn unit_all_none_fields() {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    roundtrip(Unit::new(
-        uid(1),
-        Team::Enemy,
-        Hex::ORIGIN,
-        0,
-        0,
-        0,
-        3,
-        3,
-        0,
-        1,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((10, 10)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((3, 3)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    ));
+    roundtrip(
+        crate::common::engine_unit::EngineUnitBuilder::new(1)
+            .team(Team::Enemy)
+            .pos_hex(Hex::ORIGIN)
+            .hp_full(10)
+            .speed(3)
+            .mp(3, 3)
+            .reactions(0, 1)
+            .build()
+    );
 }
 
 // ── InitLine / StepLine ───────────────────────────────────────────────────────

@@ -612,7 +612,7 @@ fn entity_for_uid_lookup_works_for_summoned_units() {
 #[test]
 fn summoned_unit_can_act_in_ai_turn() {
     use bevy::prelude::App;
-    use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
+    use combat_engine::state::{CombatState, RoundPhase, Team, UnitId};
     use hexx::Hex;
     use storyforge::combat::ai::world::cache::{AiCache, UnitAiCache};
     use storyforge::combat::ai::world::snapshot::BattleSnapshot;
@@ -640,43 +640,15 @@ fn summoned_unit_can_act_in_ai_turn() {
         "synthetic_uid must differ from summon_entity.to_bits() for this test to be meaningful"
     );
 
-    // Build minimal engine Unit structs via Unit::new (Stage 3c: no hp/max_hp fields).
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    let make_engine_unit = |id: UnitId, team: Team| Unit::new(
-        id,
-        team,
-        Hex::new(0, 0),
-        0,  // armor
-        0,  // armor_bonus
-        0,  // damage_taken_bonus
-        4,  // base_speed
-        4,  // speed
-        1,  // reactions_left
-        1,  // reactions_max
-        vec![],
-        None,
-        Default::default(),
-        None,
-        vec![],
-        vec![],
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((20, 20)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((4, 4)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    );
+    // Build minimal engine Unit structs.
+    let make_engine_unit = |id: UnitId, team: Team| {
+        crate::common::engine_unit::EngineUnitBuilder::new(id.0)
+            .team(team)
+            .pos_hex(Hex::new(0, 0))
+            .speed(4)
+            .mp(4, 4)
+            .build()
+    };
 
     let state = CombatState::new(
         vec![

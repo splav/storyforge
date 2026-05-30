@@ -19,7 +19,7 @@ use storyforge::combat_engine::{
     AbilityDef, AbilityId, AbilityRange, AoEShape, DiceExpr, DiceRng, EffectDef,
     PhaseEntry, StatusDef, StatusId, TargetType,
     action::Action,
-    content::ContentView,
+    content::ContentView,  // used by record_then_replay signature
     event::Event,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
@@ -39,43 +39,17 @@ const SEED: u64 = 0xDEAD_BEEF_1234_5678;
 fn uid(n: u64) -> UnitId { UnitId(n) }
 fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
 
+use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
+
+/// speed=4, Ap=3, Mp=6 — replay defaults.
 fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        uid(id),
-        team,
-        pos,
-        0,
-        0,
-        0,
-        4,
-        4,
-        1,
-        1,
-        vec![],
-        None,
-        Default::default(),
-        None,
-        vec![],
-        vec![],
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((hp, max_hp)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((3, 3)),
-            PoolKind::Mp     => Some((6, 6)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id)
+        .team(team)
+        .pos_hex(pos)
+        .hp(hp, max_hp)
+        .speed(4)
+        .ap(3, 3)
+        .build()  // Mp default is (6,6) — matches
 }
 
 /// Build `InitLine` from a `CombatState` and a seed.
@@ -185,18 +159,10 @@ fn replay_pure_move_no_enemies() {
     let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![uid(1)], 0);
 
-    struct NoContent;
-    impl ContentView for NoContent {
-
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    }
-
     let path = vec![Hex::new(0, 0), Hex::new(1, 0), Hex::new(2, 0)];
     let actions = vec![Action::Move { actor: uid(1), path }];
 
-    let lines = record_then_replay(state, SEED, &NoContent, actions);
+    let lines = record_then_replay(state, SEED, &StubContent::new(), actions);
     assert_eq!(lines.len(), 1);
     // A move of length 2 uses 0 RNG calls.
     assert_eq!(lines[0].rng_calls, 0);
@@ -228,20 +194,12 @@ fn replay_move_with_aoo_chain() {
     );
     state.set_turn_queue(vec![uid(1), uid(2)], 0);
 
-    struct AooContent;
-    impl ContentView for AooContent {
-
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    }
-
     // Stepping from (0,0) → (-1,0): distance from (-1,0) to enemy (1,0) = 2
     // → no longer adjacent → AoO fires. Single-step path to keep it simple.
     let path = vec![Hex::new(0, 0), Hex::new(-1, 0)];
     let actions = vec![Action::Move { actor: uid(1), path }];
 
-    let lines = record_then_replay(state, SEED, &AooContent, actions);
+    let lines = record_then_replay(state, SEED, &StubContent::new(), actions);
     assert_eq!(lines.len(), 1);
     // AoO fires dice → rng_calls > 0
     assert!(
@@ -287,20 +245,7 @@ fn replay_cast_damage_basic() {
         statuses: vec![],
     };
 
-    struct DamageContent {
-        ability: AbilityDef,
-        ability_id: AbilityId,
-    }
-    impl ContentView for DamageContent {
-
-        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-            if id == &self.ability_id { Some(&self.ability) } else { None }
-        }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    }
-
-    let content = DamageContent { ability: ability.clone(), ability_id: ability_id.clone() };
+    let content = StubContent::new().with_ability(ability_id.0.clone(), ability.clone());
 
     let actions = vec![Action::Cast {
         actor: actor_id,
@@ -361,20 +306,7 @@ fn replay_phase_trigger() {
         statuses: vec![],
     };
 
-    struct PhaseContent {
-        ability: AbilityDef,
-        ability_id: AbilityId,
-    }
-    impl ContentView for PhaseContent {
-
-        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-            if id == &self.ability_id { Some(&self.ability) } else { None }
-        }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    }
-
-    let content = PhaseContent { ability, ability_id: ability_id.clone() };
+    let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
 
     let actions = vec![Action::Cast {
         actor: attacker_id,
@@ -513,17 +445,7 @@ fn replay_rng_count_divergence_detected() {
         statuses: vec![],
     };
 
-    struct DmgContent { ability: AbilityDef, id: AbilityId }
-    impl ContentView for DmgContent {
-
-        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-            if id == &self.id { Some(&self.ability) } else { None }
-        }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    }
-
-    let content = DmgContent { ability, id: ability_id.clone() };
+    let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
     let init = init_line_for(&state, SEED);
     let mut rng = DiceRng::with_seed(SEED);
 

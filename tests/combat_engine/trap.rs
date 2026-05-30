@@ -36,21 +36,21 @@ impl ContentView for Stub {
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
 }
 
+use crate::common::engine_unit::EngineUnitBuilder;
+
 fn unit(id: u64, team: Team, col: i32, hp: i32, rage: Option<(i32, i32)>) -> Unit {
-    use storyforge::combat_engine::{enum_map::enum_map, RegenRule};
-    Unit::new(
-        UnitId(id), team, hex_from_offset(col, 0), 0, 0, 0, 6, 6, 1, 1,
-        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
-        enum_map! {
-            PoolKind::Hp => Some((hp, 20)), PoolKind::Mana => None, PoolKind::Rage => rage,
-            PoolKind::Energy => None, PoolKind::Ap => Some((2, 2)), PoolKind::Mp => Some((6, 6)),
-        },
-        enum_map! {
-            PoolKind::Hp => RegenRule::None, PoolKind::Mana => RegenRule::None, PoolKind::Rage => RegenRule::None,
-            PoolKind::Energy => RegenRule::None, PoolKind::Ap => RegenRule::RefillToMax, PoolKind::Mp => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    use storyforge::combat_engine::RegenRule;
+    let mut b = EngineUnitBuilder::new(id)
+        .team(team)
+        .pos(col, 0)
+        .hp(hp, 20)
+        // Mana regen is None in trap tests (not the canonical Increment(1))
+        .regen(PoolKind::Mana, RegenRule::None)
+        .regen(PoolKind::Energy, RegenRule::None);
+    if let Some((cur, max)) = rage {
+        b = b.rage(cur, max);
+    }
+    b.build()
 }
 
 /// `n` damage (n×d1 = deterministic n), plus optional status on the victim.

@@ -4,25 +4,20 @@
 //! (direct status), all-stunned budget break, sirota DoT during dead-skip,
 //! NotCurrent rejection.
 
-use hexx::Hex;
-
 use storyforge::combat_engine::{
     action::{Action, ActionError},
-    content::{ContentView, StatusBonuses},
+    content::StatusBonuses,
     dice::ExpectedValue,
     event::{Event, TurnSkipReason},
     legality::IllegalReason,
-    state::{ActiveStatus, CombatState, RoundPhase, Team, Unit, UnitId},
+    state::{ActiveStatus, CombatState, RoundPhase, Unit, UnitId},
     step::step,
     StatusDef, StatusId,
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 
-/// StubContent that can report `skips_turn=true` for a specific status id.
-struct StubContent {
-    defs: std::collections::HashMap<StatusId, StatusDef>,
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn make_def(skips_turn: bool) -> StatusDef {
     StatusDef {
@@ -35,75 +30,16 @@ fn make_def(skips_turn: bool) -> StatusDef {
     }
 }
 
-impl StubContent {
-    fn plain() -> Self {
-        Self { defs: Default::default() }
-    }
-
-    fn with_stun(id: StatusId) -> Self {
-        let mut defs = std::collections::HashMap::new();
-        defs.insert(id, make_def(true));
-        Self { defs }
-    }
-
-    fn with_dot(id: StatusId) -> Self {
-        let mut defs = std::collections::HashMap::new();
-        defs.insert(id, make_def(false));
-        Self { defs }
-    }
-}
-
-impl ContentView for StubContent {
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
-        -> Option<&storyforge::combat_engine::AbilityDef> { None }
-
-    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
-        self.defs.get(id)
-    }
-
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-}
-
 fn uid(n: u64) -> UnitId { UnitId(n) }
 
+/// hp varies by alive, speed=3, Mp=3 — end_turn defaults.
 fn make_unit(id: u64, alive: bool) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
     let hp = if alive { 20 } else { 0 };
-    Unit::new(
-        UnitId(id),
-        Team::Player,
-        Hex::ZERO,
-        0,  // armor
-        0,  // armor_bonus
-        0,  // damage_taken_bonus
-        3,  // base_speed
-        3,  // speed
-        1,  // reactions_left
-        1,  // reactions_max
-        vec![],
-        None,
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((hp, 20)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((3, 3)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    EngineUnitBuilder::new(id)
+        .hp(hp, 20)
+        .speed(3)
+        .mp(3, 3)
+        .build()
 }
 
 fn make_state(units: Vec<Unit>, order: Vec<UnitId>, index: usize) -> CombatState {
@@ -137,7 +73,7 @@ fn mid_round_handoff() {
         &mut state,
         Action::EndTurn { actor: uid(1) },
         &mut ExpectedValue,
-        &StubContent::plain(),
+        &StubContent::new(),
     )
     .expect("mid-round handoff must succeed");
 
@@ -160,7 +96,7 @@ fn end_of_round_wraps_and_emits_round_started() {
         vec![uid(1), uid(2)],
         1,
     );
-    let content = StubContent::plain();
+    let content = StubContent::new();
 
     let (events, _ctx) = step(
         &mut state,
@@ -196,7 +132,7 @@ fn dead_skip_in_middle_of_round() {
         &mut state,
         Action::EndTurn { actor: uid(1) },
         &mut ExpectedValue,
-        &StubContent::plain(),
+        &StubContent::new(),
     )
     .expect("dead-skip must succeed");
 
@@ -224,7 +160,7 @@ fn stunned_skip_via_direct_status_wraps_to_next_round() {
         vec![uid(1), uid(2)],
         0,
     );
-    let content = StubContent::with_stun(stun_id);
+    let content = StubContent::new().with_status(stun_id, make_def(true));
 
     let (events, _ctx) = step(
         &mut state,
@@ -257,7 +193,7 @@ fn round_wrap_skips_first_actor_if_stunned() {
         vec![uid(1), uid(2), uid(3)],
         2, // C is current
     );
-    let content = StubContent::with_stun(stun_id);
+    let content = StubContent::new().with_status(stun_id, make_def(true));
 
     let (events, _ctx) = step(
         &mut state,
@@ -300,7 +236,7 @@ fn sirota_dot_propagates_when_dead_unit_skipped() {
         vec![uid(1), uid(2), uid(3)],
         0,
     );
-    let content = StubContent::with_dot(dot_id.clone());
+    let content = StubContent::new().with_status(dot_id.clone(), make_def(false));
 
     let (events, _ctx) = step(
         &mut state,
@@ -339,7 +275,7 @@ fn rejects_when_actor_not_current() {
         &mut state,
         Action::EndTurn { actor: uid(2) }, // B tries to end turn
         &mut ExpectedValue,
-        &StubContent::plain(),
+        &StubContent::new(),
     )
     .expect_err("non-current actor must be rejected");
 
@@ -361,7 +297,7 @@ fn all_stunned_budget_breaks_loop() {
         vec![uid(1), uid(2)],
         0,
     );
-    let content = StubContent::with_stun(stun_id);
+    let content = StubContent::new().with_status(stun_id, make_def(true));
 
     let result = step(
         &mut state,
