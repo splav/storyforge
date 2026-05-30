@@ -38,7 +38,7 @@ Canonical full run (must stay green): `cargo nextest run --workspace --features 
 |---|---|---|---|---|
 | **0** | Pure deletions & renames (zero-value / tautological tests) | S | Very low | ✅ committed `572d197` |
 | **1** | Shared engine-`Unit` builder + `StubContent` (kill ~20× `make_unit` + stub explosion) | L | Low-med | ✅ complete & green, uncommitted |
-| **2** | Reuse `bridge_app()` + dedup `replay_bin` | M | Low-med | ⬜ not started |
+| **2** | Reuse `bridge_app()` + dedup `replay_bin` | M | Low-med | ✅ complete & green, uncommitted |
 | **3** | Relocate layer-inverted tests + finish sim_parity relocation | M | Medium | ⬜ not started |
 | **4** | Parameterize/split too-long tests (rstest), retire `role.rs:531` snapshot | L | Medium | ⬜ not started |
 
@@ -169,10 +169,19 @@ zero-equivalent). Config: `new()`/`Default`, `with_ability`, `with_status`,
 
 ---
 
-## Phase 2 — reuse `bridge_app()` + dedup `replay_bin` (not started)
+## Phase 2 — reuse `bridge_app()` + dedup `replay_bin` (DONE, green, uncommitted)
 
-Replace the bridge-app reimplementations with the shared `bridge_app()` helper;
-deduplicate the `replay_bin` setup.
+- **Part A:** deleted the local `bridge_app()` reimplementation in
+  `tests/combat_engine/legality_parity.rs` (verified byte-equivalent to the
+  shared one), pointed its 2 call sites at `common::apps::bridge::bridge_app()`,
+  pruned the now-unused resource/system imports.
+- **Part B:** extracted `tests/common/bin.rs::sibling_bin(name)` (a
+  profile-agnostic `current_exe` walk-up) and routed all three duplicated
+  binary-path helpers through it: `golden_smoke.rs` + `combat/replay_assert.rs`
+  (both `replay_ai_log`) and `replay_diff_smoke.rs` (`replay_diff`, previously a
+  hardcoded `target/debug/` path — now profile-agnostic). `golden_smoke.rs`
+  gained a `#[path="common/mod.rs"] mod common;` declaration.
+- Net ~−77 LOC. `cargo nextest run --workspace --features dev` → 1332 / 1 skipped.
 
 ## Phase 3 — relocate layer-inverted tests (not started)
 

@@ -9,18 +9,11 @@
 //! — clones come without a baseline, and we don't want a missing artifact to
 //! mask other test failures.
 
+#[path = "common/mod.rs"]
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-fn replay_bin() -> PathBuf {
-    let mut path = std::env::current_exe().expect("current_exe");
-    path.pop();
-    if !path.join("replay_ai_log").exists() && path.ends_with("deps") {
-        path.pop();
-    }
-    path.push("replay_ai_log");
-    path
-}
 
 /// Relative to `CARGO_MANIFEST_DIR`. Bump the filename when `SCHEMA_VERSION`
 /// bumps; see `docs/ai/extension-checklist.md` § SCHEMA_VERSION bump.
@@ -79,7 +72,7 @@ fn golden_baseline_zero_diff() {
         "no scenario fixtures found under tests/ai_scenarios/snapshots/"
     );
 
-    let out = Command::new(replay_bin())
+    let out = Command::new(common::bin::sibling_bin("replay_ai_log"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .arg("--compare-golden")
         .arg(BASELINE_REL)

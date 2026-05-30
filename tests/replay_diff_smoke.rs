@@ -77,12 +77,8 @@ fn write_tempfile(content: &str, name: &str) -> PathBuf {
     path
 }
 
-fn binary_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/replay_diff")
-}
-
 fn run_binary(a: &PathBuf, b: &PathBuf) -> std::process::Output {
-    Command::new(binary_path())
+    Command::new(common::bin::sibling_bin("replay_diff"))
         .arg(a)
         .arg(b)
         .output()

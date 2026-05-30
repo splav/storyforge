@@ -19,13 +19,9 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 use storyforge::combat::engine_bridge::{
-    apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
-    bootstrap_combat_state, entity_to_uid, process_action_system,
-    project_state_to_ecs, BridgeQueues, CombatStateRes, UnitIdMap,
+    bootstrap_combat_state, entity_to_uid, CombatStateRes,
 };
 use storyforge::combat::legality_adapter::BevyActions;
-use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::combat::DiceRngRes;
 use storyforge::combat_engine::{
     check_legality, AbilityDef, AbilityRange, AoEShape, DiceExpr, EffectDef,
     EngineCheckState, IllegalReason, LegalAction, ProposedAction, ResourceKind,
@@ -38,18 +34,12 @@ use storyforge::content::content_view::{ActiveContent, ContentView as BevyConten
 use storyforge::content::statuses::StatusDef as BevyStatusDef;
 use combat_engine::AbilityId;
 use storyforge::game::bundles::CombatantBundle;
-use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{
     ActionPoints, ActiveStatus as EcsActiveStatus, CombatStats, Equipment, Mana,
     StatusEffects, Team, ValidationActorQ, ValidationTargetQ,
 };
 use storyforge::game::hex::hex_from_offset;
-use storyforge::game::messages::ActionInput;
-use storyforge::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatEnvironment, HexCorpses, HexPositions, TurnQueue, UiDirty,
-};
-use storyforge::ui::animation::AnimationQueue;
-use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
+use storyforge::game::resources::{HexCorpses, HexPositions};
 
 // ── IDs ───────────────────────────────────────────────────────────────────────
 
@@ -80,50 +70,6 @@ impl<'a> EngineContentView for TestEngineContent<'a> {
     fn unit_template(&self, _: &str) -> Option<UnitTemplate> {
         None
     }
-}
-
-// ── App fixture ───────────────────────────────────────────────────────────────
-
-fn bridge_app() -> App {
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .init_resource::<CombatStateRes>()
-        .init_resource::<UnitIdMap>()
-        .init_resource::<HexPositions>()
-        .init_resource::<HexCorpses>()
-        .init_resource::<TurnQueue>()
-        .init_resource::<CombatContext>()
-        .init_resource::<CombatBlockedHexes>()
-        .init_resource::<CombatEnvironment>()
-        .init_resource::<UiDirty>()
-        .init_resource::<ActiveContent>()
-        .init_resource::<DiceRngRes>()
-        .init_resource::<CombatLog>()
-        .init_resource::<AnimationQueue>()
-        .insert_resource(HexGridOffset(Vec2::ZERO))
-        .insert_resource(AbilityTagCache::default())
-        .insert_resource(HexMaterials::default())
-        .insert_resource(TokenMesh {
-            token: Handle::default(),
-            ring: Handle::default(),
-        })
-        .init_resource::<BridgeQueues>()
-        .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
-        .init_resource::<storyforge::combat::ai::log::AiLogger>()
-        .init_resource::<storyforge::combat::ai::log::PendingAiLogEntries>()
-        .add_message::<ActionInput>()
-        .add_systems(
-            Update,
-            (
-                process_action_system,
-                apply_bridge_queues_pre_projection,
-                project_state_to_ecs,
-                apply_bridge_queues_post_projection,
-                storyforge::combat::ai::log::flush_pending_ai_log_system,
-            )
-                .chain(),
-        );
-    app
 }
 
 fn init_bridge_engine_state(app: &mut App) {
@@ -303,7 +249,7 @@ type CaseResult = (
 /// 12 canonical cases; each exercises a distinct rule branch.
 #[test]
 fn legality_parity_bevy_vs_engine() {
-    let mut app = bridge_app();
+    let mut app = super::common::apps::bridge::bridge_app();
 
     // ── Insert content ────────────────────────────────────────────────────────
     insert_attack(&mut app);
@@ -639,7 +585,7 @@ fn legality_parity_bevy_vs_engine() {
 /// enforces the fix: both taunters are legal targets; a non-taunter is not.
 #[test]
 fn multi_taunter_both_are_legal_targets() {
-    let mut app = bridge_app();
+    let mut app = super::common::apps::bridge::bridge_app();
 
     insert_attack(&mut app);
     insert_taunt_status(&mut app);

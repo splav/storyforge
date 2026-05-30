@@ -11,19 +11,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Path to the binary under test.
-fn replay_bin() -> std::path::PathBuf {
-    // Cargo places the binary next to the test binary.
-    let mut path = std::env::current_exe().expect("current_exe");
-    path.pop(); // strip binary name
-    // May be in deps/ subdirectory — walk up once if needed.
-    if !path.join("replay_ai_log").exists() && path.ends_with("deps") {
-        path.pop();
-    }
-    path.push("replay_ai_log");
-    path
-}
-
 /// Single-entry v28 fixture. Actor = Зверокров Страж (id 51539607196),
 /// intent = FocusTarget, decision = MoveAndCast (melee_attack, target
 /// 42949672607). Rebuilt from beastblood_raid playtest 26 апр. 2026;
@@ -44,7 +31,7 @@ fn temp_overlay(content: &str) -> PathBuf {
 
 fn run_assert(overlay_content: &str, extra_args: &[&str]) -> std::process::Output {
     let overlay_path = temp_overlay(overlay_content);
-    Command::new(replay_bin())
+    Command::new(super::common::bin::sibling_bin("replay_ai_log"))
         .arg(LOG_PATH)
         .arg("--assert")
         .arg(&overlay_path)
@@ -167,7 +154,7 @@ decision_kind = ["MoveAndCast"]
 /// Missing overlay file → exit 2.
 #[test]
 fn missing_overlay_exit_2() {
-    let out = Command::new(replay_bin())
+    let out = Command::new(super::common::bin::sibling_bin("replay_ai_log"))
         .arg(LOG_PATH)
         .arg("--assert")
         .arg("/nonexistent/path/overlay.expected.toml")
