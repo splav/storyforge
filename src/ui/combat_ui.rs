@@ -190,6 +190,14 @@ pub fn update_phase_hint(
     let Ok(mut t) = phase_q.single_mut() else {
         return;
     };
+    // Objective text is phase-independent; compute it once so transient phases
+    // (e.g. StartRound) can show the goal too rather than leaking a raw phase
+    // Debug name into the HUD.
+    let mut goal = objective.0.objective_text();
+    if let Some(suffix) = &deadline_suffix {
+        goal.push_str(suffix);
+    }
+
     t.0 = match phase.get() {
         CombatPhase::AwaitCommand => {
             let actor_info = active_q
@@ -201,10 +209,6 @@ pub fn update_phase_hint(
                 .map(|(n, _, _)| n.as_str())
                 .unwrap_or("Враг");
 
-            let mut goal = objective.0.objective_text();
-            if let Some(suffix) = &deadline_suffix {
-                goal.push_str(suffix);
-            }
             if actor_info.is_some() {
                 let mut hints: Vec<&str> = Vec::new();
                 if sel.move_mode {
@@ -224,7 +228,9 @@ pub fn update_phase_hint(
         }
         CombatPhase::Victory => "★  ПОБЕДА  (Space)".into(),
         CombatPhase::Defeat => "✗  ПОРАЖЕНИЕ  (Space)".into(),
-        p => format!("{p:?}"),
+        // Transient phases (e.g. StartRound): show the objective, not the raw
+        // Debug phase name (which previously leaked "StartRound" into the HUD).
+        _ => format!("Цель: {goal}"),
     };
 }
 
