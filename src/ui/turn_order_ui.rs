@@ -6,7 +6,7 @@ use crate::content::weapons::WeaponDef;
 use combat_engine::{ArmorId, WeaponId};
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, ResourceCost};
 use combat_engine::ResourceKind;
-use crate::game::components::{Abilities, Combatant, Dead, Equipment, Faction, Team, Vital};
+use crate::game::components::{Abilities, ActiveCombatant, Combatant, Dead, Equipment, Faction, Team, Vital};
 use crate::game::resources::{TurnQueue, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
@@ -85,6 +85,7 @@ pub fn update_turn_order(
     dirty: Res<UiDirty>,
     queue: Res<TurnQueue>,
     combatants: Query<(&Name, &Vital, &Faction, Has<Dead>), With<Combatant>>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     mut cards: Query<(
         &TurnOrderCard,
         &mut BorderColor,
@@ -98,8 +99,27 @@ pub fn update_turn_order(
     }
 
     let len = queue.order.len();
+    if len == 0 {
+        for (_, _, _, mut vis) in &mut cards {
+            *vis = Visibility::Hidden;
+        }
+        for (_, mut text, _) in &mut name_texts {
+            text.0.clear();
+        }
+        return;
+    }
+
+    // Find the active-slot index: the position in queue.order of the entity
+    // that currently holds ActiveCombatant.  Falls back to queue.index if no
+    // ActiveCombatant is set (e.g. during a brief transition frame).
+    let active_idx = active_q
+        .single()
+        .ok()
+        .and_then(|ent| queue.order.iter().position(|&e| e == ent))
+        .unwrap_or(queue.index);
+
     let display: Vec<(usize, bool)> = (0..len.min(MAX_TURN_CARDS))
-        .map(|i| ((queue.index + i) % len, i == 0))
+        .map(|i| ((active_idx + i) % len, i == 0))
         .collect();
 
     for (card, mut border, mut bg, mut vis) in &mut cards {
@@ -159,6 +179,7 @@ pub fn update_turn_order(
 
 pub fn update_turn_order_tooltip(
     queue: Res<TurnQueue>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     cards: Query<(&TurnOrderCard, &Interaction)>,
     combatants: Query<(&Name, &Equipment, &Abilities), With<Combatant>>,
     content: Res<ActiveContent>,
@@ -180,7 +201,14 @@ pub fn update_turn_order_tooltip(
         return;
     }
 
-    let queue_idx = (queue.index + card.0) % len;
+    // Use ActiveCombatant to find the active slot index (same logic as update_turn_order).
+    let active_idx = active_q
+        .single()
+        .ok()
+        .and_then(|ent| queue.order.iter().position(|&e| e == ent))
+        .unwrap_or(queue.index);
+
+    let queue_idx = (active_idx + card.0) % len;
     let entity = queue.order[queue_idx];
 
     let Ok((name, equipment, abilities)) = combatants.get(entity) else {

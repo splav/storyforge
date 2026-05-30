@@ -3,16 +3,13 @@ use crate::app_state::CombatPhase;
 use crate::combat::ai::world::reservations::Reservations;
 use combat_engine::modifier;
 use crate::combat::DiceRngRes;
-use crate::game::components::{ActiveCombatant, CombatStats, Combatant, Initiative, Vital};
+use crate::game::components::{CombatStats, Combatant, Initiative, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 use bevy::prelude::*;
 
 
-/// Build the turn order for a new round.
-/// Initiative is rolled once (round 1) and reused in all subsequent rounds.
 pub fn build_turn_order(
-    mut commands: Commands,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
     mut log: ResMut<CombatLog>,
@@ -20,7 +17,6 @@ pub fn build_turn_order(
     mut preset: ResMut<PresetInitiative>,
     mut reservations: ResMut<Reservations>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
-    active_q: Query<Entity, With<ActiveCombatant>>,
     mut combatants: Query<
         (
             Entity,
@@ -33,14 +29,9 @@ pub fn build_turn_order(
     >,
 ) {
     ctx.round += 1;
-    // On round 2+ the engine already emitted RoundStarted via translate_end_turn_events;
-    // only emit here on round 1 to avoid duplicate log entries.
-    let first_round = ctx.round == 1;
-    if first_round {
-        log.push(CombatEvent::RoundStarted { round: ctx.round });
-    }
     reservations.clear();
 
+    let first_round = ctx.round == 1;
     let use_preset = first_round && !preset.0.is_empty();
 
     // (entity, total) for ordering; (entity, dex_mod, roll, total) for logging on round 1.
@@ -48,10 +39,9 @@ pub fn build_turn_order(
 
     // Include ALL combatants (alive and dead) so that dead units still
     // get a "virtual turn" where their applied statuses tick down.
-    // Track alive status in the tuple so we can find the first-alive index after sorting.
-    let mut order: Vec<(Entity, i32, bool)> = combatants
+    let mut order: Vec<(Entity, i32)> = combatants
         .iter_mut()
-        .map(|(e, name, mut init, stats, v)| {
+        .map(|(e, name, mut init, stats, _v)| {
             if first_round {
                 if use_preset {
                     if let Some(&saved) = preset.0.get(name.as_str()) {
@@ -75,7 +65,7 @@ pub fn build_turn_order(
             // 2+ (engine refills internally, projector writes back) and
             // unnecessary on round 1 (CombatantBundle initialises Reactions at
             // max). Deleted in Phase 6 cleanup #4.
-            (e, init.0, v.is_alive())
+            (e, init.0)
         })
         .collect();
 
@@ -95,21 +85,18 @@ pub fn build_turn_order(
 
     order.sort_by(|a, b| b.1.cmp(&a.1));
 
-    // First-alive index — dead actors stay in queue.order for status ticks but
-    // mustn't hold ActiveCombatant (freezes AI/player command systems).
-    let first_alive_idx = order.iter().position(|(_, _, alive)| *alive).unwrap_or(0);
+    queue.order = order.into_iter().map(|(e, _)| e).collect();
+    // The engine settles from index 0; bootstrap_combat_state calls
+    // settle_round_start() which advances past dead/stunned actors.
+    // project_state_to_ecs mirrors engine.turn_queue.index back to queue.index
+    // so the turn-order UI always shows the correct active slot.
+    queue.index = 0;
 
-    queue.order = order.into_iter().map(|(e, _, _)| e).collect();
-    queue.index = first_alive_idx;
-
-    for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
-    if let Some(first) = queue.current() {
-        commands.entity(first).insert(ActiveCombatant);
-        // Same as RoundStarted: on round 2+ the engine already emitted TurnStarted.
-        if first_round {
-            log.push(CombatEvent::TurnStarted { actor: first });
-        }
-    }
+    // ActiveCombatant is NOT touched here. The engine's TurnEnded/TurnSkipped
+    // events (→ remove_active) remove the old holder, and TurnStarted
+    // (→ insert_active) sets the new one. apply_bridge_queues_pre_projection
+    // always drains both queues. On restart, combatants are despawned entirely
+    // so no stale ActiveCombatant component can survive.
 
     next_phase.set(CombatPhase::AwaitCommand);
 }

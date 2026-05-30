@@ -388,9 +388,10 @@ pub struct BridgeQueues {
 pub struct BridgeTurnLifecycle {
     pub remove_active: Vec<UnitId>,
     pub insert_active: Vec<UnitId>,
-    /// When true, a `RoundStarted` was seen this frame; `StartRound` transition
-    /// is scheduled and `insert_active` is suppressed because `build_turn_order`
-    /// will set `ActiveCombatant` on the new actor during re-entry.
+    /// When true, a `RoundStarted` was seen this frame; a `StartRound` transition
+    /// is scheduled by `apply_bridge_queues_pre_projection`.  `insert_active` is
+    /// always drained in the same call — the `BumpRound`-settled actor is inserted
+    /// via `insert_active` before `build_turn_order` runs in the next StartRound frame.
     pub round_started: bool,
 }
 
@@ -655,6 +656,16 @@ pub struct ContentParams<'w, 's> {
 /// Drains the pre-projection half of [`BridgeQueues`]: deaths and turn-lifecycle.
 ///
 /// Runs after `process_action_system`, before `project_state_to_ecs`.
+///
+/// Turn-lifecycle drain order: `remove_active` first (evict old/skipped holder),
+/// then `insert_active` (set new holder) → exactly one `ActiveCombatant` at all
+/// times, no empty frame between remove and insert.
+///
+/// `round_started`: schedules the `StartRound` phase transition and resets the
+/// flag.  `insert_active` is **always** drained — `BumpRound`'s `TurnStarted`
+/// pushes the engine-settled actor into `insert_active`, and `build_turn_order`
+/// no longer does a blanket `remove::<ActiveCombatant>`, so draining here is
+/// safe and correct for both round-boundary and mid-round handoffs.
 pub fn apply_bridge_queues_pre_projection(
     mut queues: ResMut<BridgeQueues>,
     id_map: Res<UnitIdMap>,
@@ -668,25 +679,27 @@ pub fn apply_bridge_queues_pre_projection(
         }
     }
 
-    // Turn lifecycle
+    // Turn lifecycle — remove before insert to maintain exactly-one invariant.
     for uid in std::mem::take(&mut queues.turn_lifecycle.remove_active) {
         if let Some(ent) = id_map.get_entity(uid) {
             commands.entity(ent).remove::<ActiveCombatant>();
         }
     }
+
     if queues.turn_lifecycle.round_started {
+        // Schedule the StartRound phase transition; reset the flag.
+        // insert_active is drained below (same path as mid-round) so the
+        // BumpRound-settled actor gets ActiveCombatant before StartRound runs.
         if let Some(ref mut np) = next_phase {
             np.set(CombatPhase::StartRound);
         }
-        // round_started suppresses insert_active: build_turn_order will set
-        // ActiveCombatant on the new actor during the next StartRound chain.
-        queues.turn_lifecycle.insert_active.clear();
         queues.turn_lifecycle.round_started = false;
-    } else {
-        for uid in std::mem::take(&mut queues.turn_lifecycle.insert_active) {
-            if let Some(ent) = id_map.get_entity(uid) {
-                commands.entity(ent).insert(ActiveCombatant);
-            }
+    }
+
+    // Always drain insert_active (covers both mid-round handoff and round-boundary).
+    for uid in std::mem::take(&mut queues.turn_lifecycle.insert_active) {
+        if let Some(ent) = id_map.get_entity(uid) {
+            commands.entity(ent).insert(ActiveCombatant);
         }
     }
 }
@@ -1212,11 +1225,12 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
         Event::TurnStarted { actor } => {
             if let Some(ent) = ctx.id_map.get_entity(*actor) {
-                if !ctx.queues.turn_lifecycle.round_started {
-                    // Mid-round handoff: insert ActiveCombatant on the new actor.
-                    // After RoundStarted, build_turn_order inserts it on re-entry.
-                    ctx.queues.turn_lifecycle.insert_active.push(*actor);
-                }
+                // Always queue insert_active — the engine is the sole authority
+                // for whose turn it is. Works uniformly for:
+                //   round 1: settle_round_start (bootstrap)
+                //   round 2+: BumpRound cascade
+                //   mid-round: normal EndTurn handoff
+                ctx.queues.turn_lifecycle.insert_active.push(*actor);
                 ctx.log.push(CombatEvent::TurnStarted { actor: ent });
             }
         }
@@ -1863,18 +1877,19 @@ pub fn bootstrap_combat_state(
         .collect();
     // In production StartRound chain, build_turn_order always runs first so
     // uid_order is non-empty.  Tests that call bootstrap directly without
-    // build_turn_order may have an empty queue — skip set_turn_queue in that
-    // case (tests set ActiveCombatant manually instead).
+    // build_turn_order may have an empty queue — skip settle in that case
+    // (tests set ActiveCombatant manually instead).
     if !uid_order.is_empty() {
-        state.set_turn_queue(uid_order, ecs_queue.index);
-    }
+        // Always start from index 0; settle_round_start advances past dead/stunned.
+        state.set_turn_queue(uid_order, 0);
 
-    // ── Prime the first actor's turn ──────────────────────────────────────────
-    // On round 2+, start_actor_turn is called by the engine's EndTurn cascade.
-    // On round 1, the cascade hasn't fired yet, so bootstrap primes it here.
-    if let Some(first_actor) = state.turn_queue.current() {
+        // ── Settle round start (skip dead/stunned, prime first valid actor) ────
+        // settle_round_start emits: RoundStarted, TurnSkipped* (for each skip),
+        // TurnStarted, start_actor_turn events for the settled actor.
+        // translate_one(TurnStarted) → insert_active → ActiveCombatant set on
+        // the correct actor after apply_bridge_queues_pre_projection drains it.
         let content = build_ecs_content_view(&active_content);
-        let events = state.start_actor_turn(first_actor, &content);
+        let events = state.settle_round_start(&content);
 
         let mut tick_ctx = TranslateCtx {
             log: &mut log,
@@ -1891,10 +1906,21 @@ pub fn bootstrap_combat_state(
                 queues.phases.push((*unit, *phase_idx));
             }
         }
+
+        // settle_round_start emitted RoundStarted (→ round_started=true) and
+        // TurnStarted (→ insert_active.push(settled actor)). We are ALREADY in
+        // StartRound, so clear round_started to stop apply_bridge_queues_pre_projection
+        // (in AwaitCommand's Execute chain) from scheduling a spurious second
+        // StartRound transition. Leave insert_active intact: that same system drains
+        // it on the first AwaitCommand/Execute frame, setting ActiveCombatant on the
+        // settled actor (Command no-ops that one frame, then acts). Tests that call
+        // bootstrap directly (init_engine_state) invoke that drain explicitly.
+        queues.turn_lifecycle.round_started = false;
     }
 
     combat_state.0 = state;
 }
+
 
 // ── reset_engine_mirrors ──────────────────────────────────────────────────────
 

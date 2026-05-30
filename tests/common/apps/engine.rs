@@ -86,7 +86,12 @@ pub fn movement_app() -> App {
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
         )
-        .add_systems(Update, build_turn_order.run_if(in_state(CombatPhase::StartRound)));
+        .add_systems(
+            Update,
+            (build_turn_order, bootstrap_combat_state)
+                .chain()
+                .run_if(in_state(CombatPhase::StartRound)),
+        );
     enter_await_command(&mut app);
     app
 }
@@ -97,9 +102,16 @@ pub fn movement_app() -> App {
 /// units are spawned), so bootstrap does not fire on entry.  Call this
 /// after your spawn block and any direct ECS mutations, but before the first
 /// `write_message`.
+///
+/// After bootstrap, `insert_active` holds the engine-settled actor.  We drain
+/// it immediately via `apply_bridge_queues_pre_projection` so that
+/// `ActiveCombatant` is set before any action is processed in the test.
 pub fn init_engine_state(app: &mut App) {
     use bevy::ecs::system::RunSystemOnce;
     app.world_mut()
         .run_system_once(bootstrap_combat_state)
         .expect("bootstrap_combat_state failed");
+    app.world_mut()
+        .run_system_once(apply_bridge_queues_pre_projection)
+        .expect("apply_bridge_queues_pre_projection failed");
 }
