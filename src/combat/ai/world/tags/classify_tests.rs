@@ -102,7 +102,7 @@ fn make_ability(
             effect,
             statuses,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     }
 }

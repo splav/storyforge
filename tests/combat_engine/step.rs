@@ -654,3 +654,164 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     assert!(died.unwrap()  < ended.unwrap(),   "UnitDied must precede TurnEnded");
     assert!(ended.unwrap() < started.unwrap(), "TurnEnded must precede TurnStarted");
 }
+
+// ── Wave-1 tests: per-step MP, interrupt flag, halt semantics ────────────────
+
+/// A clean N-hex move (no enemies/traps/auras) decrements MP by exactly N,
+/// emits exactly N `UnitMoved` events, and `ctx.interrupted == false`.
+#[test]
+fn per_step_mp_exact() {
+    let n = 3usize;
+    let mut mover = make_unit(1, Team::Player, 0, 0);
+    mover.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
+    let mut state = state_with(vec![mover]);
+
+    let path: Vec<_> = (1..=(n as i32)).map(|c| hex_from_offset(c, 0)).collect();
+    let (events, ctx) = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .expect("clean move must succeed");
+
+    // N UnitMoved events (one per step).
+    let moved_count = events.iter().filter(|e| matches!(e, Event::UnitMoved { actor, .. } if *actor == UnitId(1))).count();
+    assert_eq!(moved_count, n, "expected {n} UnitMoved events");
+
+    // MP decremented by exactly N (6 - 3 = 3).
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    assert_eq!(mp, 6 - n as i32, "MP decremented by exactly {n}");
+
+    // Not interrupted.
+    assert!(!ctx.interrupted, "clean move must not set interrupted");
+}
+
+/// Mover adjacent to TWO enemies, a single step leaves BOTH enemies' reach.
+/// Both `ReactionFired` (and `UnitDamaged`) fire; then if the path had more
+/// hexes they are truncated.  `ctx.interrupted == true`.
+///
+/// A second move action from the now-safe position over open ground must
+/// complete fully with `ctx.interrupted == false`.
+#[test]
+fn aoo_leaving_two_enemies_both_fire_then_halt() {
+    let start  = hex_from_offset(0, 0);
+    let step1  = hex_from_offset(5, 5); // far away — leaves BOTH enemies' reach
+    let step2  = hex_from_offset(6, 5); // second step (never reached)
+
+    // Both enemies adjacent to start, not adjacent to step1.
+    let neighbors = start.all_neighbors();
+    let enemy_a_pos = neighbors[0];
+    let enemy_b_pos = neighbors[1];
+    assert_ne!(step1.unsigned_distance_to(enemy_a_pos), 1, "step1 not adjacent to A");
+    assert_ne!(step1.unsigned_distance_to(enemy_b_pos), 1, "step1 not adjacent to B");
+
+    let aoo_dice = DiceExpr::new(0, 6, 2); // 2 raw, non-lethal on 20hp
+
+    let mut mover = make_unit(1, Team::Player, 0, 0);
+    mover.pos = start;
+    mover.pools[combat_engine::PoolKind::Mp] = Some((10, 10));
+
+    let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
+    enemy_a.pos = enemy_a_pos;
+    enemy_a.reactions_left = 1;
+    enemy_a.aoo_dice = Some(aoo_dice);
+
+    let mut enemy_b = make_unit(3, Team::Enemy, 0, 0);
+    enemy_b.pos = enemy_b_pos;
+    enemy_b.reactions_left = 1;
+    enemy_b.aoo_dice = Some(aoo_dice);
+
+    let mut state = CombatState::new(
+        vec![mover, enemy_a, enemy_b],
+        1,
+        RoundPhase::ActorTurn,
+        0,
+    );
+    let content = StubContent::with_weapon(aoo_dice);
+
+    // First move: 2-hex path, AoO on step1 → halt, step2 never runs.
+    let (events, ctx) = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path: vec![step1, step2] },
+        &mut ExpectedValue,
+        &content,
+    )
+    .expect("move with two AoOs must succeed");
+
+    // Both enemies fired.
+    let reactions = events.iter().filter(|e| matches!(e, Event::ReactionFired { .. })).count();
+    assert_eq!(reactions, 2, "both enemies should fire in the same leaving-step");
+
+    // Mover stopped at step1 (step2 truncated).
+    assert_eq!(state.unit(UnitId(1)).unwrap().pos, step1, "mover halted at step1");
+
+    // Only 1 MP spent (step2 was truncated: DecrementMP for step2 skipped).
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    assert_eq!(mp, 9, "only 1 MP consumed (step1 only)");
+
+    // Interrupted.
+    assert!(ctx.interrupted, "AoO must set ctx.interrupted");
+
+    // Second move: open ground, no enemies in the way — completes fully.
+    let step3 = hex_from_offset(6, 5);
+    let (_, ctx2) = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path: vec![step3] },
+        &mut ExpectedValue,
+        &content,
+    )
+    .expect("clean follow-up move must succeed");
+
+    assert!(!ctx2.interrupted, "clean follow-up move must not be interrupted");
+    assert_eq!(state.unit(UnitId(1)).unwrap().pos, step3, "mover reached step3");
+}
+
+// Note: trap_on_arrival_triggers_and_halts is in tests/combat_engine/trap.rs
+// where the necessary Stub/hazard/run helpers are already defined.
+
+/// A 1-hex move that provokes AoO still "completes" positionally (no remaining
+/// path to truncate), but `ctx.interrupted == true` and the AoO events fire.
+#[test]
+fn single_hex_move_into_aoo_completes() {
+    let start = hex_from_offset(0, 0);
+    let dest  = hex_from_offset(3, 3); // far from enemy, but start IS adjacent to enemy
+
+    let enemy_pos = start.all_neighbors()[0];
+    assert_ne!(dest.unsigned_distance_to(enemy_pos), 1, "dest not adjacent to enemy");
+
+    let aoo_dice = DiceExpr::new(0, 6, 2); // non-lethal
+
+    let mut mover = make_unit(1, Team::Player, 0, 0);
+    mover.pos = start;
+    mover.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
+
+    let mut enemy = make_unit(2, Team::Enemy, 0, 0);
+    enemy.pos = enemy_pos;
+    enemy.reactions_left = 1;
+    enemy.aoo_dice = Some(aoo_dice);
+
+    let mut state = CombatState::new(
+        vec![mover, enemy],
+        1,
+        RoundPhase::ActorTurn,
+        0,
+    );
+
+    let (events, ctx) = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path: vec![dest] },
+        &mut ExpectedValue,
+        &StubContent::with_weapon(aoo_dice),
+    )
+    .expect("1-hex move with AoO must succeed");
+
+    // AoO fired.
+    assert!(events.iter().any(|e| matches!(e, Event::ReactionFired { .. })), "AoO must fire");
+
+    // Mover reached destination (1-hex path completed; halt only prevents REMAINING steps).
+    assert_eq!(state.unit(UnitId(1)).unwrap().pos, dest, "mover must reach dest (1-hex path)");
+
+    // Interrupted even though no more steps existed.
+    assert!(ctx.interrupted, "AoO on single-hex move sets ctx.interrupted");
+}

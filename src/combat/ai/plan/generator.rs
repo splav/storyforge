@@ -358,7 +358,7 @@ fn enumerate_next_steps(
     // AI-policy gate on top.
     for ability_id in &actor.cache.abilities {
         let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
-        if fleeing && matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground) {
+        if fleeing && matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground | TargetType::Environment) {
             continue;
         }
         let targets = rank_targets(def, actor, sim, &state);
@@ -571,6 +571,8 @@ fn rank_targets(
             }
             out
         }
+        // Environment: passive-only ability, never actively targeted.
+        TargetType::Environment => Vec::new(),
     }
 }
 

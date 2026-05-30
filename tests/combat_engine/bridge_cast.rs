@@ -117,7 +117,7 @@ fn cast_emits_damage_result_log_entry() {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
 
@@ -170,7 +170,7 @@ fn cast_emits_status_applied_log_entry() {
             statuses: vec![StatusApplication { status: status_id.clone(), duration_rounds: 2, on: StatusOn::Target }],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
 
@@ -213,7 +213,7 @@ fn cast_emits_mana_changed_log_entry() {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
 
@@ -280,7 +280,7 @@ fn process_action_system_routes_cast_into_engine() {
             statuses: Vec::new(),
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
     common::apps::bridge::insert_ability(&mut app, zap_def);
@@ -354,7 +354,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
 
@@ -476,7 +476,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
 

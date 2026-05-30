@@ -249,6 +249,51 @@ fn effect_for_target(
     }
 }
 
+/// Returns `true` for events that are the expected, predictable consequence of
+/// a unit's own movement.  Any non-benign event during a move step interrupts
+/// the remaining movement.
+///
+/// **Exhaustive match — no wildcard.**  NEW `Event` variants that can occur
+/// during a Move must be explicitly classified here (default: non-benign /
+/// halts movement).
+///
+/// Note: `UnitMoved` for a different actor (shouldn't occur during a Move
+/// action) is non-benign by this rule — that's intentional.
+fn is_benign_move_event(ev: &crate::event::Event, mover: crate::state::UnitId) -> bool {
+    use crate::event::Event;
+    match ev {
+        // Own movement is always benign.
+        Event::UnitMoved { actor, .. } if *actor == mover => true,
+        // Aura membership changes driven purely by movement are benign.
+        Event::AuraStatusGained { .. } => true,
+        Event::AuraStatusLost { .. }  => true,
+
+        // Every other variant is non-benign and halts remaining movement.
+        Event::UnitMoved { .. }       => false,
+        Event::ActionStarted { .. }   => false,
+        Event::UnitDamaged { .. }     => false,
+        Event::UnitHealed { .. }      => false,
+        Event::StatusApplied { .. }   => false,
+        Event::StatusRemoved { .. }   => false,
+        Event::StatusTicked { .. }    => false,
+        Event::DotDamaged { .. }      => false,
+        Event::ReactionFired { .. }   => false,
+        Event::UnitDied { .. }        => false,
+        Event::CritFailed { .. }      => false,
+        Event::ActionFinished { .. }  => false,
+        Event::UnitSpawned { .. }     => false,
+        Event::SpawnBlocked { .. }    => false,
+        Event::TurnEnded { .. }       => false,
+        Event::TurnStarted { .. }     => false,
+        Event::TurnSkipped { .. }     => false,
+        Event::RoundStarted { .. }    => false,
+        Event::PhaseEntered { .. }    => false,
+        Event::HazardTriggered { .. } => false,
+        Event::EnvRevealed { .. }     => false,
+        Event::PoolChanged { .. }     => false,
+    }
+}
+
 /// Advance `state` by one action.
 ///
 /// Returns the ordered list of events that occurred and a side-channel
@@ -275,8 +320,8 @@ pub fn step(
     let after = rng.call_count();
 
     match result {
-        Ok(events) => {
-            let ctx = ApplyCtx { rng_calls: after - before, ..Default::default() };
+        Ok((events, interrupted)) => {
+            let ctx = ApplyCtx { rng_calls: after - before, interrupted, ..Default::default() };
             Ok((events, ctx))
         }
         Err(e) => {
@@ -291,7 +336,7 @@ fn step_inner(
     action: Action,
     rng: &mut dyn DiceSource,
     content: &dyn ContentView,
-) -> Result<Vec<Event>, ActionError> {
+) -> Result<(Vec<Event>, bool), ActionError> {
     let mut events: Vec<Event> = Vec::new();
     let mut effect_queue: VecDeque<Effect> = VecDeque::new();
     let mut reaction_depth: usize = 0;
@@ -387,11 +432,10 @@ fn step_inner(
 
     match &action {
         Action::Move { actor, path } => {
-            effect_queue.push_back(Effect::DecrementMP {
-                actor: *actor,
-                by: path.len() as i32,
-            });
+            // Per-step MP: interleave DecrementMP{by:1} before each MovePosition
+            // so that a halted move consumes only the MP for completed steps.
             for &hex in path {
+                effect_queue.push_back(Effect::DecrementMP { actor: *actor, by: 1 });
                 effect_queue.push_back(Effect::MovePosition { actor: *actor, to: hex });
             }
         }
@@ -572,6 +616,14 @@ fn step_inner(
     // prev_pos starts as the actor's position before any effects are applied.
     let mut prev_pos = state.unit(actor_id).map(|u| u.pos).unwrap_or_default();
 
+    // ── Move-interrupt tracking ───────────────────────────────────────────────
+    // `halt` becomes true when a non-benign event fires during a MovePosition
+    // step.  Remaining move effects (MovePosition + DecrementMP pairs) are
+    // skipped, preserving the unused MP.
+    // `interrupted` is surfaced in the returned ApplyCtx.
+    let mut halt = false;
+    let mut interrupted = false;
+
     while let Some(effect) = effect_queue.pop_front() {
         // ── Turn-advance budget guard ─────────────────────────────────────────
         // Each AdvanceTurn/BumpRound consumes one unit of budget. When the
@@ -582,6 +634,13 @@ fn step_inner(
                 break;
             }
             turn_advance_budget -= 1;
+        }
+
+        // ── Halt guard: skip remaining move effects after an interrupt ────────
+        // Non-move effects (none in a pure Move action, but safe for others)
+        // still proceed so nothing structural is dropped.
+        if halt && matches!(&effect, Effect::MovePosition { .. } | Effect::DecrementMP { .. }) {
+            continue;
         }
 
         // ── Dead-actor guard: skip remaining MovePositions when mover died ────
@@ -609,6 +668,15 @@ fn step_inner(
         // Capture the actor's position before MovePosition updates it.
         // For non-move effects this is unused but harmless — always prev_pos.
         let pos_before = prev_pos;
+
+        // Capture event-stream index before this effect's events are pushed.
+        // Used by the MovePosition interrupt detection to slice only the events
+        // produced during this single step (UnitMoved + aura + AoO + trap).
+        let ev_start_for_move = if matches!(&effect, Effect::MovePosition { .. }) {
+            Some(events.len())
+        } else {
+            None
+        };
 
         // Aura diff-on-move/death (4c): snapshot membership BEFORE the effect.
         // Per-effect snapshots (not per-step) so intermediate transitions are captured.
@@ -815,6 +883,27 @@ fn step_inner(
                 }
             }
 
+            // ── On-move interrupt detection ───────────────────────────────────
+            // WAVE 3: Run on-move passives (e.g. scout_traps reveal) AFTER the
+            // position is updated (so the scan centers on new_pos) and BEFORE
+            // the eventful check so a newly-revealed hazard counts as a
+            // non-benign event and triggers halt/interrupt.
+            //
+            // Borrow-checker note: `resolve_on_move_passives` takes `&mut state`.
+            // We call it first (completing the &mut borrow), then extend `events`
+            // — no simultaneous mutable borrows.
+            let reveal_events = state.resolve_on_move_passives(mover_id, content);
+            events.extend(reveal_events);
+
+            let ev_start = ev_start_for_move.unwrap_or(events.len());
+            let eventful = events[ev_start..]
+                .iter()
+                .any(|e| !is_benign_move_event(e, mover_id));
+            if eventful {
+                halt = true;
+                interrupted = true;
+            }
+
             // Update prev_pos for the next move step.
             // (Irrelevant once the mover is dead, but harmless to advance.)
             prev_pos = new_pos;
@@ -899,5 +988,5 @@ fn step_inner(
 
     events.push(Event::ActionFinished { action });
 
-    Ok(events)
+    Ok((events, interrupted))
 }

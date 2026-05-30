@@ -826,7 +826,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         }
     }

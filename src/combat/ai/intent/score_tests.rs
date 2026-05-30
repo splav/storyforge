@@ -66,7 +66,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         (id, def)
@@ -94,7 +94,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         (id, def)
@@ -388,7 +388,7 @@
             }],
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         let melee = AbilityDef {
@@ -409,7 +409,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         content.abilities.insert(stun_shot.id.clone(), stun_shot.clone());
@@ -505,7 +505,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         let weak = AbilityDef {
@@ -526,7 +526,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         content.abilities.insert(strong.id.clone(), strong.clone());
@@ -620,7 +620,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         content.abilities.insert(hit.id.clone(), hit);
@@ -674,7 +674,7 @@
                     statuses: Vec::new(),
                     key: None,
                     requires_los: false,
-                    passive: None,
+                    passive: vec![],
                 },
             }
         }
@@ -698,7 +698,7 @@
                     statuses: Vec::new(),
                     key: None,
                     requires_los: false,
-                    passive: None,
+                    passive: vec![],
                 },
             }
         }

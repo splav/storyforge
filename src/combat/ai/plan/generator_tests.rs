@@ -59,7 +59,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         }
     }
@@ -455,7 +455,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         }
     }
@@ -483,7 +483,7 @@
                 }],
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         }
     }
@@ -507,7 +507,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         }
     }
@@ -971,7 +971,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -1099,7 +1099,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -1191,7 +1191,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -1252,7 +1252,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -1308,7 +1308,7 @@
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 

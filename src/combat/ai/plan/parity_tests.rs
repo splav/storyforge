@@ -95,7 +95,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         }
     }
@@ -365,7 +365,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         content.abilities.insert(def.id.clone(), def.clone());
@@ -494,11 +494,11 @@ mod tests {
 
             // Pick primary target entity for the cast.
             let primary_target = match def.target_type {
-                TargetType::Myself | TargetType::Ground => actor_id,
+                TargetType::Myself | TargetType::Ground | TargetType::Environment => actor_id,
                 TargetType::SingleEnemy | TargetType::SingleAlly => target_id,
             };
             let primary_target_pos = match def.target_type {
-                TargetType::Myself | TargetType::Ground => actor_pos,
+                TargetType::Myself | TargetType::Ground | TargetType::Environment => actor_pos,
                 TargetType::SingleEnemy | TargetType::SingleAlly => target_pos,
             };
 
@@ -844,7 +844,7 @@ mod tests {
             }],
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -979,7 +979,7 @@ mod tests {
             }],
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -1002,7 +1002,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -1255,7 +1255,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -1363,7 +1363,7 @@ mod tests {
                 statuses: Vec::new(),
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 

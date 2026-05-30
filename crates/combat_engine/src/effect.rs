@@ -225,6 +225,10 @@ pub struct ApplyCtx {
     /// (idempotent no-op) — `effect_to_event` emits `EnvRevealed` only when
     /// this is `true`.
     pub env_revealed: bool,
+    /// Set by `step()` when a `Move` action was interrupted mid-path because
+    /// a non-benign event occurred during a `MovePosition` step (e.g. AoO,
+    /// trap trigger).  `false` for clean moves and all non-Move actions.
+    pub interrupted: bool,
 }
 
 pub(crate) fn skip_or_settle_current(
@@ -270,6 +274,29 @@ pub(crate) fn skip_or_settle_current(
 
     // Actor is alive and not stunned — they are the settled next actor.
     (vec![], ApplyCtx::default())
+}
+
+/// Returns the ids of all environment objects that are:
+/// - kind == Hazard
+/// - not yet revealed
+/// - within `range` hexes (inclusive) of `center`
+///
+/// Preserves the iteration order of `state.environment` for determinism.
+pub(crate) fn scan_revealable_in_range(
+    state: &CombatState,
+    center: Hex,
+    range: i32,
+) -> Vec<crate::state::EnvId> {
+    state
+        .environment
+        .iter()
+        .filter(|e| {
+            matches!(e.kind, crate::state::EnvKind::Hazard)
+                && !e.revealed
+                && center.unsigned_distance_to(e.hex) as i32 <= range
+        })
+        .map(|e| e.id)
+        .collect()
 }
 
 /// Apply one atomic effect to `state`.
@@ -816,17 +843,7 @@ pub fn apply_effect(
                 Some(u) => u.pos,
                 None => return (vec![], ApplyCtx::default()),
             };
-            // Collect ids of in-range unrevealed hazards.
-            let targets: Vec<crate::state::EnvId> = state
-                .environment
-                .iter()
-                .filter(|e| {
-                    matches!(e.kind, crate::state::EnvKind::Hazard)
-                        && !e.revealed
-                        && caster_pos.unsigned_distance_to(e.hex) as i32 <= *range
-                })
-                .map(|e| e.id)
-                .collect();
+            let targets = scan_revealable_in_range(state, caster_pos, *range);
             let derived: Vec<Effect> = targets
                 .into_iter()
                 .map(|id| Effect::RevealEnv { id })

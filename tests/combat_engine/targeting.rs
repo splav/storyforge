@@ -57,7 +57,7 @@ fn ability(aoe: AoEShape, target_type: TargetType, friendly_fire: bool) -> Abili
         effect: EffectDef::None,
         statuses: Vec::<StatusApplication>::new(),
         requires_los: false,
-        passive: None,
+        passive: vec![],
     }
 }
 

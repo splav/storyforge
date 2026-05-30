@@ -254,7 +254,7 @@ fn single_target_damage_def() -> AbilityDef {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     }
 }
@@ -280,7 +280,7 @@ fn aoe_damage_def(radius: u32) -> AbilityDef {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     }
 }
@@ -313,7 +313,7 @@ fn stun_def_inner() -> (AbilityDef, crate::content::statuses::StatusDef) {
         }],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
     let status = StatusDef {
@@ -355,7 +355,7 @@ fn heal_def_inner() -> AbilityDef {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     }
 }

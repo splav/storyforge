@@ -1365,6 +1365,8 @@ pub fn process_action_system(
                         if let Err(e) = trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash) {
                             warn!("Engine trace step write failed: {e}");
                         }
+                        // Save interrupted flag before `ctx` is shadowed by TranslateCtx below.
+                        let move_was_interrupted = ctx.interrupted;
                         let move_ctx = MoveCtx {
                             actor: *actor,
                             combat_state: &combat_state,
@@ -1404,6 +1406,28 @@ pub fn process_action_system(
                             if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
                                 queues.phases.push((*unit, *phase_idx));
                             }
+                        }
+                        // EnvRevealed post-pass: push CombatLog entry with the trap's hex.
+                        // Done here (not in translate_one) because resolving the hex requires
+                        // reading combat_state, which is not available inside TranslateCtx.
+                        for ev in &events {
+                            if let Event::EnvRevealed { env_id } = ev {
+                                let hex = combat_state.0
+                                    .environment
+                                    .iter()
+                                    .find(|e| e.id == *env_id)
+                                    .map(|e| e.hex)
+                                    .unwrap_or(hexx::Hex::ZERO);
+                                log.push(CombatEvent::EnvRevealed { hex });
+                            }
+                        }
+                        // Tail-drop: if this Move was interrupted (AoO, hazard reveal, trap
+                        // fire, etc.), drop any remaining queued ActionInputs for this turn.
+                        // A bundled Cast planned from the pre-move position must NOT fire from
+                        // the truncated landing hex — the AI self-corrects by re-planning next
+                        // frame.
+                        if move_was_interrupted {
+                            break;
                         }
                     }
                     Err(e) => {
@@ -1849,7 +1873,7 @@ pub fn bootstrap_combat_state(
     }
 
     // passives: filter each unit's ability list to ids whose engine def has
-    // passive.is_some(); store them so resolve_turn_start_passives can fire.
+    // a non-empty passive trigger list; store them so resolve_turn_start_passives can fire.
     // Reuses aoo_q which already queries &Abilities — no extra system param needed.
     for (entity, _equipment, _stats, abilities, _is_dead) in aoo_q.iter() {
         let Some(uid) = id_map.get_id(entity) else { continue };
@@ -1860,7 +1884,7 @@ pub fn bootstrap_combat_state(
                 active_content
                     .abilities
                     .get(*aid)
-                    .is_some_and(|def| def.passive.is_some())
+                    .is_some_and(|def| !def.passive.is_empty())
             })
             .cloned()
             .collect();

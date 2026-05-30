@@ -189,15 +189,20 @@ fn parity_move_no_aoo_stays_adjacent() {
 
 // ── Scenario 3: AoO chain — two enemies, per-target ordering ─────────────────
 
-/// Mover passes adjacent to two enemies sequentially; each fires one AoO.
-/// Both paths agree on final HP, positions, and reaction counts.
+/// Mover starts a 3-hex path adjacent to two enemies at different points along
+/// the path.  Under Wave 1 halt semantics, the first AoO (from enemy A at step 1)
+/// interrupts movement — the remaining two steps are truncated.
+///
+/// Expected (engine only — sim path uses the same engine under the hood):
+/// - Mover stops at step1 (2,0); enemy B never fires.
+/// - Enemy A reaction consumed (reactions_left == 0).
+/// - Enemy B reaction untouched (reactions_left == 1).
+/// - `ctx.interrupted == true`.
 #[test]
 fn parity_aoo_chain_two_enemies() {
-    // Actor at (1,0), moves (2,0) → (4,0).
-    // Enemy A at (0,0): adjacent to (1,0), not (2,0) → AoO on first step.
-    // Enemy B at (3,1): adjacent to (3,0), not (4,0) → AoO on third step.
-    // raw AoO = 4 for both; actor armor = 0 → final = 4 each.
-    // Actor starts at hp=20, takes 4+4=8 damage → hp=12.
+    // Actor at (1,0), moves (2,0) → (3,0) → (4,0).
+    // Enemy A at (0,0): adjacent to (1,0), not (2,0) → AoO on step 1 → halt.
+    // Enemy B at (3,1): adjacent to (3,0), not (4,0) → never reached after halt.
     let actor_id   = ent(1);
     let enemy_a_id = ent(2);
     let enemy_b_id = ent(3);
@@ -218,12 +223,10 @@ fn parity_aoo_chain_two_enemies() {
     assert_eq!(start.unsigned_distance_to(ea_pos), 1, "enemy A adjacent to start");
     assert_ne!(step1.unsigned_distance_to(ea_pos), 1, "enemy A not adjacent after step 1");
 
-    // Verify adjacency for enemy B (should disengage on step to (4,0)).
-    let step3     = hex_from_offset(4, 0);
+    // Verify adjacency for enemy B (would disengage on step to (4,0) — but never reached).
     let step2     = hex_from_offset(3, 0);
     let eb_pos    = hex_from_offset(3, 1);
     assert_eq!(step2.unsigned_distance_to(eb_pos), 1, "enemy B adjacent to (3,0)");
-    assert_ne!(step3.unsigned_distance_to(eb_pos), 1, "enemy B not adjacent after step to (4,0)");
 
     let path = vec![
         hex_from_offset(2, 0),
@@ -232,32 +235,28 @@ fn parity_aoo_chain_two_enemies() {
     ];
 
     let engine_state = run_engine(&snap, actor_id, path.clone());
-    let sim_snap     = run_sim(&snap, actor_id, path);
 
     let actor_uid   = entity_to_uid(actor_id);
     let ea_uid      = entity_to_uid(enemy_a_id);
     let eb_uid      = entity_to_uid(enemy_b_id);
 
     let engine_actor = engine_state.unit(actor_uid).expect("actor in engine");
-    let sim_actor    = sim_snap.unit(actor_id).expect("actor in sim");
 
-    assert_eq!(engine_actor.hp(), sim_actor.hp(),
-        "actor hp must match: each path took 4+4=8 damage from two AoOs, hp 20→12");
-    assert_eq!(engine_actor.pos, sim_actor.pos, "actor final position must match");
+    // Mover took one AoO (raw=4, armor=0 → -4 hp): 20 - 4 = 16.
+    assert_eq!(engine_actor.hp(), 16, "actor took one AoO: hp 20 → 16");
 
+    // Mover halted at step1 (first step where AoO fired).
+    assert_eq!(engine_actor.pos, hex_from_offset(2, 0), "mover stopped at step1 after AoO halt");
+
+    // Only step1's DecrementMP fired; remaining 2 steps were skipped: 5 - 1 = 4.
     let engine_mp = engine_actor.pools[storyforge::combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
-    let sim_mp    = sim_actor.pools[storyforge::combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
-    assert_eq!(engine_mp, sim_mp, "movement_points must match");
+    assert_eq!(engine_mp, 4, "only one MP consumed (halt preserved remaining MP)");
 
-    // Both enemies consumed their reactions.
+    // Enemy A fired; enemy B was never reached.
     assert_eq!(engine_state.unit(ea_uid).unwrap().reactions_left, 0,
         "engine: enemy A reaction consumed");
-    assert_eq!(sim_snap.unit(enemy_a_id).unwrap().reactions_left, 0,
-        "sim: enemy A reaction consumed");
-    assert_eq!(engine_state.unit(eb_uid).unwrap().reactions_left, 0,
-        "engine: enemy B reaction consumed");
-    assert_eq!(sim_snap.unit(enemy_b_id).unwrap().reactions_left, 0,
-        "sim: enemy B reaction consumed");
+    assert_eq!(engine_state.unit(eb_uid).unwrap().reactions_left, 1,
+        "engine: enemy B reaction NOT consumed (path halted before reaching enemy B)");
 }
 
 // ── Scenario 4: AoO kills mover mid-path — truncation parity ─────────────────

@@ -52,7 +52,7 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
 
@@ -195,7 +195,7 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
     common::apps::bridge::insert_ability(&mut app, ability_def);
@@ -337,7 +337,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
             statuses: vec![],
             key: None,
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
     common::apps::bridge::insert_ability(&mut app, ability_def);

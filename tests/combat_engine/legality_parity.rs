@@ -121,7 +121,7 @@ fn insert_attack(app: &mut App) {
             effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
             statuses: vec![],
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
     app.world_mut()
@@ -150,7 +150,7 @@ fn insert_heal(app: &mut App) {
             effect: EffectDef::Heal { dice: DiceExpr::new(1, 4, 0) },
             statuses: vec![],
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
     app.world_mut()
@@ -179,7 +179,7 @@ fn insert_mana_spell(app: &mut App) {
             effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
             statuses: vec![],
             requires_los: false,
-            passive: None,
+            passive: vec![],
         },
     };
     app.world_mut()

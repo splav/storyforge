@@ -238,6 +238,10 @@ pub enum CombatEvent {
     /// *engine mirror* — `Event::HazardTriggered`.
     /// Emitted when a unit steps onto a trap/hazard hex and it fires.
     HazardTriggered { victim: Entity },
+    /// *engine mirror* — `Event::EnvRevealed`.
+    /// Emitted when a hidden hazard becomes visible (reveal mechanic, not firing).
+    /// `hex` is the grid position of the revealed trap for display purposes.
+    EnvRevealed { hex: hexx::Hex },
 }
 
 // ── Formatter ─────────────────────────────────────────────────────────────────
@@ -427,6 +431,10 @@ impl CombatEvent {
             }
             CombatEvent::HazardTriggered { victim } => {
                 format!("  ⚠ {} сработал ловушку", name(*victim))
+            }
+            CombatEvent::EnvRevealed { hex } => {
+                let [c, r] = crate::game::hex::hex_to_offset(*hex);
+                format!("  ⚑ Обнаружена ловушка ({c},{r})")
             }
         };
         Some(line)

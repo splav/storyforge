@@ -213,7 +213,7 @@ pub fn update_hex_visuals(
                     sel.selected_ability
                         .as_ref()
                         .and_then(|id| content.abilities.get(id))
-                        .filter(|ab| ab.target_type != TargetType::Myself && ab.range.max > 0),
+                        .filter(|ab| ab.is_actively_castable() && ab.target_type != TargetType::Myself && ab.range.max > 0),
                 );
             if let Some((actor_pos, ab)) = info {
                 // LOS filter: for abilities that require line-of-sight, exclude
@@ -254,7 +254,7 @@ pub fn update_hex_visuals(
                     sel.selected_ability
                         .as_ref()
                         .and_then(|id| content.abilities.get(id))
-                        .filter(|ab| ab.target_type != TargetType::Myself && ab.range.min > 0),
+                        .filter(|ab| ab.is_actively_castable() && ab.target_type != TargetType::Myself && ab.range.min > 0),
                 );
             if let Some((actor_pos, ab)) = info {
                 cells

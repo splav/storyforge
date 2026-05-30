@@ -50,6 +50,7 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
             TargetType::SingleAlly => combat_engine::TargetType::SingleAlly,
             TargetType::Myself => combat_engine::TargetType::Myself,
             TargetType::Ground => combat_engine::TargetType::Ground,
+            TargetType::Environment => combat_engine::TargetType::Environment,
         },
         aoe: match def.aoe {
             crate::content::abilities::AoEShape::None => EngineAoEShape::None,
@@ -90,7 +91,7 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
             })
             .collect(),
         requires_los: def.requires_los,
-        passive: def.passive,
+        passive: def.passive.clone(),
     }
 }
 

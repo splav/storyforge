@@ -97,6 +97,9 @@ pub enum IllegalReason {
     /// Ranged ability with `requires_los = true` but the line from actor to
     /// target passes through a blocked hex.
     NoLineOfSight,
+    /// Ability has `target_type == Environment` — it is passive-only and can
+    /// never be actively cast by the player or AI.
+    PassiveNotCastable,
 }
 
 pub trait ActionState {
@@ -240,7 +243,7 @@ pub fn check_legality<S: ActionState>(
             // SingleEnemy cast to one of the active taunters.  Multiple
             // taunters are allowed; the actor may choose any of them.
             let taunters = state.taunters_for(actor.team);
-            if !taunters.is_empty() && !taunters.iter().any(|t| *t == action.target) {
+            if !taunters.is_empty() && !taunters.contains(&action.target) {
                 return Err(IllegalReason::TauntForcesTarget);
             }
         }
@@ -254,6 +257,11 @@ pub fn check_legality<S: ActionState>(
         TargetType::Ground => {
             // Position-based: `target` is a sentinel (typically the actor);
             // team / alive checks are meaningless here.
+        }
+        TargetType::Environment => {
+            // Environment-targeted abilities are passive-only; they must never
+            // reach the legality check via active cast.
+            return Err(IllegalReason::PassiveNotCastable);
         }
     }
 

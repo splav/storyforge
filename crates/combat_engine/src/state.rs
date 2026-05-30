@@ -536,7 +536,7 @@ impl Unit {
     /// Invariant: `pools[Hp]` is always `Some` for combat units; `None` is
     /// only possible for non-combatant entities (currently unused).
     pub fn is_alive(&self) -> bool {
-        self.pools[crate::PoolKind::Hp].map_or(false, |(cur, _)| cur > 0)
+        self.pools[crate::PoolKind::Hp].is_some_and(|(cur, _)| cur > 0)
     }
 
     /// Current HP — reads from `pools[PoolKind::Hp]`, the canonical source of
@@ -983,12 +983,45 @@ impl CombatState {
         actor: UnitId,
         content: &dyn crate::content::ContentView,
     ) -> Vec<crate::event::Event> {
+        use crate::content::PassiveTrigger;
+        self.resolve_passives(actor, content, &PassiveTrigger::TurnStart)
+    }
+
+    /// Auto-fire all `OnMove` passive abilities owned by `actor`.
+    ///
+    /// Mirrors `resolve_turn_start_passives` but fires on each completed
+    /// move step rather than at turn start.  Called from `step_inner` at
+    /// the WAVE 3 insertion point — after `MovePosition` is applied so the
+    /// reveal scan centers on the arrival hex.
+    ///
+    /// Returns the resulting `Event`s (e.g. `EnvRevealed`) so `step_inner`
+    /// can append them before the `eventful` check.
+    pub fn resolve_on_move_passives(
+        &mut self,
+        actor: UnitId,
+        content: &dyn crate::content::ContentView,
+    ) -> Vec<crate::event::Event> {
+        use crate::content::PassiveTrigger;
+        self.resolve_passives(actor, content, &PassiveTrigger::OnMove)
+    }
+
+    /// Shared implementation: fire all passives for `actor` whose
+    /// `def.passive` contains `trigger`.
+    ///
+    /// Pumps a local VecDeque through `apply_effect` (same cascade as the
+    /// main pump loop but capped at `MAX_PASSIVE_DEPTH` to guard against
+    /// pathological content).  Returns the resulting event stream.
+    fn resolve_passives(
+        &mut self,
+        actor: UnitId,
+        content: &dyn crate::content::ContentView,
+        trigger: &crate::content::PassiveTrigger,
+    ) -> Vec<crate::event::Event> {
         use std::collections::VecDeque;
         use crate::effect::{apply_effect, Effect};
         use crate::event::effect_to_event;
-        use crate::content::PassiveTrigger;
 
-        // Collect initial effects from TurnStart passives.
+        // Collect initial effects from matching passives.
         let initial: Vec<Effect> = {
             let passives = match self.unit(actor) {
                 Some(u) => u.passives.clone(),
@@ -998,7 +1031,7 @@ impl CombatState {
                 .into_iter()
                 .filter_map(|aid| {
                     let def = content.ability_def(&aid)?;
-                    if def.passive != Some(PassiveTrigger::TurnStart) {
+                    if !def.passive.contains(trigger) {
                         return None;
                     }
                     match &def.effect {

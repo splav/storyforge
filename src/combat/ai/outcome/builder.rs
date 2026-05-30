@@ -112,6 +112,12 @@ pub fn from_sim_step(
         }
         PlanStep::Move { path } => {
             let path_max_danger = step_path_danger(step, maps);
+            // Optimistic full-path estimate. The engine may truncate a move mid-path
+            // on an interrupt — an AoO provoked by leaving an enemy's reach, or a
+            // hidden hazard the unit self-reveals while moving (the planner can't see
+            // hidden env; snapshot.rs strips unrevealed). The AI self-corrects by
+            // re-planning next frame, so mp_spent may overestimate spent movement for
+            // such truncated moves.
             let mp_spent = path.len() as i32;
 
             ActionOutcomeEstimate {

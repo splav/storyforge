@@ -37,6 +37,8 @@ pub enum PassiveTrigger {
     /// Fire automatically at the start of the owner's turn (zero cost, no crit-fail,
     /// no targeting, zero rng).
     TurnStart,
+    /// Fire automatically whenever the owner completes a move step.
+    OnMove,
 }
 
 /// Cached caster stats needed for damage / heal formulas.
@@ -128,6 +130,9 @@ pub enum TargetType {
     SingleAlly,
     Myself,
     Ground,
+    /// Passive-only: ability fires against the surrounding environment (no
+    /// entity target, no player-activation).  Never legally castable actively.
+    Environment,
 }
 
 /// Range in hex-steps.  `max == 0` means self-only.
@@ -176,10 +181,10 @@ pub struct AbilityDef {
     /// target.  LOS is checked via `ActionState::is_blocked_los`.
     /// Default: false (melee and self-cast abilities never need LOS).
     pub requires_los: bool,
-    /// When `Some`, this ability is a passive that auto-fires on the given
-    /// trigger (no player input, no cost, no crit-fail).
-    /// `None` means the ability is active (player-activated).
-    pub passive: Option<PassiveTrigger>,
+    /// Triggers on which this ability auto-fires as a passive (no player
+    /// input, no cost, no crit-fail).  An empty Vec means the ability is
+    /// active (player-activated).
+    pub passive: Vec<PassiveTrigger>,
 }
 
 impl Default for AbilityDef {
@@ -195,8 +200,27 @@ impl Default for AbilityDef {
             effect: EffectDef::None,
             statuses: vec![],
             requires_los: false,
-            passive: None,
+            passive: vec![],
         }
+    }
+}
+
+/// Returns the circle radius encoded in `def.aoe`, or 0 for non-circle shapes.
+/// This is the single canonical source for the reveal range of
+/// `EffectDef::RevealEnvInRange` — the range stored in that variant is always
+/// populated from this value at parse time.
+pub fn aoe_radius(def: &AbilityDef) -> i32 {
+    match def.aoe {
+        AoEShape::Circle { radius } => radius as i32,
+        _ => 0,
+    }
+}
+
+impl AbilityDef {
+    /// Returns `true` if this ability can be actively cast by the player.
+    /// Passives (any non-empty trigger list) are never player-activated.
+    pub fn is_actively_castable(&self) -> bool {
+        self.passive.is_empty()
     }
 }
 

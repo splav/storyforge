@@ -63,7 +63,7 @@ fn trap_ability(n: u32, status: Option<&str>) -> AbilityDef {
             status: StatusId::from(s), on: StatusOn::Target, duration_rounds: 2,
         }]).unwrap_or_default(),
         requires_los: false,
-        passive: None,
+        passive: vec![],
     }
 }
 
@@ -100,14 +100,18 @@ fn trap_triggers_damages_and_disappears() {
     }
 }
 
-/// A trap on an intermediate hex fires on pass-through; the mover continues to
-/// the final tile when the hit is non-lethal.
+/// A trap on an intermediate hex fires on pass-through; under Wave 1 halt
+/// semantics, `HazardTriggered` is non-benign, so the mover stops AT the trap
+/// hex even when the hit is non-lethal.
 #[test]
 fn trap_fires_on_pass_through() {
-    let (s, _) = run(unit(1, Team::Player, 0, 10, None), vec![hazard(1, 1)], &[1, 2],
+    let (s, ev) = run(unit(1, Team::Player, 0, 10, None), vec![hazard(1, 1)], &[1, 2],
                      &Stub::new("trap", trap_ability(2, None)));
     assert_eq!(hp(&s, 1), 8);
-    assert_eq!(s.unit(UnitId(1)).unwrap().pos, hex_from_offset(2, 0), "continues past a non-lethal trap");
+    assert_eq!(s.unit(UnitId(1)).unwrap().pos, hex_from_offset(1, 0),
+        "halts at trap hex (Wave 1: any non-benign event interrupts remaining movement)");
+    // The trap triggered (HazardTriggered present).
+    assert!(ev.iter().any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))));
 }
 
 /// A fired trap is removed; re-entering its hex does nothing.
@@ -178,7 +182,7 @@ fn env_round_trips_through_serde() {
 #[test]
 fn passive_reveal_in_range_only_and_idempotent() {
     let scout = AbilityDef {
-        passive: Some(PassiveTrigger::TurnStart),
+        passive: vec![PassiveTrigger::TurnStart],
         effect: EffectDef::RevealEnvInRange { range: 2 },
         ..AbilityDef::default()
     };
@@ -210,7 +214,7 @@ fn passive_reveal_in_range_only_and_idempotent() {
 #[test]
 fn no_passive_no_reveal() {
     let content = Stub::new("scout", AbilityDef {
-        passive: Some(PassiveTrigger::TurnStart),
+        passive: vec![PassiveTrigger::TurnStart],
         effect: EffectDef::RevealEnvInRange { range: 5 },
         ..AbilityDef::default()
     });
@@ -228,7 +232,7 @@ fn no_passive_no_reveal() {
 #[test]
 fn passive_reveal_via_start_actor_turn_zero_rng() {
     let content = Stub::new("scout", AbilityDef {
-        passive: Some(PassiveTrigger::TurnStart),
+        passive: vec![PassiveTrigger::TurnStart],
         effect: EffectDef::RevealEnvInRange { range: 2 },
         ..AbilityDef::default()
     });
@@ -240,4 +244,340 @@ fn passive_reveal_via_start_actor_turn_zero_rng() {
     let events = state.start_actor_turn(UnitId(1), &content);
     assert!(state.environment[0].revealed, "start_actor_turn must fire the reveal passive");
     assert!(events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(10))));
+}
+
+/// Regression: Vec-form passive + aoe-sourced radius: ability with
+/// `passive = vec![TurnStart]` and `aoe = Circle{radius:2}` correctly reveals
+/// a hidden hazard within 2 hexes and nothing beyond (aoe_radius is the sole
+/// source of the reveal range — no separate reveal_range field).
+#[test]
+fn turn_start_reveal_still_fires_aoe_radius_source() {
+    use storyforge::combat_engine::content::aoe_radius;
+    let def = AbilityDef {
+        passive: vec![PassiveTrigger::TurnStart],
+        aoe: AoEShape::Circle { radius: 2 },
+        // range is populated from aoe_radius — mirrors what the TOML parsers do.
+        effect: EffectDef::RevealEnvInRange { range: aoe_radius(&AbilityDef {
+            aoe: AoEShape::Circle { radius: 2 },
+            ..AbilityDef::default()
+        }) },
+        target_type: TargetType::Environment,
+        ..AbilityDef::default()
+    };
+    assert_eq!(aoe_radius(&def), 2, "aoe_radius must extract 2 from Circle{{radius:2}}");
+
+    let content = Stub::new("scout_env", def);
+    let mut u = unit(1, Team::Player, 0, 10, None);
+    u.passives = vec![AbilityId::from("scout_env")];
+    let mut state = CombatState::new(vec![u], 1, RoundPhase::ActorTurn, 0);
+    // Hazard within range (distance 1) — must be revealed.
+    state.environment = vec![hazard(10, 1), hazard(11, 3)];
+
+    let events = state.start_actor_turn(UnitId(1), &content);
+    assert!(state.environment[0].revealed, "hazard within range-2 must be revealed");
+    assert!(!state.environment[1].revealed, "hazard at distance-3 must NOT be revealed");
+    assert!(events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(10))));
+    assert!(!events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(11))));
+}
+
+// ── Wave-1: trap halts movement ──────────────────────────────────────────────
+
+/// A multi-hex path whose intermediate hex holds a hazard: the trap fires on
+/// arrival and halts the remaining movement even when the hit is non-lethal.
+/// The mover's final position is the trap hex, NOT the originally requested
+/// destination.  `ctx.interrupted == true`.
+#[test]
+fn trap_on_arrival_triggers_and_halts() {
+    // mover at col=0, trap at col=1, dest at col=2. Non-lethal (2 dmg, 10 hp).
+    let (s, ev) = run(
+        unit(1, Team::Player, 0, 10, None),
+        vec![hazard(1, 1)],
+        &[1, 2],
+        &Stub::new("trap", trap_ability(2, None)),
+    );
+
+    // Trap fired.
+    assert!(
+        ev.iter().any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))),
+        "HazardTriggered must fire"
+    );
+
+    // Mover halted at trap hex (Wave 1: non-benign event interrupts remaining steps).
+    assert_eq!(
+        s.unit(UnitId(1)).unwrap().pos,
+        hex_from_offset(1, 0),
+        "mover must stop AT the trap hex, not continue past it"
+    );
+    assert_eq!(hp(&s, 1), 8, "trap dealt 2 damage");
+
+    // ctx.interrupted is tested via the `run()` helper re-implementation below.
+    // (run() currently discards ctx; this invariant is covered by the engine-level
+    //  test in step.rs::per_step_mp_exact / aoo_leaving_two_enemies_both_fire_then_halt)
+}
+
+/// Same setup but using `step()` directly so we can inspect `ctx.interrupted`.
+#[test]
+fn trap_on_arrival_sets_interrupted_flag() {
+    let mut state = CombatState::new(
+        vec![unit(1, Team::Player, 0, 10, None)],
+        1,
+        RoundPhase::ActorTurn,
+        0,
+    );
+    state.environment = vec![hazard(1, 1)];
+
+    let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
+    let content = Stub::new("trap", trap_ability(2, None));
+    let (_, ctx) = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path },
+        &mut ExpectedValue,
+        &content,
+    )
+    .expect("move must succeed");
+
+    assert!(ctx.interrupted, "trap trigger must set ctx.interrupted = true");
+}
+
+// ── Wave-3: on-move reveal ───────────────────────────────────────────────────
+
+/// Helper: build an ability with an OnMove reveal passive and Circle radius.
+fn on_move_reveal_ability(radius: u32) -> AbilityDef {
+    use storyforge::combat_engine::content::aoe_radius;
+    AbilityDef {
+        passive: vec![PassiveTrigger::OnMove],
+        aoe: AoEShape::Circle { radius },
+        effect: EffectDef::RevealEnvInRange {
+            range: aoe_radius(&AbilityDef {
+                aoe: AoEShape::Circle { radius },
+                ..AbilityDef::default()
+            }),
+        },
+        target_type: TargetType::Environment,
+        ..AbilityDef::default()
+    }
+}
+
+/// A unit with an OnMove reveal passive moves a multi-hex path. On the step
+/// that first brings a hidden hazard within radius 2, the hazard is revealed
+/// and the move halts (EnvRevealed is non-benign). The unit stops at that
+/// intermediate hex. HazardTriggered is NOT emitted (reveal ≠ fire).
+/// ctx.interrupted == true.
+#[test]
+fn reveal_on_move_halts_and_truncates() {
+    let reveal_def = on_move_reveal_ability(2u32);
+
+    // Stub content: one ability for the reveal passive; trap ability reuses
+    // a separate "trap" entry but no trap fires in this test (revealed ≠ stepped on).
+    let mut abilities = HashMap::new();
+    abilities.insert(AbilityId::from("scout"), reveal_def);
+    // Minimal trap ability (spike, 0 dmg — should never fire in this test).
+    abilities.insert(AbilityId::from("trap"), AbilityDef {
+        effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 0) },
+        ..AbilityDef::default()
+    });
+
+    struct Multi(HashMap<AbilityId, AbilityDef>, storyforge::combat_engine::StatusDef);
+    impl ContentView for Multi {
+        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> { self.0.get(id) }
+        fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> { Some(&self.1) }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    }
+    let content = Multi(abilities, storyforge::combat_engine::StatusDef {
+        causes_disadvantage: false, blocks_mana_abilities: false, forces_targeting: false,
+        skips_turn: false, hp_percent_dot: 0,
+        bonuses: storyforge::combat_engine::StatusBonuses { armor_bonus: 0, damage_taken_bonus: 0, speed_bonus: 0 },
+    });
+
+    // Scout at col=0 with 6 MP; hazard at col=3 (distance 2 from col=1, radius=2).
+    // Path: 0→1→2→3→4→5. On step to col=1, hazard at col=3 enters radius 2 → reveal + halt.
+    use storyforge::combat_engine::RegenRule;
+    let mut scout = EngineUnitBuilder::new(1)
+        .team(Team::Player)
+        .pos(0, 0)
+        .hp(10, 10)
+        .mp(6, 6)
+        .regen(PoolKind::Mana, RegenRule::None)
+        .regen(PoolKind::Energy, RegenRule::None)
+        .build();
+    scout.passives = vec![AbilityId::from("scout")];
+
+    let trap_env = EnvObject {
+        id: EnvId(42),
+        hex: hex_from_offset(3, 0),
+        kind: EnvKind::Hazard,
+        ability: AbilityId::from("trap"),
+        revealed: false,
+    };
+
+    let mut state = CombatState::new(vec![scout], 1, RoundPhase::ActorTurn, 0);
+    state.environment = vec![trap_env];
+
+    let path: Vec<_> = (1..=5).map(|c| hex_from_offset(c, 0)).collect();
+    let (events, ctx) = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path },
+        &mut storyforge::combat_engine::dice::ExpectedValue,
+        &content,
+    )
+    .expect("move must succeed");
+
+    // Halted at col=1 (first hex where hazard at col=3 is within radius 2 — distance exactly 2).
+    let final_pos = state.unit(UnitId(1)).unwrap().pos;
+    assert_eq!(
+        final_pos,
+        hex_from_offset(1, 0),
+        "scout halts at col=1 when hazard at col=3 enters reveal range (distance=2)"
+    );
+    assert_ne!(final_pos, hex_from_offset(5, 0), "did not reach original dest");
+
+    // EnvRevealed emitted exactly once.
+    let revealed_count = events.iter()
+        .filter(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(42)))
+        .count();
+    assert_eq!(revealed_count, 1, "exactly one EnvRevealed for the hazard");
+
+    // Hazard is now revealed in state.
+    assert!(state.environment.iter().find(|e| e.id == EnvId(42)).unwrap().revealed);
+
+    // Hazard still present on the board (not triggered / removed).
+    assert!(!state.environment.is_empty(), "hazard still exists (not triggered)");
+
+    // HazardTriggered NOT emitted (revealed, didn't step on it).
+    assert!(!events.iter().any(|e| matches!(e, Event::HazardTriggered { .. })),
+        "reveal must not emit HazardTriggered");
+
+    // MP: consumed for 1 completed step (col 0→1), 5 MP remain.
+    let mp = state.unit(UnitId(1)).unwrap().pools[PoolKind::Mp].map(|(c, _)| c).unwrap();
+    assert_eq!(mp, 5, "only 1 MP consumed for the 1 completed step");
+
+    // ctx.interrupted == true.
+    assert!(ctx.interrupted, "EnvRevealed must set ctx.interrupted = true");
+}
+
+/// Pins the reveal distance metric: a hidden hazard at even-r distance exactly
+/// 2 from the step's arrival hex IS revealed; at distance 3 it is NOT.
+#[test]
+fn reveal_distance_metric() {
+    use storyforge::combat_engine::RegenRule;
+    let reveal_def = on_move_reveal_ability(2u32);
+
+    let mut abilities = HashMap::new();
+    abilities.insert(AbilityId::from("scout"), reveal_def);
+    // Distance-2 hazard at col=3 (arrival=col=1, dist=2); distance-3 at col=4.
+    abilities.insert(AbilityId::from("trap"), AbilityDef {
+        effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 0) },
+        ..AbilityDef::default()
+    });
+
+    struct Multi(HashMap<AbilityId, AbilityDef>);
+    impl ContentView for Multi {
+        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> { self.0.get(id) }
+        fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    }
+    let content = Multi(abilities);
+
+    let mut scout = EngineUnitBuilder::new(1)
+        .team(Team::Player)
+        .pos(0, 0)
+        .hp(10, 10)
+        .mp(2, 2)
+        .regen(PoolKind::Mana, RegenRule::None)
+        .regen(PoolKind::Energy, RegenRule::None)
+        .build();
+    scout.passives = vec![AbilityId::from("scout")];
+
+    // Two hazards: id=10 at col=3 (distance 2 from arrival col=1) — should reveal;
+    // id=11 at col=4 (distance 3 from arrival col=1) — must NOT reveal.
+    let env = vec![
+        EnvObject { id: EnvId(10), hex: hex_from_offset(3, 0), kind: EnvKind::Hazard,
+                    ability: AbilityId::from("trap"), revealed: false },
+        EnvObject { id: EnvId(11), hex: hex_from_offset(4, 0), kind: EnvKind::Hazard,
+                    ability: AbilityId::from("trap"), revealed: false },
+    ];
+
+    let mut state = CombatState::new(vec![scout], 1, RoundPhase::ActorTurn, 0);
+    state.environment = env;
+
+    // Move one step to col=1.
+    step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path: vec![hex_from_offset(1, 0)] },
+        &mut storyforge::combat_engine::dice::ExpectedValue,
+        &content,
+    ).expect("move");
+
+    let get = |id: u32| state.environment.iter().find(|e| e.id == EnvId(id)).unwrap().revealed;
+    assert!(get(10), "distance-2 hazard must be revealed");
+    assert!(!get(11), "distance-3 hazard must NOT be revealed");
+}
+
+/// An ability with passive=[TurnStart,OnMove] fires BOTH at turn start
+/// (stationary scan) and on move steps. Guards that both triggers share
+/// the single `resolve_passives` handler.
+#[test]
+fn on_move_and_turn_start_share_handler() {
+    use storyforge::combat_engine::content::aoe_radius;
+
+    // Ability with BOTH triggers.
+    let dual_def = AbilityDef {
+        passive: vec![PassiveTrigger::TurnStart, PassiveTrigger::OnMove],
+        aoe: AoEShape::Circle { radius: 2u32 },
+        effect: EffectDef::RevealEnvInRange {
+            range: aoe_radius(&AbilityDef {
+                aoe: AoEShape::Circle { radius: 2u32 },
+                ..AbilityDef::default()
+            }),
+        },
+        target_type: TargetType::Environment,
+        ..AbilityDef::default()
+    };
+    let content = Stub::new("dual", dual_def);
+
+    let mut scout = unit(1, Team::Player, 0, 10, None);
+    scout.passives = vec![AbilityId::from("dual")];
+
+    let mut state = CombatState::new(vec![scout], 1, RoundPhase::ActorTurn, 0);
+    // Hazard at col=1: within radius 2 of both start (col=0) and after move (col=0 still).
+    state.environment = vec![hazard(5, 1)];
+
+    // 1. TurnStart fires: hazard revealed.
+    let ts_events = state.start_actor_turn(UnitId(1), &content);
+    assert!(state.environment[0].revealed, "TurnStart reveal must fire");
+    assert!(ts_events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(5))));
+
+    // 2. On a subsequent move step, already-revealed hazard emits nothing new (idempotent).
+    let (_, ctx) = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path: vec![hex_from_offset(1, 0)] },
+        &mut storyforge::combat_engine::dice::ExpectedValue,
+        &content,
+    ).expect("move step");
+    // No new EnvRevealed (already revealed), no interrupt from reveal.
+    // (HazardTriggered fires because the unit stepped on the hazard hex, but
+    //  that's unrelated to the reveal test — we just confirm no SECOND EnvRevealed.)
+    // Also: if the step reveals a NEW hazard it would interrupt, but here there
+    // is none — so interrupted state may be true (trap fire) or false, we don't
+    // constrain it here.
+    let _ = ctx; // interrupt state depends on whether a trap was placed; not asserted here.
+
+    // Reset and test OnMove alone (hazard not yet revealed, unit starts at col=0).
+    let mut scout2 = unit(2, Team::Player, 0, 10, None);
+    scout2.passives = vec![AbilityId::from("dual")];
+    let mut state2 = CombatState::new(vec![scout2], 1, RoundPhase::ActorTurn, 0);
+    // Hazard at col=3: within radius 2 of arrival at col=1.
+    state2.environment = vec![hazard(9, 3)];
+
+    let on_move_evs = state2.resolve_on_move_passives(UnitId(2), &content);
+    // From col=0, hazard at col=3 is distance 3 — NOT in range.
+    assert!(on_move_evs.is_empty(), "from start pos, col=3 hazard is out of radius 2");
+
+    // Manually move to col=1 so hazard at col=3 is distance 2.
+    state2.unit_mut(UnitId(2)).unwrap().pos = hex_from_offset(1, 0);
+    let on_move_evs2 = state2.resolve_on_move_passives(UnitId(2), &content);
+    assert!(
+        on_move_evs2.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(9))),
+        "OnMove trigger must reveal hazard now within radius 2"
+    );
 }

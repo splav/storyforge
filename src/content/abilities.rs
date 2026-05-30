@@ -206,13 +206,9 @@ struct AbilityRecord {
     ai_tags_override: Option<Vec<String>>,
     #[serde(default)]
     requires_los: bool,
-    /// Reveal radius for `effect = "reveal_env_in_range"`.  Defaults to 2.
+    /// Passive trigger list. Use `passive = ["turn_start"]` (list form).
     #[serde(default)]
-    reveal_range: Option<i32>,
-    /// If `"turn_start"`, this ability is a passive that auto-fires at the
-    /// start of the owner's turn.
-    #[serde(default)]
-    passive: Option<String>,
+    passive: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -254,6 +250,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                 "single_ally" => TargetType::SingleAlly,
                 "myself" => TargetType::Myself,
                 "ground" => TargetType::Ground,
+                "environment" => TargetType::Environment,
                 other => panic!("{path}: unknown target_type '{other}'"),
             };
             let need_dice = |id: &str, count: Option<u32>, sides: Option<u32>| {
@@ -262,6 +259,12 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     sides.unwrap_or_else(|| panic!("ability '{id}' missing dice_sides")),
                     0,
                 )
+            };
+            let aoe = match r.aoe.as_str() {
+                "" | "none" => AoEShape::None,
+                "circle" => AoEShape::Circle { radius: r.aoe_size },
+                "line" => AoEShape::Line { length: r.aoe_size },
+                other => panic!("{path}: ability '{}' unknown aoe '{other}'", r.id),
             };
             let (effect, is_move_toggle) = match r.effect.as_str() {
                 "" | "none" => (EffectDef::None, false),
@@ -287,16 +290,22 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     }),
                     max_active: r.summon_max_active,
                 }, false),
-                "reveal_env_in_range" => (EffectDef::RevealEnvInRange {
-                    range: r.reveal_range.unwrap_or(2),
-                }, false),
+                // "reveal_env" is the canonical token; "reveal_env_in_range" accepted
+                // as a legacy alias.  Radius is sourced from the aoe shape.
+                "reveal_env" | "reveal_env_in_range" => {
+                    let range = match aoe {
+                        AoEShape::Circle { radius } => radius as i32,
+                        _ => 0,
+                    };
+                    (EffectDef::RevealEnvInRange { range }, false)
+                }
                 other => panic!("{path}: unknown effect '{other}'"),
             };
-            let passive = match r.passive.as_deref() {
-                None | Some("") => None,
-                Some("turn_start") => Some(EngineTrigger::TurnStart),
-                Some(other) => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
-            };
+            let passive: Vec<EngineTrigger> = r.passive.iter().map(|tok| match tok.as_str() {
+                "turn_start" => EngineTrigger::TurnStart,
+                "on_move" => EngineTrigger::OnMove,
+                other => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
+            }).collect();
             let statuses = r
                 .statuses
                 .into_iter()
@@ -313,12 +322,6 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     }
                 })
                 .collect();
-            let aoe = match r.aoe.as_str() {
-                "" | "none" => AoEShape::None,
-                "circle" => AoEShape::Circle { radius: r.aoe_size },
-                "line" => AoEShape::Line { length: r.aoe_size },
-                other => panic!("{path}: ability '{}' unknown aoe '{other}'", r.id),
-            };
             let costs: Vec<ResourceCost> = r
                 .costs
                 .into_iter()

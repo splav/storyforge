@@ -69,11 +69,11 @@ hex_row = 2
 hex_col = 4
 hex_row = 4
 
-# Hidden trap within ~2 hexes of the party spawn side.  Remains invisible
-# (revealed=false) until a unit steps on it OR the Ranger's scout_traps
-# passive auto-reveals it at turn start.
+# Hidden trap within range-2 of Kael's spawn hex (0,5) — distance exactly 2.
+# Kael's scout_traps passive (radius 2) reveals it at turn start AND when he
+# moves to within 2 hexes.  Old position (2,3) was distance 3 (out of range).
 [[encounters.environment]]
-hex_col = 2
+hex_col = 0
 hex_row = 3
 ability = "spike_trap"
 

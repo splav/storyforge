@@ -243,7 +243,7 @@ fn replay_cast_damage_basic() {
         requires_los: false,
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 2) },
         statuses: vec![],
-        passive: None,
+        passive: vec![],
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability.clone());
@@ -305,7 +305,7 @@ fn replay_phase_trigger() {
         // 1d6 + 60 will always exceed 50 hp out of 100
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 60) },
         statuses: vec![],
-        passive: None,
+        passive: vec![],
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
@@ -445,7 +445,7 @@ fn replay_rng_count_divergence_detected() {
         requires_los: false,
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
         statuses: vec![],
-        passive: None,
+        passive: vec![],
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);

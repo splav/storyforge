@@ -161,6 +161,7 @@ fn abilities_eq(a: &AbilityDef, b: &AbilityDef) -> bool {
         && a.aoe         == b.aoe
         && a.friendly_fire == b.friendly_fire
         && a.requires_los == b.requires_los
+        && a.passive      == b.passive
         && effect_eq(&a.effect, &b.effect)
         && statuses_eq(&a.statuses, &b.statuses)
 }
@@ -336,4 +337,78 @@ fn toml_content_view_matches_ecs_content_view() {
          {} unit_templates checked",
         bridge_view.unit_templates.len(),
     );
+}
+
+/// Regression: both parsers must agree on the environment-targeted scout_traps
+/// ability: target_type=Environment, aoe=Circle{radius:2},
+/// effect=RevealEnvInRange{range:2}, passive=[TurnStart, OnMove].
+///
+/// This pins the single-source-of-radius guarantee (range comes from aoe_size,
+/// not a separate reveal_range field), the Vec-form passive migration, and the
+/// Wave-3 addition of OnMove to scout_traps.
+#[test]
+fn environment_ability_parity_scout_traps() {
+    use storyforge::combat_engine::{
+        content::ContentView as EngineContentView,
+        AoEShape, EffectDef, PassiveTrigger, TargetType, TomlContentView,
+    };
+    use storyforge::content::content_view::ContentView as BridgeContentView;
+    use storyforge::combat_engine::AbilityId;
+
+    let data_dir = std::path::Path::new("assets/data");
+
+    let toml_view = TomlContentView::load_from_dir(data_dir)
+        .expect("TomlContentView::load_from_dir failed");
+
+    let bridge_view = BridgeContentView::load_layered(data_dir, data_dir);
+
+    let id = AbilityId::from("scout_traps");
+
+    let engine_def = toml_view.ability_def(&id).cloned()
+        .expect("scout_traps not found in TomlContentView");
+    let bridge_def = bridge_view.abilities.get(&id)
+        .expect("scout_traps not found in BridgeContentView");
+    // bridge_def is storyforge::content::abilities::AbilityDef; its engine sub-field
+    // holds the combat_engine::AbilityDef.  Deref gives us direct access.
+    let bridge_engine_def: &storyforge::combat_engine::AbilityDef = &**bridge_def;
+
+    // target_type
+    assert_eq!(engine_def.target_type, TargetType::Environment,
+        "TomlContentView: scout_traps target_type should be Environment");
+    assert_eq!(bridge_engine_def.target_type, TargetType::Environment,
+        "BridgeContentView: scout_traps target_type should be Environment");
+
+    // aoe
+    assert_eq!(engine_def.aoe, AoEShape::Circle { radius: 2 },
+        "TomlContentView: scout_traps aoe should be Circle{{radius:2}}");
+    assert_eq!(bridge_engine_def.aoe, AoEShape::Circle { radius: 2 },
+        "BridgeContentView: scout_traps aoe should be Circle{{radius:2}}");
+
+    // effect (RevealEnvInRange with range derived from aoe_size)
+    match &engine_def.effect {
+        EffectDef::RevealEnvInRange { range } =>
+            assert_eq!(*range, 2, "TomlContentView: scout_traps reveal range should be 2"),
+        other => panic!("TomlContentView: expected RevealEnvInRange, got {other:?}"),
+    }
+    match &bridge_engine_def.effect {
+        EffectDef::RevealEnvInRange { range } =>
+            assert_eq!(*range, 2, "BridgeContentView: scout_traps reveal range should be 2"),
+        other => panic!("BridgeContentView: expected RevealEnvInRange, got {other:?}"),
+    }
+
+    // passive triggers (Wave 3: OnMove added alongside TurnStart)
+    assert_eq!(
+        engine_def.passive,
+        vec![PassiveTrigger::TurnStart, PassiveTrigger::OnMove],
+        "TomlContentView: scout_traps passive should be [TurnStart, OnMove]"
+    );
+    assert_eq!(
+        bridge_engine_def.passive,
+        vec![PassiveTrigger::TurnStart, PassiveTrigger::OnMove],
+        "BridgeContentView: scout_traps passive should be [TurnStart, OnMove]"
+    );
+
+    // Both parsers agree with each other
+    assert!(abilities_eq(&engine_def, &bridge_engine_def),
+        "scout_traps: TomlContentView and BridgeContentView disagree\n  toml:   {engine_def:?}\n  bridge: {bridge_engine_def:?}");
 }

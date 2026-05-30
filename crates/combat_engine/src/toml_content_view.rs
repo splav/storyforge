@@ -161,13 +161,9 @@ struct AbilityRecord {
     summon_max_active: Option<u32>,
     #[serde(default)]
     requires_los: bool,
-    /// Reveal radius for `effect = "reveal_env_in_range"`.  Defaults to 2.
+    /// Passive trigger list. Use `passive = ["turn_start"]` (list form).
     #[serde(default)]
-    reveal_range: Option<i32>,
-    /// If `"turn_start"`, this ability is a passive that auto-fires at the
-    /// start of the owner's turn.
-    #[serde(default)]
-    passive: Option<String>,
+    passive: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -375,6 +371,13 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
         )
     };
 
+    let aoe = match r.aoe.as_str() {
+        "" | "none" => AoEShape::None,
+        "circle" => AoEShape::Circle { radius: r.aoe_size },
+        "line" => AoEShape::Line { length: r.aoe_size },
+        other => panic!("{path}: ability '{}' unknown aoe '{other}'", r.id),
+    };
+
     let effect = match r.effect.as_str() {
         "" | "none" => EffectDef::None,
         "weapon_attack" => EffectDef::WeaponAttack,
@@ -391,31 +394,32 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
             }),
             max_active: r.summon_max_active,
         },
-        "reveal_env_in_range" => EffectDef::RevealEnvInRange {
-            range: r.reveal_range.unwrap_or(2),
-        },
+        // "reveal_env" is the canonical token; "reveal_env_in_range" accepted
+        // as a legacy alias for forward-compat during migration.
+        "reveal_env" | "reveal_env_in_range" => {
+            // Radius comes from the aoe shape — single canonical source.
+            let range = match aoe {
+                AoEShape::Circle { radius } => radius as i32,
+                _ => 0,
+            };
+            EffectDef::RevealEnvInRange { range }
+        }
         other => panic!("{path}: ability '{}' unknown effect '{other}'", r.id),
     };
 
-    let passive = match r.passive.as_deref() {
-        None | Some("") => None,
-        Some("turn_start") => Some(PassiveTrigger::TurnStart),
-        Some(other) => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
-    };
+    let passive: Vec<PassiveTrigger> = r.passive.iter().map(|tok| match tok.as_str() {
+        "turn_start" => PassiveTrigger::TurnStart,
+        "on_move" => PassiveTrigger::OnMove,
+        other => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
+    }).collect();
 
     let target_type = match r.target_type.as_str() {
         "single_enemy" => TargetType::SingleEnemy,
         "single_ally" => TargetType::SingleAlly,
         "myself" => TargetType::Myself,
         "ground" => TargetType::Ground,
+        "environment" => TargetType::Environment,
         other => panic!("{path}: ability '{}' unknown target_type '{other}'", r.id),
-    };
-
-    let aoe = match r.aoe.as_str() {
-        "" | "none" => AoEShape::None,
-        "circle" => AoEShape::Circle { radius: r.aoe_size },
-        "line" => AoEShape::Line { length: r.aoe_size },
-        other => panic!("{path}: ability '{}' unknown aoe '{other}'", r.id),
     };
 
     let costs: Vec<Cost> = r.costs.into_iter().map(|c| {

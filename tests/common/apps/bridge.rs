@@ -347,7 +347,7 @@ impl MeleeContent {
                 statuses: vec![],
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
         let mut cv = ContentView::default();

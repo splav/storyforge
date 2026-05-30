@@ -169,7 +169,7 @@ fn cast_3_targets_consumes_d20_plus_3_damage_rolls() {
         requires_los: false,
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
         statuses: vec![],
-        passive: None,
+        passive: vec![],
     };
     let content = CastContent { id: "fireball".to_string(), def };
 

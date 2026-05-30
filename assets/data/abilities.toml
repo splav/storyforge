@@ -205,10 +205,11 @@ costs             = [{ resource = "mana", amount = 3 }]
 [[abilities]]
 id           = "scout_traps"
 name         = "Чутьё на ловушки"
-target_type  = "myself"
-effect       = "reveal_env_in_range"
-reveal_range = 2
-passive      = "turn_start"
+target_type  = "environment"
+aoe          = "circle"
+aoe_size     = 2
+effect       = "reveal_env"
+passive      = ["turn_start", "on_move"]
 range        = 0
 cost_ap      = 0
 

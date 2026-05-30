@@ -156,7 +156,7 @@ pub(crate) mod tests {
                 statuses: vec![],
                 key: None,
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         }
     }

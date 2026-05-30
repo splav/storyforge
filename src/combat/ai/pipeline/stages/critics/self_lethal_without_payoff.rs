@@ -541,7 +541,7 @@ mod tests {
                 effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
                 statuses: Vec::new(),
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 
@@ -604,7 +604,7 @@ mod tests {
                 effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
                 statuses: Vec::new(),
                 requires_los: false,
-                passive: None,
+                passive: vec![],
             },
         };
 

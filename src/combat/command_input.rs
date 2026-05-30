@@ -72,7 +72,7 @@ pub fn player_command_system(
         selection.move_mode = false;
         if let Some(ref id) = selection.selected_ability.clone() {
             if let Some(def) = content.abilities.get(id.0.as_str()) {
-                if def.target_type == TargetType::Myself {
+                if def.is_actively_castable() && def.target_type == TargetType::Myself {
                     selection.selected_target = Some(actor);
                 }
             }
@@ -96,7 +96,7 @@ pub fn player_command_system(
                     selection.selected_target = None;
                 }
             }
-        } else if def.target_type == TargetType::Myself && c.ap.can_act_for(def.cost_ap) {
+        } else if def.is_actively_castable() && def.target_type == TargetType::Myself && c.ap.can_act_for(def.cost_ap) {
             let target_pos = positions.get(&actor).unwrap_or(hexx::Hex::ZERO);
             action_input.write(ActionInput::Cast {
                 actor,
@@ -121,7 +121,7 @@ pub fn player_command_system(
         if keyboard.just_pressed(key) {
             if let Some(ability_id) = c.abilities.0.get(i).cloned() {
                 if let Some(def) = content.abilities.get(ability_id.0.as_str()) {
-                    if def.target_type == TargetType::Myself {
+                    if def.is_actively_castable() && def.target_type == TargetType::Myself {
                         selection.selected_target = Some(actor);
                     }
                 }
@@ -151,8 +151,8 @@ pub fn player_command_system(
             .and_then(|id| content.abilities.get(id.0.as_str()))
             .map(|def| def.target_type);
 
-        if matches!(target_type, Some(TargetType::Myself | TargetType::Ground)) {
-            // self-cast / ground-targeted: Tab does nothing (no entity to cycle).
+        if matches!(target_type, Some(TargetType::Myself | TargetType::Ground | TargetType::Environment)) {
+            // self-cast / ground-targeted / environment (passive): Tab does nothing (no entity to cycle).
         } else {
             let is_single_ally = target_type == Some(TargetType::SingleAlly);
 
