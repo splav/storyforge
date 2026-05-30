@@ -239,7 +239,7 @@ fn enemy_mover_hero_provokes() {
 // via the `BumpRound` effect at end of EndTurn cascade, and projection writes
 // the result back to ECS. Coverage of that path lives in:
 //   - `crates/combat_engine/tests/turn_queue.rs::start_round_resets_reactions_for_alive_units_only`
-//   - bridge_smoke (end-to-end through EndTurn → projection)
+//   - the bridge_* suites (end-to-end through EndTurn → projection)
 
 #[test]
 fn move_within_adjacency_no_trigger() {

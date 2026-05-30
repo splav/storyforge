@@ -15,7 +15,7 @@
 //! insert_ability(&mut app, my_def);
 //! ```
 //!
-//! Used by: tests/combat_engine/bridge_smoke.rs (and future bridge-layer suites).
+//! Used by: tests/combat_engine/bridge_{movement,projector,cast,trace,phase}.rs.
 
 #![allow(dead_code)]
 
@@ -57,8 +57,8 @@ use combat_engine::state::Unit;
 
 /// Build a full bridge App: process_action + projector + phase_transitions + ai_log.
 ///
-/// Mirrors the structure of `bridge_smoke::bridge_app` but does NOT spawn
-/// entities — tests must spawn explicitly via [`spawn_unit`] / [`spawn_caster`] /
+/// Builds the app but does NOT spawn entities — tests must spawn explicitly
+/// via [`spawn_unit`] / [`spawn_caster`] /
 /// [`spawn_target`], then call [`bootstrap`] before the first `app.update()`.
 pub fn bridge_app() -> App {
     let mut app = App::new();

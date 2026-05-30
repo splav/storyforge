@@ -9,8 +9,20 @@
 #[path = "../tests/common/mod.rs"]
 mod common;
 
-#[path = "combat_engine/bridge_smoke.rs"]
-mod bridge_smoke;
+#[path = "combat_engine/bridge_cast.rs"]
+mod bridge_cast;
+
+#[path = "combat_engine/bridge_movement.rs"]
+mod bridge_movement;
+
+#[path = "combat_engine/bridge_phase.rs"]
+mod bridge_phase;
+
+#[path = "combat_engine/bridge_projector.rs"]
+mod bridge_projector;
+
+#[path = "combat_engine/bridge_trace.rs"]
+mod bridge_trace;
 
 #[path = "combat_engine/turn_queue.rs"]
 mod turn_queue;

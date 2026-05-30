@@ -14,7 +14,7 @@ Each layer tests its own contract; cross-layer concerns sit at the higher layer.
 | Layer | Where | What it tests | Setup cost |
 |---|---|---|---|
 | **Pure engine** | `tests/combat_engine/*.rs` (e.g. `replay.rs`, `serde_roundtrip.rs`, `rng_count.rs`, `purity.rs`, `aura_determinism.rs`, `trace_helpers.rs`) | `storyforge::combat_engine::*` only — no Bevy, no ECS in the test body. Replay, serde, RNG counting, determinism. | Lowest. Manual `CombatState` construction. |
-| **Engine + bridge** | `tests/combat_engine/*.rs` (e.g. `bridge_smoke.rs`, `legality_parity.rs`) | `engine_bridge.rs` — ECS projection, message translation, content view. | Medium. Bevy `App` with minimal plugins. |
+| **Engine + bridge** | `tests/combat_engine/*.rs` (e.g. `bridge_movement.rs`, `bridge_cast.rs`, `bridge_projector.rs`, `bridge_phase.rs`, `bridge_trace.rs`, `legality_parity.rs`) | `engine_bridge.rs` — ECS projection, message translation, content view. | Medium. Bevy `App` with minimal plugins. |
 | **Full app** | `tests/combat/*.rs` | End-to-end combat scenarios, AI decisions, animations. | Highest. Full `MinimalPlugins` + content load. |
 | **Inline unit (engine-internal)** | `#[cfg(test)] mod tests` inside `crates/combat_engine/src/*.rs` | White-box tests of crate-**private** internals (e.g. `start_actor_turn`, content-hash, turn-queue). | Module-local. **Only built under `-p combat_engine` / `--workspace`** — see "Running" note below. |
 | **Inline unit (storyforge)** | `#[cfg(test)] mod tests` inside `src/*.rs` (or sibling `<name>_tests.rs` via `#[path]`) | Single-function or struct-level contracts. | Module-local. |
@@ -74,9 +74,10 @@ builds work normally.
 `tests/common/` — shared scaffolding (see §3).
 
 **One file per concern** — but tolerate up to **~600 LOC** of mixed concerns
-before splitting. The hard lesson from `bridge_smoke.rs` (1834 LOC of mixed
-movement/cast/projector/phase/trace) is that >1000 LOC of mixed concerns is
-unmaintainable; <600 LOC is usually fine even if it spans 2-3 areas.
+before splitting. The lesson from `bridge_smoke.rs` (was 2125 LOC of mixed
+movement/cast/projector/phase/trace — now split into five focused files) is
+that >1000 LOC of mixed concerns is unmaintainable; <600 LOC is usually fine
+even if it spans 2-3 areas.
 
 ### Pure-engine tests (`tests/combat_engine/*.rs`)
 
@@ -367,10 +368,10 @@ working, they may surface in code review:
   `eff_max_hp`, `hp_pct`, `killability`, `can_afford`, `is_alive`). Tests
   must cover both ports independently. Production-code unification is a
   separate refactor — not a test problem.
-- **`tests/combat_engine/bridge_smoke.rs` (1834 LOC)** mixes movement, cast,
-  projector, phase-transition, and trace concerns. Don't add new tests to
-  this file unless they fit one of those existing concerns — start a new
-  `tests/combat_engine/<concern>.rs` instead.
+- ~~`tests/combat_engine/bridge_smoke.rs` (mixed-concern monolith)~~ **RESOLVED**
+  (C4): split into `bridge_movement.rs` (8 tests), `bridge_projector.rs` (4),
+  `bridge_cast.rs` (7 + 2 helpers), `bridge_trace.rs` (3), `bridge_phase.rs` (3).
+  Add new bridge tests to whichever file matches their concern.
 - **`src/combat/ai/test_helpers.rs` (~1065 LOC)** is a monolithic helper module
   with mixed concerns (caches, contexts, unit builder, snapshot helpers,
   stage harness, critic harness, assertions). Split planned but not yet
