@@ -1,8 +1,8 @@
 # Test-suite audit & rework plan
 
-> Status snapshot: **Phase 0 committed** (`572d197`). **Phase 1 complete & green, uncommitted** (all 15 files migrated, suite 1332/1 skipped — see "Current state" at the bottom). Phases 2–4 not started.
+> Status snapshot: **ALL PHASES COMPLETE & COMMITTED.** Phase 0 `572d197` · Phase 1 `6c5eae1` · Phase 2 `0089567` · Phase 3 `02a23ee` · Phase 4 `31c1fd0`+`528ccf2`+`40b408f`+`764bda2` (plus doc cleanup `4e04883`). Suite green throughout; final **1335 passed / 1 skipped**.
 >
-> Recovered from a session that broke on an `API Error: 400 … thinking blocks cannot be modified`. This file is the canonical handoff.
+> Recovered from a session that broke on an `API Error: 400 … thinking blocks cannot be modified`. This file was the canonical handoff; it now stands as the audit changelog.
 
 ## Context
 
@@ -212,32 +212,42 @@ was deleted and replaced with 4 slim behavioral rule-pin tests:
 - `tag_axis_vote_taunt_splits_tank_and_support`
 - `tag_axis_vote_summon_splits_support_and_ranged`
 
-Net: −1 test + 4 tests = **+3** (1332 → 1335 / 1 skipped).
+Phase 4 landed as four commits (lowest-risk first):
+- **C1** `31c1fd0` — split three oversized inline test modules into `#[path]`
+  `_tests.rs` siblings: `intent/score.rs` (1288→426), `pipeline/stages/
+  overlay_considerations.rs` (1225→402), `pipeline/stages/pick_best.rs`
+  (1390→560). Pure move, count-neutral.
+- **C2** `528ccf2` — retire `role.rs:531` (above); +3 tests → 1335 / 1.
+- **C3** `40b408f` — replace the `builder.rs` `enemy_damage` formula-echo test
+  (`*_matches_raw_formula`) with `hypothetical_enemy_damage_obeys_power_armor_
+  floor_invariants` (power-monotonic / armor-monotonic / zero-floor behavioral
+  asserts, never re-deriving the formula), then split `builder.rs`
+  (1064→535) → `builder_tests.rs`. Count-neutral.
+- **C4** `764bda2` — split `bridge_smoke.rs` (2125 LOC, 25 tests) by concern into
+  `bridge_{movement,projector,cast,trace,phase}.rs`. The 2 cast-only log helpers
+  stayed local to `bridge_cast.rs` (no `tests/common/` lift needed). Count-neutral.
+
+Doc cleanup `4e04883` stripped the brittle hardcoded test-count figures from
+CLAUDE.md guidance (they rot on every test add) — per-phase counts remain only
+here, as a changelog.
 
 ---
 
-## Current state
+## Outcome
 
-- **Committed:** Phase 0 = `572d197`.
-- **Phase 1 — DONE, green, uncommitted working tree:**
-  - New: `tests/common/engine_unit.rs` + `pub mod engine_unit;` in
-    `tests/common/mod.rs`. `EngineUnitBuilder` + `StubContent`. (The builder grew a
-    `.template(impl Into<String>)` setter to migrate the `test_template` unit ctor
-    in `temporary_ally_e2e.rs`.)
-  - Migrated (all 15 call-site files): `determinism.rs`, `aura_determinism.rs`,
-    `rng_count.rs`, `turn_queue.rs`, `trace_helpers.rs`, `serde_roundtrip.rs`,
-    `end_turn.rs`, `trap.rs`, `reaction.rs`, `phase.rs`, `replay.rs` (first pass)
-    plus `aura.rs`, `tests/combat/handoff.rs`, `tests/replay_diff_smoke.rs`,
-    `tests/temporary_ally_e2e.rs` (this pass).
-  - **Intentionally NOT migrated:** `aura.rs`'s `AuraContent` — it doubles as the
-    aura-geometry config carrier (`with_aura` reads its `radius`/`status_id`/
-    `applies_to`), so it is not a plain `ContentView` stub. Left untouched.
-  - `cargo nextest run --workspace --features dev` → **1335 passed / 1 skipped**.
-    `graphify update .` run.
+All five phases (0–4) are complete and committed; the suite stayed green the whole
+way, ending at **1335 passed / 1 skipped** (`cargo nextest run --workspace
+--features dev`). `graphify update .` was run after each code-touching phase.
+
+**Deferred (not in scope):**
+- `tests/combat/equipment.rs` — layer-inverted (pure `ContentView` logic in the
+  full-app harness); its proper home is an inline `#[cfg(test)]` in the `content/`
+  module. Left in place by user decision (separate layer/destination, low risk).
+- `src/combat/ai/test_helpers.rs` (~1099 LOC) — split tracked separately as H1 in
+  `helpers-normalization-plan.md`.
+- `tests/combat_engine/{effect.rs (1515), cast.rs (1345)}` — over the §2 soft
+  threshold but with single coherent concerns; split deferred pending a
+  concern-separability check.
 - **Pre-existing unrelated breakage:** `benches/engine_move.rs:37` missing
-  `forced_mode` — a benchmark file, not compiled by the test suite. Untouched by
-  this work; tracked separately.
-
-### Immediate next actions
-1. **Commit Phase 1** (not yet committed).
-2. Proceed to **Phase 2** — reuse `bridge_app()` + dedup `replay_bin`.
+  `forced_mode` — a benchmark file, not compiled by the test suite; tracked
+  separately.
