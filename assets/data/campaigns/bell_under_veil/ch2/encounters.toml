@@ -1,5 +1,10 @@
 # Энкаунтеры главы II «След медной книги».
 # Накапливаются по мере добавления боёв (см. ch2/scenario.toml).
+#
+# ВАЖНО про координаты: поле 7 рядов (0..6), ряды чередуют ширину
+# (см. game/hex.rs row_cols): ЧЁТНЫЕ ряды (0,2,4,6) — колонки 0..6,
+# НЕЧЁТНЫЕ ряды (1,3,5) — колонки 0..7. Партия спавнится на западе (col 0..1,
+# в scenario.toml), враги — на востоке (col 5..7 в пределах чётности ряда).
 
 # ── Бой 1: Засада на тракте ───────────────────────────────────────────────────
 # Обучающий бой про позиционирование. Наёмники-конкуренты Колма заранее
@@ -23,22 +28,22 @@ victory = { type = "kill_target", enemy_name = "Главарь засады", ma
 hex_col = 5
 hex_row = 1
 [[encounters.obstacles]]
-hex_col = 3
+hex_col = 2
 hex_row = 5
 [[encounters.obstacles]]
-hex_col = 6
+hex_col = 5
 hex_row = 5
 
-# Скрытые шипастые ловушки на тракте (uron 1d6 + disoriented 2). owner = "enemy":
+# Скрытые шипастые ловушки на тракте (урон 1d6 + disoriented 2). owner = "enemy":
 # наёмники знают свои капканы и обходят их; партия видит только раскрытые Kael'ом.
 [[encounters.environment]]
-hex_col = 4
-hex_row = 2
+hex_col = 3
+hex_row = 3
 ability = "spike_trap"
 owner   = "enemy"
 [[encounters.environment]]
-hex_col = 5
-hex_row = 3
+hex_col = 4
+hex_row = 2
 ability = "spike_trap"
 owner   = "enemy"
 [[encounters.environment]]
@@ -47,8 +52,8 @@ hex_row = 4
 ability = "spike_trap"
 owner   = "enemy"
 [[encounters.environment]]
-hex_col = 6
-hex_row = 2
+hex_col = 5
+hex_row = 3
 ability = "spike_trap"
 owner   = "enemy"
 
@@ -57,24 +62,24 @@ owner   = "enemy"
 
 [[encounters.enemies]]
 template = "merc_leader"
-hex_col  = 8
+hex_col  = 7
 hex_row  = 3
 
 [[encounters.enemies]]
 template = "bandit_thug"
 name     = "Наёмник-перевозчик"
-hex_col  = 7
+hex_col  = 6
 hex_row  = 2
 
 [[encounters.enemies]]
 template = "bandit_archer"
 name     = "Наёмник с арбалетом"
-hex_col  = 9
+hex_col  = 6
 hex_row  = 4
 
 [[encounters.enemies]]
 template = "caravan_dog"
-hex_col  = 7
+hex_col  = 6
 hex_row  = 5
 
 # ── Бой 2: Тронутое святилище ─────────────────────────────────────────────────
@@ -106,13 +111,13 @@ hex_row = 5
 # (переиспользованный cultist_grunt с флавор-именем «Одержимый паломник»).
 [[encounters.enemies]]
 template = "possessed_host"
-hex_col  = 8
+hex_col  = 7
 hex_row  = 3
 
 [[encounters.enemies]]
 template = "cultist_grunt"
 name     = "Одержимый паломник"
-hex_col  = 7
+hex_col  = 6
 hex_row  = 2
 
 [[encounters.enemies]]
@@ -131,43 +136,44 @@ id      = "ch2_portside"
 name    = "Портовый квартал Лимны"
 victory = { type = "all_enemies_dead" }
 
-# Штабеля ящиков и брошенные повозки — преграды (движение + LOS), расставлены
-# в шахматном порядке: два «здания»-уступа дают перекрытые лучами коридоры.
-# Оставлены проходы (ряды 0,1,4,6 по col=5) — поле не запечатано.
+# Штабеля ящиков по col=4 — «здание»-стена с проходами в рядах 0, 3, 6.
+# Блокирует движение и LOS: партия рвётся в проходы под прикрытием, стрелки
+# с искрой за стеной теряют линию.
 [[encounters.obstacles]]
-hex_col = 5
+hex_col = 4
+hex_row = 1
+[[encounters.obstacles]]
+hex_col = 4
 hex_row = 2
 [[encounters.obstacles]]
-hex_col = 5
-hex_row = 3
-[[encounters.obstacles]]
-hex_col = 5
-hex_row = 5
-[[encounters.obstacles]]
-hex_col = 7
+hex_col = 4
 hex_row = 4
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 5
 
-# 2 тяжёлых танка впереди + 3 стрелка с искрой за их спинами / по углам.
+# 2 тяжёлых танка впереди + 3 стрелка с искрой за их спинами (нечётные ряды,
+# col 7 — самый тыл поля).
 [[encounters.enemies]]
 template = "heavy_merc"
-hex_col  = 7
+hex_col  = 6
 hex_row  = 2
 [[encounters.enemies]]
 template = "heavy_merc"
+hex_col  = 6
+hex_row  = 4
+
+[[encounters.enemies]]
+template = "spark_shooter"
+hex_col  = 7
+hex_row  = 1
+[[encounters.enemies]]
+template = "spark_shooter"
 hex_col  = 7
 hex_row  = 3
-
 [[encounters.enemies]]
 template = "spark_shooter"
-hex_col  = 9
-hex_row  = 2
-[[encounters.enemies]]
-template = "spark_shooter"
-hex_col  = 9
-hex_row  = 4
-[[encounters.enemies]]
-template = "spark_shooter"
-hex_col  = 9
+hex_col  = 7
 hex_row  = 5
 
 # ── Бой 4: Подземные склады Колма (финал) ─────────────────────────────────────
@@ -189,20 +195,20 @@ victory = { type = "kill_target", enemy_name = "Тибор Колм", marker_col
 
 # Бочки, ящики, штабеля — преграды низкого свода (движение + LOS).
 [[encounters.obstacles]]
+hex_col = 3
+hex_row = 3
+[[encounters.obstacles]]
 hex_col = 4
 hex_row = 2
 [[encounters.obstacles]]
 hex_col = 4
 hex_row = 4
-[[encounters.obstacles]]
-hex_col = 6
-hex_row = 3
 
 # Босс. Фаза 2 при HP < 30%: бросает оружие и бежит; добить за 4 раунда.
 # (Блок phases привязан к ПРЕДЫДУЩЕМУ [[encounters.enemies]] — идёт сразу за Колмом.)
 [[encounters.enemies]]
 template = "tibor_kolm"
-hex_col  = 9
+hex_col  = 7
 hex_row  = 3
 [[encounters.enemies.phases]]
 hp_below_pct     = 30
@@ -212,10 +218,10 @@ victory_override = { type = "kill_target", enemy_name = "Тибор Колм", m
 flavor           = "Колм бросает кинжал и кидается к выходу — добейте его, пока не ушёл в порт!"
 
 # Био-прототип — аура усиливает гвардейцев (affects = "allies": союзники прототипа,
-# т.е. остальные враги партии).
+# т.е. остальные враги партии). Радиус 2 от (6,3) накрывает Колма и обоих гвардейцев.
 [[encounters.enemies]]
 template = "bio_prototype"
-hex_col  = 8
+hex_col  = 6
 hex_row  = 3
 aura     = { status = "prototype_ward", radius = 2, affects = "allies" }
 
@@ -223,12 +229,12 @@ aura     = { status = "prototype_ward", radius = 2, affects = "allies" }
 [[encounters.enemies]]
 template = "heavy_merc"
 name     = "Личный гвардеец Колма"
-hex_col  = 7
+hex_col  = 6
 hex_row  = 2
 [[encounters.enemies]]
 template = "heavy_merc"
 name     = "Личный гвардеец Колма"
-hex_col  = 7
+hex_col  = 6
 hex_row  = 4
 
 # 2 охранника склада — обычные наёмные люди (переиспользованный bandit_thug).

@@ -284,6 +284,12 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
     for (enc_id, enc) in &scen.encounters {
         let label = format!("scenario '{scen_id}' encounter '{enc_id}'");
         for enemy in &enc.enemies {
+            assert!(
+                crate::game::hex::in_bounds(enemy.hex_pos),
+                "{label} enemy '{}': spawn hex {:?} is outside the battlefield \
+                 (even rows 0..6 → cols 0..6, odd rows → cols 0..7)",
+                enemy.name, crate::game::hex::hex_to_offset(enemy.hex_pos),
+            );
             assert!(c.races.contains_key(&enemy.race), "{label} enemy '{}': unknown race", enemy.name);
             if let Some(ref fac) = enemy.faction {
                 assert!(c.factions.contains_key(fac), "{label} enemy '{}': unknown faction '{fac}'", enemy.name);
@@ -326,6 +332,22 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
             }
         }
 
+        // Static field objects must also sit inside the battlefield.
+        for obs in &enc.obstacles {
+            assert!(
+                crate::game::hex::in_bounds(*obs),
+                "{label}: obstacle at {:?} is outside the battlefield",
+                crate::game::hex::hex_to_offset(*obs),
+            );
+        }
+        for env in &enc.environment {
+            assert!(
+                crate::game::hex::in_bounds(env.hex),
+                "{label}: environment object at {:?} is outside the battlefield",
+                crate::game::hex::hex_to_offset(env.hex),
+            );
+        }
+
         // Hex collisions within encounter.
         {
             let mut seen = std::collections::HashSet::new();
@@ -348,6 +370,11 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
         _ => Vec::new(),
     }));
     for member in all_members {
+        assert!(
+            crate::game::hex::in_bounds(member.hex_pos),
+            "scenario '{scen_id}' party '{}': spawn hex {:?} is outside the battlefield",
+            member.name, crate::game::hex::hex_to_offset(member.hex_pos),
+        );
         assert!(c.races.contains_key(&member.race), "scenario '{scen_id}' party '{}': unknown race", member.name);
         if let Some(ref fac) = member.faction {
             assert!(c.factions.contains_key(fac), "scenario '{scen_id}' party '{}': unknown faction", member.name);
