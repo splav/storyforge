@@ -11,7 +11,7 @@
 //!
 //! # Schema version
 //!
-//! [`SCHEMA_VERSION`] is `37`. Any engine change that adds/removes RNG calls
+//! [`SCHEMA_VERSION`] is `45`. Any engine change that adds/removes RNG calls
 //! or changes the trace record shape MUST bump this constant (Phase 5 D2).
 
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,8 @@ use crate::{
     turn_queue::TurnQueue,
 };
 
-/// Trace schema version.  Matches the AI-log `SCHEMA_VERSION` after 5f.
+/// Trace schema version.  v45: engine now owns round-1 initiative rolling
+/// (`roll_initiative_for_all` + `reconcile_turn_order` in bootstrap).
 /// Bump on any change that adds/removes RNG calls or modifies record shape.
 /// v39: `Event::ManaRegenerated` is now also emitted after `Effect::PayCost`
 /// for mana-cost casts, replacing the bridge-side mana-diff snapshot approach.
@@ -60,7 +61,7 @@ use crate::{
 /// `UnitWire.max_hp` removed from serialized output (backward-compat read via
 /// `#[serde(default)]` still populates `pools[Hp]` for pre-v44 traces).
 /// Old v43 traces are incompatible — clean break.
-pub const SCHEMA_VERSION: u32 = 44;
+pub const SCHEMA_VERSION: u32 = 45;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

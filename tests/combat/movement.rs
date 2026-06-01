@@ -47,12 +47,28 @@ fn partial_move_subtracts_pool_and_allows_second_move() {
 
 #[test]
 fn move_rejected_when_path_longer_than_pool() {
+    use storyforge::combat::engine_bridge::CombatStateRes;
+
     let mut app = movement_app();
 
     let hero = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()), "Hero");
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
-    app.world_mut().get_mut::<ActionPoints>(hero).unwrap().movement_points = 1;
     init_engine_state(&mut app);
+
+    // Wave 3: start_actor_turn in settle_round_start refills MP to speed.
+    // Set the engine pool to 1 AFTER bootstrap so the engine is the constraint
+    // (the engine is authoritative for pool values once bootstrap completes).
+    {
+        let id_map = app.world().resource::<storyforge::combat::engine_bridge::UnitIdMap>();
+        let uid = id_map.get_id(hero).expect("hero must be in id_map");
+        let mut cs = app.world_mut().resource_mut::<CombatStateRes>();
+        if let Some(u) = cs.0.unit_mut(uid) {
+            use combat_engine::PoolKind;
+            if let Some((cur, _max)) = u.pools[PoolKind::Mp].as_mut() {
+                *cur = 1;
+            }
+        }
+    }
 
     // Path of length 2, but only 1 point in the pool.
     write_message(

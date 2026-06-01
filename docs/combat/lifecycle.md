@@ -156,8 +156,10 @@ handles `Event::UnitSpawned` by calling `spawn_ecs_entity_from_engine_unit`
 which creates the Bevy entity with the full `CombatantBundle` and inserts it
 into `HexPositions` and `UnitIdMap`.
 
-The spawned unit joins the **next** StartRound turn queue with
-`Initiative(0)` — it does not participate in the current round's queue.
+The spawned unit joins the **next** StartRound turn queue — it does not
+participate in the current round's queue.  On the next round-start the engine
+rolls `d20 + dex_mod` for the spawned unit and inserts it into the order by
+its initiative value (same `reconcile_turn_order` sort as all other units).
 
 **Action economy rule:** a spawned unit does **not** trigger Attacks of
 Opportunity in the round it is spawned. AoO is only provoked by movement

@@ -84,6 +84,7 @@ pub fn bridge_app() -> App {
             ring: Handle::default(),
         })
         .init_resource::<BridgeQueues>()
+        .init_resource::<storyforge::game::resources::PresetInitiative>()
         .init_resource::<EngineTraceWriter>()
         .init_resource::<AiLogger>()
         .init_resource::<PendingAiLogEntries>()
@@ -115,6 +116,7 @@ pub fn projector_only_app() -> App {
         .init_resource::<HexPositions>()
         .init_resource::<HexCorpses>()
         .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
         .add_message::<ActionInput>()
         .add_systems(PostUpdate, project_state_to_ecs);
     app
@@ -122,7 +124,9 @@ pub fn projector_only_app() -> App {
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
-/// Run `bootstrap_combat_state` once after all units are spawned.
+/// Run `bootstrap_combat_state` once after all units are spawned,
+/// then drain bridge queues (turn-lifecycle, deaths) that bootstrap emits
+/// so they don't accumulate and interfere with the first `app.update()`.
 ///
 /// `bridge_app()` has no state machine, so `OnEnter(AwaitCommand)` cannot fire.
 /// Call this after your spawn block and any direct ECS mutations, but before
@@ -132,6 +136,11 @@ pub fn bootstrap(app: &mut App) {
     app.world_mut()
         .run_system_once(bootstrap_combat_state)
         .expect("bootstrap_combat_state failed");
+    // Drain any insert_active / remove_active queued by settle_round_start inside
+    // bootstrap, so they don't double-fire on the first app.update().
+    app.world_mut()
+        .run_system_once(apply_bridge_queues_pre_projection)
+        .expect("apply_bridge_queues_pre_projection failed");
 }
 
 // ─── Scripted RNG ─────────────────────────────────────────────────────────────

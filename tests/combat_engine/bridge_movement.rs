@@ -192,6 +192,8 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         .remaining = 1;
 
     // Apply stun status to the enemy.
+    // applier: None (environment-applied) so tick_actor_statuses(player) at
+    // turn-start does NOT expire the stun before the move happens.
     app.world_mut()
         .entity_mut(enemy)
         .get_mut::<StatusEffects>()
@@ -200,7 +202,7 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         .push(ActiveStatus {
             id: stun_id,
             rounds_remaining: 1,
-            applier: Some(player),
+            applier: None,
             dot_per_tick: 0,
         });
 

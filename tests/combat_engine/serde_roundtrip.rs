@@ -56,6 +56,7 @@ fn unit_all_some(id: u64) -> Unit {
             },
         ],
         Some(uid(42)),
+        None,               // initiative: not yet rolled
         Default::default(),
         None,
         Vec::new(),

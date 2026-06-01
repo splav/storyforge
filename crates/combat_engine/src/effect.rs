@@ -872,6 +872,12 @@ pub fn apply_effect(
             // reactions_left=reactions_max for alive units.
             state.start_round(content);
 
+            // Insert mid-combat summons into the turn order at their rolled
+            // initiative position. Must run AFTER start_round (which resets
+            // index=0) and BEFORE skip_or_settle_current (which settles the
+            // index-0 actor against the final order).
+            state.reconcile_turn_order();
+
             // Derive RefreshAggregates for every alive unit first.
             // RefreshAggregates doesn't affect skips_turn (status-driven),
             // so it's safe to run skip_or_settle_current before they fire —
@@ -953,6 +959,7 @@ pub fn apply_effect(
                 1,
                 Vec::new(),
                 Some(*summoner),
+                None,               // initiative: not yet rolled
                 template.caster_context.clone(),
                 template.aoo_dice,
                 template.auras.clone(),

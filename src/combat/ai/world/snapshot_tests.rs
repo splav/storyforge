@@ -413,6 +413,7 @@ mod snapshot_api_tests {
             1,  // reactions_max
             vec![],
             None,
+            None,               // initiative: not yet rolled
             Default::default(),
             None,
             Vec::new(),

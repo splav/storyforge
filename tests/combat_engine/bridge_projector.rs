@@ -87,6 +87,7 @@ fn projector_writes_engine_mutation_to_ecs() {
             1,  // reactions_max
             vec![],
             None,
+            None,               // initiative: not yet rolled
             Default::default(),
             None,
             Vec::new(),
@@ -192,7 +193,7 @@ fn projector_writes_mana_from_engine_state() {
         EngineTeam::Player,
         start,
         0, 0, 0, 6, 6, 1, 1,
-        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
+        vec![], None, None, Default::default(), None, Vec::new(), Vec::new(),
         combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => Some((10, 10)),
@@ -256,7 +257,7 @@ fn projector_writes_statuses_from_engine_state() {
         EngineTeam::Player,
         start,
         0, 0, 0, 6, 6, 1, 1,
-        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
+        vec![], None, None, Default::default(), None, Vec::new(), Vec::new(),
         combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => None,
@@ -347,7 +348,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
     let make_unit = |id, team, pos| Unit::new(
         id, team, pos,
         0, 0, 0, 6, 6, 1, 1,
-        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
+        vec![], None, None, Default::default(), None, Vec::new(), Vec::new(),
         combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => None,

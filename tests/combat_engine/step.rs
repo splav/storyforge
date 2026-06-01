@@ -55,6 +55,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         1,
         vec![],
         None,
+        None,               // initiative: not yet rolled
         Default::default(),
         None,
         Vec::new(),

@@ -309,6 +309,7 @@ impl UnitBuilder {
             spell_power: u.caster_ctx.spell_power,
             weapon_dice: u.caster_ctx.weapon_dice,
             crit_fail_outcome,
+            dex_mod:     0,
         };
         let aoo_dice = u.aoo_expected_damage
             .map(|raw| combat_engine::DiceExpr::new(0, 1, raw.round() as i32));
@@ -325,6 +326,7 @@ impl UnitBuilder {
             1,
             statuses,
             u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
+            None,               // initiative: not yet rolled
             caster_context,
             aoo_dice,
             Vec::new(),
@@ -399,6 +401,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         spell_power: u.caster_ctx.spell_power,
         weapon_dice: u.caster_ctx.weapon_dice,
         crit_fail_outcome,
+        dex_mod:     0,
     };
     let aoo_dice = u.aoo_expected_damage
         .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
@@ -415,6 +418,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         1,
         statuses,
         u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
+        None,               // initiative: not yet rolled
         caster_context,
         aoo_dice,
         Vec::new(),

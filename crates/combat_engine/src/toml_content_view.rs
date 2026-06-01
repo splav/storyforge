@@ -645,6 +645,7 @@ fn convert_template(
         // Engine-side TOML loader defaults to Miss; bridge bootstrap reads this
         // from the unit's CombatPath component.
         crit_fail_outcome: crate::content::CritFailOutcome::Miss,
+        dex_mod: 0,
     };
 
     // ── AoO dice ──────────────────────────────────────────────────────────────

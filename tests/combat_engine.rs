@@ -75,3 +75,4 @@ mod determinism;
 #[path = "combat_engine/serde_roundtrip.rs"] mod serde_roundtrip;
 #[path = "combat_engine/replay.rs"] mod replay;
 #[path = "combat_engine/trace_helpers.rs"] mod trace_helpers;
+#[path = "combat_engine/initiative.rs"] mod initiative;

@@ -134,6 +134,17 @@ pub enum Event {
         max: i32,
         cause: crate::PoolChangeCause,
     },
+
+    /// Initiative was rolled for `unit` at the start of a round.
+    /// `total == roll + dex_mod`.  Emitted by `CombatState::roll_initiative_for_all`
+    /// for every unit that is NOT preset.  Carried through the trace so the
+    /// combat-log line "инициатива X: d20(roll) +dex_mod = total" can be rendered.
+    InitiativeRolled {
+        unit: UnitId,
+        roll: i32,
+        dex_mod: i32,
+        total: i32,
+    },
 }
 
 /// Why a unit's turn was skipped in `Effect::AdvanceTurn`.

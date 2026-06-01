@@ -290,7 +290,8 @@ fn is_benign_move_event(ev: &crate::event::Event, mover: crate::state::UnitId) -
         Event::PhaseEntered { .. }    => false,
         Event::HazardTriggered { .. } => false,
         Event::EnvRevealed { .. }     => false,
-        Event::PoolChanged { .. }     => false,
+        Event::PoolChanged { .. }        => false,
+        Event::InitiativeRolled { .. }   => false,
     }
 }
 
@@ -699,6 +700,21 @@ fn step_inner(
 
         // Drain skip events from AdvanceTurn/BumpRound cascades.
         events.append(&mut ctx.turn_skip_events);
+
+        // Summon initiative roll: when Effect::Spawn succeeds, roll a d20 for
+        // the new unit and record it in its initiative field. The summon is NOT
+        // inserted into turn_queue.order here — reconcile_turn_order() in the
+        // next BumpRound (Effect::BumpRound arm in effect.rs) does that, so the
+        // summon correctly skips its spawn round and acts starting the next round.
+        if let Some(uid) = ctx.spawn_uid {
+            let roll = rng.roll(DiceExpr::new(1, 20, 0));
+            let dex = state.unit(uid).map(|u| u.caster_context.dex_mod).unwrap_or(0);
+            let total = roll + dex;
+            if let Some(u) = state.unit_mut(uid) {
+                u.initiative = Some(total);
+            }
+            events.push(Event::InitiativeRolled { unit: uid, roll, dex_mod: dex, total });
+        }
 
         // Aura diff-on-move/death (4c): emit AuraStatusGained/Lost for delta.
         if let Some(before) = aura_snap_before {

@@ -492,3 +492,95 @@ fn replay_rng_count_divergence_detected() {
         recorded.rng_calls, live_ctx.rng_calls
     );
 }
+
+// ── replay_summon_initiative_hash_stable ──────────────────────────────────────
+
+/// Replay-determinism for a summon step: the in-step d20 initiative roll is
+/// captured in `rng_calls` and the `post_state_hash` is identical on replay.
+#[test]
+fn replay_summon_initiative_hash_stable() {
+    use storyforge::combat_engine::{
+        PoolKind, RegenRule, UnitTemplate,
+        content::CasterContext,
+    };
+    use storyforge::combat_engine::enum_map::enum_map as em;
+
+    // ── Local content that serves a Summon ability + a unit template ─────────
+    struct SummonStub {
+        ability: AbilityDef,
+        template: UnitTemplate,
+    }
+    impl SummonStub {
+        fn new() -> Self {
+            let mut ctx = CasterContext::default();
+            ctx.dex_mod = 4; // high dex so total is distinct from the raw roll
+            let template = UnitTemplate {
+                max_hp: 6, armor: 0, base_speed: 4,
+                max_ap: 1, mana_max: 0, energy_max: 0, rage_max: 0,
+                caster_context: ctx, aoo_dice: None,
+                auras: Vec::new(), enemy_phases: Vec::new(),
+                regen_per_pool: em! {
+                    PoolKind::Hp     => RegenRule::None,
+                    PoolKind::Mana   => RegenRule::Increment(1),
+                    PoolKind::Rage   => RegenRule::None,
+                    PoolKind::Energy => RegenRule::Increment(1),
+                    PoolKind::Ap     => RegenRule::RefillToMax,
+                    PoolKind::Mp     => RegenRule::RefillToMax,
+                },
+                initial_statuses: Vec::new(),
+                initial_pools: em! {
+                    PoolKind::Hp     => None,
+                    PoolKind::Mana   => None,
+                    PoolKind::Rage   => None,
+                    PoolKind::Energy => None,
+                    PoolKind::Ap     => None,
+                    PoolKind::Mp     => None,
+                },
+            };
+            let ability = AbilityDef {
+                key: None, cost_ap: 1, costs: vec![],
+                range: AbilityRange { min: 0, max: 0 },
+                target_type: TargetType::Myself,
+                aoe: AoEShape::None, friendly_fire: false,
+                effect: EffectDef::Summon { template_id: "minion".into(), max_active: None },
+                statuses: vec![], requires_los: false, passive: vec![],
+            };
+            Self { ability, template }
+        }
+    }
+    impl storyforge::combat_engine::content::ContentView for SummonStub {
+        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+            if id.0 == "summon" { Some(&self.ability) } else { None }
+        }
+        fn status_def(&self, _: &storyforge::combat_engine::StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
+        fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
+            if id == "minion" { Some(self.template.clone()) } else { None }
+        }
+    }
+
+    let content = SummonStub::new();
+
+    let summoner = EngineUnitBuilder::new(1)
+        .team(Team::Player)
+        .pos_hex(Hex::new(0, 0))
+        .initiative(10)
+        .ap(2, 2)
+        .build();
+    let enemy = EngineUnitBuilder::new(2)
+        .team(Team::Enemy)
+        .pos_hex(Hex::new(5, 0))
+        .initiative(5)
+        .build();
+
+    let mut state = CombatState::new(vec![summoner, enemy], 1, RoundPhase::ActorTurn, SEED);
+    state.set_turn_queue(vec![uid(1), uid(2)], 0);
+
+    let action = Action::Cast {
+        actor: uid(1),
+        ability: abid("summon"),
+        target: uid(1),
+        target_pos: Hex::new(0, 0),
+    };
+
+    record_then_replay(state, SEED, &content, vec![action]);
+}

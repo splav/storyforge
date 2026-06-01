@@ -202,6 +202,7 @@ fn bootstrap_combat_state_populates_blocked_hexes() {
         .init_resource::<storyforge::ui::animation::AnimationQueue>()
         .insert_resource(storyforge::ui::hex_grid::HexGridOffset(bevy::math::Vec2::ZERO))
         .insert_resource(storyforge::combat::ai::world::tags::AbilityTagCache::default())
+        .init_resource::<storyforge::game::resources::PresetInitiative>()
         .insert_resource(storyforge::ui::hex_grid::HexMaterials::default())
         .insert_resource(storyforge::ui::hex_grid::TokenMesh {
             token: Handle::default(),

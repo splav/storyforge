@@ -68,6 +68,7 @@ fn correlation_app() -> App {
         .init_resource::<AiLogger>()
         .init_resource::<PendingAiLogEntries>()
         .init_resource::<AbilityTagCache>()
+        .init_resource::<storyforge::game::resources::PresetInitiative>()
         .insert_resource(HexMaterials::default())
         .insert_resource(TokenMesh {
             token: Handle::default(),

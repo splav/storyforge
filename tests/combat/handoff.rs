@@ -159,14 +159,8 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
     let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
     let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
 
-    // Populate ECS TurnQueue so init_state_from_ecs can set the engine's turn queue.
-    // Hero goes first (index 0), enemy second.
-    {
-        use storyforge::game::resources::TurnQueue;
-        let mut queue = app.world_mut().resource_mut::<TurnQueue>();
-        queue.order = vec![hero, enemy];
-        queue.index = 0;
-    }
+    // Wave 3: engine owns turn order via roll_initiative_for_all + reconcile_turn_order
+    // in bootstrap_combat_state. Presets above guarantee hero first, enemy second.
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
 
@@ -262,13 +256,6 @@ fn status_does_not_tick_twice_per_turn() {
     let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
     let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
 
-    // Populate ECS TurnQueue so bootstrap_combat_state can set the engine's turn queue.
-    {
-        use storyforge::game::resources::TurnQueue;
-        let mut queue = app.world_mut().resource_mut::<TurnQueue>();
-        queue.order = vec![hero, enemy];
-        queue.index = 0;
-    }
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     // Attach a StatusEffects component with a 3-round status.
     // bootstrap primes hero's turn → tick 3→2.
@@ -343,23 +330,24 @@ fn current_actor_dies_mid_move_settles_on_next() {
     let hero  = spawn_at(&mut app, hero_pos,  test_hero(base_stats()),  "Hero");
     let enemy = spawn_at(&mut app, enemy_pos, test_enemy(base_stats()), "Enemy");
 
-    // Enemy is the current (active) actor.
+    // Enemy is the current (active) actor — give it highest initiative via preset.
+    // Wave 3: engine owns turn order so we must use PresetInitiative, not queue.order.
+    {
+        use storyforge::game::resources::PresetInitiative;
+        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Enemy".into(), 20);
+        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero".into(),   5);
+    }
     app.world_mut().entity_mut(enemy).insert(ActiveCombatant);
 
     // Make the AoO lethal: enemy has 1 hp; dice roll scripted to 8 (well above 1).
+    // Note: roll_initiative_for_all consumes N dice draws (one per unit without a
+    // preset). With both units preset, no dice are drawn here, so script([8]) still
+    // applies to the AoO roll alone.
     app.world_mut().get_mut::<Vital>(enemy).unwrap().hp = 1;
     app.world_mut()
         .resource_mut::<storyforge::combat::DiceRngRes>()
         .script(&[8]);
 
-    // Populate ECS TurnQueue with enemy as the current actor (index 0) so
-    // init_state_from_ecs can set the engine's turn queue correctly.
-    {
-        use storyforge::game::resources::TurnQueue;
-        let mut queue = app.world_mut().resource_mut::<TurnQueue>();
-        queue.order = vec![enemy, hero];
-        queue.index = 0;
-    }
     init_engine_state(&mut app);
 
     // Enemy moves away from hero — triggers AoO → lethal.
@@ -469,8 +457,14 @@ fn combat_2_starts_clean_after_combat_1() {
 // ── Test 4b: bootstrap is fresh after teardown + respawn ─────────────────────
 
 /// After combat 1 → teardown → fresh spawn → bootstrap, the engine must
-/// have the new units, no tombstones from combat 1, queue order matching
-/// the new ECS TurnQueue, and accept an action without stale id_map errors.
+/// have the new units, no tombstones from combat 1, and accept an action
+/// without stale id_map errors.
+///
+/// Wave 3: engine now owns round-1 order via `roll_initiative_for_all` +
+/// `reconcile_turn_order` in `bootstrap_combat_state`.  We use `PresetInitiative`
+/// to fix the order so the assertion is deterministic, mirroring the pattern
+/// used in `build_turn_order_skips_dead_first_initiative` and
+/// `no_stun_active_combatant_is_highest_initiative`.
 ///
 /// Complements `combat_2_starts_clean_after_combat_1` which validates teardown
 /// only; this test validates the POST-teardown bootstrap.
@@ -480,18 +474,13 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
     use storyforge::combat::engine_bridge::{
         reset_engine_mirrors_on_exit_combat, CombatStateRes, UnitIdMap,
     };
-    use storyforge::game::resources::TurnQueue;
+    use storyforge::game::resources::PresetInitiative;
 
     let mut app = movement_app();
 
     // ── Combat 1: spawn 2 units, bootstrap, verify engine mirrors. ────────────
     let hero1  = spawn_at(&mut app, hex_from_offset(2, 2), test_hero(base_stats()),  "Hero1");
     let enemy1 = spawn_at(&mut app, hex_from_offset(5, 2), test_enemy(base_stats()), "Enemy1");
-    {
-        let mut queue = app.world_mut().resource_mut::<TurnQueue>();
-        queue.order = vec![hero1, enemy1];
-        queue.index = 0;
-    }
     app.world_mut().entity_mut(hero1).insert(ActiveCombatant);
     init_engine_state(&mut app);
     {
@@ -522,11 +511,12 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
     app.world_mut().entity_mut(enemy1).despawn();
     let hero2  = spawn_at(&mut app, hex_from_offset(1, 1), test_hero(base_stats()),  "Hero2");
     let enemy2 = spawn_at(&mut app, hex_from_offset(4, 4), test_enemy(base_stats()), "Enemy2");
-    {
-        let mut queue = app.world_mut().resource_mut::<TurnQueue>();
-        queue.order = vec![hero2, enemy2];
-        queue.index = 0;
-    }
+
+    // Use presets to make hero2 first — engine rolls in UnitId order (Wave 2)
+    // so without preset the order is non-deterministic across test runs.
+    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero2".into(),  20);
+    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Enemy2".into(),  5);
+
     app.world_mut().entity_mut(hero2).insert(ActiveCombatant);
 
     // ── Bootstrap combat 2 ────────────────────────────────────────────────────
@@ -535,19 +525,29 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
         let state = &app.world().resource::<CombatStateRes>().0;
         assert_eq!(state.units().len(), 2, "combat 2: exactly 2 units, no stale tombstones");
 
-        // Verify queue order matches the new ECS entities.
+        // Engine owns the order after Wave 3.  Verify both units are present and
+        // hero2 is first (highest initiative via preset).
         let id_map = app.world().resource::<UnitIdMap>();
         let hero2_uid  = id_map.get_id(hero2).expect("hero2 must be in id_map");
         let enemy2_uid = id_map.get_id(enemy2).expect("enemy2 must be in id_map");
+
+        assert!(
+            state.turn_queue.order.contains(&hero2_uid),
+            "combat 2: hero2 must be in engine queue order"
+        );
+        assert!(
+            state.turn_queue.order.contains(&enemy2_uid),
+            "combat 2: enemy2 must be in engine queue order"
+        );
         assert_eq!(
-            state.turn_queue.order,
-            vec![hero2_uid, enemy2_uid],
-            "combat 2: engine queue order must match ECS TurnQueue"
+            state.turn_queue.order.first().copied(),
+            Some(hero2_uid),
+            "combat 2: hero2 (highest initiative) must be first in engine order"
         );
         assert_eq!(
             state.turn_queue.current(),
             Some(hero2_uid),
-            "combat 2: current actor must be hero2"
+            "combat 2: current actor must be hero2 (engine settled on highest initiative)"
         );
     }
 

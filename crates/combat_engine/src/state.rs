@@ -223,6 +223,10 @@ pub struct Unit {
     /// Set when this unit was spawned via `Effect::Spawn`. `None` for units
     /// present at combat start (loaded from ECS).
     pub summoner: Option<UnitId>,
+    /// Rolled initiative value for turn-order resolution.
+    /// `None` = "not yet rolled" (initial state; roller populates this in a
+    /// later wave). Present in serialized state for replay determinism.
+    pub initiative: Option<i32>,
     /// Resolved caster stats (weapon dice, modifiers, crit-fail outcome).
     /// Populated at combat init from `Equipment` + `CombatStats` ECS components.
     /// Used by the Cast fanout (damage / heal formulas).
@@ -291,6 +295,10 @@ struct UnitWire {
     pub reactions_max: i32,
     pub statuses: Vec<ActiveStatus>,
     pub summoner: Option<UnitId>,
+    /// Rolled initiative value; `None` until the initiative roller fires.
+    /// Serialized so replays preserve the rolled order.
+    #[serde(default)]
+    pub initiative: Option<i32>,
     #[serde(default)]
     pub caster_context: crate::content::CasterContext,
     #[serde(default)]
@@ -414,6 +422,7 @@ impl From<UnitWire> for Unit {
             reactions_max: w.reactions_max,
             statuses: w.statuses,
             summoner: w.summoner,
+            initiative: w.initiative,
             caster_context: w.caster_context,
             aoo_dice: w.aoo_dice,
             auras: w.auras,
@@ -443,6 +452,7 @@ impl From<Unit> for UnitWire {
             reactions_max: u.reactions_max,
             statuses: u.statuses,
             summoner: u.summoner,
+            initiative: u.initiative,
             caster_context: u.caster_context,
             aoo_dice: u.aoo_dice,
             auras: u.auras,
@@ -496,6 +506,7 @@ impl Unit {
         reactions_max: i32,
         statuses: Vec<ActiveStatus>,
         summoner: Option<UnitId>,
+        initiative: Option<i32>,
         caster_context: crate::content::CasterContext,
         aoo_dice: Option<crate::dice::DiceExpr>,
         auras: Vec<crate::content::AuraDef>,
@@ -521,6 +532,7 @@ impl Unit {
             reactions_max,
             statuses,
             summoner,
+            initiative,
             caster_context,
             aoo_dice,
             auras,
@@ -1369,6 +1381,89 @@ impl CombatState {
     }
 }
 
+// ── Initiative roller and turn-order reconciler (Wave 2) ─────────────────────
+
+impl CombatState {
+    /// Roll initiative for all units that have not yet had their initiative set.
+    ///
+    /// # Processing order
+    /// Units are processed in **ascending `UnitId` order** regardless of their
+    /// insertion order in `self.units`.  This is the replay-determinism anchor:
+    /// every machine with the same seed and the same unit roster will consume
+    /// dice draws in the identical sequence, making traces reproducible.
+    ///
+    /// # Preset map
+    /// If a unit's id appears in `preset`, its initiative is set to the preset
+    /// value with **no dice roll and no event emitted**.  This matches the
+    /// behaviour of the legacy `build_turn_order` preset path.
+    ///
+    /// # Dead units
+    /// Dead units (hp == 0) are included — no `is_alive()` filter — to keep
+    /// the dice-draw count identical to the legacy `build_turn_order` draw set
+    /// (required for RNG parity during the migration window).
+    pub fn roll_initiative_for_all(
+        &mut self,
+        rng: &mut dyn crate::dice::DiceSource,
+        preset: &std::collections::HashMap<UnitId, i32>,
+    ) -> Vec<crate::event::Event> {
+        // Collect ids of units still needing initiative, sorted ascending for
+        // deterministic RNG consumption order.
+        let mut ids_to_roll: Vec<UnitId> = self
+            .units
+            .iter()
+            .filter(|u| u.initiative.is_none())
+            .map(|u| u.id)
+            .collect();
+        ids_to_roll.sort_unstable();
+
+        let mut events = Vec::new();
+        for id in ids_to_roll {
+            if let Some(&preset_val) = preset.get(&id) {
+                // Preset: set value, no roll, no event.
+                if let Some(u) = self.unit_mut(id) {
+                    u.initiative = Some(preset_val);
+                }
+            } else {
+                let roll = rng.roll(crate::dice::DiceExpr::new(1, 20, 0));
+                let dex = self.unit(id).map(|u| u.caster_context.dex_mod).unwrap_or(0);
+                let total = roll + dex;
+                if let Some(u) = self.unit_mut(id) {
+                    u.initiative = Some(total);
+                }
+                events.push(crate::event::Event::InitiativeRolled {
+                    unit: id,
+                    roll,
+                    dex_mod: dex,
+                    total,
+                });
+            }
+        }
+        events
+    }
+
+    /// Rebuild `turn_queue.order` from the current initiative values.
+    ///
+    /// Sort key: descending initiative, ascending `UnitId` as tie-break.
+    /// Both alive and dead units are included (dead units receive a virtual-tick
+    /// turn so the engine can advance their statuses).
+    ///
+    /// `turn_queue.index` is intentionally left untouched — callers (Waves 3/5)
+    /// manage the index pointer.
+    pub fn reconcile_turn_order(&mut self) {
+        let mut order: Vec<UnitId> = self.units.iter().map(|u| u.id).collect();
+        // Stable sort: descending initiative, ascending UnitId tie-break.
+        // `None` initiative sorts last (maps to i32::MIN via unwrap_or).
+        order.sort_by(|a, b| {
+            let init_a = self.idx.get(a).and_then(|&i| self.units[i].initiative).unwrap_or(i32::MIN);
+            let init_b = self.idx.get(b).and_then(|&i| self.units[i].initiative).unwrap_or(i32::MIN);
+            init_b
+                .cmp(&init_a)              // descending initiative
+                .then_with(|| a.cmp(b))    // ascending UnitId tie-break
+        });
+        self.turn_queue.order = order;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1414,6 +1509,7 @@ mod tests {
             1,
             vec![],
             None,
+            None,               // initiative: not yet rolled
             Default::default(),
             None,
             Vec::new(),

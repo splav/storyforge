@@ -51,6 +51,11 @@ pub struct CasterContext {
     pub weapon_dice: Option<DiceExpr>,
     /// Behaviour when this caster rolls a 1 on the crit-fail d20.
     pub crit_fail_outcome: CritFailOutcome,
+    /// Dexterity modifier, used for initiative rolls.
+    /// Populated at combat init from `CombatStats.dexterity`; 0 where not
+    /// derivable (e.g. TOML-loader replay path, test stubs).
+    #[serde(default)]
+    pub dex_mod: i32,
 }
 
 /// Where a status application lands.  Mirrors `crate::content::abilities::StatusOn`.

@@ -93,6 +93,7 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
         spell_power:       bevy_ctx.spell_power,
         weapon_dice:       bevy_ctx.weapon_dice,
         crit_fail_outcome,
+        dex_mod:           0,
     };
     // aoo_dice — mirror bootstrap AoO eligibility.
     let has_melee = tpl.ability_ids.iter().any(|aid| {

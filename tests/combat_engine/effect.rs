@@ -87,6 +87,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         1,
         vec![],
         None,
+        None,               // initiative: not yet rolled
         Default::default(),
         None,
         Vec::new(),
@@ -1425,6 +1426,7 @@ fn melee_template() -> UnitTemplate {
             spell_power: 0,
             weapon_dice: Some(weapon_dice),
             crit_fail_outcome: CritFailOutcome::Miss,
+            dex_mod: 0,
         },
         aoo_dice: Some(DiceExpr::new(2, 6, 3)), // weapon + str_mod baked in
         auras: Vec::new(),

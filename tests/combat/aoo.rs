@@ -109,6 +109,20 @@ fn opportunity_once_per_round() {
 fn stunned_enemy_no_opportunity() {
     let mut app = movement_app();
     insert_stun_status(&mut app);
+
+    // Wave 3: engine rolls initiative in bootstrap_combat_state.
+    // If goblin wins initiative and is first in turn order, settle_round_start
+    // will skip-and-tick the stun (rounds_remaining 1→0) before the hero moves.
+    // Use presets to ensure hero goes first so goblin's stun remains intact
+    // when the AoO check fires.
+    {
+        use storyforge::game::resources::PresetInitiative;
+        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero".into(),   20);
+        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Goblin".into(),  5);
+    }
+
+    // With both units preset, roll_initiative_for_all draws no dice → script
+    // is fully available for the AoO hit-roll (scripted to 8 to ensure a hit).
     app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[8]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
@@ -120,7 +134,11 @@ fn stunned_enemy_no_opportunity() {
         .push(ActiveStatus {
             id: "stun".into(),
             rounds_remaining: 1,
-            applier: Some(hero),
+            // applier: None (environment/ability-applied, not hero-applied).
+            // If applier=Some(hero), start_actor_turn(hero) calls tick_actor_statuses(hero)
+            // which ticks and expires goblin's stun before the hero even moves — the stun
+            // would be gone by the AoO check. Use applier=None to avoid that.
+            applier: None,
             dot_per_tick: 0,
         });
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);

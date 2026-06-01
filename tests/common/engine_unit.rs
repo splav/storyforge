@@ -25,7 +25,7 @@ use storyforge::game::hex::hex_from_offset;
 
 /// Fluent builder for [`Unit`] in engine integration tests.
 ///
-/// **Defaults** (the dominant test case):
+/// **Defaults** (the dominant test case):\\
 /// - `team`: `Team::Player`
 /// - `pos`: `hex_from_offset(0, 0)`
 /// - `Hp`: `(20, 20)`
@@ -36,6 +36,7 @@ use storyforge::game::hex::hex_from_offset;
 /// - `reactions_left` / `reactions_max`: `1`
 /// - `armor` / `armor_bonus` / `damage_taken_bonus`: `0`
 /// - `aoo_dice`: `None`
+/// - `initiative`: `None`
 /// - All regens follow the canonical pattern:
 ///   `Hp=None, Mana=Increment(1), Rage=None, Energy=Increment(1), Ap=RefillToMax, Mp=RefillToMax`
 pub struct EngineUnitBuilder {
@@ -65,6 +66,7 @@ pub struct EngineUnitBuilder {
     statuses: Vec<ActiveStatus>,
     summoner: Option<UnitId>,
     template: Option<String>,
+    initiative: Option<i32>,
 }
 
 impl EngineUnitBuilder {
@@ -105,6 +107,7 @@ impl EngineUnitBuilder {
             statuses: vec![],
             summoner: None,
             template: None,
+            initiative: None,
         }
     }
 
@@ -186,6 +189,8 @@ impl EngineUnitBuilder {
 
     pub fn summoner(mut self, id: u64) -> Self { self.summoner = Some(UnitId(id)); self }
 
+    pub fn initiative(mut self, v: i32) -> Self { self.initiative = Some(v); self }
+
     pub fn template(mut self, id: impl Into<String>) -> Self { self.template = Some(id.into()); self }
 
     pub fn regen(mut self, kind: PoolKind, rule: RegenRule) -> Self {
@@ -218,6 +223,7 @@ impl EngineUnitBuilder {
             self.reactions_max,
             self.statuses,
             self.summoner,
+            self.initiative,
             Default::default(),     // caster_context
             self.aoo_dice,
             vec![],                 // auras

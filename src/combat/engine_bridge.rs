@@ -53,7 +53,7 @@ use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, RestartCombat};
 use crate::game::resources::{
     CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, HexCorpses,
-    HexPositions, PhaseDeadline, PhaseDeadlineState, TurnQueue, UiDirty, UiDirtyFlags,
+    HexPositions, PhaseDeadline, PhaseDeadlineState, PresetInitiative, TurnQueue, UiDirty, UiDirtyFlags,
 };
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
@@ -311,6 +311,7 @@ pub fn from_ecs(
                 reactions_max as i32,
                 statuses_vec,
                 None,
+                None,               // initiative: not yet rolled
                 // Per-combat fields populated by bootstrap_combat_state after from_ecs.
                 combat_engine::CasterContext::default(),
                 None,
@@ -440,6 +441,7 @@ fn build_engine_template_from_def(
         spell_power: bevy_ctx.spell_power,
         weapon_dice: bevy_ctx.weapon_dice,
         crit_fail_outcome: crate::content::to_engine::crit_fail_outcome(&crit_fail_effect),
+        dex_mod: modifier(tpl.stats.dexterity),
     };
 
     // AoO dice: unit needs a melee WeaponAttack ability (range.max == 1) + weapon dice.
@@ -644,6 +646,26 @@ pub struct VisualAssets<'w, 's> {
 pub struct ContentParams<'w, 's> {
     pub aura_q: Query<'w, 's, (Entity, &'static AuraSource), Without<Dead>>,
     pub phases_q: Query<'w, 's, (Entity, &'static EnemyPhases)>,
+}
+
+/// Bundles static combat-environment params to reduce bootstrap_combat_state
+/// system-param count below Bevy's 16-param limit.
+#[derive(SystemParam)]
+pub struct EnvironmentParams<'w> {
+    pub active_content: Res<'w, ActiveContent>,
+    pub blocked_hexes: Res<'w, CombatBlockedHexes>,
+    pub environment: Res<'w, CombatEnvironment>,
+}
+
+/// Bundles the initiative-rolling params added in Wave 3.
+///
+/// Groups the three new params that would push `bootstrap_combat_state` over
+/// Bevy's 16-system-param limit.
+#[derive(SystemParam)]
+pub struct InitiativeParams<'w, 's> {
+    pub rng: ResMut<'w, crate::combat::DiceRngRes>,
+    pub preset: ResMut<'w, PresetInitiative>,
+    pub name_q: Query<'w, 's, (Entity, &'static Name), With<Combatant>>,
 }
 
 // ── Queue Resources for deferred ECS side-effects ────────────────────────────
@@ -1274,6 +1296,21 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         Event::EnvRevealed { .. } => {
             ctx.queues.env_revealed = true;
         }
+
+        // ── Initiative rolls (round-start, dormant until Wave 5) ─────────────
+        // Emitted by CombatState::roll_initiative_for_all. Not wired into the
+        // round lifecycle yet; translate here so the workspace compiles and the
+        // combat-log rendering path is exercised once Wave 5 emits these.
+        Event::InitiativeRolled { unit, roll, dex_mod, total } => {
+            if let Some(ent) = ctx.id_map.get_entity(*unit) {
+                ctx.log.push(CombatEvent::InitiativeRolled {
+                    actor: ent,
+                    dex_mod: *dex_mod,
+                    roll: *roll,
+                    total: *total,
+                });
+            }
+        }
     }
 }
 
@@ -1628,6 +1665,7 @@ pub fn project_state_to_ecs(
     mut positions: ResMut<HexPositions>,
     mut corpses: ResMut<HexCorpses>,
     mut combatants: Query<ProjectionRow, With<Combatant>>,
+    mut queue: ResMut<TurnQueue>,
 ) {
     for unit in combat_state.0.units() {
         let Some(entity) = id_map.get_entity(unit.id) else {
@@ -1738,6 +1776,18 @@ pub fn project_state_to_ecs(
             }
         }
     }
+
+    // ── Project engine turn order + index → ECS TurnQueue ────────────────────
+    // The engine owns the authoritative turn order after round-1 bootstrap.
+    // On round-2+ Execute frames this keeps the UI strip in sync with the
+    // engine's current cursor (turn_queue.index may advance as turns end).
+    if !combat_state.0.units().is_empty() {
+        queue.order = combat_state.0.turn_queue.order
+            .iter()
+            .filter_map(|uid| id_map.get_entity(*uid))
+            .collect();
+        queue.index = combat_state.0.turn_queue.index;
+    }
 }
 
 // ── bootstrap_combat_state system ────────────────────────────────────────────
@@ -1745,35 +1795,37 @@ pub fn project_state_to_ecs(
 /// Bootstrap engine `CombatState` from the current ECS snapshot.
 ///
 /// Runs at the tail of the `CombatPhase::StartRound` chain, after
-/// `build_turn_order` has populated `Res<TurnQueue>` and incremented
-/// `CombatContext.round`.
+/// `build_turn_order` has incremented `CombatContext.round` and cleared
+/// `Reservations`.
 ///
-/// Responsibilities (formerly split across `init_state_from_ecs` and
-/// `engine_start_first_turn_system`):
+/// Responsibilities:
 /// - Build `CombatState` from ECS via `from_ecs` (includes V2 status-aggregate recompute).
 /// - Populate per-unit `caster_context`, `aoo_dice`, `auras`, `enemy_phases`.
-/// - Set engine turn queue from `Res<TurnQueue>`.
+/// - Roll round-1 initiative via engine `roll_initiative_for_all` (in UnitId order).
+/// - Reconcile turn order via `reconcile_turn_order` (stable sort by initiative).
+/// - Project the engine's authoritative order back to `Res<TurnQueue>`.
 /// - Prime the first actor's turn (AP/MP refill, regen, status tick).
 ///
 /// Idempotent: returns immediately if `combat_state.0` already has units
 /// (round 2+ re-entries, second-combat-in-session teardown races).
+#[allow(clippy::too_many_arguments)] // Bevy ECS system: params are the DI surface.
+#[allow(clippy::type_complexity)] // Bevy query tuple; factoring out hurts readability.
 pub fn bootstrap_combat_state(
     combatants: Query<CombatantRow, With<Combatant>>,
     positions: Res<HexPositions>,
     corpses: Res<HexCorpses>,
     combat_context: Res<CombatContext>,
-    ecs_queue: Res<TurnQueue>,
+    mut queue: ResMut<TurnQueue>,
     mut id_map: ResMut<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
     caster_q: Query<(Entity, &Equipment, &CombatStats, Option<&CombatPath>), With<Combatant>>,
     aoo_q: Query<(Entity, &Equipment, &CombatStats, &Abilities, Has<Dead>), With<Combatant>>,
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
-    active_content: Res<ActiveContent>,
-    blocked_hexes: Res<CombatBlockedHexes>,
-    environment: Res<CombatEnvironment>,
+    env_params: EnvironmentParams<'_>,
     mut log: ResMut<CombatLog>,
     mut queues: ResMut<BridgeQueues>,
+    mut init_params: InitiativeParams<'_, '_>,
 ) {
     // Idempotency guard: engine state evolves authoritatively via step() on
     // round 2+; re-importing would discard those mutations.
@@ -1783,19 +1835,20 @@ pub fn bootstrap_combat_state(
 
     use crate::content::encounters::AuraAffects;
 
-    let mut state = from_ecs(&combatants, &positions, &corpses, combat_context.round, &mut id_map, &active_content);
+    let active_content: &ActiveContent = &env_params.active_content;
+    let mut state = from_ecs(&combatants, &positions, &corpses, combat_context.round, &mut id_map, active_content);
 
     // ── Apply initial_statuses from unit templates (engine-side, idempotent) ──
     {
-        let content_view = build_ecs_content_view(&active_content);
+        let content_view = build_ecs_content_view(active_content);
         state.apply_initial_statuses(&content_view);
     }
 
     // ── Static obstacle hexes from encounter definition ───────────────────────
-    state.blocked_hexes = blocked_hexes.0.iter().copied().collect();
+    state.blocked_hexes = env_params.blocked_hexes.0.iter().copied().collect();
 
     // ── Environmental objects from encounter definition ───────────────────────
-    state.environment = environment.0.clone();
+    state.environment = env_params.environment.0.clone();
 
     // ── Populate per-unit combat fields ──────────────────────────────────────
 
@@ -1812,6 +1865,7 @@ pub fn bootstrap_combat_state(
             spell_power: bevy_ctx.spell_power,
             weapon_dice: bevy_ctx.weapon_dice,
             crit_fail_outcome: crate::content::to_engine::crit_fail_outcome(&crit_fail_outcome),
+            dex_mod: modifier(stats.dexterity),
         };
         if let Some(unit) = state.unit_mut(uid) {
             unit.caster_context = engine_ctx;
@@ -1893,26 +1947,64 @@ pub fn bootstrap_combat_state(
         }
     }
 
-    // ── Set engine turn queue from ECS ────────────────────────────────────────
-    let uid_order: Vec<UnitId> = ecs_queue
+    // ── Roll round-1 initiative + build authoritative turn order (engine owns this) ──
+    // Build preset map: Name → UnitId, only for units present in the engine state.
+    // Resolve each preset name → Entity (via name_q) → UnitId (via id_map).
+    let preset_map: std::collections::HashMap<UnitId, i32> = init_params
+        .preset
+        .0
+        .iter()
+        .filter_map(|(name, &val)| {
+            init_params
+                .name_q
+                .iter()
+                .find(|(_, n)| n.as_str() == name.as_str())
+                .and_then(|(e, _)| id_map.get_id(e))
+                .map(|uid| (uid, val))
+        })
+        .collect();
+
+    let roll_events = state.roll_initiative_for_all(&mut init_params.rng.0, &preset_map);
+
+    // Translate InitiativeRolled events into the combat log BEFORE settle,
+    // so "initiative X: …" lines appear before RoundStarted/TurnStarted.
+    {
+        let mut tick_ctx = TranslateCtx {
+            log: &mut log,
+            id_map: &mut id_map,
+            queues: &mut queues,
+            cast: None,
+            move_: None,
+        };
+        translate_events(&roll_events, &mut tick_ctx);
+    }
+
+    state.reconcile_turn_order();
+    // reconcile_turn_order intentionally leaves index untouched; set it to 0
+    // so settle_round_start starts from the head of the new order.
+    state.turn_queue.index = 0;
+
+    // ── Project engine order → ECS TurnQueue ─────────────────────────────────
+    queue.order = state
+        .turn_queue
         .order
         .iter()
-        .filter_map(|e| id_map.get_id(*e))
+        .filter_map(|uid| id_map.get_entity(*uid))
         .collect();
-    // In production StartRound chain, build_turn_order always runs first so
-    // uid_order is non-empty.  Tests that call bootstrap directly without
-    // build_turn_order may have an empty queue — skip settle in that case
-    // (tests set ActiveCombatant manually instead).
-    if !uid_order.is_empty() {
-        // Always start from index 0; settle_round_start advances past dead/stunned.
-        state.set_turn_queue(uid_order, 0);
+    queue.index = 0;
 
-        // ── Settle round start (skip dead/stunned, prime first valid actor) ────
-        // settle_round_start emits: RoundStarted, TurnSkipped* (for each skip),
-        // TurnStarted, start_actor_turn events for the settled actor.
-        // translate_one(TurnStarted) → insert_active → ActiveCombatant set on
-        // the correct actor after apply_bridge_queues_pre_projection drains it.
-        let content = build_ecs_content_view(&active_content);
+    // Consume preset (parity with old build_turn_order path).
+    init_params.preset.0.clear();
+
+    // ── Settle round start (skip dead/stunned, prime first valid actor) ────
+    // settle_round_start emits: RoundStarted, TurnSkipped* (for each skip),
+    // TurnStarted, start_actor_turn events for the settled actor.
+    // translate_one(TurnStarted) → insert_active → ActiveCombatant set on
+    // the correct actor after apply_bridge_queues_pre_projection drains it.
+    // Only run when the order is non-empty (tests that call bootstrap directly
+    // without any combatants skip this block and set ActiveCombatant manually).
+    if !state.turn_queue.order.is_empty() {
+        let content = build_ecs_content_view(active_content);
         let events = state.settle_round_start(&content);
 
         let mut tick_ctx = TranslateCtx {
@@ -2061,6 +2153,7 @@ mod tests {
             1,  // reactions_max
             Vec::new(),
             None,
+            None,               // initiative: not yet rolled
             combat_engine::CasterContext::default(),
             None,
             Vec::new(),
