@@ -28,18 +28,35 @@ use std::collections::HashSet;
 /// Single source of truth is `snap.state.units()` now that corpses live there
 /// instead of in a parallel `blocked_tiles` channel.
 pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
+    // Blocker sets are derived DIRECTLY from the authoritative engine state,
+    // keyed by UnitId / team — never routed through `uid_to_entity` (nor the
+    // `all_enemies_of` / `entity_for_uid` accessors, which do the same lookup).
+    // A unit can be present in `state.units()` yet missing from that map — a
+    // summon with a synthetic UnitId, or a unit not yet in the ECS spatial layer
+    // (`build_snapshot` drops such units from the AI cache, and the map is built
+    // from the cache). Routing through the map would silently drop that unit, so
+    // the BFS would offer its occupied hex as a legal stopping destination and the
+    // resulting path would collide at execution — tripping the one-unit-per-hex
+    // invariant in `HexPositions`. Keying off state keeps the sets complete by
+    // construction, so generated paths are always valid.
+    let actor_uid = actor.state.id;
+    let actor_team = actor.team;
+
+    // Pass-through: enemies of the actor (live or dead) block walking through.
     let enemy_positions: HashSet<Hex> = snap
-        .all_enemies_of(actor.team)
+        .state
+        .units()
+        .iter()
+        .filter(|u| u.team != actor_team)
         .map(|u| u.pos)
         .collect();
+    // Stopping: every non-actor occupant blocks — live enemy, live ally, corpse.
     let stop_blockers: HashSet<Hex> = snap
         .state
         .units()
         .iter()
-        .filter_map(|u| {
-            let e = snap.entity_for_uid(u.id)?;
-            if e != actor.entity() { Some(u.pos) } else { None }
-        })
+        .filter(|u| u.id != actor_uid)
+        .map(|u| u.pos)
         .collect();
 
     // Build hazard_costs from the AI-team-visible environment (already filtered by T3
@@ -253,6 +270,56 @@ mod tests {
         assert!(
             path.contains(&clean_pred),
             "AI path routes through clean predecessor (path: {path:?})"
+        );
+    }
+
+    /// Regression: a unit present in the authoritative engine `state` but ABSENT
+    /// from the snapshot's `uid_to_entity` map must STILL block stopping.
+    ///
+    /// In production this happens for a summon (synthetic UnitId) or a unit not
+    /// yet in the ECS spatial layer — `build_snapshot` drops it from the AI cache,
+    /// and `uid_to_entity` is built from that cache, so `entity_for_uid(u.id)`
+    /// returns `None`. The old `reach_from` resolved blockers through that map and
+    /// silently dropped such units, so the BFS offered their occupied hex as a
+    /// stop destination → the executed path collided (HexPositions one-per-hex
+    /// panic in `project_state_to_ecs`). Building the blocker set from
+    /// `state.units()` keyed by UnitId fixes it by construction.
+    #[test]
+    fn state_unit_missing_from_entity_map_still_blocks_stopping() {
+        use crate::combat::ai::world::cache::AiCache;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
+        use combat_engine::state::{CombatState, RoundPhase};
+
+        // Actor + an ally blocker on the adjacent tile (same team → pass-through
+        // friendly, but must remain a STOP blocker).
+        let (actor_u, actor_c) = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .movement_points(3)
+            .build_pair();
+        let (block_u, block_c) = UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3)).build_pair();
+        let actor_entity = actor_c.entity;
+        let actor_uid = actor_u.id;
+        let blocker_pos = block_u.pos;
+
+        let state = CombatState::new(vec![actor_u, block_u], 1, RoundPhase::ActorTurn, 0);
+        let cache = AiCache::from_units(vec![actor_c, block_c]);
+        // Map ONLY the actor — the blocker is in `state`/`cache` but absent from
+        // the uid→entity map, exactly like an unprojected summon.
+        let s = BattleSnapshot::new_with_id_map(state, cache, &[(actor_entity, actor_uid)]);
+
+        let actor_view = s.unit(actor_entity).unwrap();
+        let reach = reach_from(&s, actor_view);
+
+        assert!(
+            !reach.destinations.contains(&blocker_pos),
+            "a unit in engine state but missing from the entity map must still \
+             block stopping (got destinations {:?})",
+            reach.destinations,
+        );
+        // The far side of the blocker stays reachable via ally pass-through —
+        // proving the blocker only blocks STOPPING, not transit.
+        assert!(
+            reach.destinations.contains(&hex_from_offset(5, 3)),
+            "beyond-ally tile should still be reachable by pass-through",
         );
     }
 
