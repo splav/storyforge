@@ -64,6 +64,7 @@ fn make_unit_snap(id: u32, team: Team, col: i32, row: i32, aoo: Option<f32>) -> 
         crit_fail_effect: Default::default(),
         damage_horizon: Vec::new(),
         ai_tuning_override: None,
+        forced_mode: None,
     }
 }
 
