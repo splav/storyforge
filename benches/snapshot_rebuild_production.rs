@@ -283,6 +283,7 @@ fn bench_snapshot_rebuild_production(c: &mut Criterion) {
                 black_box(state_res.0.clone()),
                 black_box(&id_map),
                 black_box(&keep_alive_entities),
+                combat_engine::state::Team::Enemy,
             );
             black_box(snap);
         });

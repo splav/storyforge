@@ -466,8 +466,79 @@ pub(crate) fn pool_amount(
     }
 }
 
+// ── Neutral reference ─────────────────────────────────────────────────────────
+
+/// Heuristic "average defender" HP for trap-severity ranking.
+///
+/// Chosen as the midpoint of a typical frontliner HP range (15–25 at
+/// encounter level 1–2).  The exact value only affects %HP DoT scaling in
+/// `policy::status::value`; directional ordering of traps is robust to ±5 HP.
+const NEUTRAL_REF_MAX_HP: i32 = 20;
+
+/// Neutral per-turn threat used when `damage_horizon` is empty.
+///
+/// `policy::status::value` falls back to `threat × duration` for stun/silence
+/// cost when `damage_horizon` is empty (see `horizon::horizon_window_sum`).
+/// 5.0 matches the canonical `UnitBuilder` bruiser default and represents a
+/// "deal ~5 HP per round on average" attacker — a reasonable midpoint between
+/// low-damage supports (2–3) and burst mages (8–12).  We intentionally leave
+/// `damage_horizon` empty to keep severity deterministic and unit-independent.
+const NEUTRAL_REF_THREAT: f32 = 5.0;
+
+impl UnitSnapshot {
+    /// Construct a canonical "neutral reference" unit used for trap severity
+    /// precomputation in [`crate::combat::ai::scoring::policy::env_severity`].
+    ///
+    /// All fields are set explicitly — if a future `UnitSnapshot` field is
+    /// added this constructor will fail to compile, forcing an explicit
+    /// decision about the neutral value.  The three fields that `policy::status::value`
+    /// actually reads are documented via named constants above (`NEUTRAL_REF_MAX_HP`,
+    /// `NEUTRAL_REF_THREAT`).  All other fields are set to neutral/empty defaults
+    /// that have no effect on severity computation.
+    pub fn neutral_reference() -> UnitSnapshot {
+        use crate::combat::ai::world::tags::AiTags;
+
+        UnitSnapshot {
+            // A placeholder entity that will never be looked up.
+            entity: Entity::from_raw_u32(0).expect("raw 0 is a valid Entity"),
+            team: Team::Player,
+            role: AxisProfile { tank: 0.0, melee: 0.0, ranged: 0.0, control: 0.0, support: 0.0 },
+            pos: crate::game::hex::hex_from_offset(0, 0),
+            hp: NEUTRAL_REF_MAX_HP,
+            max_hp: NEUTRAL_REF_MAX_HP,
+            armor: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            action_points: 1,
+            max_ap: 1,
+            movement_points: 0,
+            base_speed: 0,
+            speed: 0,
+            mana: None,
+            rage: None,
+            energy: None,
+            abilities: Vec::new(),
+            threat: NEUTRAL_REF_THREAT,
+            tags: AiTags::empty(),
+            max_attack_range: 0,
+            summoner: None,
+            reactions_left: 0,
+            aoo_expected_damage: None,
+            statuses: Vec::new(),
+            caster_ctx: CasterContext::default(),
+            crit_fail_effect: CritFailEffect::default(),
+            // Empty horizon → stun/silence cost uses `threat × duration` fallback,
+            // which is deterministic and unit-independent.
+            damage_horizon: Vec::new(),
+            ai_tuning_override: None,
+            forced_mode: None,
+        }
+    }
+}
+
 // ── Builder ───────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)] // ECS query bundle; splitting into a struct adds churn without clarity
 pub fn build_snapshot(
     _round: u32,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
@@ -479,11 +550,12 @@ pub fn build_snapshot(
     mut combat_state: combat_engine::state::CombatState,
     id_map: &UnitIdMap,
     keep_alive_entities: &std::collections::HashSet<Entity>,
+    ai_team: combat_engine::state::Team,
 ) -> BattleSnapshot {
-    // AI revealed-only filter: strip hidden traps from the planner's sim so
-    // AI units do not "cheat" by avoiding traps they cannot see.  Only revealed
-    // env objects enter the snapshot — hidden ones are absent from planning.
-    combat_state.environment.retain(|e| e.revealed);
+    // AI visibility filter: only env objects visible to the AI's team enter the
+    // snapshot. Hidden enemy traps are absent so AI cannot "cheat" by simulating
+    // outcomes it has no knowledge of.
+    combat_state.environment.retain(|e| e.visible_to(ai_team));
 
     let horizon_rounds = difficulty.damage_horizon_rounds;
     // Build AiCache directly from ECS components.
@@ -590,7 +662,20 @@ pub fn build_snapshot(
         })
         .collect();
 
-    let cache = AiCache::from_units(ai_units);
+    let mut cache = AiCache::from_units(ai_units);
+
+    // Precompute per-trap severity for the AI team's visible environment objects.
+    // The neutral reference is unit-independent, so one cached value per EnvId
+    // is valid for all consumers in this decision cycle (T7).
+    let neutral_ref = UnitSnapshot::neutral_reference();
+    for env_obj in &combat_state.environment {
+        let sev = crate::combat::ai::scoring::policy::env_severity::severity(
+            &env_obj.ability,
+            content,
+            &neutral_ref,
+        );
+        cache.env_severity.insert(env_obj.id, sev);
+    }
 
     // Build uid_to_entity from id_map — the single namespace-safe translation.
     // Works for both regular units (UnitId == entity.to_bits()) and summons

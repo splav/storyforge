@@ -12,7 +12,7 @@ use storyforge::combat_engine::{
     content::{AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, PassiveTrigger, StatusApplication, StatusOn, TargetType},
     dice::ExpectedValue,
     event::Event,
-    state::{CombatState, EffectSource, EnvId, EnvKind, EnvObject, RoundPhase, Team, Unit, UnitId},
+    state::{CombatState, EffectSource, EnvId, EnvKind, EnvObject, RoundPhase, Team, TeamSet, Unit, UnitId},
     step::step,
     AbilityId, DiceExpr, PoolKind, StatusBonuses, StatusDef, StatusId,
 };
@@ -69,7 +69,7 @@ fn trap_ability(n: u32, status: Option<&str>) -> AbilityDef {
 
 fn hazard(id: u32, col: i32) -> EnvObject {
     EnvObject { id: EnvId(id), hex: hex_from_offset(col, 0), kind: EnvKind::Hazard,
-                ability: AbilityId::from("trap"), revealed: false }
+                ability: AbilityId::from("trap"), owner: None, revealed_to: TeamSet::EMPTY }
 }
 
 /// Run a single-actor move over `cols` and return (state, events).
@@ -196,9 +196,9 @@ fn passive_reveal_in_range_only_and_idempotent() {
 
     let ev = state.resolve_turn_start_passives(UnitId(1), &content);
 
-    let revealed = |id: u32| state.environment.iter().find(|e| e.id == EnvId(id)).unwrap().revealed;
-    assert!(revealed(10), "in-range hazard must be revealed");
-    assert!(!revealed(20), "out-of-range hazard must stay hidden");
+    let visible = |id: u32| state.environment.iter().find(|e| e.id == EnvId(id)).unwrap().visible_to(Team::Player);
+    assert!(visible(10), "in-range hazard must be revealed to player");
+    assert!(!visible(20), "out-of-range hazard must stay hidden from player");
     assert_eq!(
         ev.iter().filter(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(10))).count(),
         1, "exactly one EnvRevealed for the in-range hazard",
@@ -224,7 +224,7 @@ fn no_passive_no_reveal() {
 
     let ev = state.resolve_turn_start_passives(UnitId(1), &content);
     assert!(ev.is_empty(), "no passive → no events");
-    assert!(!state.environment[0].revealed, "no passive → hazard stays hidden");
+    assert!(!state.environment[0].visible_to(Team::Player), "no passive → hazard stays hidden from player");
 }
 
 /// The passive fires through the real turn-start entry (`start_actor_turn`) and
@@ -242,7 +242,7 @@ fn passive_reveal_via_start_actor_turn_zero_rng() {
     state.environment = vec![hazard(10, 1)];
 
     let events = state.start_actor_turn(UnitId(1), &content);
-    assert!(state.environment[0].revealed, "start_actor_turn must fire the reveal passive");
+    assert!(state.environment[0].visible_to(Team::Player), "start_actor_turn must fire the reveal passive");
     assert!(events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(10))));
 }
 
@@ -274,8 +274,8 @@ fn turn_start_reveal_still_fires_aoe_radius_source() {
     state.environment = vec![hazard(10, 1), hazard(11, 3)];
 
     let events = state.start_actor_turn(UnitId(1), &content);
-    assert!(state.environment[0].revealed, "hazard within range-2 must be revealed");
-    assert!(!state.environment[1].revealed, "hazard at distance-3 must NOT be revealed");
+    assert!(state.environment[0].visible_to(Team::Player), "hazard within range-2 must be revealed to player");
+    assert!(!state.environment[1].visible_to(Team::Player), "hazard at distance-3 must NOT be revealed to player");
     assert!(events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(10))));
     assert!(!events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(11))));
 }
@@ -407,7 +407,8 @@ fn reveal_on_move_halts_and_truncates() {
         hex: hex_from_offset(3, 0),
         kind: EnvKind::Hazard,
         ability: AbilityId::from("trap"),
-        revealed: false,
+        owner: None,
+        revealed_to: TeamSet::EMPTY,
     };
 
     let mut state = CombatState::new(vec![scout], 1, RoundPhase::ActorTurn, 0);
@@ -438,7 +439,7 @@ fn reveal_on_move_halts_and_truncates() {
     assert_eq!(revealed_count, 1, "exactly one EnvRevealed for the hazard");
 
     // Hazard is now revealed in state.
-    assert!(state.environment.iter().find(|e| e.id == EnvId(42)).unwrap().revealed);
+    assert!(state.environment.iter().find(|e| e.id == EnvId(42)).unwrap().visible_to(Team::Player));
 
     // Hazard still present on the board (not triggered / removed).
     assert!(!state.environment.is_empty(), "hazard still exists (not triggered)");
@@ -492,9 +493,9 @@ fn reveal_distance_metric() {
     // id=11 at col=4 (distance 3 from arrival col=1) — must NOT reveal.
     let env = vec![
         EnvObject { id: EnvId(10), hex: hex_from_offset(3, 0), kind: EnvKind::Hazard,
-                    ability: AbilityId::from("trap"), revealed: false },
+                    ability: AbilityId::from("trap"), owner: None, revealed_to: TeamSet::EMPTY },
         EnvObject { id: EnvId(11), hex: hex_from_offset(4, 0), kind: EnvKind::Hazard,
-                    ability: AbilityId::from("trap"), revealed: false },
+                    ability: AbilityId::from("trap"), owner: None, revealed_to: TeamSet::EMPTY },
     ];
 
     let mut state = CombatState::new(vec![scout], 1, RoundPhase::ActorTurn, 0);
@@ -508,9 +509,9 @@ fn reveal_distance_metric() {
         &content,
     ).expect("move");
 
-    let get = |id: u32| state.environment.iter().find(|e| e.id == EnvId(id)).unwrap().revealed;
-    assert!(get(10), "distance-2 hazard must be revealed");
-    assert!(!get(11), "distance-3 hazard must NOT be revealed");
+    let get = |id: u32| state.environment.iter().find(|e| e.id == EnvId(id)).unwrap().visible_to(Team::Player);
+    assert!(get(10), "distance-2 hazard must be visible to player");
+    assert!(!get(11), "distance-3 hazard must NOT be visible to player");
 }
 
 /// An ability with passive=[TurnStart,OnMove] fires BOTH at turn start
@@ -544,7 +545,7 @@ fn on_move_and_turn_start_share_handler() {
 
     // 1. TurnStart fires: hazard revealed.
     let ts_events = state.start_actor_turn(UnitId(1), &content);
-    assert!(state.environment[0].revealed, "TurnStart reveal must fire");
+    assert!(state.environment[0].visible_to(Team::Player), "TurnStart reveal must fire");
     assert!(ts_events.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(5))));
 
     // 2. On a subsequent move step, already-revealed hazard emits nothing new (idempotent).
@@ -580,4 +581,94 @@ fn on_move_and_turn_start_share_handler() {
         on_move_evs2.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(9))),
         "OnMove trigger must reveal hazard now within radius 2"
     );
+}
+
+// ── T2: RevealEnv carries revealer team ─────────────────────────────────────
+
+/// Reveal only inserts the caster's team into `revealed_to`; the opponent's
+/// team is never granted visibility as a side effect.
+#[test]
+fn reveal_inserts_only_casters_team() {
+    let content = Stub::new("scout", AbilityDef {
+        passive: vec![PassiveTrigger::TurnStart],
+        effect: EffectDef::RevealEnvInRange { range: 5 },
+        ..AbilityDef::default()
+    });
+    let mut player = unit(1, Team::Player, 0, 10, None);
+    player.passives = vec![AbilityId::from("scout")];
+    let mut state = CombatState::new(vec![player], 1, RoundPhase::ActorTurn, 0);
+    state.environment = vec![hazard(1, 1)];
+
+    state.resolve_turn_start_passives(UnitId(1), &content);
+
+    let e = &state.environment[0];
+    assert!(e.visible_to(Team::Player),  "player (caster) should see revealed trap");
+    assert!(!e.visible_to(Team::Enemy),  "enemy must NOT see a player-revealed trap");
+    assert!(e.revealed_to.player,  "player bit set");
+    assert!(!e.revealed_to.enemy,  "enemy bit must remain unset");
+}
+
+/// Revealing an owner-owned trap to the same team is a no-op; it must not
+/// also reveal the trap to the opponent.
+#[test]
+fn owner_reveal_does_not_leak_to_opponent() {
+    use storyforge::combat_engine::effect::{apply_effect, Effect};
+    use storyforge::combat_engine::content::{AbilityDef, ContentView, StatusDef};
+    use storyforge::combat_engine::AbilityId as AId;
+    use storyforge::combat_engine::StatusId as SId;
+
+    struct NoContent;
+    impl ContentView for NoContent {
+        fn ability_def(&self, _: &AId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &SId) -> Option<&StatusDef> { None }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    }
+
+    let player = unit(1, Team::Player, 0, 10, None);
+    let mut state = CombatState::new(vec![player], 1, RoundPhase::ActorTurn, 0);
+    // Enemy-owned trap: enemy already sees it, player does not.
+    state.environment = vec![EnvObject {
+        id: EnvId(7),
+        hex: hex_from_offset(1, 0),
+        kind: EnvKind::Hazard,
+        ability: AbilityId::from("trap"),
+        owner: Some(Team::Enemy),
+        revealed_to: TeamSet::EMPTY,
+    }];
+
+    // Apply RevealEnv with revealer=Player (player team discovered it).
+    let eff = Effect::RevealEnv { id: EnvId(7), revealer: Team::Player };
+    apply_effect(&mut state, &eff, &NoContent);
+
+    let e = &state.environment[0];
+    // Enemy still sees it (via owner).
+    assert!(e.visible_to(Team::Enemy), "enemy owner visibility preserved");
+    // Player now sees it (just revealed).
+    assert!(e.visible_to(Team::Player), "player visibility after reveal");
+    // Only player bit set — enemy bit untouched by the reveal.
+    assert!(e.revealed_to.player, "player bit set in revealed_to");
+    assert!(!e.revealed_to.enemy, "enemy bit NOT set in revealed_to (not needed: already owner)");
+}
+
+/// Re-revealing the same trap to the same team is a no-op (no second EnvRevealed).
+#[test]
+fn reveal_idempotent_per_team() {
+    let content = Stub::new("scout", AbilityDef {
+        passive: vec![PassiveTrigger::TurnStart],
+        effect: EffectDef::RevealEnvInRange { range: 5 },
+        ..AbilityDef::default()
+    });
+    let mut player = unit(1, Team::Player, 0, 10, None);
+    player.passives = vec![AbilityId::from("scout")];
+    let mut state = CombatState::new(vec![player], 1, RoundPhase::ActorTurn, 0);
+    state.environment = vec![hazard(3, 1)];
+
+    let ev1 = state.resolve_turn_start_passives(UnitId(1), &content);
+    assert_eq!(ev1.iter().filter(|e| matches!(e, Event::EnvRevealed { .. })).count(), 1,
+               "first reveal emits one EnvRevealed");
+
+    // Second call: already visible to player — no new event.
+    let ev2 = state.resolve_turn_start_passives(UnitId(1), &content);
+    assert!(ev2.iter().all(|e| !matches!(e, Event::EnvRevealed { .. })),
+            "second reveal emits no EnvRevealed (idempotent)");
 }

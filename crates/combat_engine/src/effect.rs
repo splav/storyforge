@@ -131,15 +131,19 @@ pub enum Effect {
 
     // ── Passive ability effects ───────────────────────────────────────────
 
-    /// Scan `state.environment` for unrevealed hazards within `range` hexes
-    /// of `caster`.  Derives one `RevealEnv { id }` per match.
-    /// No own event.  Zero rng.
+    /// Scan `state.environment` for hazards not yet visible to the caster's
+    /// team within `range` hexes of `caster`.  Derives one
+    /// `RevealEnv { id, revealer }` per match.  No own event.  Zero rng.
     RevealEnvInRange { caster: UnitId, range: i32 },
 
-    /// Set the `revealed` flag to `true` on the env object with `id`.
-    /// Idempotent: if already revealed, no-op (no event emitted).
-    /// Emits `Event::EnvRevealed { env_id: id }`.
-    RevealEnv { id: crate::state::EnvId },
+    /// Insert `revealer`'s team into `revealed_to` of the env object with `id`.
+    ///
+    /// Idempotent per team: re-revealing the same object to the same team is a
+    /// no-op and emits no event.  Never inserts the *opponent's* team — the
+    /// `revealer` field ensures only the caster's own team gains knowledge.
+    ///
+    /// Emits `Event::EnvRevealed { env_id: id }` when newly revealed.
+    RevealEnv { id: crate::state::EnvId, revealer: crate::state::Team },
 }
 
 /// Structured damage breakdown produced by the `Damage` effect arm.
@@ -278,7 +282,7 @@ pub(crate) fn skip_or_settle_current(
 
 /// Returns the ids of all environment objects that are:
 /// - kind == Hazard
-/// - not yet revealed
+/// - not yet visible to `caster_team`
 /// - within `range` hexes (inclusive) of `center`
 ///
 /// Preserves the iteration order of `state.environment` for determinism.
@@ -286,13 +290,14 @@ pub(crate) fn scan_revealable_in_range(
     state: &CombatState,
     center: Hex,
     range: i32,
+    caster_team: crate::state::Team,
 ) -> Vec<crate::state::EnvId> {
     state
         .environment
         .iter()
         .filter(|e| {
             matches!(e.kind, crate::state::EnvKind::Hazard)
-                && !e.revealed
+                && !e.visible_to(caster_team)
                 && center.unsigned_distance_to(e.hex) as i32 <= range
         })
         .map(|e| e.id)
@@ -838,24 +843,24 @@ pub fn apply_effect(
         // ── Passive reveal effects ────────────────────────────────────────────
 
         Effect::RevealEnvInRange { caster, range } => {
-            // Read caster position; bail if caster is unknown.
-            let caster_pos = match state.unit(*caster) {
-                Some(u) => u.pos,
+            // Read caster position and team; bail if caster is unknown.
+            let (caster_pos, caster_team) = match state.unit(*caster) {
+                Some(u) => (u.pos, u.team),
                 None => return (vec![], ApplyCtx::default()),
             };
-            let targets = scan_revealable_in_range(state, caster_pos, *range);
+            let targets = scan_revealable_in_range(state, caster_pos, *range, caster_team);
             let derived: Vec<Effect> = targets
                 .into_iter()
-                .map(|id| Effect::RevealEnv { id })
+                .map(|id| Effect::RevealEnv { id, revealer: caster_team })
                 .collect();
             (derived, ApplyCtx::default())
         }
 
-        Effect::RevealEnv { id } => {
-            // Set revealed = true; idempotent.
+        Effect::RevealEnv { id, revealer } => {
+            // Insert revealer's team into revealed_to; idempotent per team.
             let changed = if let Some(e) = state.environment.iter_mut().find(|e| e.id == *id) {
-                if !e.revealed {
-                    e.revealed = true;
+                if !e.revealed_to.contains(*revealer) {
+                    e.revealed_to.insert(*revealer);
                     true
                 } else {
                     false

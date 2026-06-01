@@ -232,7 +232,17 @@ use crate::game::hex::Hex;
 /// `EffectSource::Env` variant exists for forward-compatibility with the
 /// trap/hazard system but is not yet constructed anywhere.
 /// v44 logs are incompatible — clean break.
-pub const SCHEMA_VERSION: u32 = 45;
+///
+/// v45 → v46: `EnvObject.revealed: bool` replaced by `owner: Option<Team>` +
+/// `revealed_to: TeamSet` (per-trap ownership + per-team reveal). The AI log
+/// embeds the full `BattleSnapshot` which contains `CombatState.environment`,
+/// so the engine-state shape change rides into the AI log. Pre-v46 logs that
+/// contain env objects (none exist in practice) would fail to deserialize
+/// `revealed: bool` → unknown field; new fields carry `#[serde(default)]` so
+/// a hypothetical pre-v46 env-containing log degrades to a hidden neutral trap.
+/// `MIN_SUPPORTED` remains 43 — existing v43/v44/v45 fixtures contain no env
+/// objects and still replay correctly.
+pub const SCHEMA_VERSION: u32 = 46;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init

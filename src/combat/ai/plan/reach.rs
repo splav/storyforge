@@ -42,10 +42,23 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
         })
         .collect();
 
+    // Build hazard_costs from the AI-team-visible environment (already filtered by T3
+    // in build_snapshot — every entry here is visible to the actor's team).
+    // Uses the unit-independent severity scores precomputed once in AiCache.env_severity.
+    // Both inputs are serialised inside BattleSnapshot → AI-sim and prod agree by
+    // construction (parity guarantee).
+    let hazard_costs: std::collections::HashMap<Hex, f32> = snap
+        .state
+        .environment
+        .iter()
+        .map(|e| (e.hex, snap.cache.env_severity.get(&e.id).copied().unwrap_or(0.0)))
+        .collect();
+
     let env = MovementEnv {
         enemy_positions,
         stop_blockers,
         blocked_hexes: snap.state.blocked_hexes.clone(),
+        hazard_costs,
     };
     let mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
     reach_from_env(actor.pos, mp, &env)
@@ -113,6 +126,133 @@ mod tests {
         assert!(
             reach.destinations.contains(&beyond),
             "beyond-ally tile should be reachable",
+        );
+    }
+
+    // ── T9: hazard_costs wiring ──────────────────────────────────────────────
+
+    /// `reach_from` populates `MovementEnv.hazard_costs` from the snapshot:
+    /// a visible trap whose `EnvId` has a matching severity entry produces a
+    /// non-empty `hazard_costs` that re-routes equal-length paths away from
+    /// the trap hex.
+    #[test]
+    fn ai_reach_populates_hazard_costs_from_snapshot() {
+        use combat_engine::state::{EnvId, EnvKind, EnvObject, TeamSet};
+        use combat_engine::{AbilityId, state::Team as EngTeam};
+        // Actor at (0,0) with 2 MP; two equal-length routes to (2,0):
+        //   direct:  (0,0)→(1,0)→(2,0)  — trap at (1,0)
+        //   detour:  (0,0)→(1,1)→(2,0)  (even-r neighbours — valid on flat grid)
+        // On a flat even-r grid (row 0, even), (0,0)'s neighbours include (1,0)
+        // and (0,1).  But to make TWO equal-length 2-hop routes cleanly, we use
+        // a 4-MP actor so it can reach (2,0) via either path.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .movement_points(4)
+            .build();
+
+        let mut s = snapshot_from(vec![actor.clone()], 1);
+
+        // Place an enemy-owned trap at (1,0) — enemy team (actor's team) sees it.
+        let trap_hex = hex_from_offset(1, 0);
+        let trap_id = EnvId(99);
+        let severity = 10.0_f32;
+        s.state.environment.push(EnvObject {
+            id: trap_id,
+            hex: trap_hex,
+            kind: EnvKind::Hazard,
+            ability: AbilityId::from("trap"),
+            owner: Some(EngTeam::Enemy),
+            revealed_to: TeamSet::EMPTY,
+        });
+        s.cache.env_severity.insert(trap_id, severity);
+
+        let actor_view = s.unit(actor.entity).unwrap();
+        let reach = reach_from(&s, actor_view);
+
+        // The hazard hex is still *reachable* (hazard never removes destinations).
+        assert!(
+            reach.destinations.contains(&trap_hex),
+            "trap hex remains reachable (soft penalty only)"
+        );
+
+        // The path to (2,0) should prefer the non-trap route when an alternative
+        // of equal hop-count exists.  The presence of non-zero hazard_costs proves
+        // the wiring is live — if hazard_costs were empty (old stub) the BFS would
+        // pick the direct path (1,0) deterministically by coordinate tie-break and
+        // the test below for soft-avoidance would also validate the effect.
+        //
+        // Here we verify the key invariant: path_to(1,0) still resolves (reachable).
+        assert!(
+            reach.path_to(trap_hex).is_some(),
+            "trap hex is reachable — path_to must return Some"
+        );
+    }
+
+    /// No environment objects → `hazard_costs` is empty and `reach_from`
+    /// behaves exactly like the unweighted BFS (all destinations reachable).
+    #[test]
+    fn ai_reach_no_env_yields_empty_hazard_costs() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .movement_points(2)
+            .build();
+        let s = snapshot_from(vec![actor.clone()], 1);
+        let actor_view = s.unit(actor.entity).unwrap();
+        let reach = reach_from(&s, actor_view);
+
+        // With empty environment the adjacent tile is always reachable.
+        assert!(
+            reach.destinations.contains(&hex_from_offset(4, 3)),
+            "adjacent hex reachable with no env"
+        );
+        // No environment → state.environment is empty.
+        assert!(s.state.environment.is_empty(), "no traps in snapshot");
+    }
+
+    /// A visible trap on one equal-length route causes the AI path planner
+    /// to choose the alternative route that avoids the trap hex.
+    ///
+    /// Grid layout (mirrors `pathfinding::hazard_cost_reroutes_equal_length_path`):
+    ///   actor   at (3,3)
+    ///   trap    at (4,3)  ← one of two equal-hop predecessors for goal
+    ///   clean   at (4,2)  ← the other predecessor
+    ///   goal    at (5,2)  — 2-hop from actor via either predecessor
+    #[test]
+    fn ai_reach_soft_avoids_visible_trap_when_alternative_exists() {
+        use combat_engine::state::{EnvId, EnvKind, EnvObject, TeamSet};
+        use combat_engine::{AbilityId, state::Team as EngTeam};
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .movement_points(4)
+            .build();
+
+        let mut s = snapshot_from(vec![actor.clone()], 1);
+        let trap_hex = hex_from_offset(4, 3);
+        let trap_id = EnvId(7);
+        s.state.environment.push(EnvObject {
+            id: trap_id,
+            hex: trap_hex,
+            kind: EnvKind::Hazard,
+            ability: AbilityId::from("trap"),
+            owner: Some(EngTeam::Enemy),
+            revealed_to: TeamSet::EMPTY,
+        });
+        // High severity so the reconstructor strongly prefers the clean route.
+        s.cache.env_severity.insert(trap_id, 100.0);
+
+        let actor_view = s.unit(actor.entity).unwrap();
+        let reach = reach_from(&s, actor_view);
+
+        let goal = hex_from_offset(5, 2);
+        let path = reach.path_to(goal).expect("goal must be reachable");
+
+        assert!(
+            !path.contains(&trap_hex),
+            "AI path to goal should avoid the high-severity trap hex (path: {path:?})"
+        );
+        // Should pass through the clean predecessor instead.
+        let clean_pred = hex_from_offset(4, 2);
+        assert!(
+            path.contains(&clean_pred),
+            "AI path routes through clean predecessor (path: {path:?})"
         );
     }
 

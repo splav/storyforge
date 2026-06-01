@@ -23,6 +23,7 @@
 
 pub mod cc;
 pub mod damage;
+pub mod env_severity;
 pub mod friendly_fire;
 pub mod heal;
 pub mod status;

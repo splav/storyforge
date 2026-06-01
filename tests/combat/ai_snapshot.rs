@@ -66,6 +66,7 @@ fn build_snapshot_includes_dead_combatant() {
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
+            combat_engine::state::Team::Enemy,
         );
         snap.cache.units.iter().map(|u| u.entity).collect()
     }
@@ -122,6 +123,7 @@ fn build_snapshot_maps_ai_behavior_override_to_forced_mode() {
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
+            combat_engine::state::Team::Enemy,
         );
         snap.cache.units.iter().map(|u| (u.entity, u.forced_mode)).collect()
     }
@@ -159,8 +161,10 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
     spawn_at(&mut app, hex_from_offset(4, 3), test_enemy(base_stats()), "B");
     init_engine_state(&mut app);
 
-    // Seed engine state with one hidden and one revealed trap.
+    // Seed engine state with one hidden (enemy-owned, not revealed to enemy) and
+    // one visible (revealed_to contains Enemy) trap.
     {
+        use combat_engine::state::{Team, TeamSet};
         let mut cs = app.world_mut().resource_mut::<CombatStateRes>();
         cs.0.environment = vec![
             EnvObject {
@@ -168,14 +172,20 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
                 hex: hex_from_offset(2, 3),
                 kind: EnvKind::Hazard,
                 ability: combat_engine::AbilityId::from("spike_trap"),
-                revealed: false,  // hidden — must NOT appear in snapshot
+                owner: None,
+                revealed_to: TeamSet::EMPTY,  // hidden — must NOT appear in snapshot
             },
             EnvObject {
                 id: EnvId(1),
                 hex: hex_from_offset(5, 3),
                 kind: EnvKind::Hazard,
                 ability: combat_engine::AbilityId::from("spike_trap"),
-                revealed: true,   // revealed — must appear in snapshot
+                owner: None,
+                revealed_to: {
+                    let mut ts = TeamSet::EMPTY;
+                    ts.insert(Team::Enemy); // visible to enemy — must appear in snapshot
+                    ts
+                },
             },
         ];
     }
@@ -189,7 +199,8 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
         difficulty: Res<DifficultyProfile>,
         state_res:  Res<CombatStateRes>,
         id_map:     Res<UnitIdMap>,
-    ) -> Vec<bool> {
+    ) -> usize {
+        use combat_engine::state::Team;
         let keep_alive_entities = std::collections::HashSet::new();
         let snap = build_snapshot(
             1, &combatants, &statuses, &hex_map, &roles,
@@ -197,19 +208,19 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
+            Team::Enemy,
         );
-        snap.state.environment.iter().map(|e| e.revealed).collect()
+        snap.state.environment.len()
     }
 
-    let revealed_flags: Vec<bool> = app
+    let env_count: usize = app
         .world_mut()
         .run_system_once(snapshot_system)
         .expect("snapshot_system failed");
 
     assert_eq!(
-        revealed_flags,
-        vec![true],
-        "snapshot must contain exactly the revealed trap (hidden one must be stripped)",
+        env_count, 1,
+        "snapshot must contain exactly the visible trap (hidden one must be stripped)",
     );
 }
 
@@ -262,6 +273,7 @@ fn build_snapshot_includes_minimal_npc() {
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
+            combat_engine::state::Team::Enemy,
         );
         snap.cache.units.iter().map(|u| (u.entity, u.threat, u.abilities.clone())).collect()
     }
@@ -280,4 +292,140 @@ fn build_snapshot_includes_minimal_npc() {
     let npc_entry = entries.iter().find(|(e, _, _)| *e == npc).unwrap();
     assert_eq!(npc_entry.1, 0.0, "minimal NPC threat must be 0");
     assert!(npc_entry.2.is_empty(), "minimal NPC abilities must be empty");
+}
+
+// ── T3: build_snapshot ai_team visibility filter ─────────────────────────────
+
+fn seed_env(app: &mut App, envs: Vec<combat_engine::state::EnvObject>) {
+    app.world_mut().resource_mut::<CombatStateRes>().0.environment = envs;
+}
+
+fn env_count_for_team(app: &mut App, team: combat_engine::state::Team) -> usize {
+    use combat_engine::state::Team;
+    // Run a one-shot system capturing env count for the given team.
+    // We use a Local to smuggle the team in (Bevy one-shot systems can't take
+    // extra parameters), so we parameterize via two separate concrete functions.
+    match team {
+        Team::Player => {
+            fn sys(
+                combatants: Query<AiCombatantQ, With<Combatant>>,
+                statuses:   Query<&StatusEffects>,
+                hex_map:    HexMap,
+                roles:      Query<&AxisProfile>,
+                content:    Res<storyforge::content::content_view::ActiveContent>,
+                difficulty: Res<DifficultyProfile>,
+                state_res:  Res<CombatStateRes>,
+                id_map:     Res<UnitIdMap>,
+            ) -> usize {
+                let snap = build_snapshot(
+                    1, &combatants, &statuses, &hex_map, &roles, &content, &difficulty,
+                    state_res.0.clone(), &id_map, &std::collections::HashSet::new(),
+                    combat_engine::state::Team::Player,
+                );
+                snap.state.environment.len()
+            }
+            app.world_mut().run_system_once(sys).unwrap()
+        }
+        Team::Enemy => {
+            fn sys(
+                combatants: Query<AiCombatantQ, With<Combatant>>,
+                statuses:   Query<&StatusEffects>,
+                hex_map:    HexMap,
+                roles:      Query<&AxisProfile>,
+                content:    Res<storyforge::content::content_view::ActiveContent>,
+                difficulty: Res<DifficultyProfile>,
+                state_res:  Res<CombatStateRes>,
+                id_map:     Res<UnitIdMap>,
+            ) -> usize {
+                let snap = build_snapshot(
+                    1, &combatants, &statuses, &hex_map, &roles, &content, &difficulty,
+                    state_res.0.clone(), &id_map, &std::collections::HashSet::new(),
+                    combat_engine::state::Team::Enemy,
+                );
+                snap.state.environment.len()
+            }
+            app.world_mut().run_system_once(sys).unwrap()
+        }
+    }
+}
+
+/// Own-team-owned traps are always visible to their owner's AI snapshot.
+#[test]
+fn snapshot_includes_own_team_owned_traps() {
+    use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
+    let mut app = movement_app();
+    app.insert_resource(DifficultyProfile::default());
+    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    init_engine_state(&mut app);
+
+    seed_env(&mut app, vec![EnvObject {
+        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
+        ability: combat_engine::AbilityId::from("t"),
+        owner: Some(Team::Enemy), revealed_to: TeamSet::EMPTY,
+    }]);
+
+    assert_eq!(env_count_for_team(&mut app, Team::Enemy), 1,
+               "enemy-owned trap must appear in enemy snapshot");
+}
+
+/// Enemy-owned traps that the player hasn't discovered are absent from the
+/// player AI's snapshot.
+#[test]
+fn snapshot_excludes_enemy_owned_unrevealed_traps() {
+    use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
+    let mut app = movement_app();
+    app.insert_resource(DifficultyProfile::default());
+    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    init_engine_state(&mut app);
+
+    seed_env(&mut app, vec![EnvObject {
+        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
+        ability: combat_engine::AbilityId::from("t"),
+        owner: Some(Team::Enemy), revealed_to: TeamSet::EMPTY,
+    }]);
+
+    assert_eq!(env_count_for_team(&mut app, Team::Player), 0,
+               "enemy-owned unrevealed trap must be absent from player snapshot");
+}
+
+/// A trap revealed to the AI's team appears in the snapshot.
+#[test]
+fn snapshot_includes_trap_revealed_to_ai_team() {
+    use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
+    let mut app = movement_app();
+    app.insert_resource(DifficultyProfile::default());
+    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    init_engine_state(&mut app);
+
+    let mut revealed_to = TeamSet::EMPTY;
+    revealed_to.insert(Team::Enemy);
+    seed_env(&mut app, vec![EnvObject {
+        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
+        ability: combat_engine::AbilityId::from("t"),
+        owner: None, revealed_to,
+    }]);
+
+    assert_eq!(env_count_for_team(&mut app, Team::Enemy), 1,
+               "trap revealed to enemy must appear in enemy snapshot");
+}
+
+/// A neutral unrevealed trap is absent from both teams' snapshots.
+#[test]
+fn snapshot_neutral_unrevealed_absent_for_both_teams() {
+    use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
+    let mut app = movement_app();
+    app.insert_resource(DifficultyProfile::default());
+    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    init_engine_state(&mut app);
+
+    seed_env(&mut app, vec![EnvObject {
+        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
+        ability: combat_engine::AbilityId::from("t"),
+        owner: None, revealed_to: TeamSet::EMPTY,
+    }]);
+
+    assert_eq!(env_count_for_team(&mut app, Team::Player), 0,
+               "neutral unrevealed trap absent from player snapshot");
+    assert_eq!(env_count_for_team(&mut app, Team::Enemy), 0,
+               "neutral unrevealed trap absent from enemy snapshot");
 }

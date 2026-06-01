@@ -296,6 +296,7 @@ pub fn update_hex_visuals(
                         enemy_positions,
                         stop_blockers,
                         blocked_hexes: engine_state.0.blocked_hexes.clone(),
+                        hazard_costs: std::collections::HashMap::new(), // UI never routes via hazards (T9 wires AI only)
                     };
                     reach_from(actor_pos, ap.movement_points, &env).destinations
                 } else {
@@ -353,7 +354,7 @@ pub fn update_hex_visuals(
 
         let is_obstacle = engine_state.0.blocked_hexes.contains(&pos);
         let is_revealed_trap = engine_state.0.environment.iter()
-            .any(|e| e.hex == pos && e.revealed);
+            .any(|e| e.hex == pos && e.visible_to(Team::Player));
 
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
             mat.0 = match fill_entity {

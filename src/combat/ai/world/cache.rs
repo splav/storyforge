@@ -104,13 +104,22 @@ pub struct AiCache {
     /// deserialization via `build_index`, or implicitly via `AiCache::from_units`.
     #[serde(skip)]
     by_entity: HashMap<Entity, usize>,
+    /// Per-trap severity score (HP-equivalent avoidance weight), keyed by `EnvId`.
+    ///
+    /// Precomputed once per `build_snapshot` call from the AI team's visible traps
+    /// using `policy::env_severity::severity`. Unit-independent: a single cached
+    /// value is valid for all consumers in the same decision cycle.
+    ///
+    /// `#[serde(default)]` keeps old logs (before T7) deserializable as an empty map.
+    #[serde(default)]
+    pub env_severity: std::collections::HashMap<combat_engine::state::EnvId, f32>,
 }
 
 impl AiCache {
     /// Build an `AiCache` from a vec of unit records, constructing the index
     /// eagerly.
     pub fn from_units(units: Vec<UnitAiCache>) -> Self {
-        let mut cache = Self { units, by_entity: HashMap::new() };
+        let mut cache = Self { units, by_entity: HashMap::new(), env_severity: std::collections::HashMap::new() };
         cache.build_index();
         cache
     }

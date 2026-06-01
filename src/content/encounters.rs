@@ -10,11 +10,14 @@ use std::collections::HashMap;
 ///
 /// `kind` is always `Hazard` for now; future commits may add other env kinds.
 /// `hex` and `ability` are the only content-facing fields — the engine fields
-/// (`id`, `triggered`, `revealed`) are filled in at bootstrap time.
+/// (`id`, `revealed_to`) are filled in at bootstrap time.
 #[derive(Debug, Clone)]
 pub struct EnvObjectDef {
     pub hex: hexx::Hex,
     pub ability: AbilityId,
+    /// Which team owns (placed) this trap. `None` = neutral hazard visible only
+    /// after discovery by either team.
+    pub owner: Option<combat_engine::state::Team>,
 }
 
 #[derive(Debug, Clone)]
@@ -191,12 +194,16 @@ struct ObstacleRecord {
 
 /// A hidden environmental hazard as declared in `encounters.toml`.
 ///
-/// TOML syntax: `[[encounters.environment]]` with fields `hex_col`, `hex_row`, `ability`.
+/// TOML syntax: `[[encounters.environment]]` with fields `hex_col`, `hex_row`,
+/// `ability`, and optional `owner` (`"player"`, `"enemy"`, or absent for neutral).
 #[derive(Deserialize)]
 struct EnvRecord {
     hex_col: i32,
     hex_row: i32,
     ability: String,
+    /// `"player"` | `"enemy"` | absent (= neutral, `None`).
+    #[serde(default)]
+    owner: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -517,9 +524,22 @@ pub fn load_encounters_from_str(
             environment: enc
                 .environment
                 .into_iter()
-                .map(|e| EnvObjectDef {
-                    hex: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
-                    ability: AbilityId::from(e.ability.as_str()),
+                .map(|e| {
+                    let owner = match e.owner.as_deref() {
+                        None            => None,
+                        Some("player")  => Some(combat_engine::state::Team::Player),
+                        Some("enemy")   => Some(combat_engine::state::Team::Enemy),
+                        Some(other) => panic!(
+                            "{path}: encounter '{}' has unknown env owner '{other}' \
+                             (must be \"player\", \"enemy\", or absent)",
+                            enc.id,
+                        ),
+                    };
+                    EnvObjectDef {
+                        hex: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
+                        ability: AbilityId::from(e.ability.as_str()),
+                        owner,
+                    }
                 })
                 .collect(),
         })
@@ -598,5 +618,77 @@ heal_to_full = false
             .expect("PhaseRecord must deserialize from TOML");
         let phase = resolve_phase("test", "enc1", record, &Default::default());
         assert!(phase.ai_behavior.is_none());
+    }
+
+    // ── T5: EnvObjectDef.owner from TOML ─────────────────────────────────────
+
+    /// Base encounter TOML (no environment entry) — parses cleanly.
+    const BASE_ENC_TOML: &str = r#"
+[[encounters]]
+id = "enc1"
+name = "Test"
+
+[[encounters.enemies]]
+name = "Goblin"
+race = "goblin"
+speed = 3
+hex_col = 5
+hex_row = 5
+ability_ids = []
+
+[encounters.enemies.stats]
+max_hp = 10
+strength = 5
+dexterity = 5
+constitution = 5
+intelligence = 0
+wisdom = 5
+charisma = 5
+
+[encounters.enemies.equipment]
+main_hand = "unarmed"
+chest = "cloth"
+legs = "cloth"
+feet = "cloth"
+"#;
+
+    /// Append an environment entry with the given extra fields.
+    fn env_encounter_toml(owner_field: &str) -> String {
+        format!(
+            "{BASE_ENC_TOML}\n[[encounters.environment]]\nhex_col = 2\nhex_row = 3\nability = \"spike_trap\"\n{owner_field}\n"
+        )
+    }
+
+    fn load_env(toml_src: &str) -> EnvObjectDef {
+        let encs = load_encounters_from_str("test_id", "test.toml", toml_src, &Default::default());
+        encs.into_iter().next().unwrap().environment.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn parses_env_owner_player() {
+        let src = env_encounter_toml(r#"owner = "player""#);
+        let def = load_env(&src);
+        assert_eq!(def.owner, Some(combat_engine::state::Team::Player));
+    }
+
+    #[test]
+    fn parses_env_owner_enemy() {
+        let src = env_encounter_toml(r#"owner = "enemy""#);
+        let def = load_env(&src);
+        assert_eq!(def.owner, Some(combat_engine::state::Team::Enemy));
+    }
+
+    #[test]
+    fn env_owner_absent_is_neutral_none() {
+        let src = env_encounter_toml("");
+        let def = load_env(&src);
+        assert_eq!(def.owner, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown env owner 'wizard'")]
+    fn env_owner_unknown_string_panics() {
+        let src = env_encounter_toml(r#"owner = "wizard""#);
+        load_env(&src);
     }
 }

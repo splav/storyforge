@@ -146,6 +146,7 @@ fn run_ai_turn(
         env.combat_state.0.clone(),
         &env.id_map,
         keep_alive_entities,
+        actor_team,
     );
 
     let Some(actor_view) = snap.unit(actor) else {

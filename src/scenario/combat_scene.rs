@@ -56,7 +56,8 @@ fn spawn_combatants(
             hex: def.hex,
             kind: combat_engine::state::EnvKind::Hazard,
             ability: def.ability.clone(),
-            revealed: false,
+            owner: def.owner,
+            revealed_to: combat_engine::state::TeamSet::EMPTY,
         })
         .collect();
     let content = &scen.content;

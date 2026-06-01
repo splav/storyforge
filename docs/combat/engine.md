@@ -291,6 +291,27 @@ function for legacy callers.
   backends agree (Bevy backend skipped from the loop for runtime cost; parity
   is structural per above, the dedicated Bevy test exercises the override).
 
+### Hazard-avoidance parity (T9)
+
+`reach_from` in `src/combat/ai/plan/reach.rs` builds `MovementEnv.hazard_costs`
+directly from `snap.state.environment` (already team-filtered by T3) and
+`snap.cache.env_severity`. Because both inputs are serialised inside
+`BattleSnapshot`, the AI sim and the production path always see the same costs —
+no separate computation, no divergence possible.
+
+### Residual flee-AI modeling limitation
+
+When the party-AI simulates an enemy unit's turn (e.g. flee-mode rollout during
+beam search), it uses the **party's own filtered snapshot**, not the enemy's.
+This means the simulated enemy cannot model its own team's still-hidden traps —
+specifically, enemy-owned traps not yet revealed to the player will be absent
+from the party's snapshot and therefore absent from the simulated enemy's
+`hazard_costs`. The enemy in simulation will not detour around those traps even
+though the real enemy would. This is an accepted limitation: it only applies to
+enemy-owned traps still invisible to the player, and only affects party-AI
+opponent simulation (the real enemy AI, running with its own snapshot, routes
+correctly).
+
 ---
 
 ## 6. Effect catalog (reference)

@@ -45,27 +45,43 @@ pub enum EnvKind {
 /// `CombatState.environment` (it deals its effect and disappears — no
 /// lingering "spent" marker). There is therefore no `triggered` flag.
 ///
-/// `revealed` gates visibility of an *armed* object: `false` = hidden (not
-/// rendered; absent from AI snapshots, so the AI can be baited onto it),
-/// `true` = known to the party (rendered in UI, present in AI planning so the
-/// AI avoids it). It is flipped by the reveal mechanic (e.g. a scout spotting
-/// traps) — NOT by firing, since a fired trap is gone.
+/// **Visibility** is per-team:
+/// - `owner == Some(T)` → team T sees this object unconditionally (they placed it).
+/// - `revealed_to.contains(T)` → team T discovered it via a reveal mechanic.
+/// - A team that neither owns nor has discovered the object cannot see it.
+/// - `owner == None` means a neutral hazard — visible only after discovery.
+///
+/// Firing is visibility-agnostic: a unit stepping on a hidden trap still
+/// triggers it. Only the AI snapshot filters by visibility.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EnvObject {
     pub id: EnvId,
     pub hex: hexx::Hex,
     pub kind: EnvKind,
     pub ability: crate::AbilityId,
-    pub revealed: bool,
+    /// Which team placed / owns this object. `None` = neutral hazard.
+    /// The owning team always sees it regardless of `revealed_to`.
+    /// `#[serde(default)]` ensures pre-v46 logs missing this field deserialize
+    /// to `None` (hidden neutral trap) rather than failing.
+    #[serde(default)]
+    pub owner: Option<Team>,
+    /// Which teams have discovered this object via a reveal mechanic.
+    /// `#[serde(default)]` ensures pre-v46 logs missing this field deserialize
+    /// to `TeamSet::default()` (EMPTY — not visible to anyone) rather than failing.
+    #[serde(default)]
+    pub revealed_to: TeamSet,
+}
+
+impl EnvObject {
+    /// Returns `true` if `team` can see this object — either because they own
+    /// it or because a reveal mechanic has inserted their team into `revealed_to`.
+    pub fn visible_to(&self, team: Team) -> bool {
+        self.owner == Some(team) || self.revealed_to.contains(team)
+    }
 }
 
 /// Who produced a damage or status effect — either a living unit or an
 /// environment object (trap, hazard, etc.).
-///
-/// `EffectSource::Env` is defined here for forward-compatibility but is
-/// **never constructed** in this commit; it arrives with the trap system.
-/// Consumers that cannot handle env sources yet should call
-/// `.as_unit()` and `unreachable!` / skip on `None`.
 ///
 /// **Backward-compatible deserialization.** Before schema v45 this field was a
 /// bare `UnitId` (serialized as an integer). The hand-written `Deserialize`
@@ -171,6 +187,37 @@ pub struct ActiveStatus {
 pub enum Team {
     Player,
     Enemy,
+}
+
+/// A compact, deterministic bitset over `Team` variants.
+///
+/// Uses two booleans rather than `HashSet<Team>` to guarantee
+/// deterministic serialization order across runs (HashMap/HashSet
+/// iteration order is not stable in serde_json).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TeamSet {
+    pub player: bool,
+    pub enemy: bool,
+}
+
+impl TeamSet {
+    pub const EMPTY: Self = TeamSet { player: false, enemy: false };
+
+    /// Returns `true` if `team` is in this set.
+    pub fn contains(self, team: Team) -> bool {
+        match team {
+            Team::Player => self.player,
+            Team::Enemy  => self.enemy,
+        }
+    }
+
+    /// Inserts `team` into this set (idempotent).
+    pub fn insert(&mut self, team: Team) {
+        match team {
+            Team::Player => self.player = true,
+            Team::Enemy  => self.enemy  = true,
+        }
+    }
 }
 
 // ── Round phase ───────────────────────────────────────────────────────────────
@@ -2099,5 +2146,83 @@ mod tests {
         assert!(!events_b.iter().any(|e| matches!(
             e, Event::PoolChanged { pool: PoolKind::Mp, cause: PoolChangeCause::Refill, .. }
         )), "no Refill for MP when already at max");
+    }
+
+    // ── T1: TeamSet + EnvObject visibility ───────────────────────────────────
+
+    fn env_obj(id: u32, owner: Option<Team>) -> EnvObject {
+        EnvObject {
+            id: EnvId(id),
+            hex: hexx::Hex::ZERO,
+            kind: EnvKind::Hazard,
+            ability: crate::AbilityId::from("trap"),
+            owner,
+            revealed_to: TeamSet::EMPTY,
+        }
+    }
+
+    #[test]
+    fn env_owner_always_visible_to_own_team() {
+        let e = env_obj(1, Some(Team::Player));
+        assert!(e.visible_to(Team::Player), "owner team sees their own trap");
+        assert!(!e.visible_to(Team::Enemy), "enemy does not see an unrevealed player-owned trap");
+    }
+
+    #[test]
+    fn env_visible_after_revealed_to_insert() {
+        let mut e = env_obj(2, Some(Team::Enemy));
+        assert!(!e.visible_to(Team::Player), "not yet revealed to player");
+        e.revealed_to.insert(Team::Player);
+        assert!(e.visible_to(Team::Player), "visible after insert");
+    }
+
+    #[test]
+    fn env_neutral_unrevealed_invisible_to_both() {
+        let e = env_obj(3, None);
+        assert!(!e.visible_to(Team::Player), "neutral unrevealed: player cannot see");
+        assert!(!e.visible_to(Team::Enemy),  "neutral unrevealed: enemy cannot see");
+    }
+
+    #[test]
+    fn teamset_serialization_deterministic() {
+        // Serialized form must be a stable object (not a set that varies by hash).
+        let ts = TeamSet { player: true, enemy: false };
+        let s = serde_json::to_string(&ts).expect("serialize");
+        assert!(s.contains("\"player\":true"), "player field present");
+        assert!(s.contains("\"enemy\":false"), "enemy field present");
+        // Round-trip.
+        let ts2: TeamSet = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(ts, ts2);
+    }
+
+    #[test]
+    fn env_object_roundtrip_with_owner_and_revealed_to() {
+        let mut e = env_obj(4, Some(Team::Enemy));
+        e.revealed_to.insert(Team::Player);
+        let json = serde_json::to_string(&e).expect("serialize");
+        let e2: EnvObject = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(e, e2);
+        assert!(e2.visible_to(Team::Enemy),  "enemy owner still visible after roundtrip");
+        assert!(e2.visible_to(Team::Player), "player revealed_to preserved after roundtrip");
+    }
+
+    /// A pre-v46 JSON that omits `owner` and `revealed_to` must deserialize to
+    /// a hidden neutral trap (`owner=None`, `revealed_to=EMPTY`).
+    #[test]
+    fn env_object_serde_defaults_for_missing_owner_and_revealed_to() {
+        // Minimal JSON — id, hex, kind, ability present; owner + revealed_to absent.
+        let json = r#"{
+            "id": 99,
+            "hex": {"x": 0, "y": 0},
+            "kind": "Hazard",
+            "ability": "trap"
+        }"#;
+        let obj: EnvObject = serde_json::from_str(json)
+            .expect("should deserialize even without owner/revealed_to fields");
+        assert_eq!(obj.owner, None, "owner defaults to None (neutral hazard)");
+        assert_eq!(obj.revealed_to, TeamSet::EMPTY, "revealed_to defaults to EMPTY");
+        // Consequently, neither team can see it.
+        assert!(!obj.visible_to(Team::Player), "player cannot see hidden neutral trap");
+        assert!(!obj.visible_to(Team::Enemy),  "enemy cannot see hidden neutral trap");
     }
 }

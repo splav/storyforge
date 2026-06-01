@@ -910,3 +910,90 @@ mod computation_tests {
         assert!(snap.entity_to_uid.is_empty());
     }
 }
+
+// ── env_severity precompute ───────────────────────────────────────────────────
+
+#[cfg(test)]
+mod env_severity_snapshot_tests {
+    use super::*;
+    use crate::combat::ai::scoring::policy::env_severity::severity;
+    use crate::content::content_view::ContentView;
+    use crate::game::hex::hex_from_offset;
+    use combat_engine::state::{EnvId, EnvKind, EnvObject, Team as EngineTeam, TeamSet};
+
+    fn visible_env(id: u32, ability: &str, team: EngineTeam) -> EnvObject {
+        EnvObject {
+            id: EnvId(id),
+            hex: hex_from_offset(0, 0),
+            kind: EnvKind::Hazard,
+            ability: combat_engine::AbilityId::from(ability),
+            owner: Some(team),
+            revealed_to: TeamSet::EMPTY,
+        }
+    }
+
+    fn hidden_env(id: u32, ability: &str) -> EnvObject {
+        // Neutral hazard owned by nobody — invisible until revealed.
+        EnvObject {
+            id: EnvId(id),
+            hex: hex_from_offset(0, 0),
+            kind: EnvKind::Hazard,
+            ability: combat_engine::AbilityId::from(ability),
+            owner: None,
+            revealed_to: TeamSet::EMPTY,
+        }
+    }
+
+    /// A visible trap's `EnvId` is present in `env_severity` with the expected
+    /// value; a non-visible (neutral, unrevealed) trap is absent because the T3
+    /// visibility filter (`retain`) removes it before the precompute loop sees it.
+    ///
+    /// This mirrors the `build_snapshot` wiring: iterate the already-filtered
+    /// `combat_state.environment` (after `retain(|e| e.visible_to(ai_team))`).
+    #[test]
+    fn snapshot_populates_env_severity_for_visible_traps() {
+        let content = ContentView::load_global_for_tests();
+        let neutral_ref = UnitSnapshot::neutral_reference();
+        let ai_team = EngineTeam::Enemy;
+
+        // One trap owned by the AI team (visible), one neutral unrevealed (hidden).
+        // Use "spike_trap" — present in test content and has a Damage effect.
+        let visible_id = EnvId(1u32);
+        let hidden_id  = EnvId(2u32);
+        let ability_id = combat_engine::AbilityId::from("spike_trap");
+
+        let mut environment = vec![
+            visible_env(1u32, "spike_trap", ai_team),
+            hidden_env(2u32, "spike_trap"),
+        ];
+        // Replicate the T3 filter from build_snapshot.
+        environment.retain(|e| e.visible_to(ai_team));
+
+        // Build env_severity map via the same loop as build_snapshot.
+        let mut env_severity: std::collections::HashMap<EnvId, f32> =
+            std::collections::HashMap::new();
+        for env_obj in &environment {
+            let sev = severity(&env_obj.ability, &content, &neutral_ref);
+            env_severity.insert(env_obj.id, sev);
+        }
+
+        // Visible trap: must be present with severity matching the standalone fn.
+        let expected_sev = severity(&ability_id, &content, &neutral_ref);
+        assert!(
+            env_severity.contains_key(&visible_id),
+            "visible (enemy-owned) trap must appear in env_severity",
+        );
+        assert!(
+            (env_severity[&visible_id] - expected_sev).abs() < 1e-6,
+            "severity value mismatch: map={} fn={}",
+            env_severity[&visible_id],
+            expected_sev,
+        );
+
+        // Hidden trap: must be absent (filtered by T3 retain before this loop).
+        assert!(
+            !env_severity.contains_key(&hidden_id),
+            "neutral unrevealed trap must be absent from env_severity (T3 filter)",
+        );
+    }
+}

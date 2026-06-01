@@ -146,11 +146,22 @@ pub struct ReachableMap {
 /// - `blocked_hexes` — static obstacles. Blocks **both** pass-through and
 ///   stopping. Populated from `CombatState.blocked_hexes` (walls, crates, …).
 ///   Empty by default (no obstacles in ch1 scenarios).
+/// - `hazard_costs` — per-tile soft movement penalties (e.g. known traps).
+///   When empty (the default) `reach_from` is byte-identical to the plain BFS
+///   — reachability, `destinations`, and every `path_to` result are unchanged.
+///   When non-empty the reachable *set* is still governed by unweighted
+///   hop-count (hazards never add/remove tiles), but `path_to` returns the
+///   min-penalty path among all equal-length shortest paths.  Tie-break between
+///   equal-penalty predecessors: lexicographic `(hex.x, hex.y)` — never
+///   HashMap-iteration order — so `path_to` is deterministic across runs and
+///   replay-stable. Populated by T9; UI always leaves it empty.
 pub struct MovementEnv {
     pub enemy_positions: HashSet<Hex>,
     pub stop_blockers: HashSet<Hex>,
     /// Static obstacles — blocks both pass-through and stopping.
     pub blocked_hexes: HashSet<Hex>,
+    /// Soft per-tile hazard penalties. Empty = today's plain BFS behaviour.
+    pub hazard_costs: HashMap<Hex, f32>,
 }
 
 /// BFS reach from `start` using a prepared `MovementEnv`. Thin wrapper over
@@ -159,13 +170,116 @@ pub struct MovementEnv {
 /// movement rules (e.g. difficult terrain) lands once.
 ///
 /// `blocked_hexes` blocks both pass-through and stopping (static obstacles).
+///
+/// When `env.hazard_costs` is empty this function is byte-identical to the
+/// plain BFS (replay-stable). When non-empty the reachable set is unchanged but
+/// the `came_from` predecessor map is recomputed to minimise accumulated hazard
+/// penalty along equal-length shortest paths (see [`reweight_came_from`]).
 pub fn reach_from(start: Hex, max_steps: i32, env: &MovementEnv) -> ReachableMap {
-    reachable_with_paths(
+    let mut map = reachable_with_paths(
         start,
         max_steps,
         |h| !env.blocked_hexes.contains(&h) && is_passable(h, &env.enemy_positions),
         |h| !env.blocked_hexes.contains(&h) && can_stop_on(h, &env.stop_blockers, None),
-    )
+    );
+
+    if !env.hazard_costs.is_empty() {
+        reweight_came_from(&mut map, &env.hazard_costs, max_steps, |h| {
+            !env.blocked_hexes.contains(&h) && is_passable(h, &env.enemy_positions)
+        });
+    }
+
+    map
+}
+
+/// Recompute `came_from` in `map` to prefer minimum accumulated hazard penalty
+/// while keeping hop-count distances identical (reachability unchanged).
+///
+/// Algorithm:
+/// 1. Recover BFS distances via second BFS flood (same passable predicate).
+/// 2. Process nodes in order of increasing distance.
+/// 3. For each node, among its neighbours at distance `d-1` (valid shortest-
+///    path predecessors), pick the one minimising `best_penalty[pred] +
+///    hazard_costs.get(node)`.  Tie-break by `(hex.x, hex.y)` lexicographic
+///    order — never HashMap iteration order — to guarantee determinism.
+fn reweight_came_from(
+    map: &mut ReachableMap,
+    hazard_costs: &HashMap<Hex, f32>,
+    max_steps: i32,
+    is_passable: impl Fn(Hex) -> bool,
+) {
+    // --- Step 1: recover per-node BFS distances --------------------------------
+    let mut dist: HashMap<Hex, i32> = HashMap::new();
+    {
+        let mut queue: VecDeque<(Hex, i32)> = VecDeque::new();
+        dist.insert(map.start, 0);
+        queue.push_back((map.start, 0));
+        while let Some((cur, d)) = queue.pop_front() {
+            if d >= max_steps {
+                continue;
+            }
+            let mut neighbours: Vec<Hex> = cur.all_neighbors().to_vec();
+            neighbours.sort_unstable_by_key(|h| (h.x, h.y));
+            for nb in neighbours {
+                if dist.contains_key(&nb) {
+                    continue;
+                }
+                if !in_bounds(nb) || !is_passable(nb) {
+                    continue;
+                }
+                dist.insert(nb, d + 1);
+                queue.push_back((nb, d + 1));
+            }
+        }
+    }
+
+    // Collect all reachable nodes (excluding start) sorted by distance so we
+    // process predecessors before their successors.
+    let mut nodes_by_dist: Vec<(i32, Hex)> = dist
+        .iter()
+        .filter(|(&h, _)| h != map.start)
+        .map(|(&h, &d)| (d, h))
+        .collect();
+    // Primary sort: distance; secondary: deterministic (x,y) to make the
+    // processing order stable even though it doesn't affect correctness here.
+    nodes_by_dist.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| (a.1.x, a.1.y).cmp(&(b.1.x, b.1.y))));
+
+    // --- Step 2: compute min-penalty predecessor for each node ----------------
+    // best_penalty[h] = minimum accumulated hazard penalty on any shortest path
+    // from start to h.
+    let mut best_penalty: HashMap<Hex, f32> = HashMap::new();
+    best_penalty.insert(map.start, 0.0);
+
+    let mut new_came_from: HashMap<Hex, Hex> = HashMap::new();
+
+    for (d, node) in &nodes_by_dist {
+        let node_cost = hazard_costs.get(node).copied().unwrap_or(0.0);
+
+        // Candidate predecessors: neighbours at distance d-1.
+        let mut candidates: Vec<Hex> = node.all_neighbors().to_vec();
+        // Sort deterministically so tie-breaking is by (x,y), not HashMap order.
+        candidates.sort_unstable_by_key(|h| (h.x, h.y));
+
+        let best_pred = candidates
+            .into_iter()
+            .filter(|pred| dist.get(pred).copied() == Some(d - 1))
+            .min_by(|a, b| {
+                let pa = best_penalty.get(a).copied().unwrap_or(f32::INFINITY) + node_cost;
+                let pb = best_penalty.get(b).copied().unwrap_or(f32::INFINITY) + node_cost;
+                pa.partial_cmp(&pb)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    // Tie-break: lexicographic (x, y) — deterministic, not iteration order.
+                    .then_with(|| (a.x, a.y).cmp(&(b.x, b.y)))
+            });
+
+        if let Some(pred) = best_pred {
+            let pen = best_penalty.get(&pred).copied().unwrap_or(f32::INFINITY) + node_cost;
+            best_penalty.insert(*node, pen);
+            new_came_from.insert(*node, pred);
+        }
+    }
+
+    map.came_from = new_came_from;
 }
 
 impl ReachableMap {
@@ -267,7 +381,7 @@ mod tests {
         let beyond_ally = hex_from_offset(5, 3);
         let mut stop_only = HashSet::new();
         stop_only.insert(ally_tile);
-        let env = MovementEnv { enemy_positions: HashSet::new(), stop_blockers: stop_only, blocked_hexes: HashSet::new() };
+        let env = MovementEnv { enemy_positions: HashSet::new(), stop_blockers: stop_only, blocked_hexes: HashSet::new(), hazard_costs: HashMap::new() };
         let reach = reach_from(start, 3, &env);
         assert!(!reach.destinations.contains(&ally_tile), "cannot stop on ally");
         assert!(
@@ -284,7 +398,7 @@ mod tests {
         enemies.insert(enemy_tile);
         let mut blockers = HashSet::new();
         blockers.insert(enemy_tile);
-        let env2 = MovementEnv { enemy_positions: enemies, stop_blockers: blockers, blocked_hexes: HashSet::new() };
+        let env2 = MovementEnv { enemy_positions: enemies, stop_blockers: blockers, blocked_hexes: HashSet::new(), hazard_costs: HashMap::new() };
         let reach2 = reach_from(start, 2, &env2);
         assert!(!reach2.destinations.contains(&enemy_tile));
         assert!(
@@ -311,6 +425,7 @@ mod tests {
             enemy_positions: HashSet::new(),
             stop_blockers: HashSet::new(),
             blocked_hexes: blocked,
+            hazard_costs: HashMap::new(),
         };
         let reach_mp1 = reach_from(start, 1, &env);
         assert!(
@@ -327,6 +442,7 @@ mod tests {
             enemy_positions: HashSet::new(),
             stop_blockers: HashSet::new(),
             blocked_hexes: all_blocked,
+            hazard_costs: HashMap::new(),
         };
         let reach_all = reach_from(start, 3, &env_all);
         assert!(
@@ -347,6 +463,7 @@ mod tests {
             enemy_positions: HashSet::new(),
             stop_blockers: HashSet::new(),
             blocked_hexes: blocked,
+            hazard_costs: HashMap::new(),
         };
         let reach = reach_from(start, 2, &env);
         assert!(
@@ -371,11 +488,220 @@ mod tests {
             enemy_positions: HashSet::new(),
             stop_blockers: HashSet::new(),
             blocked_hexes: blocked,
+            hazard_costs: HashMap::new(),
         };
         let reach = reach_from(start, 2, &env);
         assert!(
             reach.destinations.contains(&side_neighbor),
             "unblocked neighbor must still be reachable even with adjacent obstacle",
+        );
+    }
+
+    /// Probe: find tiles reachable via multiple equal-hop routes.
+    #[test]
+    #[ignore]
+    fn probe_multiple_routes() {
+        let start = hex_from_offset(3, 3);
+        println!("start axial: ({}, {})", start.x, start.y);
+        let hop1: Vec<Hex> = start.all_neighbors()
+            .iter().copied()
+            .filter(|&h| in_bounds(h))
+            .collect();
+        println!("hop-1 in-bounds:");
+        for h in &hop1 { println!("  axial ({}, {})", h.x, h.y); }
+        for h1 in &hop1 {
+            for h2 in h1.all_neighbors() {
+                if h2 == start { continue; }
+                if hop1.contains(&h2) { continue; }
+                if !in_bounds(h2) { continue; }
+                let other_preds: Vec<_> = hop1.iter()
+                    .filter(|&&p| p != *h1 && p.all_neighbors().contains(&h2))
+                    .collect();
+                if !other_preds.is_empty() {
+                    println!("  2-hop multi-route goal ({},{}) via ({},{}) and {}",
+                        h2.x, h2.y, h1.x, h1.y,
+                        other_preds.iter().map(|h| format!("({},{})", h.x, h.y)).collect::<Vec<_>>().join("/"));
+                }
+            }
+        }
+    }
+
+    // ── hazard_costs tests (T8) ───────────────────────────────────────────────
+
+    /// Build a minimal MovementEnv (no enemies, no blockers) with optional hazard costs.
+    fn open_env(hazard_costs: HashMap<Hex, f32>) -> MovementEnv {
+        MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: HashSet::new(),
+            blocked_hexes: HashSet::new(),
+            hazard_costs,
+        }
+    }
+
+    /// With empty `hazard_costs`, `reach_from` must produce byte-identical output
+    /// to a direct `reachable_with_paths` call (no reweighting path is taken).
+    /// Destinations and every reconstructed path must match.
+    #[test]
+    fn empty_hazard_costs_byte_identical_to_legacy_bfs() {
+        let start = hex_from_offset(3, 3);
+        let max_steps = 3;
+
+        // Plain BFS — the reference.
+        let legacy = reachable_with_paths(
+            start,
+            max_steps,
+            |h| in_bounds(h),
+            |h| in_bounds(h),
+        );
+
+        // reach_from with empty hazard_costs must follow the same code path.
+        let with_env = reach_from(start, max_steps, &open_env(HashMap::new()));
+
+        assert_eq!(
+            with_env.destinations, legacy.destinations,
+            "destinations must be identical to plain BFS with empty hazard_costs",
+        );
+
+        // Pin path_to for a set of explicit goals so a future change is caught.
+        let pinned_goals = [
+            hex_from_offset(4, 3), // 1-hop
+            hex_from_offset(3, 4), // 1-hop
+            hex_from_offset(4, 4), // 2-hop, multi-route
+            hex_from_offset(5, 2), // 2-hop, multi-route
+        ];
+        for goal in pinned_goals {
+            assert_eq!(
+                with_env.path_to(goal),
+                legacy.path_to(goal),
+                "path_to({goal:?}) must match legacy BFS",
+            );
+        }
+    }
+
+    /// When two equal-hop paths exist and one crosses a hazard tile, `path_to`
+    /// must avoid the hazard hex (choose the clean path).
+    ///
+    /// Layout: start=(3,3). Goal axial (3,2)=offset(5,2) is 2 hops away via
+    /// either (4,3) [axial (2,3)] or (4,2) [axial (2,2)]. Place a hazard cost
+    /// on (4,3); the path must route through (4,2) instead.
+    #[test]
+    fn hazard_cost_reroutes_equal_length_path() {
+        let start = hex_from_offset(3, 3);
+        let hazard_hex = hex_from_offset(4, 3); // axial (2,3) — one of two predecessors
+        let clean_pred = hex_from_offset(4, 2); // axial (2,2) — the other predecessor
+        let goal = hex_from_offset(5, 2);       // axial (3,2) — 2-hop goal
+
+        let mut costs = HashMap::new();
+        costs.insert(hazard_hex, 10.0);
+
+        let reach = reach_from(start, 3, &open_env(costs));
+
+        assert!(reach.destinations.contains(&goal), "goal must still be reachable");
+
+        let path = reach.path_to(goal).expect("path_to goal must exist");
+        assert!(
+            !path.contains(&hazard_hex),
+            "path must avoid the hazard hex ({hazard_hex:?}); got {path:?}",
+        );
+        assert!(
+            path.contains(&clean_pred),
+            "path must route through the clean predecessor ({clean_pred:?}); got {path:?}",
+        );
+    }
+
+    /// A goal reachable *only* through a hazard corridor must still appear in
+    /// `destinations` — hazard costs are soft, not hard blockers.
+    ///
+    /// Construction: block all neighbors of start except one (the hazard hex),
+    /// leave the cell beyond the hazard open as the goal.
+    #[test]
+    fn hazard_tile_still_reachable_when_only_option() {
+        let start = hex_from_offset(3, 3);
+        let hazard_hex = hex_from_offset(4, 3); // only open neighbour of start
+        let goal = hex_from_offset(5, 3);       // one step past the hazard
+
+        // Block all neighbours of start except hazard_hex.
+        let open_nbs: HashSet<Hex> = start
+            .all_neighbors()
+            .iter()
+            .copied()
+            .filter(|&h| h != hazard_hex && in_bounds(h))
+            .collect();
+
+        let mut costs = HashMap::new();
+        costs.insert(hazard_hex, 999.0);
+
+        let env = MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: HashSet::new(),
+            blocked_hexes: open_nbs, // block every neighbour except the hazard one
+            hazard_costs: costs,
+        };
+        let reach = reach_from(start, 3, &env);
+
+        assert!(
+            reach.destinations.contains(&goal),
+            "goal must be reachable even though the only route passes through a hazard",
+        );
+
+        let path = reach.path_to(goal).expect("path_to goal must exist");
+        assert!(
+            path.contains(&hazard_hex),
+            "the through-hazard path must include the hazard hex; got {path:?}",
+        );
+    }
+
+    /// Adding hazard costs must not change the reachable set — `destinations`
+    /// must be identical regardless of whether `hazard_costs` is empty.
+    #[test]
+    fn hazard_cost_does_not_expand_or_shrink_reachable_set() {
+        let start = hex_from_offset(3, 3);
+        let goal_area = hex_from_offset(4, 3); // a typical hazard candidate
+
+        let mut costs = HashMap::new();
+        costs.insert(goal_area, 5.0);
+        costs.insert(hex_from_offset(3, 4), 3.0);
+
+        let without_hazard = reach_from(start, 3, &open_env(HashMap::new()));
+        let with_hazard = reach_from(start, 3, &open_env(costs));
+
+        assert_eq!(
+            with_hazard.destinations, without_hazard.destinations,
+            "reachable set must be identical with and without hazard costs",
+        );
+    }
+
+    /// When two predecessors of a node carry equal accumulated penalty, the one
+    /// with lexicographically smaller axial `(x, y)` must be chosen — never
+    /// HashMap iteration order.
+    ///
+    /// Goal axial (2,4)=offset(4,4) is 2 hops from start (3,3) via two equal-hop
+    /// predecessors: axial (2,3)=offset(4,3) and axial (1,4)=offset(3,4).
+    /// With no hazards on either predecessor (only a cost on the goal itself so
+    /// `reweight_came_from` runs), both accumulated penalties are equal, so the
+    /// tie-break must choose the lex-min predecessor: axial (1,4)=offset(3,4).
+    #[test]
+    fn equal_penalty_tie_is_deterministic() {
+        let start = hex_from_offset(3, 3);
+        let goal = hex_from_offset(4, 4);       // axial (2,4)
+        let lex_pred = hex_from_offset(3, 4);   // axial (1,4) — lex-min predecessor
+        let other_pred = hex_from_offset(4, 3); // axial (2,3) — the other predecessor
+
+        // Put a cost only on the goal itself so both paths accumulate the same
+        // penalty (the goal's cost) and the tie-break fires.
+        let mut costs = HashMap::new();
+        costs.insert(goal, 1.0);
+
+        let reach = reach_from(start, 3, &open_env(costs));
+
+        assert!(reach.destinations.contains(&goal), "goal must be reachable");
+
+        let path = reach.path_to(goal).expect("path_to goal must exist");
+        // Path is [predecessor, goal] — the predecessor at index 0 must be the lex-min one.
+        assert_eq!(
+            path,
+            vec![lex_pred, goal],
+            "tie-break must choose lex-min predecessor {lex_pred:?}, not {other_pred:?}; got {path:?}",
         );
     }
 
@@ -393,6 +719,7 @@ mod tests {
             enemy_positions: HashSet::new(),
             stop_blockers: stop_only,
             blocked_hexes: HashSet::new(),
+            hazard_costs: HashMap::new(),
         };
         let reach = reach_from(start, 3, &env);
         assert!(

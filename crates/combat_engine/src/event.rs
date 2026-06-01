@@ -284,7 +284,7 @@ pub fn effect_to_event(
         Effect::RevealEnvInRange { .. } => None,
         // Individual reveal: emit EnvRevealed only if the env was newly revealed
         // (ctx.env_revealed is false when idempotent no-op).
-        Effect::RevealEnv { id } => {
+        Effect::RevealEnv { id, .. } => {
             if ctx.env_revealed {
                 Some(Event::EnvRevealed { env_id: *id })
             } else {
