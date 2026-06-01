@@ -1,0 +1,122 @@
+# Шаблоны юнитов главы II «След медной книги».
+# Перекрывают/дополняют кампейн- и глобальный слои.
+# Массовка боёв переиспользует существующие шаблоны
+# (bandit_thug / bandit_archer / cultist_grunt) через `template` +
+# override `name` в энкаунтере; здесь — только уникальные для главы.
+
+# ── Бой 1: Засада на тракте ───────────────────────────────────────────────────
+
+# Главарь группы наёмников-конкурентов. Крепкий бригадир, не герой и не маг:
+# опытный ближний боец, координирует мелких. На пальце — медный перстень
+# (метка цеха перевозчиков, узнаётся позже в Лимне). Сюжетно — носитель улики.
+[[unit_templates]]
+id    = "merc_leader"
+name  = "Главарь засады"
+race  = "human"
+speed = 4
+
+stats     = { max_hp = 16, strength = 5, dexterity = 3, constitution = 3, intelligence = 0, wisdom = 2, charisma = 0 }
+equipment = { main_hand = "long_sword", chest = "chainmail", legs = "leather_pants", feet = "iron_boots" }
+
+ability_ids = ["melee_attack"]
+
+# Загонная собака. Обученный зверь для разведки и преследования отступающих:
+# быстрый, хрупкий, давит на дистанционных. Раса `beast`, природное оружие
+# `fangs` (зубы, 1d6). Слоты брони — 0-защитный «тряпичный» набор (mage_robe +
+# cloth_*): у зверя нет брони, а слоты обязательны; имена брони в UI не видны.
+[[unit_templates]]
+id    = "caravan_dog"
+name  = "Загонная собака"
+race  = "beast"
+speed = 6
+
+stats     = { max_hp = 6, strength = 4, dexterity = 6, constitution = -2, intelligence = -4, wisdom = 0, charisma = -4 }
+equipment = { main_hand = "fangs", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids = ["melee_attack"]
+
+# ── Бой 2: Тронутое святилище ─────────────────────────────────────────────────
+
+# Носитель залётного Гостя в теле паломника — главная угроза боя. Слабее Эха
+# Гостя из крипты ch1 (echo_guest, 28 HP), но крепок и бьёт «шёпотом» на
+# расстоянии (whisper_from_beyond, range 3, игнорирует броню, дизориентирует) —
+# именно эта дальняя атака грозит лежащему Эрику, если не перекрыть LOS/убить.
+# Прим.: пространственный «мерцающий» рывок Гостя из дизайн-дока не моделируется
+# (нет teleport-эффекта в движке) — передаётся флавором.
+[[unit_templates]]
+id    = "possessed_host"
+name  = "Одержимый паломник"
+race  = "aberration"
+path  = "pact"
+speed = 4
+
+stats     = { max_hp = 18, strength = 2, dexterity = 2, constitution = 4, intelligence = 5, wisdom = 2, charisma = -4 }
+equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+resources = { mana = 6 }
+
+ability_ids = ["melee_attack", "whisper_from_beyond"]
+
+# ── Бой 3: Портовый квартал ───────────────────────────────────────────────────
+
+# Тяжёлый наёмник Колма — танк ближнего боя. Плотная броня с эмблемой торгового
+# дома, длинный меч. Держит линию в узких улицах, прикрывает стрелков. Лоялен
+# за деньги, но прочно. Медлителен (speed 3), высокий HP и броня (heavy_plate).
+[[unit_templates]]
+id    = "heavy_merc"
+name  = "Тяжёлый наёмник Колма"
+race  = "human"
+speed = 3
+
+stats     = { max_hp = 22, strength = 6, dexterity = 0, constitution = 5, intelligence = -2, wisdom = 0, charisma = -2 }
+equipment = { main_hand = "long_sword", chest = "heavy_plate", legs = "plate_greaves", feet = "iron_boots" }
+
+ability_ids = ["melee_attack"]
+
+# Стрелок с искрой — немаг с устройством Обруча `spark_device` (главное оружие).
+# spark_bolt (range 4, requires_los) бьёт на дайс + spell_power устройства;
+# int = 0 — урон от кристалла, а не от носителя. Лёгкая броня под плащом.
+# В узких улицах прячется за углами; требует от партии разрыва линии видимости.
+[[unit_templates]]
+id    = "spark_shooter"
+name  = "Стрелок с искрой"
+race  = "human"
+speed = 4
+
+stats     = { max_hp = 10, strength = 1, dexterity = 4, constitution = 1, intelligence = 0, wisdom = 0, charisma = -2 }
+equipment = { main_hand = "spark_device", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+
+ability_ids = ["melee_attack", "spark_bolt"]
+
+# ── Бой 4: Подземные склады Колма ─────────────────────────────────────────────
+
+# Тибор Колм — босс. Не маг, не идеолог: купец, который умеет защититься.
+# Лёгкая кольчуга под кафтаном (leather_vest), парный кинжал, короткая искра
+# (spark_bolt без устройства — слабее, чем у стрелков: 1d6 + int_mod, без
+# spell_power). Ловок и внимателен (высокий dex). Двухфазный: при HP < 30%
+# бросает оружие и бежит (см. phases в encounters.toml).
+[[unit_templates]]
+id    = "tibor_kolm"
+name  = "Тибор Колм"
+race  = "human"
+speed = 4
+
+stats     = { max_hp = 22, strength = 3, dexterity = 4, constitution = 3, intelligence = 2, wisdom = 2, charisma = 2 }
+equipment = { main_hand = "dagger", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+
+ability_ids = ["melee_attack", "spark_bolt"]
+
+# Био-прототип — ранняя проба Биомехаников: металлический каркас, нарощенная
+# живая ткань, в груди — оправа со Слезой. Источник ауры (объявлена на энкаунтере,
+# т.к. `aura` — поле врага, не шаблона): пока жив, охрана в радиусе 2 получает
+# «Поле прототипа» (+армор). Сам бьёт средне «выпадом» (когти как fangs).
+# Раса grafted (тело + металл/хитин). Двигается рывками (speed 3).
+[[unit_templates]]
+id    = "bio_prototype"
+name  = "Био-прототип"
+race  = "grafted"
+speed = 3
+
+stats     = { max_hp = 16, strength = 4, dexterity = 0, constitution = 4, intelligence = -2, wisdom = 0, charisma = -4 }
+equipment = { main_hand = "fangs", chest = "chainmail", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids = ["melee_attack"]

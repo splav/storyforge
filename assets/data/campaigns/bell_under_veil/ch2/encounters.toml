@@ -1,0 +1,244 @@
+# Энкаунтеры главы II «След медной книги».
+# Накапливаются по мере добавления боёв (см. ch2/scenario.toml).
+
+# ── Бой 1: Засада на тракте ───────────────────────────────────────────────────
+# Обучающий бой про позиционирование. Наёмники-конкуренты Колма заранее
+# расставили ловушки на дороге и приняли караван партии за груз Слёз.
+#
+# Ловушки принадлежат врагу (owner = "enemy"): враги видят их сразу и обходят
+# (мягкий штраф в pathfinding), а партия НЕ видит — пока Kael не раскроет их
+# пассивкой scout_traps (radius 2 на старте хода / при движении). Тактика главы:
+# Kael идёт впереди разведчиком, его движение приносит безопасность, не только урон.
+# Победа — убить главаря: с его смертью остальные наёмники «сдаются/разбегаются»
+# (бой завершается). Мелочь добивать не обязательно — главарь в тылу под прикрытием,
+# так что цель усиливает тему боя: пробиться через ловушки к защищённой цели.
+[[encounters]]
+id      = "ch2_ambush"
+name    = "Засада на тракте"
+victory = { type = "kill_target", enemy_name = "Главарь засады", marker_color = [0.80, 0.55, 0.20] }
+
+# Обрыв справа и кустарник слева сужают тракт в коридор — ловушки на дороге
+# становятся значимы (обойти труднее). Статичные преграды: блокируют движение и LOS.
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 1
+[[encounters.obstacles]]
+hex_col = 3
+hex_row = 5
+[[encounters.obstacles]]
+hex_col = 6
+hex_row = 5
+
+# Скрытые шипастые ловушки на тракте (uron 1d6 + disoriented 2). owner = "enemy":
+# наёмники знают свои капканы и обходят их; партия видит только раскрытые Kael'ом.
+[[encounters.environment]]
+hex_col = 4
+hex_row = 2
+ability = "spike_trap"
+owner   = "enemy"
+[[encounters.environment]]
+hex_col = 5
+hex_row = 3
+ability = "spike_trap"
+owner   = "enemy"
+[[encounters.environment]]
+hex_col = 4
+hex_row = 4
+ability = "spike_trap"
+owner   = "enemy"
+[[encounters.environment]]
+hex_col = 6
+hex_row = 2
+ability = "spike_trap"
+owner   = "enemy"
+
+# ── Враги ─────────────────────────────────────────────────────────────────────
+# Главарь (уникальный шаблон) + переиспользованная массовка с ch2-флавором имён.
+
+[[encounters.enemies]]
+template = "merc_leader"
+hex_col  = 8
+hex_row  = 3
+
+[[encounters.enemies]]
+template = "bandit_thug"
+name     = "Наёмник-перевозчик"
+hex_col  = 7
+hex_row  = 2
+
+[[encounters.enemies]]
+template = "bandit_archer"
+name     = "Наёмник с арбалетом"
+hex_col  = 9
+hex_row  = 4
+
+[[encounters.enemies]]
+template = "caravan_dog"
+hex_col  = 7
+hex_row  = 5
+
+# ── Бой 2: Тронутое святилище ─────────────────────────────────────────────────
+# Двойная цель: убить всех врагов И сохранить Магистра Эрика живым. Эрик —
+# неподвижный NPC (party_add `wounded_magister` + permanent stun), лежит у стены
+# на стороне партии (2,4); враги наступают с востока и должны прорваться к нему
+# мимо героев. Тема боя — «держать пространство» вокруг беспомощной цели.
+#
+# Носитель Гостя бьёт «шёпотом» на range 3 — обломки стен (obstacles ниже)
+# режут LOS, давая партии позицию для прикрытия Эрика. Аккуратность с AoE рядом
+# с ним обязательна.
+[[encounters]]
+id   = "ch2_shrine"
+name = "Тронутое святилище"
+victory = { type = "all_of", conditions = [
+    { type = "all_enemies_dead" },
+    { type = "keep_alive", target_name = "Магистр Эрик", marker_color = [0.30, 0.60, 1.0] },
+] }
+
+# Обвалившиеся стены и осыпавшийся алтарь — преграды (движение + LOS).
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 3
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 5
+
+# Главная угроза — носитель Гостя (уникальный шаблон); двое попроще — массовка
+# (переиспользованный cultist_grunt с флавор-именем «Одержимый паломник»).
+[[encounters.enemies]]
+template = "possessed_host"
+hex_col  = 8
+hex_row  = 3
+
+[[encounters.enemies]]
+template = "cultist_grunt"
+name     = "Одержимый паломник"
+hex_col  = 7
+hex_row  = 2
+
+[[encounters.enemies]]
+template = "cultist_grunt"
+name     = "Одержимый паломник"
+hex_col  = 6
+hex_row  = 5
+
+# ── Бой 3: Портовый квартал ───────────────────────────────────────────────────
+# Бой в плотной городской застройке. Тяжёлые наёмники держат линию, стрелки с
+# искрой бьют издали (range 4, requires_los). Тема — укрытия: ящики/повозки
+# (obstacles ниже) разбивают линии видимости. Партия учится подходить по
+# прикрытым маршрутам и срывать LOS стрелкам, а не бежать через открытое.
+[[encounters]]
+id      = "ch2_portside"
+name    = "Портовый квартал Лимны"
+victory = { type = "all_enemies_dead" }
+
+# Штабеля ящиков и брошенные повозки — преграды (движение + LOS), расставлены
+# в шахматном порядке: два «здания»-уступа дают перекрытые лучами коридоры.
+# Оставлены проходы (ряды 0,1,4,6 по col=5) — поле не запечатано.
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 2
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 3
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 5
+[[encounters.obstacles]]
+hex_col = 7
+hex_row = 4
+
+# 2 тяжёлых танка впереди + 3 стрелка с искрой за их спинами / по углам.
+[[encounters.enemies]]
+template = "heavy_merc"
+hex_col  = 7
+hex_row  = 2
+[[encounters.enemies]]
+template = "heavy_merc"
+hex_col  = 7
+hex_row  = 3
+
+[[encounters.enemies]]
+template = "spark_shooter"
+hex_col  = 9
+hex_row  = 2
+[[encounters.enemies]]
+template = "spark_shooter"
+hex_col  = 9
+hex_row  = 4
+[[encounters.enemies]]
+template = "spark_shooter"
+hex_col  = 9
+hex_row  = 5
+
+# ── Бой 4: Подземные склады Колма (финал) ─────────────────────────────────────
+# Двухфазный босс. Фаза 1 — обычный бой; цель — сбить Колма. При HP < 30% Колм
+# «бросает оружие» (фаза 2): ai_behavior=flee + turn_limit=4 + victory_override.
+# Должны добить за 4 раунда, иначе сбежал = поражение.
+#
+# Био-прототип — источник ауры: пока жив, личные гвардейцы рядом получают +армор
+# («Поле прототипа»). Снять прототип → охрана мягче. Колм + прототип в центральном
+# зале (восток), гвардейцы прикрывают, охранники склада ближе к входу.
+#
+# Замечание: базовая victory = kill_target(Колм). Сведение Колма к 30% запускает
+# фазу 2 (тот же target + дедлайн). Гвардейцы/прототип/охрана не обязательны к
+# зачистке — драма в том, чтобы пробиться к боссу и не дать ему уйти.
+[[encounters]]
+id      = "ch2_kolm"
+name    = "Подземные склады Колма"
+victory = { type = "kill_target", enemy_name = "Тибор Колм", marker_color = [0.85, 0.20, 0.20] }
+
+# Бочки, ящики, штабеля — преграды низкого свода (движение + LOS).
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 2
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 4
+[[encounters.obstacles]]
+hex_col = 6
+hex_row = 3
+
+# Босс. Фаза 2 при HP < 30%: бросает оружие и бежит; добить за 4 раунда.
+# (Блок phases привязан к ПРЕДЫДУЩЕМУ [[encounters.enemies]] — идёт сразу за Колмом.)
+[[encounters.enemies]]
+template = "tibor_kolm"
+hex_col  = 9
+hex_row  = 3
+[[encounters.enemies.phases]]
+hp_below_pct     = 30
+ai_behavior      = "flee"
+turn_limit       = 4
+victory_override = { type = "kill_target", enemy_name = "Тибор Колм", marker_color = [0.90, 0.20, 0.20] }
+flavor           = "Колм бросает кинжал и кидается к выходу — добейте его, пока не ушёл в порт!"
+
+# Био-прототип — аура усиливает гвардейцев (affects = "allies": союзники прототипа,
+# т.е. остальные враги партии).
+[[encounters.enemies]]
+template = "bio_prototype"
+hex_col  = 8
+hex_row  = 3
+aura     = { status = "prototype_ward", radius = 2, affects = "allies" }
+
+# 2 личных гвардейца — переиспользованный heavy_merc с финальным именем.
+[[encounters.enemies]]
+template = "heavy_merc"
+name     = "Личный гвардеец Колма"
+hex_col  = 7
+hex_row  = 2
+[[encounters.enemies]]
+template = "heavy_merc"
+name     = "Личный гвардеец Колма"
+hex_col  = 7
+hex_row  = 4
+
+# 2 охранника склада — обычные наёмные люди (переиспользованный bandit_thug).
+[[encounters.enemies]]
+template = "bandit_thug"
+name     = "Охранник склада"
+hex_col  = 5
+hex_row  = 2
+[[encounters.enemies]]
+template = "bandit_thug"
+name     = "Охранник склада"
+hex_col  = 5
+hex_row  = 5

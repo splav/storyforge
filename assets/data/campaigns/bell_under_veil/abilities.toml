@@ -36,3 +36,22 @@ dice_sides  = 6
 range       = 3
 costs       = [{ resource = "mana", amount = 3 }]
 statuses    = [{ id = "disoriented", on = "target", duration = 1 }]
+
+# Залп искры — выстрел из устройства Обруча (weapon `spark_device`).
+# Дальнобойный, требует прямой видимости (requires_los) — суть боя 3: партия
+# использует ящики/повозки/углы как укрытие и разрыв LOS. Сбивает прицел
+# (disoriented 1). Эффект spell_damage: урон = дайс + spell_power устройства
+# (+ int_mod носителя, но у стрелка int 0 — сила в кристалле, не в человеке).
+# Минует броню, как пактовая магия — «кристалл и металл» без Гостя. Заряд
+# устройства не тратит ресурса.
+[[abilities]]
+id           = "spark_bolt"
+name         = "Залп искры"
+target_type  = "single_enemy"
+effect       = "spell_damage"
+dice_count   = 1
+dice_sides   = 6
+range        = 4
+min_range    = 1
+requires_los = true
+statuses     = [{ id = "disoriented", on = "target", duration = 1 }]
