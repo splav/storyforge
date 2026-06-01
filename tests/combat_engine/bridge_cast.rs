@@ -564,3 +564,122 @@ fn cast_summon_creates_ecs_entity_synchronously() {
     let has_summoned = log.0.iter().any(|e| matches!(e, CombatEvent::Summoned { summoner: s, .. } if *s == summoner));
     assert!(has_summoned, "CombatLog must contain Summoned entry; got: {:?}", log.0);
 }
+
+/// After a summon cast, the combat log must contain an `InitiativeRolled` entry
+/// whose `actor` is the newly-spawned entity.
+///
+/// Regression guard: the engine emits `InitiativeRolled` for the summon before
+/// `UnitSpawned`, so the normal `translate_events` pass has no entity to attach it
+/// to and silently drops it. The post-pass in `process_action_system` must
+/// re-scan the event list and push the entry after the entity exists in `id_map`.
+#[test]
+fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
+    use storyforge::content::abilities::TargetType;
+    use storyforge::content::unit_templates::{EquipmentBlock, ResourcesBlock, UnitTemplateDef};
+    use storyforge::game::components::Combatant;
+
+    let summoner_pos = hex_from_offset(0, 0);
+    let ability_id = AbilityId::from("summon_imp");
+    let template_id = "imp";
+
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Призвать беса".into(),
+        magic_domains: vec![],
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::Myself,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::Summon {
+                template_id: template_id.into(),
+                max_active: None,
+            },
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+            requires_los: false,
+            passive: vec![],
+        },
+    };
+
+    let template = UnitTemplateDef {
+        id: template_id.into(),
+        name: "Imp".into(),
+        race: String::new(),
+        faction: None,
+        path: None,
+        speed: 4,
+        stats: CombatStats { max_hp: 8, strength: 2, dexterity: 5, constitution: 8, intelligence: 0, wisdom: 5, charisma: 5 },
+        equipment: EquipmentBlock {
+            main_hand: "unarmed".into(),
+            off_hand: None,
+            chest: "".into(),
+            legs: "".into(),
+            feet: "".into(),
+        },
+        resources: ResourcesBlock::default(),
+        ability_ids: vec![],
+        ai_tuning_override: None,
+        initial_statuses: vec![],
+        initial_pools: std::collections::HashMap::new(),
+    };
+
+    let mut app = common::apps::bridge::bridge_app();
+    {
+        let mut content = app.world_mut().resource_mut::<ActiveContent>();
+        content.0.abilities.insert(ability_id.clone(), ability_def);
+        content.0.unit_templates.insert(template_id.into(), template);
+    }
+
+    let summoner = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Enemy,
+        common::apps::bridge::bridge_stats(),
+        0,
+        4,
+        vec![ability_id.clone()],
+        common::apps::bridge::no_equipment(),
+        summoner_pos,
+    );
+
+    common::apps::bridge::bootstrap(&mut app);
+
+    // Ensure summoner has AP.
+    common::apps::bridge::with_engine_unit(&mut app, summoner, |unit| {
+        unit.pools[combat_engine::PoolKind::Ap] = Some((1, 1));
+    });
+
+    // Script two d20 draws: first for the crit-fail check (11 → no crit-fail),
+    // second for the summon's initiative roll (15 → deterministic).
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[11, 15]);
+
+    common::apps::bridge::write_cast(&mut app, summoner, ability_id, summoner, summoner_pos);
+    app.update();
+
+    // Identify the summoned entity (any Combatant that isn't the summoner).
+    let summoned: Entity = app
+        .world_mut()
+        .query::<(Entity, &Combatant)>()
+        .iter(app.world())
+        .map(|(e, _)| e)
+        .find(|&e| e != summoner)
+        .expect("expected a summoned Combatant entity");
+
+    // The combat log must contain InitiativeRolled for the summoned entity.
+    let log = app.world().resource::<CombatLog>();
+    let initiative_entry = log.0.iter().find(|e| {
+        matches!(e, CombatEvent::InitiativeRolled { actor, .. } if *actor == summoned)
+    });
+    assert!(
+        initiative_entry.is_some(),
+        "CombatLog must contain InitiativeRolled for the summoned entity; got: {:?}",
+        log.0,
+    );
+}

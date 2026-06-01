@@ -1525,8 +1525,9 @@ pub fn process_action_system(
                         for ev in &events {
                             if let Event::UnitSpawned { uid, summoner: summoner_uid, pos, template_id, team } = ev {
                                 let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
-                                spawn_ecs_entity_from_engine_unit(
-                                    *uid,
+                                let spawned_uid = *uid;
+                                if let Some(new_entity) = spawn_ecs_entity_from_engine_unit(
+                                    spawned_uid,
                                     summoner_entity,
                                     *pos,
                                     template_id,
@@ -1540,7 +1541,22 @@ pub fn process_action_system(
                                     &visuals.token_mesh,
                                     &visuals.grid_offset,
                                     &mut log,
-                                );
+                                ) {
+                                    // The InitiativeRolled event for the summon was emitted
+                                    // before UnitSpawned — translate_events skipped it because
+                                    // the entity didn't exist yet. Push it now that it does.
+                                    if let Some(Event::InitiativeRolled { roll, dex_mod, total, .. }) = events
+                                        .iter()
+                                        .find(|e| matches!(e, Event::InitiativeRolled { unit, .. } if *unit == spawned_uid))
+                                    {
+                                        log.push(CombatEvent::InitiativeRolled {
+                                            actor: new_entity,
+                                            dex_mod: *dex_mod,
+                                            roll: *roll,
+                                            total: *total,
+                                        });
+                                    }
+                                }
                             }
                         }
                         // Queue phase transitions from cast events (most common case:
