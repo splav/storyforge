@@ -35,6 +35,7 @@ Before implementing:
 - тесты следует параметризовывать где это возможно для экономии и ясности
 
 ### 4. Документация
+- комментарии в коде должны содержать только самые неочевидные вещи и описание мотивов выбора подхода
 - всегда поддерживай актуальной, обновляй после изменений соответствующие разделы
 - документация должны быть логически структурированной, иерархичной, логически связной
 - разбивай файлы на части, если они становятся слишком большими или слишком про разное
@@ -43,7 +44,7 @@ Before implementing:
 
 ## Tools
 * делегируй задачи по правке кода агенту
-* prefer Grep tool over bash grep
+* prefer ripgrep (`rg`) over the Grep tool / bash grep
 * prefer using ya tool ast-index is suitable
 * see `.claude/rules/graphify.md` for knowledge-graph rules (main session + subagent guidance)
 * see `.claude/rules/ast-index.md` for ast-index rules
