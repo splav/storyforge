@@ -42,12 +42,14 @@ race  = "human"
 path  = "faith"
 speed = 0
 
-stats     = { max_hp = 8, strength = 0, dexterity = 0, constitution = 2, intelligence = 4, wisdom = 4, charisma = 2 }
+stats     = { max_hp = 14, strength = 0, dexterity = 0, constitution = 2, intelligence = 4, wisdom = 4, charisma = 2 }
 equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
 
 ability_ids      = []
 initial_statuses = ["stunned"]
-initial_pools    = { hp = 4 }    # раненый — стартует с половиной HP
+# Раненый, но НЕ стеклянный: 12 HP переживают одиночный «шёпот» (макс 1d6+2 = 8)
+# и одну ближнюю атаку — keep-alive цель не должна гибнуть за 1 способность.
+initial_pools    = { hp = 12 }
 
 # Культистский солдат — рядовой враг для ch2.
 [[unit_templates]]

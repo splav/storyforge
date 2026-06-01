@@ -94,7 +94,11 @@ fn spawn_enemy_at(app: &mut App, hex: hexx::Hex) -> Entity {
 /// Mirrors what `spawn_combatants` does for template-based party members.
 /// `initial_statuses` are applied engine-side by `bootstrap_combat_state` via
 /// `CombatState::apply_initial_statuses` — no bridge-side StatusEffects injection.
-/// HP reflects `initial_pools = { hp = 4 }` with `max_hp = 8` from TOML.
+/// HP here is a test-local fixture value (4/8) chosen so the death / keep-alive
+/// assertions below are easy to trigger; it intentionally does NOT track the
+/// `wounded_magister` template's `initial_pools` (the campaign bumped it so the
+/// keep-alive target survives a single hit). This helper fabricates `Vital`
+/// directly rather than loading the template.
 fn spawn_magister(app: &mut App, hex: hexx::Hex) -> Entity {
     let entity = app.world_mut().spawn((
         Name::new("Магистр"),
