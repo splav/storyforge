@@ -7,7 +7,7 @@ use storyforge::combat_engine::{
     content::{ContentView, StatusBonuses},
     effect::{apply_effect, ApplyCtx, Effect},
     event::{effect_to_event, Event},
-    state::{ActiveStatus, CombatState, EffectSource, RoundPhase, Team, Unit, UnitId},
+    state::{ActiveStatus, CombatState, EffectSource, RoundPhase, Unit, UnitId},
 };
 use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
@@ -73,43 +73,11 @@ impl ContentView for StubContent {
 }
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        UnitId(id),
-        Team::Player,
-        hex_from_offset(0, 0),
-        0,
-        0,
-        0,
-        4,
-        4,
-        1,
-        1,
-        vec![],
-        None,
-        None,               // initiative: not yet rolled
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((hp, max_hp)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((4, 4)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    crate::common::engine_unit::EngineUnitBuilder::new(id)
+        .speed(4)
+        .hp(hp, max_hp)
+        .mp(4, 4)
+        .build()
 }
 
 fn unit_with_rage(id: u64, rage_current: i32, rage_max: i32) -> Unit {

@@ -41,43 +41,10 @@ impl ContentView for StubContent {
 
 
 fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        UnitId(id),
-        team,
-        hex_from_offset(pos_col, pos_row),
-        0,
-        0,
-        0,
-        6,
-        6,
-        1,
-        1,
-        vec![],
-        None,
-        None,               // initiative: not yet rolled
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((20, 20)),
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((6, 6)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    crate::common::engine_unit::EngineUnitBuilder::new(id)
+        .team(team)
+        .pos(pos_col, pos_row)
+        .build()
 }
 
 fn state_with(units: Vec<Unit>) -> CombatState {

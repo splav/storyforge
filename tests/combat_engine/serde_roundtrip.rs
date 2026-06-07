@@ -35,50 +35,28 @@ fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
 use hexx::Hex;
 
 fn unit_all_some(id: u64) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit::new(
-        uid(id),
-        Team::Player,
-        Hex::new(1, -1),
-        3,
-        1,
-        2,
-        4,
-        5,
-        1,
-        1,
-        vec![
-            ActiveStatus {
-                id: sid("poison"),
-                rounds_remaining: 3,
-                dot_per_tick: 5,
-                applier: EffectSource::Unit(uid(99)),
-            },
-        ],
-        Some(uid(42)),
-        None,               // initiative: not yet rolled
-        Default::default(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => Some((25, 40)),
-            PoolKind::Mana   => Some((15, 20)),
-            PoolKind::Rage   => Some((7, 10)),
-            PoolKind::Energy => Some((0, 5)),
-            PoolKind::Ap     => Some((2, 2)),
-            PoolKind::Mp     => Some((4, 4)),
-        },
-        storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        None,
-    )
+    crate::common::engine_unit::EngineUnitBuilder::new(id)
+        .pos_hex(Hex::new(1, -1))
+        .armor(3)
+        .armor_bonus(1)
+        .damage_taken_bonus(2)
+        .base_speed_raw(4)
+        .speed_only(5)
+        .reactions(1, 1)
+        .hp(25, 40)
+        .mana(15, 20)
+        .rage(7, 10)
+        .energy(0, 5)
+        .ap(2, 2)
+        .mp(4, 4)
+        .status(ActiveStatus {
+            id: sid("poison"),
+            rounds_remaining: 3,
+            dot_per_tick: 5,
+            applier: EffectSource::Unit(uid(99)),
+        })
+        .summoner(42)
+        .build()
 }
 
 // ── Action variants ───────────────────────────────────────────────────────────

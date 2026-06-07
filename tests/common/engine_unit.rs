@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use hexx::Hex;
 use storyforge::combat_engine::{
-    content::{AbilityDef, ContentView, StatusDef, UnitTemplate},
+    content::{AbilityDef, CasterContext, ContentView, StatusDef, UnitTemplate},
     state::{ActiveStatus, Team, Unit, UnitId},
     AbilityId, DiceExpr, PoolKind, RegenRule, StatusId,
 };
@@ -63,6 +63,7 @@ pub struct EngineUnitBuilder {
     armor_bonus: i32,
     damage_taken_bonus: i32,
     aoo_dice: Option<DiceExpr>,
+    caster_context: CasterContext,
     statuses: Vec<ActiveStatus>,
     summoner: Option<UnitId>,
     template: Option<String>,
@@ -104,6 +105,7 @@ impl EngineUnitBuilder {
             armor_bonus: 0,
             damage_taken_bonus: 0,
             aoo_dice: None,
+            caster_context: Default::default(),
             statuses: vec![],
             summoner: None,
             template: None,
@@ -185,6 +187,16 @@ impl EngineUnitBuilder {
 
     pub fn aoo_dice(mut self, d: DiceExpr) -> Self { self.aoo_dice = Some(d); self }
 
+    pub fn caster_context(mut self, ctx: CasterContext) -> Self { self.caster_context = ctx; self }
+
+    /// Set `base_speed` and `speed` independently (when they differ).
+    /// Use `.speed(s)` when both should be equal.
+    pub fn base_speed_raw(mut self, base: i32) -> Self { self.base_speed = base; self }
+
+    /// Set only `speed` (current, post-modifier) without changing `base_speed`.
+    /// Use `.speed(s)` when both should be equal.
+    pub fn speed_only(mut self, s: i32) -> Self { self.speed = s; self }
+
     pub fn status(mut self, s: ActiveStatus) -> Self { self.statuses.push(s); self }
 
     pub fn summoner(mut self, id: u64) -> Self { self.summoner = Some(UnitId(id)); self }
@@ -224,7 +236,7 @@ impl EngineUnitBuilder {
             self.statuses,
             self.summoner,
             self.initiative,
-            Default::default(),     // caster_context
+            self.caster_context,
             self.aoo_dice,
             vec![],                 // auras
             vec![],                 // enemy_phases

@@ -73,43 +73,10 @@ fn projector_writes_engine_mutation_to_ecs() {
 
     // Seed CombatStateRes with one unit at start position.
     {
-        use storyforge::combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit};
-        let unit = Unit::new(
-            new_actor_uid,
-            EngineTeam::Player,
-            start,
-            0,  // armor
-            0,  // armor_bonus
-            0,  // damage_taken_bonus
-            6,  // base_speed
-            6,  // speed
-            1,  // reactions_left
-            1,  // reactions_max
-            vec![],
-            None,
-            None,               // initiative: not yet rolled
-            Default::default(),
-            None,
-            Vec::new(),
-            Vec::new(),
-            combat_engine::enum_map::enum_map! {
-                combat_engine::PoolKind::Hp     => Some((20, 20)),
-                combat_engine::PoolKind::Mana   => None,
-                combat_engine::PoolKind::Rage   => None,
-                combat_engine::PoolKind::Energy => None,
-                combat_engine::PoolKind::Ap     => Some((2, 2)),
-                combat_engine::PoolKind::Mp     => Some((6, 6)),
-            },
-            combat_engine::enum_map::enum_map! {
-                combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-            },
-            None,
-        );
+        use storyforge::combat_engine::state::{CombatState, RoundPhase};
+        let unit = common::engine_unit::EngineUnitBuilder::new(new_actor_uid.0)
+            .pos_hex(start)
+            .build();
         let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         app.world_mut().resource_mut::<CombatStateRes>().0 = state;
     }
@@ -172,7 +139,7 @@ fn projector_writes_engine_mutation_to_ecs() {
 #[test]
 fn projector_writes_mana_from_engine_state() {
     use storyforge::game::components::Mana;
-    use storyforge::combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit};
+    use storyforge::combat_engine::state::{CombatState, RoundPhase};
 
     let start = hex_from_offset(0, 0);
     let mut app = common::apps::bridge::projector_only_app();
@@ -188,30 +155,11 @@ fn projector_writes_mana_from_engine_state() {
     app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
 
     // Seed engine state with mana pool at full.
-    let unit = Unit::new(
-        actor_uid,
-        EngineTeam::Player,
-        start,
-        0, 0, 0, 6, 6, 1, 1,
-        vec![], None, None, Default::default(), None, Vec::new(), Vec::new(),
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => Some((20, 20)),
-            combat_engine::PoolKind::Mana   => Some((10, 10)),
-            combat_engine::PoolKind::Rage   => None,
-            combat_engine::PoolKind::Energy => None,
-            combat_engine::PoolKind::Ap     => Some((1, 1)),
-            combat_engine::PoolKind::Mp     => Some((6, 6)),
-        },
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-        },
-        None,
-    );
+    let unit = common::engine_unit::EngineUnitBuilder::new(actor_uid.0)
+        .pos_hex(start)
+        .ap(1, 1)
+        .mana(10, 10)
+        .build();
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
 
@@ -240,7 +188,7 @@ fn projector_writes_mana_from_engine_state() {
 #[test]
 fn projector_writes_statuses_from_engine_state() {
     use storyforge::combat_engine::state::{
-        ActiveStatus as EngineActiveStatus, CombatState, RoundPhase, Team as EngineTeam, Unit,
+        ActiveStatus as EngineActiveStatus, CombatState, RoundPhase,
     };
 
     let start = hex_from_offset(0, 0);
@@ -252,30 +200,10 @@ fn projector_writes_statuses_from_engine_state() {
     app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
 
     // Seed engine state with no statuses yet.
-    let unit = Unit::new(
-        actor_uid,
-        EngineTeam::Player,
-        start,
-        0, 0, 0, 6, 6, 1, 1,
-        vec![], None, None, Default::default(), None, Vec::new(), Vec::new(),
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => Some((20, 20)),
-            combat_engine::PoolKind::Mana   => None,
-            combat_engine::PoolKind::Rage   => None,
-            combat_engine::PoolKind::Energy => None,
-            combat_engine::PoolKind::Ap     => Some((1, 1)),
-            combat_engine::PoolKind::Mp     => Some((6, 6)),
-        },
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-        },
-        None,
-    );
+    let unit = common::engine_unit::EngineUnitBuilder::new(actor_uid.0)
+        .pos_hex(start)
+        .ap(1, 1)
+        .build();
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
 
@@ -316,7 +244,7 @@ fn projector_writes_statuses_from_engine_state() {
 #[test]
 fn projector_preserves_aura_applied_status_during_cast_projection() {
     use storyforge::combat_engine::state::{
-        ActiveStatus as EngineActiveStatus, CombatState, RoundPhase, Team as EngineTeam, Unit,
+        ActiveStatus as EngineActiveStatus, CombatState, RoundPhase, Team as EngineTeam,
     };
 
     let start = hex_from_offset(0, 0);
@@ -345,28 +273,12 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         });
 
     // Seed engine state: actor has no statuses.
-    let make_unit = |id, team, pos| Unit::new(
-        id, team, pos,
-        0, 0, 0, 6, 6, 1, 1,
-        vec![], None, None, Default::default(), None, Vec::new(), Vec::new(),
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => Some((20, 20)),
-            combat_engine::PoolKind::Mana   => None,
-            combat_engine::PoolKind::Rage   => None,
-            combat_engine::PoolKind::Energy => None,
-            combat_engine::PoolKind::Ap     => Some((1, 1)),
-            combat_engine::PoolKind::Mp     => Some((6, 6)),
-        },
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-        },
-        None,
-    );
+    let make_unit = |id: storyforge::combat_engine::state::UnitId, _team: EngineTeam, pos| {
+        common::engine_unit::EngineUnitBuilder::new(id.0)
+            .pos_hex(pos)
+            .ap(1, 1)
+            .build()
+    };
     let state = CombatState::new(
         vec![
             make_unit(actor_uid, EngineTeam::Player, start),

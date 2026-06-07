@@ -20,7 +20,7 @@ use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
 use storyforge::combat::ai::plan::reach::reach_from as ai_reach_from;
 use storyforge::combat_engine::{
     AbilityId,
-    DiceExpr, PoolKind, StatusBonuses, StatusDef, StatusId,
+    DiceExpr, StatusBonuses, StatusDef, StatusId,
     action::Action,
     content::{AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, TargetType},
     dice::ExpectedValue,
@@ -74,41 +74,45 @@ impl ContentView for Stub {
 
 /// Simple engine unit for step-level tests. Mirrors the pattern in
 /// `tests/combat_engine/trap.rs::unit()`, but without `EngineUnitBuilder`
-/// (unavailable in a standalone test binary). Builds `Unit` from public fields.
+/// (unavailable in a standalone test binary).
 fn eng_unit(id: u64, team: Team, col: i32, hp: i32) -> Unit {
-    use storyforge::combat_engine::{RegenRule, enum_map::EnumMap};
-    let mut pools: EnumMap<PoolKind, Option<(i32, i32)>> = EnumMap::default();
-    pools[PoolKind::Hp] = Some((hp, 20));
-    pools[PoolKind::Ap] = Some((2, 2));
-    pools[PoolKind::Mp] = Some((4, 4));
-
-    let mut regen_per_pool: EnumMap<PoolKind, RegenRule> = EnumMap::default();
-    regen_per_pool[PoolKind::Ap] = RegenRule::RefillToMax;
-    regen_per_pool[PoolKind::Mp] = RegenRule::RefillToMax;
-
-    Unit {
-        id: UnitId(id),
+    use storyforge::combat_engine::{PoolKind, RegenRule, enum_map::enum_map};
+    Unit::new(
+        UnitId(id),
         team,
-        pos: hex_from_offset(col, 0),
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 4,
-        speed: 4,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        initiative: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: vec![],
-        enemy_phases: vec![],
-        pools,
-        regen_per_pool,
-        template_id: None,
-        passives: vec![],
-    }
+        hex_from_offset(col, 0),
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        4,  // base_speed
+        4,  // speed
+        1,  // reactions_left
+        1,  // reactions_max
+        vec![],
+        None,
+        None,               // initiative
+        Default::default(), // caster_context
+        None,               // aoo_dice
+        vec![],             // auras
+        vec![],             // enemy_phases
+        enum_map! {
+            PoolKind::Hp     => Some((hp, 20)),
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((4, 4)),
+        },
+        enum_map! {
+            PoolKind::Hp     => RegenRule::None,
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
+        None,               // template_id
+    )
 }
 
 fn hp(s: &CombatState, id: u64) -> i32 {
