@@ -28,6 +28,10 @@ pub struct CampaignProgress {
     pub scenario_id: String,
     pub scene_index: usize,
     pub saved_at: u64,
+    /// Campaign-wide flags (from victories, story choices, objectives).
+    /// `#[serde(default)]` lets old saves (without this field) load as an empty list.
+    #[serde(default)]
+    pub flags: Vec<String>,
 }
 
 fn slot_path(paths: &AppPaths, slot: u8) -> std::path::PathBuf {
@@ -104,22 +108,22 @@ pub fn delete(paths: &AppPaths, slot: u8) -> io::Result<()> {
 pub fn record_progress(
     paths: &AppPaths,
     slot: u8,
-    campaign_id: &str,
-    scenario_index: usize,
+    campaign: &crate::game::resources::CampaignState,
     scenario_id: &str,
     scene_index: usize,
 ) -> io::Result<()> {
     let mut profile = load(paths, slot).unwrap_or_default();
     profile.campaigns.insert(
-        campaign_id.to_string(),
+        campaign.campaign_id.clone(),
         CampaignProgress {
-            scenario_index,
+            scenario_index: campaign.scenario_index,
             scenario_id: scenario_id.to_string(),
             scene_index,
             saved_at: now_unix(),
+            flags: campaign.flags.iter().cloned().collect(),
         },
     );
-    profile.last_campaign = Some(campaign_id.to_string());
+    profile.last_campaign = Some(campaign.campaign_id.clone());
     save(paths, slot, &profile)
 }
 
@@ -150,6 +154,16 @@ fn now_unix() -> u64 {
 mod tests {
     use super::*;
 
+    fn progress(scenario_index: usize, flags: Vec<&str>) -> CampaignProgress {
+        CampaignProgress {
+            scenario_index,
+            scenario_id: "scen_x".into(),
+            scene_index: 0,
+            saved_at: 0,
+            flags: flags.into_iter().map(str::to_string).collect(),
+        }
+    }
+
     #[test]
     fn roundtrip_preserves_data() {
         let mut campaigns = HashMap::new();
@@ -160,6 +174,7 @@ mod tests {
                 scenario_id: "scen_x".into(),
                 scene_index: 3,
                 saved_at: 1_700_000_000,
+                flags: vec!["flag_a".into(), "flag_b".into()],
             },
         );
         let original = SlotProfileV1 {
@@ -175,6 +190,7 @@ mod tests {
         assert_eq!(pr.scenario_id, "scen_x");
         assert_eq!(pr.scene_index, 3);
         assert_eq!(pr.saved_at, 1_700_000_000);
+        assert_eq!(pr.flags, vec!["flag_a", "flag_b"]);
     }
 
     #[test]
@@ -184,5 +200,51 @@ mod tests {
         let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(&text).unwrap();
         assert!(parsed.last_campaign.is_none());
         assert!(parsed.campaigns.is_empty());
+    }
+
+    /// Flags round-trip: non-empty set survives serialize → deserialize.
+    #[test]
+    fn flags_roundtrip_nonempty() {
+        let mut campaigns = HashMap::new();
+        campaigns.insert("c".to_string(), progress(1, vec!["found_token", "kael_found"]));
+        let slot = SlotProfileV1 { last_campaign: Some("c".into()), campaigns };
+        let text = toml::to_string_pretty(&SaveSlotFile::V1(slot)).unwrap();
+        let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(&text).unwrap();
+        let pr = parsed.campaigns.get("c").unwrap();
+        assert_eq!(pr.flags, vec!["found_token", "kael_found"]);
+    }
+
+    /// Flags round-trip: empty vec stays empty.
+    #[test]
+    fn flags_roundtrip_empty() {
+        let mut campaigns = HashMap::new();
+        campaigns.insert("c".to_string(), progress(0, vec![]));
+        let slot = SlotProfileV1 { last_campaign: None, campaigns };
+        let text = toml::to_string_pretty(&SaveSlotFile::V1(slot)).unwrap();
+        let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(&text).unwrap();
+        let pr = parsed.campaigns.get("c").unwrap();
+        assert!(pr.flags.is_empty());
+    }
+
+    /// Old save without `flags` field → deserializes as empty vec (serde(default)).
+    #[test]
+    fn old_save_without_flags_defaults_to_empty() {
+        // Manually construct TOML that lacks the `flags` key entirely.
+        let toml_src = r#"
+version = "1"
+
+[campaigns.camp_a]
+scenario_index = 0
+scenario_id = "s1"
+scene_index = 0
+saved_at = 0
+"#;
+        let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(toml_src).unwrap();
+        let pr = parsed.campaigns.get("camp_a").unwrap();
+        assert!(
+            pr.flags.is_empty(),
+            "old save without flags field should default to empty, got {:?}",
+            pr.flags
+        );
     }
 }

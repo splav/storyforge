@@ -194,6 +194,12 @@ fn main() {
                 .run_if(in_state(AppState::Combat)),
         )
         // ── Scenario advancement (always active) ─────────────────────────
+        // Write on_victory_flags into CampaignState before the player advances
+        // (and before autosave fires in advance_scenario_system).
+        .add_systems(
+            OnEnter(CombatPhase::Victory),
+            scenario::write_victory_flags,
+        )
         .add_systems(
             Update,
             scenario::input::victory_input_system.run_if(in_state(CombatPhase::Victory)),

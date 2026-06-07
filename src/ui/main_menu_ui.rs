@@ -214,14 +214,15 @@ pub fn start_campaign_fresh(
         .get(campaign_id)
         .unwrap_or_else(|| panic!("Campaign '{campaign_id}' not found"));
     let first_scenario = camp.scenario_ids[0].clone();
-    commands.insert_resource(CampaignState {
+    let campaign_state = CampaignState {
         campaign_id: camp.id.clone(),
         scenario_index: 0,
-    });
+        flags: Default::default(),
+    };
+    commands.insert_resource(campaign_state.clone());
     enter_scenario(commands, db, next_state, &first_scenario);
     if let Some(p) = paths {
-        if let Err(e) =
-            save_repo::record_progress(&p.0, slot, &camp.id, 0, &first_scenario, 0)
+        if let Err(e) = save_repo::record_progress(&p.0, slot, &campaign_state, &first_scenario, 0)
         {
             warn!("autosave on new game failed: {e}");
         }
@@ -247,6 +248,7 @@ pub fn validate_and_resume(
     commands.insert_resource(CampaignState {
         campaign_id: campaign_id.to_string(),
         scenario_index: progress.scenario_index,
+        flags: progress.flags.iter().cloned().collect(),
     });
     enter_scenario_at(
         commands,

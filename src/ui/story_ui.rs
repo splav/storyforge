@@ -1,7 +1,7 @@
 use super::button::{spawn_standard_button, ButtonStyle};
 use super::{StoryContinueButton, StoryScreenRoot};
-use crate::content::scenarios::{active_flags, DialogueLine, SceneDef};
-use crate::game::resources::{GameDb, ScenarioState};
+use crate::content::scenarios::{DialogueLine, SceneDef};
+use crate::game::resources::{CampaignState, GameDb, ScenarioState};
 use crate::scenario::AdvanceScenario;
 use bevy::prelude::*;
 
@@ -21,13 +21,18 @@ pub fn setup_story_screen(
     asset_server: Res<AssetServer>,
     db: Res<GameDb>,
     scenario: Res<ScenarioState>,
+    campaign: Option<Res<CampaignState>>,
 ) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
     let all_lines = match &scen.scenes[scenario.scene_index] {
         SceneDef::Story { lines, .. } => lines,
         _ => return,
     };
-    let flags = active_flags(scen, scenario.scene_index);
+    let empty_flags = std::collections::BTreeSet::new();
+    let flags = campaign
+        .as_deref()
+        .map(|c| &c.flags)
+        .unwrap_or(&empty_flags);
     let lines: Vec<DialogueLine> = all_lines
         .iter()
         .filter(|l| l.requires_flag.as_ref().is_none_or(|f| flags.contains(f)))

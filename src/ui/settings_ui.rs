@@ -296,8 +296,7 @@ pub fn slot_action_system(
                 if let Err(e) = save_repo::record_progress(
                     &p.0,
                     target,
-                    &camp.campaign_id,
-                    camp.scenario_index,
+                    camp,
                     &scen.scenario_id,
                     scen.scene_index,
                 ) {

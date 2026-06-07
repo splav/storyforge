@@ -169,8 +169,7 @@ pub fn handle_modal_input(
                         if let Err(e) = save_repo::record_progress(
                             &p.0,
                             settings.current_slot,
-                            &camp.campaign_id,
-                            camp.scenario_index,
+                            camp,
                             &scen.scenario_id,
                             scen.scene_index,
                         ) {

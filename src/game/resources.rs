@@ -469,6 +469,10 @@ pub struct ScenarioState {
 pub struct CampaignState {
     pub campaign_id: String,
     pub scenario_index: usize,
+    /// Persistent flags accumulated across combat victories (and future story choices).
+    /// Written on `OnEnter(CombatPhase::Victory)`, before autosave.
+    #[serde(default)]
+    pub flags: std::collections::BTreeSet<String>,
 }
 
 // ── Hex positions ────────────────────────────────────────────────────────────

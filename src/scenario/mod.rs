@@ -168,14 +168,133 @@ fn write_autosave(
     scene_index: usize,
 ) {
     let Some(p) = paths else { return };
-    if let Err(e) = save_repo::record_progress(
-        &p.0,
-        slot,
-        &campaign.campaign_id,
-        campaign.scenario_index,
-        scenario_id,
-        scene_index,
-    ) {
+    if let Err(e) = save_repo::record_progress(&p.0, slot, campaign, scenario_id, scene_index) {
         warn!("autosave failed: {e}");
+    }
+}
+
+/// On entering `CombatPhase::Victory`, collect `on_victory_flags` from the just-won
+/// combat scene and insert them into `CampaignState.flags`.
+///
+/// Runs on `OnEnter(CombatPhase::Victory)` — fires *before* the player presses Space
+/// to advance, so flags are already in `CampaignState` when `write_autosave` is called
+/// from `advance_scenario_system`.
+pub fn write_victory_flags(
+    scenario: Option<Res<ScenarioState>>,
+    mut campaign: Option<ResMut<CampaignState>>,
+    db: Res<GameDb>,
+) {
+    let (Some(scenario), Some(campaign)) = (scenario, campaign.as_mut()) else {
+        return;
+    };
+    let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
+    if let SceneDef::Combat { on_victory_flags, .. } = &scen.scenes[scenario.scene_index] {
+        for flag in on_victory_flags {
+            campaign.flags.insert(flag.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::content_view::ContentView;
+    use crate::content::scenarios::ScenarioDef;
+    use bevy::prelude::*;
+    use std::collections::HashMap;
+
+    fn minimal_scenario(id: &str, flags: Vec<&str>) -> ScenarioDef {
+        ScenarioDef {
+            id: id.into(),
+            name: id.into(),
+            party: vec![],
+            scenes: vec![SceneDef::Combat {
+                encounter_id: "enc".into(),
+                location: None,
+                on_victory_flags: flags.into_iter().map(str::to_string).collect(),
+            }],
+            content: ContentView::default(),
+            encounters: HashMap::new(),
+        }
+    }
+
+    fn make_db(scenario: ScenarioDef) -> GameDb {
+        let mut db = GameDb {
+            scenarios: HashMap::new(),
+            campaigns: HashMap::new(),
+            campaign_order: vec![],
+        };
+        db.scenarios.insert(scenario.id.clone(), scenario);
+        db
+    }
+
+    /// `write_victory_flags` inserts all `on_victory_flags` of the current
+    /// combat scene into `CampaignState.flags`.
+    #[test]
+    fn victory_flags_written_to_campaign_state() {
+        let scenario = minimal_scenario("s1", vec!["found_token", "kael_found"]);
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
+        app.insert_resource(CampaignState {
+            campaign_id: "c".into(),
+            scenario_index: 0,
+            flags: std::collections::BTreeSet::new(),
+        });
+        app.add_systems(Update, write_victory_flags);
+        app.update();
+
+        let flags = &app.world().resource::<CampaignState>().flags;
+        assert!(flags.contains("found_token"), "found_token should be in flags");
+        assert!(flags.contains("kael_found"), "kael_found should be in flags");
+        assert_eq!(flags.len(), 2);
+    }
+
+    /// `write_victory_flags` is idempotent — running twice yields the same set.
+    #[test]
+    fn victory_flags_idempotent() {
+        let scenario = minimal_scenario("s1", vec!["flag_x"]);
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
+        app.insert_resource(CampaignState {
+            campaign_id: "c".into(),
+            scenario_index: 0,
+            flags: std::collections::BTreeSet::new(),
+        });
+        app.add_systems(Update, write_victory_flags);
+        app.update();
+        app.update(); // second call — must not duplicate
+
+        let flags = &app.world().resource::<CampaignState>().flags;
+        assert_eq!(flags.len(), 1);
+    }
+
+    /// `write_victory_flags` is a no-op when `CampaignState` is absent
+    /// (e.g., standalone scenario run without a campaign wrapper).
+    #[test]
+    fn victory_flags_no_campaign_state_is_noop() {
+        let scenario = minimal_scenario("s1", vec!["flag_a"]);
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
+        // No CampaignState inserted — must not panic.
+        app.add_systems(Update, write_victory_flags);
+        app.update();
     }
 }

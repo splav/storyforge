@@ -1,7 +1,7 @@
 use crate::content::content_view::ContentView;
 use crate::content::encounters::EncounterDef;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ScenarioDef {
@@ -80,18 +80,7 @@ pub fn active_party(scen: &ScenarioDef, up_to: usize) -> Vec<PartyMemberDef> {
     party
 }
 
-/// Flags set by all combat scenes completed before `up_to`.
-pub fn active_flags(scen: &ScenarioDef, up_to: usize) -> HashSet<String> {
-    let mut flags = HashSet::new();
-    for scene in scen.scenes.iter().take(up_to) {
-        if let SceneDef::Combat { on_victory_flags, .. } = scene {
-            for f in on_victory_flags {
-                flags.insert(f.clone());
-            }
-        }
-    }
-    flags
-}
+
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
 
