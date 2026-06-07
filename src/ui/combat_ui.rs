@@ -2,14 +2,14 @@
 use super::ability_panel::spawn_ability_panel;
 use super::log_ui::LogScrollState;
 use super::{
-    DefeatOverlay, HudPhase, HudTurnOrder, LogScrollClip, LogScrollThumb, LogText, RestartButton,
-    TurnOrderTooltip, TurnOrderTooltipText, UiFont,
+    DefeatOverlay, HudPhase, HudTurnOrder, LogScrollClip, LogScrollThumb, LogText, ProceedButton,
+    RestartButton, TurnOrderTooltip, TurnOrderTooltipText, UiFont,
 };
 use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
 use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Faction, Team};
 use crate::game::messages::RestartCombat;
-use crate::game::resources::{CombatContext, CombatObjective, PhaseDeadline, SelectionState, UiDirty, UiDirtyFlags};
+use crate::game::resources::{CombatContext, CombatObjective, GameDb, PhaseDeadline, ScenarioState, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 const CLR_HINT: Color = Color::srgb(0.55, 0.55, 0.30);
@@ -240,8 +240,18 @@ const CLR_OVERLAY_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.72);
 const CLR_MENU_BG: Color = Color::srgb(0.08, 0.06, 0.06);
 const CLR_MENU_BORDER: Color = Color::srgb(0.35, 0.20, 0.20);
 
-pub fn setup_defeat_overlay(mut commands: Commands, font: Res<UiFont>) {
+pub fn setup_defeat_overlay(
+    mut commands: Commands,
+    font: Res<UiFont>,
+    db: Res<GameDb>,
+    scenario: Option<Res<ScenarioState>>,
+) {
     let font = font.0.clone();
+
+    let on_defeat = scenario
+        .as_ref()
+        .map(|s| crate::scenario::current_on_defeat(&db, s))
+        .unwrap_or(crate::content::encounters::OnDefeat::Retry);
 
     commands
         .spawn((
@@ -279,23 +289,46 @@ pub fn setup_defeat_overlay(mut commands: Commands, font: Res<UiFont>) {
                     TextColor(Color::srgb(0.85, 0.25, 0.20)),
                 ));
 
-                // "Сразиться ещё раз" button
-                super::button::spawn_standard_button(
-                    panel,
-                    font.clone(),
-                    "Сразиться ещё раз",
-                    Val::Auto,
-                    Val::Auto,
-                    super::button::ButtonStyle::Danger,
-                )
-                .insert(RestartButton);
+                match on_defeat {
+                    crate::content::encounters::OnDefeat::Retry => {
+                        // "Сразиться ещё раз" button
+                        super::button::spawn_standard_button(
+                            panel,
+                            font.clone(),
+                            "Сразиться ещё раз",
+                            Val::Auto,
+                            Val::Auto,
+                            super::button::ButtonStyle::Danger,
+                        )
+                        .insert(RestartButton);
 
-                // Hint
-                panel.spawn((
-                    Text::new("[R] — сразиться ещё раз   [Esc] — главное меню"),
-                    TextFont { font, font_size: 12.0, ..default() },
-                    TextColor(Color::srgb(0.45, 0.45, 0.45)),
-                ));
+                        // Hint
+                        panel.spawn((
+                            Text::new("[R] — сразиться ещё раз   [Esc] — главное меню"),
+                            TextFont { font, font_size: 12.0, ..default() },
+                            TextColor(Color::srgb(0.45, 0.45, 0.45)),
+                        ));
+                    }
+                    crate::content::encounters::OnDefeat::Proceed => {
+                        // "Продолжить" button
+                        super::button::spawn_standard_button(
+                            panel,
+                            font.clone(),
+                            "Продолжить",
+                            Val::Auto,
+                            Val::Auto,
+                            super::button::ButtonStyle::Default,
+                        )
+                        .insert(ProceedButton);
+
+                        // Hint
+                        panel.spawn((
+                            Text::new("[Space] — продолжить   [Esc] — главное меню"),
+                            TextFont { font, font_size: 12.0, ..default() },
+                            TextColor(Color::srgb(0.45, 0.45, 0.45)),
+                        ));
+                    }
+                }
             });
         });
 }
@@ -309,20 +342,142 @@ pub fn cleanup_defeat_overlay(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn defeat_overlay_input(
     keys: Res<ButtonInput<KeyCode>>,
-    buttons: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
+    restart_buttons: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
+    proceed_buttons: Query<&Interaction, (Changed<Interaction>, With<ProceedButton>)>,
     mut restart_writer: MessageWriter<RestartCombat>,
+    mut advance_writer: MessageWriter<crate::scenario::AdvanceScenario>,
     mut next_state: ResMut<NextState<crate::app_state::AppState>>,
+    db: Res<GameDb>,
+    scenario: Option<Res<ScenarioState>>,
 ) {
-    let restart = keys.just_pressed(KeyCode::KeyR)
-        || buttons.iter().any(|i| *i == Interaction::Pressed);
+    let on_defeat = scenario
+        .as_ref()
+        .map(|s| crate::scenario::current_on_defeat(&db, s))
+        .unwrap_or(crate::content::encounters::OnDefeat::Retry);
     let to_menu = keys.just_pressed(KeyCode::Escape);
+    match on_defeat {
+        crate::content::encounters::OnDefeat::Proceed => {
+            let go = keys.just_pressed(KeyCode::Space)
+                || keys.just_pressed(KeyCode::Enter)
+                || proceed_buttons.iter().any(|i| *i == Interaction::Pressed);
+            if go {
+                advance_writer.write(crate::scenario::AdvanceScenario);
+            } else if to_menu {
+                next_state.set(crate::app_state::AppState::MainMenu);
+            }
+        }
+        crate::content::encounters::OnDefeat::Retry => {
+            let retry = keys.just_pressed(KeyCode::KeyR)
+                || restart_buttons.iter().any(|i| *i == Interaction::Pressed);
+            if retry {
+                restart_writer.write(RestartCombat);
+            } else if to_menu {
+                next_state.set(crate::app_state::AppState::MainMenu);
+            }
+        }
+    }
+}
 
-    if restart {
-        restart_writer.write(RestartCombat);
-    } else if to_menu {
-        next_state.set(crate::app_state::AppState::MainMenu);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::encounters::{EncounterDef, OnDefeat, VictoryCondition};
+    use crate::game::resources::{GameDb, ScenarioState};
+    use crate::scenario::AdvanceScenario;
+    use bevy::prelude::*;
+    use std::collections::HashMap;
+
+    #[derive(Resource, Default)]
+    struct AdvanceCount(usize);
+    #[derive(Resource, Default)]
+    struct RestartCount(usize);
+
+    fn count_advance(mut r: MessageReader<AdvanceScenario>, mut c: ResMut<AdvanceCount>) {
+        for _ in r.read() {
+            c.0 += 1;
+        }
+    }
+    fn count_restart(mut r: MessageReader<RestartCombat>, mut c: ResMut<RestartCount>) {
+        for _ in r.read() {
+            c.0 += 1;
+        }
+    }
+
+    fn make_db(on_defeat: OnDefeat) -> GameDb {
+        use crate::content::content_view::ContentView;
+        use crate::content::scenarios::{ScenarioDef, SceneDef};
+        let enc = EncounterDef {
+            id: "enc".into(),
+            name: "enc".into(),
+            enemies: vec![],
+            victory: VictoryCondition::AllEnemiesDead,
+            obstacles: vec![],
+            environment: vec![],
+            on_defeat,
+            objectives: vec![],
+        };
+        let mut encounters = HashMap::new();
+        encounters.insert("enc".into(), enc);
+        let scen = ScenarioDef {
+            id: "s1".into(),
+            name: "s1".into(),
+            party: vec![],
+            scenes: vec![SceneDef::Combat {
+                encounter_id: "enc".into(),
+                location: None,
+                on_victory_flags: vec![],
+            }],
+            content: ContentView::default(),
+            encounters,
+        };
+        let mut db = GameDb {
+            scenarios: HashMap::new(),
+            campaigns: HashMap::new(),
+            campaign_order: vec![],
+        };
+        db.scenarios.insert("s1".into(), scen);
+        db
+    }
+
+    fn base_app(on_defeat: OnDefeat, key: KeyCode) -> App {
+        let mut app = App::new();
+        app.add_message::<AdvanceScenario>();
+        app.add_message::<RestartCombat>();
+        app.init_resource::<AdvanceCount>();
+        app.init_resource::<RestartCount>();
+        app.insert_resource(make_db(on_defeat));
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        // Insert NextState directly — init_state requires StatesPlugin (DefaultPlugins).
+        app.insert_resource(NextState::<crate::app_state::AppState>::default());
+        let mut input = ButtonInput::<KeyCode>::default();
+        input.press(key);
+        app.insert_resource(input);
+        app.add_systems(
+            Update,
+            (defeat_overlay_input, count_advance, count_restart).chain(),
+        );
+        app
+    }
+
+    /// Proceed + Space → AdvanceScenario written, no RestartCombat.
+    #[test]
+    fn proceed_space_writes_advance() {
+        let mut app = base_app(OnDefeat::Proceed, KeyCode::Space);
+        app.update();
+        assert_eq!(app.world().resource::<AdvanceCount>().0, 1, "expected one AdvanceScenario");
+        assert_eq!(app.world().resource::<RestartCount>().0, 0, "expected no RestartCombat");
+    }
+
+    /// Retry + R → RestartCombat written, no AdvanceScenario.
+    #[test]
+    fn retry_r_writes_restart() {
+        let mut app = base_app(OnDefeat::Retry, KeyCode::KeyR);
+        app.update();
+        assert_eq!(app.world().resource::<RestartCount>().0, 1, "expected one RestartCombat");
+        assert_eq!(app.world().resource::<AdvanceCount>().0, 0, "expected no AdvanceScenario");
     }
 }
 

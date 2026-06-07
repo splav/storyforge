@@ -198,13 +198,16 @@ fn main() {
         // (and before autosave fires in advance_scenario_system).
         .add_systems(
             OnEnter(CombatPhase::Victory),
-            scenario::write_victory_flags,
+            (scenario::write_victory_flags, scenario::write_objective_flags),
         )
         .add_systems(
             Update,
             scenario::input::victory_input_system.run_if(in_state(CombatPhase::Victory)),
         )
-        .add_systems(OnEnter(CombatPhase::Defeat), ui::combat_ui::setup_defeat_overlay)
+        .add_systems(
+            OnEnter(CombatPhase::Defeat),
+            (ui::combat_ui::setup_defeat_overlay, scenario::write_objective_flags),
+        )
         .add_systems(OnExit(CombatPhase::Defeat), ui::combat_ui::cleanup_defeat_overlay)
         .add_systems(
             Update,
@@ -219,7 +222,12 @@ fn main() {
             scenario::advance_scenario_system
                 .after(scenario::input::victory_input_system)
                 .after(ui::story_ui::story_input_system)
-                .run_if(in_state(AppState::Story).or(in_state(CombatPhase::Victory))),
+                .after(ui::combat_ui::defeat_overlay_input)
+                .run_if(
+                    in_state(AppState::Story)
+                        .or(in_state(CombatPhase::Victory))
+                        .or(in_state(CombatPhase::Defeat)),
+                ),
         )
         // ── Combat pipeline (plugin) ─────────────────────────────────────
         .add_plugins(CombatPipelinePlugin)

@@ -32,6 +32,10 @@ pub struct EncounterDef {
     /// Environmental hazard objects (traps, etc.) placed on the grid.
     /// Populated into `CombatState.environment` on bootstrap.
     pub environment: Vec<EnvObjectDef>,
+    /// What happens on defeat (default `Retry`).
+    pub on_defeat: OnDefeat,
+    /// Secondary objectives evaluated at combat end. Default empty.
+    pub objectives: Vec<ObjectiveDef>,
 }
 
 
@@ -83,6 +87,26 @@ impl VictoryCondition {
 
 /// Default red-ish ring color when `marker_color` is not specified in TOML.
 pub const DEFAULT_TARGET_MARKER: [f32; 3] = [0.90, 0.15, 0.15];
+
+/// What happens when the player loses this encounter.
+/// `Retry` (default) = current behavior (restart combat).
+/// `Proceed` = the scenario advances anyway (lose-but-proceed bout).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OnDefeat {
+    #[default]
+    Retry,
+    Proceed,
+}
+
+/// A secondary objective evaluated at combat end (on victory OR proceed-defeat).
+/// When `condition` holds in the final state, the flag `id` is recorded into
+/// campaign flags. `hidden` suppresses HUD display (revealed only by outcome).
+#[derive(Debug, Clone)]
+pub struct ObjectiveDef {
+    pub id: String,
+    pub condition: VictoryCondition,
+    pub hidden: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct EnemyDef {
@@ -182,6 +206,10 @@ struct EncounterRecord {
     obstacles: Vec<ObstacleRecord>,
     #[serde(default)]
     environment: Vec<EnvRecord>,
+    #[serde(default)]
+    on_defeat: Option<String>,
+    #[serde(default)]
+    objectives: Vec<ObjectiveRecord>,
 }
 
 /// A static obstacle tile as declared in `encounters.toml`.
@@ -223,7 +251,13 @@ struct VictoryRecord {
     conditions: Option<Vec<VictoryRecord>>,
 }
 
-
+#[derive(Deserialize)]
+struct ObjectiveRecord {
+    id: String,
+    condition: VictoryRecord,
+    #[serde(default)]
+    hidden: bool,
+}
 
 /// An enemy as it appears in `encounters.toml`.
 ///
@@ -504,44 +538,66 @@ pub fn load_encounters_from_str(
 
     file.encounters
         .into_iter()
-        .map(|enc| EncounterDef {
-            id: enc.id.clone(),
-            name: enc.name.clone(),
-            victory: match enc.victory {
-                None => VictoryCondition::AllEnemiesDead,
-                Some(v) => resolve_victory(path, &enc.id, v),
-            },
-            enemies: enc
-                .enemies
+        .map(|enc| {
+            let on_defeat = match enc.on_defeat.as_deref() {
+                None | Some("retry") => OnDefeat::Retry,
+                Some("proceed") => OnDefeat::Proceed,
+                Some(other) => panic!(
+                    "{path}: encounter '{}' has unknown on_defeat '{other}' \
+                     (expected retry|proceed)",
+                    enc.id,
+                ),
+            };
+            let objectives: Vec<ObjectiveDef> = enc
+                .objectives
                 .into_iter()
-                .map(|e| resolve_enemy(path, &enc.id, e, templates))
-                .collect(),
-            obstacles: enc
-                .obstacles
-                .into_iter()
-                .map(|o| crate::game::hex::hex_from_offset(o.hex_col, o.hex_row))
-                .collect(),
-            environment: enc
-                .environment
-                .into_iter()
-                .map(|e| {
-                    let owner = match e.owner.as_deref() {
-                        None            => None,
-                        Some("player")  => Some(combat_engine::state::Team::Player),
-                        Some("enemy")   => Some(combat_engine::state::Team::Enemy),
-                        Some(other) => panic!(
-                            "{path}: encounter '{}' has unknown env owner '{other}' \
-                             (must be \"player\", \"enemy\", or absent)",
-                            enc.id,
-                        ),
-                    };
-                    EnvObjectDef {
-                        hex: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
-                        ability: AbilityId::from(e.ability.as_str()),
-                        owner,
-                    }
+                .map(|o| ObjectiveDef {
+                    id: o.id,
+                    condition: resolve_victory(path, &enc.id, o.condition),
+                    hidden: o.hidden,
                 })
-                .collect(),
+                .collect();
+            EncounterDef {
+                id: enc.id.clone(),
+                name: enc.name.clone(),
+                victory: match enc.victory {
+                    None => VictoryCondition::AllEnemiesDead,
+                    Some(v) => resolve_victory(path, &enc.id, v),
+                },
+                enemies: enc
+                    .enemies
+                    .into_iter()
+                    .map(|e| resolve_enemy(path, &enc.id, e, templates))
+                    .collect(),
+                obstacles: enc
+                    .obstacles
+                    .into_iter()
+                    .map(|o| crate::game::hex::hex_from_offset(o.hex_col, o.hex_row))
+                    .collect(),
+                environment: enc
+                    .environment
+                    .into_iter()
+                    .map(|e| {
+                        let owner = match e.owner.as_deref() {
+                            None            => None,
+                            Some("player")  => Some(combat_engine::state::Team::Player),
+                            Some("enemy")   => Some(combat_engine::state::Team::Enemy),
+                            Some(other) => panic!(
+                                "{path}: encounter '{}' has unknown env owner '{other}' \
+                                 (must be \"player\", \"enemy\", or absent)",
+                                enc.id,
+                            ),
+                        };
+                        EnvObjectDef {
+                            hex: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
+                            ability: AbilityId::from(e.ability.as_str()),
+                            owner,
+                        }
+                    })
+                    .collect(),
+                on_defeat,
+                objectives,
+            }
         })
         .collect()
 }
@@ -690,5 +746,102 @@ feet = "cloth"
     fn env_owner_unknown_string_panics() {
         let src = env_encounter_toml(r#"owner = "wizard""#);
         load_env(&src);
+    }
+
+    // ── on_defeat + objectives ───────────────────────────────────────────────
+
+    fn load_enc(toml_src: &str) -> EncounterDef {
+        load_encounters_from_str("test_id", "test.toml", toml_src, &Default::default())
+            .into_iter()
+            .next()
+            .unwrap()
+    }
+
+    /// Build a complete encounters TOML with optional extra fields injected
+    /// immediately after the `[[encounters]]` header line (before sub-tables).
+    fn enc_toml_with(extra_top_fields: &str, extra_suffix: &str) -> String {
+        format!(
+            r#"
+[[encounters]]
+id = "enc1"
+name = "Test"
+{extra_top_fields}
+[[encounters.enemies]]
+name = "Goblin"
+race = "goblin"
+speed = 3
+hex_col = 5
+hex_row = 5
+ability_ids = []
+
+[encounters.enemies.stats]
+max_hp = 10
+strength = 5
+dexterity = 5
+constitution = 5
+intelligence = 0
+wisdom = 5
+charisma = 5
+
+[encounters.enemies.equipment]
+main_hand = "unarmed"
+chest = "cloth"
+legs = "cloth"
+feet = "cloth"
+{extra_suffix}
+"#
+        )
+    }
+
+    #[test]
+    fn on_defeat_absent_defaults_to_retry() {
+        let enc = load_enc(BASE_ENC_TOML);
+        assert_eq!(enc.on_defeat, OnDefeat::Retry);
+    }
+
+    #[test]
+    fn on_defeat_proceed_parses() {
+        let src = enc_toml_with(r#"on_defeat = "proceed""#, "");
+        let enc = load_enc(&src);
+        assert_eq!(enc.on_defeat, OnDefeat::Proceed);
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown on_defeat 'bogus'")]
+    fn on_defeat_unknown_string_panics() {
+        let src = enc_toml_with(r#"on_defeat = "bogus""#, "");
+        load_enc(&src);
+    }
+
+    // ── objectives ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn objectives_absent_is_empty() {
+        let enc = load_enc(BASE_ENC_TOML);
+        assert!(enc.objectives.is_empty());
+    }
+
+    #[test]
+    fn objectives_parse_keep_alive() {
+        let suffix = r#"
+[[encounters.objectives]]
+id = "boat_saved"
+hidden = true
+[encounters.objectives.condition]
+type = "keep_alive"
+target_name = "Лодка"
+"#;
+        let src = enc_toml_with("", suffix);
+        let enc = load_enc(&src);
+        assert_eq!(enc.objectives.len(), 1);
+        let obj = &enc.objectives[0];
+        assert_eq!(obj.id, "boat_saved");
+        assert!(obj.hidden);
+        match &obj.condition {
+            VictoryCondition::KeepAlive { target_name, .. } => {
+                assert_eq!(target_name, "Лодка");
+            }
+            other => panic!("expected KeepAlive, got {other:?}"),
+        }
     }
 }

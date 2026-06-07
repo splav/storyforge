@@ -70,6 +70,10 @@ pub struct DefeatOverlay;
 #[derive(Component)]
 pub struct RestartButton;
 
+/// "Продолжить" button inside the defeat overlay (OnDefeat::Proceed path).
+#[derive(Component)]
+pub struct ProceedButton;
+
 /// Root node of the story screen (despawned on exit).
 #[derive(Component)]
 pub struct StoryScreenRoot;

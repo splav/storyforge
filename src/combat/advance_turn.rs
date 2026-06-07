@@ -109,6 +109,26 @@ pub(crate) fn determine_outcome(
     }
 }
 
+/// Positive predicate: did `cond` hold in the FINAL combat state?
+///
+/// Unlike `determine_outcome`, this carries NO "KeepAlive-death → defeat"
+/// semantics — it simply answers "was this (possibly secondary) objective
+/// achieved?", for recording campaign flags at combat end. Pure; ECS-free.
+pub(crate) fn objective_met(
+    cond: &VictoryCondition,
+    enemies_alive: bool,
+    is_named_alive: &dyn Fn(&str) -> bool,
+) -> bool {
+    match cond {
+        VictoryCondition::AllEnemiesDead => !enemies_alive,
+        VictoryCondition::KillTarget { enemy_name, .. } => !is_named_alive(enemy_name),
+        VictoryCondition::KeepAlive { target_name, .. } => is_named_alive(target_name),
+        VictoryCondition::AllOf(conds) => {
+            conds.iter().all(|c| objective_met(c, enemies_alive, is_named_alive))
+        }
+    }
+}
+
 fn end_combat(
     victory: bool,
     log: &mut CombatLog,
@@ -307,5 +327,69 @@ mod tests {
         assert!(text.contains(" и "), "AllOf text must use ' и ' separator: {text}");
         assert!(text.contains("Победить всех врагов"), "must include AllEnemiesDead text");
         assert!(text.contains("Магистр"), "must include KeepAlive target name");
+    }
+
+    // ── objective_met ────────────────────────────────────────────────────────
+
+    #[test]
+    fn objective_met_keep_alive_target_alive_is_true() {
+        let cond = VictoryCondition::KeepAlive { target_name: "А".into(), marker_color: [0.0; 3] };
+        assert!(objective_met(&cond, false, &always_alive));
+    }
+
+    #[test]
+    fn objective_met_keep_alive_target_dead_is_false() {
+        let cond = VictoryCondition::KeepAlive { target_name: "А".into(), marker_color: [0.0; 3] };
+        assert!(!objective_met(&cond, false, &never_alive));
+    }
+
+    #[test]
+    fn objective_met_all_enemies_dead_no_enemies_is_true() {
+        assert!(objective_met(&VictoryCondition::AllEnemiesDead, false, &always_alive));
+    }
+
+    #[test]
+    fn objective_met_all_enemies_dead_enemies_alive_is_false() {
+        assert!(!objective_met(&VictoryCondition::AllEnemiesDead, true, &always_alive));
+    }
+
+    #[test]
+    fn objective_met_kill_target_dead_is_true() {
+        let cond = VictoryCondition::KillTarget {
+            enemy_name: "boss".into(),
+            marker_color: [1.0, 0.0, 0.0],
+            description: None,
+        };
+        assert!(objective_met(&cond, false, &never_alive));
+    }
+
+    #[test]
+    fn objective_met_kill_target_alive_is_false() {
+        let cond = VictoryCondition::KillTarget {
+            enemy_name: "boss".into(),
+            marker_color: [1.0, 0.0, 0.0],
+            description: None,
+        };
+        assert!(!objective_met(&cond, true, &always_alive));
+    }
+
+    #[test]
+    fn objective_met_allof_both_satisfied_is_true() {
+        let cond = VictoryCondition::AllOf(vec![
+            VictoryCondition::KeepAlive { target_name: "А".into(), marker_color: [0.0; 3] },
+            VictoryCondition::AllEnemiesDead,
+        ]);
+        // Target alive ("А" matched by always_alive) and no enemies.
+        assert!(objective_met(&cond, false, &always_alive));
+    }
+
+    #[test]
+    fn objective_met_allof_one_failing_is_false() {
+        let cond = VictoryCondition::AllOf(vec![
+            VictoryCondition::KeepAlive { target_name: "А".into(), marker_color: [0.0; 3] },
+            VictoryCondition::AllEnemiesDead,
+        ]);
+        // Enemies still alive → AllEnemiesDead fails.
+        assert!(!objective_met(&cond, true, &always_alive));
     }
 }
