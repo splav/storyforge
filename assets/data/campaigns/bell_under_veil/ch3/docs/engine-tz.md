@@ -28,8 +28,16 @@
 > `CampaignProgress.flags` (V1 in-place), запись `on_victory_flags` на `OnEnter(Victory)` до
 > autosave, load-восстановление, `requires_flag` читает из набора, `active_flags` удалён,
 > `record_progress(&CampaignState)`. Поведение ch1/ch2 сохранено, SCHEMA не тронут, +6 тестов (1405).
-> ⏳ **Срез B (остаётся):** `[[encounters.objectives]]` + `objective_met` + `on_defeat: proceed`
-> + defeat-overlay/input — даёт лодку (`boat_saved`), условные флаги и BLOCKER-кусок state-machine.
+> ✅ **срез B готов** — `EncounterDef.{objectives, on_defeat}` + парс TOML, чистая `objective_met`,
+> система `write_objective_flags` на `OnEnter(Victory|Defeat)` (на defeat пишет только при
+> `on_defeat=Proceed`), defeat-overlay ветвится Retry/Proceed, `defeat_proceed`-input →
+> `AdvanceScenario`, `advance_scenario_system` работает в `CombatPhase::Defeat`. BLOCKER снят:
+> `CombatPhase` — SubState от `AppState::Combat`, при proceed авто-`OnExit(Defeat)` чистит оверлей.
+> +27 тестов (1431). SCHEMA не тронут.
+>
+> **Итог Atom 1 (пересмотр):** срез A **сохранил** `on_victory_flags` как рабочий путь записи
+> victory-флагов (не legacy), а `objectives` вышли **аддитивным** механизмом для условных/secondary/
+> proceed целей → **два механизма с разными ролями** (см. ниже «Миграция»). Atom 1 закрыт.
 
 ### Модель данных
 - `CampaignState` (`src/game/resources.rs:468`): `+ flags: BTreeSet<String>`.
@@ -48,8 +56,17 @@
    - reset партии: партийцы и так пере-спавнятся из `class`/`template` при входе в следующую combat-сцену (party-стейт между боями **не персистится** — подтверждено критиком). Явный reset не нужен; **зафиксировать инвариант** «defeat-proceed не сохраняет `Vital`/`StatusEffects`».
 4. **Чтение:** `story_ui.rs:30` — заменить `active_flags(scen, idx)` на `CampaignState.flags.contains(...)`. **Load-путь:** при загрузке слота `CampaignProgress.flags` → `CampaignState.flags` (иначе эпилог после load слепнет — критик).
 
-### Миграция (удаление `active_flags`)
-3 читаемых ch1-флага (`found_glassworks_token`, `kael_found`, `novice_saved`) → `[[encounters.objectives]]` с теми же id в ch1. `requires_flag` в ch1 не меняется. Неиспользуемые маркеры (`*_cleared`, `bridge_routed`) — дроп.
+### Миграция (пересмотрено — `active_flags` уже удалён в срезе A)
+`active_flags` снят в срезе A; `on_victory_flags` **сохранён** как путь безусловных victory-флагов.
+Поэтому конвертация 3 читаемых ch1-флагов (`found_glassworks_token`, `kael_found`, `novice_saved`)
+в `objectives` **не делается**: они пишутся безусловно при победе, бои обязательны к выигрышу →
+перевод в `AllEnemiesDead`-objective поведенчески тождествен, только churn. `requires_flag` в ch1
+не меняется. Два механизма документированы в `docs/content-guide.md` («Combat-outcome flags»);
+`on_victory_flags` строго подмножество выразительности `objectives` → при будущей нужде в условном
+victory-only флаге сворачивается в сахар над `objectives` (вариант C), не сейчас.
+
+Опционально (косметика): 4 нечитаемых маркера (`bridge_routed`, `glassworks_cleared`,
+`grove_anchor_broken`, `bell_silenced`) — дроп (0 `requires_flag`-консьюмеров).
 
 ### Инвариант (критик)
 **Лодка (`boat_saved`) — только в `objectives`, НИКОГДА в `victory`.** Иначе `determine_outcome` даст немедленный Defeat при гибели лодки. Victory боя 1 = `AllEnemiesDead`; лодка — отдельный objective. Провалидировать.

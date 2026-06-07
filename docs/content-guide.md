@@ -437,7 +437,52 @@ on_victory_flags = ["beastblood_routed"]
   - `party_add` / `party_remove` apply when the player advances past the last line.
   - **If `lines = []`** (or omitted), the scene is **invisible** — `advance_scenario` skips past it. Use this idiom for a pure party-change beat without dialogue.
 
-- **`combat`** — fight. `encounter` refers to this scenario's `encounters.toml`. `on_victory_flags` are set when the encounter is won; `requires_flag` on future dialogue lines checks against this flag set.
+- **`combat`** — fight. `encounter` refers to this scenario's `encounters.toml`. On the outcome, campaign flags are recorded (see **Combat-outcome flags** below); `requires_flag` on future dialogue lines checks against the persisted flag set.
+
+### Combat-outcome flags (two mechanisms)
+
+A combat can record campaign flags when it ends. There are **two deliberate mechanisms** for
+two different intents — pick by whether the flag is **conditional**:
+
+| | `on_victory_flags` | `objectives` |
+|---|---|---|
+| Lives on | the **scene** (`scenario.toml`) | the **encounter** (`encounters.toml`) |
+| Fires when | combat is **won** (any victory) | a per-objective **condition holds in the final state** — on victory **or** a proceed-defeat |
+| Conditional? | no — unconditional marker | yes — evaluated against who is alive at the end |
+| Use for | "bout N cleared" narrative markers | secondary goals ("the boat survived", "the novice lived"), incl. lose-but-proceed bonuses |
+
+```toml
+# scenario.toml — unconditional marker, set on any victory
+[[scenes]]
+type = "combat"
+encounter = "harbor_landing"
+on_victory_flags = ["reached_island"]
+
+# encounters.toml — conditional secondary objective + lose-but-proceed
+[[encounters]]
+id = "harbor_landing"
+on_defeat = "proceed"            # losing still advances the scenario (default: "retry")
+[[encounters.objectives]]
+id = "boat_saved"                # flag recorded iff the condition below holds at combat end
+hidden = true                    # not shown in the HUD goal line
+[encounters.objectives.condition]
+type = "keep_alive"
+target_name = "Лодка"
+```
+
+- **`on_defeat`** (`retry` default | `proceed`): `proceed` shows a "Продолжить" button on the
+  defeat overlay and advances the scenario instead of restarting. **Objectives are still
+  evaluated on a proceed-defeat** — a flag can be earned in a bout you lost.
+- An objective's `condition` is any `victory`-type table (`keep_alive`, `kill_target`,
+  `all_enemies_dead`, `all_of`). It is a **positive predicate on the final state**, without
+  the "protected unit died → instant defeat" short-circuit that `victory` carries.
+- **Invariant:** a unit that must merely *survive* the bout (e.g. the boat) goes in
+  `objectives`, **never** in the encounter's `victory` — in `victory` its death is an instant
+  defeat. Victory = "enemies dead"; survival = a separate objective.
+- Both mechanisms write into the same persisted `CampaignState.flags` set (idempotent inserts),
+  so they compose freely. They are complementary, not redundant: `objectives` is strictly more
+  expressive, so if a *conditional victory-only* flag is ever needed, `on_victory_flags` can be
+  folded into `objectives` as parse-time sugar (a `won`-style condition) — not done today.
 
 ### Party members: class-based vs template-based
 
@@ -479,7 +524,10 @@ This pattern fully replaces the legacy `[[encounters.npcs]]` section — no per-
 ### Derived state (no runtime storage)
 
 - **Active party** at scene N = starting `[[party]]` + all `party_add` / `party_remove` from story scenes 0..N-1, folded in order. Save files only store `scene_index`; the party is re-derived on load.
-- **Flags** at scene N = union of `on_victory_flags` from all combat scenes at indices 0..N-1. Same derivation.
+- **Flags are persisted, not derived.** Combat outcomes write into `CampaignState.flags`
+  (saved in `CampaignProgress.flags`, restored on load) via the two mechanisms above. Earlier
+  builds re-scanned `on_victory_flags` from all prior combat scenes each frame; that derivation
+  (`active_flags`) was removed in favor of the persistent set.
 
 ## Campaign (`campaign.toml`)
 

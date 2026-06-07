@@ -41,7 +41,7 @@ lines = [
 type             = "combat"
 encounter        = "road_bridge"
 location         = "hills"
-on_victory_flags = ["bridge_routed", "found_glassworks_token"]
+on_victory_flags = ["found_glassworks_token"]
 
 # ── Сцена 2: После 1-го боя — находка на мосту ─────────────────────────────
 
@@ -63,7 +63,7 @@ lines = [
 type             = "combat"
 encounter        = "glassworks"
 location         = "hills"
-on_victory_flags = ["glassworks_cleared", "kael_found"]
+on_victory_flags = ["kael_found"]
 
 # ── Сцена 4: Kael присоединяется ────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ hex_row = 1
 type             = "combat"
 encounter        = "twisted_grove"
 location         = "hills"
-on_victory_flags = ["grove_anchor_broken", "novice_saved"]
+on_victory_flags = ["novice_saved"]
 
 # ── Сцена 6: Перед финалом ──────────────────────────────────────────────────
 
@@ -111,7 +111,6 @@ lines = [
 type             = "combat"
 encounter        = "bell_crypt"
 location         = "hills"
-on_victory_flags = ["bell_silenced"]
 
 # ── Сцена 8: Эпилог ─────────────────────────────────────────────────────────
 
