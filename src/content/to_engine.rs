@@ -108,5 +108,6 @@ pub fn status_def(def: &StatusDef) -> combat_engine::StatusDef {
             speed_bonus: def.bonuses.speed_bonus,
         },
         hp_percent_dot: def.hp_percent_dot,
+        heal_per_tick: def.heal_per_tick,
     }
 }

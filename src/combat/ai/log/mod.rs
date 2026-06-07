@@ -242,7 +242,8 @@ use crate::game::hex::Hex;
 /// a hypothetical pre-v46 env-containing log degrades to a hidden neutral trap.
 /// `MIN_SUPPORTED` remains 43 — existing v43/v44/v45 fixtures contain no env
 /// objects and still replay correctly.
-pub const SCHEMA_VERSION: u32 = 46;
+/// v46 → v47: `Event::HotHealed` + `Effect::TickHeal` + `StatusDef.heal_per_tick` (heal-over-time).
+pub const SCHEMA_VERSION: u32 = 47;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init

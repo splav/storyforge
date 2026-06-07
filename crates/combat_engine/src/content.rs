@@ -239,6 +239,8 @@ pub struct StatusDef {
     pub bonuses: StatusBonuses,
     /// Percent of max_hp dealt as DoT per tick; ceil formula: `(max_hp * pct + 99) / 100`.
     pub hp_percent_dot: i32,
+    /// Flat HP restored per HoT tick (content-driven, analogous to `hp_percent_dot` for DoT).
+    pub heal_per_tick: i32,
 }
 
 /// Engine-side minimal unit template — the resolved stat sheet needed to

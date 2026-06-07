@@ -304,6 +304,7 @@ fn stun_status_is_recorded_in_outcome_and_tags() {
             forces_targeting: false,
             blocks_mana_abilities: false,
             hp_percent_dot: 0,
+            heal_per_tick: 0,
             causes_disadvantage: false,
         },
     };
@@ -378,6 +379,7 @@ fn heal_cleanses_dot_before_restoring_hp() {
                 forces_targeting: false,
                 blocks_mana_abilities: false,
                 hp_percent_dot: 0,
+                heal_per_tick: 0,
                 causes_disadvantage: false,
             },
         },
@@ -454,6 +456,7 @@ fn status_applied_this_step_armor_affects_next_step() {
                 forces_targeting: false,
                 blocks_mana_abilities: false,
                 hp_percent_dot: 0,
+                heal_per_tick: 0,
                 causes_disadvantage: false,
             },
         },

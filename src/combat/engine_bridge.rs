@@ -1118,6 +1118,20 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             }
         }
 
+        // ── HoT heal (fused atomic, tick context only) ───────────────────────
+        Event::HotHealed { target, source_status, amount } => {
+            // no-op: HotHealed not produced during Cast or Move actions
+            if ctx.cast.is_none() && ctx.move_.is_none() {
+                if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                    ctx.log.push(CombatEvent::HotHealed {
+                        target: tgt_ent,
+                        source_status: source_status.clone(),
+                        amount: *amount,
+                    });
+                }
+            }
+        }
+
         // ── Zero-damage status tick ───────────────────────────────────────────
         Event::StatusTicked { .. } => {
             // no-op: zero-damage ticks have no CombatLog entry in any context

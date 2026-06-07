@@ -986,14 +986,22 @@ impl CombatState {
             .units()
             .iter()
             .flat_map(|u| {
+                let uid = u.id;
                 u.statuses
                     .iter()
                     .filter(|s| s.applier == EffectSource::Unit(actor))
                     .flat_map(move |s| {
-                        [
-                            Effect::TickDot { target: u.id, status: s.id.clone() },
-                            Effect::ExpireStatus { target: u.id, status: s.id.clone() },
-                        ]
+                        let has_hot = content
+                            .status_def(&s.id)
+                            .is_some_and(|sd| sd.heal_per_tick > 0);
+                        let mut effects = vec![
+                            Effect::TickDot { target: uid, status: s.id.clone() },
+                        ];
+                        if has_hot {
+                            effects.push(Effect::TickHeal { target: uid, status: s.id.clone() });
+                        }
+                        effects.push(Effect::ExpireStatus { target: uid, status: s.id.clone() });
+                        effects
                     })
                     .collect::<Vec<_>>()
             })
@@ -1531,6 +1539,7 @@ mod tests {
         skips_turn: false,
         bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
         hp_percent_dot: 0,
+        heal_per_tick: 0,
     };
 
     impl ContentView for StubContent {
@@ -1920,6 +1929,7 @@ mod tests {
         skips_turn: false,
         bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 2 },
         hp_percent_dot: 0,
+        heal_per_tick: 0,
     };
     impl ContentView for VulnContent {
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
@@ -2036,6 +2046,7 @@ mod tests {
             forces_targeting: false, skips_turn: false,
             bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
             hp_percent_dot: 0,
+            heal_per_tick: 0,
         };
         impl ContentView for Stub {
             fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
@@ -2224,5 +2235,175 @@ mod tests {
         // Consequently, neither team can see it.
         assert!(!obj.visible_to(Team::Player), "player cannot see hidden neutral trap");
         assert!(!obj.visible_to(Team::Enemy),  "enemy cannot see hidden neutral trap");
+    }
+
+    // ── HoT (heal-over-time) fanout tests ────────────────────────────────────
+
+    use crate::PoolKind;
+
+    /// ContentView that returns `heal_per_tick = 4` for every status.
+    struct HotContent;
+    static HOT_STATUS_DEF: StatusDef = StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        hp_percent_dot: 0,
+        heal_per_tick: 4,
+    };
+    // Pure-DoT status (no heal) — its damage comes from `ActiveStatus.dot_per_tick`.
+    static POISON_STATUS_DEF: StatusDef = StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    };
+    impl ContentView for HotContent {
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        // Heal only for vital_infusion; poisoned is pure DoT (heal_per_tick = 0).
+        fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
+            if id.0 == "poisoned" { Some(&POISON_STATUS_DEF) } else { Some(&HOT_STATUS_DEF) }
+        }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+    }
+
+    /// A status with `heal_per_tick > 0` applied by `actor` should produce a
+    /// `HotHealed` event on the actor's turn, restoring HP over 2 ticks.
+    #[test]
+    fn hot_status_ticks_heal_actor_over_two_turns() {
+        let actor = UnitId(1);
+        let mut unit = make_unit(actor, 0, 2, None);
+        unit.pools[PoolKind::Hp] = Some((12, 20)); // 8 HP missing
+        unit.statuses.push(ActiveStatus {
+            id: StatusId("vital_infusion".into()),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+            applier: EffectSource::Unit(actor),
+        });
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = HotContent;
+
+        // Tick 1
+        let events = state.tick_actor_statuses(actor, &content);
+        let healed = events.iter().find(|e| matches!(e,
+            Event::HotHealed { target, source_status, amount }
+            if *target == actor && source_status.0 == "vital_infusion" && *amount == 4
+        ));
+        assert!(healed.is_some(), "HotHealed event expected on first tick");
+        assert_eq!(state.unit(actor).unwrap().hp(), 16, "+4 HP after tick 1");
+
+        // Tick 2 (rounds_remaining decremented to 1 after first tick_actor_statuses)
+        let events2 = state.tick_actor_statuses(actor, &content);
+        let healed2 = events2.iter().find(|e| matches!(e,
+            Event::HotHealed { target, amount, .. }
+            if *target == actor && *amount == 4
+        ));
+        assert!(healed2.is_some(), "HotHealed event expected on second tick");
+        assert_eq!(state.unit(actor).unwrap().hp(), 20, "+8 HP total after 2 ticks");
+    }
+
+    /// After 2 ticks, `ExpireStatus` fires and the HoT status is removed.
+    #[test]
+    fn hot_status_expires_after_duration() {
+        let actor = UnitId(1);
+        let mut unit = make_unit(actor, 0, 2, None);
+        unit.pools[PoolKind::Hp] = Some((2, 20));
+        unit.statuses.push(ActiveStatus {
+            id: StatusId("vital_infusion".into()),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+            applier: EffectSource::Unit(actor),
+        });
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = HotContent;
+
+        // Two ticks reduce rounds_remaining to 0 and remove the status.
+        state.tick_actor_statuses(actor, &content);
+        state.tick_actor_statuses(actor, &content);
+
+        let statuses = &state.unit(actor).unwrap().statuses;
+        assert!(statuses.is_empty(), "vital_infusion should be removed after 2 ticks");
+
+        // Third tick: status gone, no HotHealed event.
+        let events3 = state.tick_actor_statuses(actor, &content);
+        let has_hot = events3.iter().any(|e| matches!(e, Event::HotHealed { .. }));
+        assert!(!has_hot, "no HotHealed after status expiry");
+    }
+
+    /// DoT and HoT on the same unit from different appliers tick independently
+    /// on their respective appliers' turns without interfering.
+    #[test]
+    fn dot_and_hot_coexist_on_different_appliers() {
+        let healer = UnitId(1);  // applies HoT
+        let poisoner = UnitId(2); // applies DoT
+        let victim = UnitId(3);
+
+        let mut healer_unit = make_unit(healer, 0, 2, None);
+        let mut poisoner_unit = make_unit(poisoner, 0, 2, None);
+        let mut victim_unit = make_unit(victim, 0, 2, None);
+        victim_unit.pools[PoolKind::Hp] = Some((10, 20));
+
+        // HoT applied by healer (heal_per_tick = 4 via HotContent)
+        victim_unit.statuses.push(ActiveStatus {
+            id: StatusId("vital_infusion".into()),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+            applier: EffectSource::Unit(healer),
+        });
+        // DoT applied by poisoner (dot_per_tick = 3; StubContent returns hp_percent_dot=0
+        // so total damage = dot_per_tick, but HotContent returns heal_per_tick=4 for ALL
+        // statuses — use dot_per_tick in the status itself for the damage).
+        victim_unit.statuses.push(ActiveStatus {
+            id: StatusId("poisoned".into()),
+            rounds_remaining: 2,
+            dot_per_tick: 3,
+            applier: EffectSource::Unit(poisoner),
+        });
+        healer_unit.pools[PoolKind::Hp] = Some((10, 10));
+        poisoner_unit.pools[PoolKind::Hp] = Some((10, 10));
+
+        let mut state = CombatState::new(
+            vec![healer_unit, poisoner_unit, victim_unit],
+            1, RoundPhase::ActorTurn, 0,
+        );
+        let content = HotContent; // heal_per_tick=4 for all statuses (incl. poisoned)
+
+        // Healer's turn: only HoT ticks (applier == healer)
+        let healer_events = state.tick_actor_statuses(healer, &content);
+        let hot_ev = healer_events.iter().any(|e| matches!(e,
+            Event::HotHealed { target, source_status, .. }
+            if *target == victim && source_status.0 == "vital_infusion"
+        ));
+        assert!(hot_ev, "HotHealed should fire on healer's turn");
+        // DoT should NOT fire on healer's turn
+        let dot_on_healer_turn = healer_events.iter().any(|e| matches!(e,
+            Event::DotDamaged { target, source_status, .. }
+            if *target == victim && source_status.0 == "poisoned"
+        ));
+        assert!(!dot_on_healer_turn, "DotDamaged must NOT fire on healer's turn");
+
+        let hp_after_healer = state.unit(victim).unwrap().hp();
+        assert_eq!(hp_after_healer, 14, "HP should increase after HoT tick (10+4=14)");
+
+        // Poisoner's turn: only DoT ticks (applier == poisoner)
+        let poisoner_events = state.tick_actor_statuses(poisoner, &content);
+        let dot_ev = poisoner_events.iter().any(|e| matches!(e,
+            Event::DotDamaged { target, source_status, .. }
+            if *target == victim && source_status.0 == "poisoned"
+        ));
+        assert!(dot_ev, "DotDamaged should fire on poisoner's turn");
+        // HoT should NOT fire on poisoner's turn
+        let hot_on_poisoner_turn = poisoner_events.iter().any(|e| matches!(e,
+            Event::HotHealed { target, source_status, .. }
+            if *target == victim && source_status.0 == "vital_infusion"
+        ));
+        assert!(!hot_on_poisoner_turn, "HotHealed must NOT fire on poisoner's turn");
+
+        let hp_after_poisoner = state.unit(victim).unwrap().hp();
+        assert_eq!(hp_after_poisoner, 11, "HP should decrease after DoT tick (14-3=11)");
     }
 }

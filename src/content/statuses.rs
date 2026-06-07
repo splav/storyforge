@@ -80,6 +80,8 @@ struct StatusRecord {
     #[serde(default)]
     hp_percent_dot: i32,
     #[serde(default)]
+    heal_per_tick: i32,
+    #[serde(default)]
     ai_controlled: bool,
     #[serde(default)]
     causes_disadvantage: bool,
@@ -136,6 +138,7 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
                         damage_taken_bonus: r.damage_taken_bonus,
                     },
                     hp_percent_dot: r.hp_percent_dot,
+                    heal_per_tick: r.heal_per_tick,
                 },
             }
         })

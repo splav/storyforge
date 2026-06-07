@@ -224,3 +224,14 @@ range       = 0
 statuses    = [
     { id = "disoriented", on = "target", duration = 2 },
 ]
+
+[[abilities]]
+id          = "vital_infusion"
+name        = "Вливание жизни"
+target_type = "single_ally"
+costs       = [{ resource = "mana", amount = 2 }]
+cost_ap     = 1
+range       = 3
+statuses    = [
+    { id = "vital_infusion", on = "target", duration = 2 },
+]

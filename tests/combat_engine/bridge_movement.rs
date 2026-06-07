@@ -167,6 +167,7 @@ fn aoo_does_not_fire_from_stunned_enemy() {
             forces_targeting: false,
             blocks_mana_abilities: false,
             hp_percent_dot: 0,
+            heal_per_tick: 0,
             causes_disadvantage: false,
         },
     };

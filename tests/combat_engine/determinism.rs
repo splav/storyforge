@@ -180,6 +180,7 @@ fn det_dot_tick_during_dead_skip() {
         skips_turn: false,
         bonuses: StatusBonuses::default(),
         hp_percent_dot: 0,
+        heal_per_tick: 0,
     };
     let content = StubContent::new().with_status(dot_id, dot_def);
 

@@ -65,7 +65,8 @@ use crate::{
 /// `UnitWire.max_hp` removed from serialized output (backward-compat read via
 /// `#[serde(default)]` still populates `pools[Hp]` for pre-v44 traces).
 /// Old v43 traces are incompatible — clean break.
-pub const SCHEMA_VERSION: u32 = 46;
+/// v46 → v47: `Event::HotHealed` + `Effect::TickHeal` + `StatusDef.heal_per_tick` (heal-over-time).
+pub const SCHEMA_VERSION: u32 = 47;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

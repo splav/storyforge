@@ -277,6 +277,7 @@ fn is_benign_move_event(ev: &crate::event::Event, mover: crate::state::UnitId) -
         Event::StatusRemoved { .. }   => false,
         Event::StatusTicked { .. }    => false,
         Event::DotDamaged { .. }      => false,
+        Event::HotHealed { .. }       => false,
         Event::ReactionFired { .. }   => false,
         Event::UnitDied { .. }        => false,
         Event::CritFailed { .. }      => false,

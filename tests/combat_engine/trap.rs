@@ -25,7 +25,7 @@ impl Stub {
     fn new(id: &str, def: AbilityDef) -> Self {
         Self(HashMap::from([(AbilityId::from(id), def)]), StatusDef {
             causes_disadvantage: false, blocks_mana_abilities: false, forces_targeting: false,
-            skips_turn: false, hp_percent_dot: 0,
+            skips_turn: false, hp_percent_dot: 0, heal_per_tick: 0,
             bonuses: StatusBonuses { armor_bonus: 0, damage_taken_bonus: 0, speed_bonus: 0 },
         })
     }
@@ -385,7 +385,7 @@ fn reveal_on_move_halts_and_truncates() {
     }
     let content = Multi(abilities, storyforge::combat_engine::StatusDef {
         causes_disadvantage: false, blocks_mana_abilities: false, forces_targeting: false,
-        skips_turn: false, hp_percent_dot: 0,
+        skips_turn: false, hp_percent_dot: 0, heal_per_tick: 0,
         bonuses: storyforge::combat_engine::StatusBonuses { armor_bonus: 0, damage_taken_bonus: 0, speed_bonus: 0 },
     });
 

@@ -75,6 +75,7 @@ impl AuraContent {
             skips_turn: stun,
             bonuses: StatusBonuses { armor_bonus, damage_taken_bonus: 0, speed_bonus },
             hp_percent_dot: 0,
+            heal_per_tick: 0,
         }
     }
     fn new(radius: u32, status: &str, applies_to: TeamRelation) -> Self {

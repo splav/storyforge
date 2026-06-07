@@ -208,6 +208,8 @@ struct StatusDefRecord {
     hp_percent_dot: i32,
     #[serde(default)]
     causes_disadvantage: bool,
+    #[serde(default)]
+    heal_per_tick: i32,
 }
 
 // ---- weapons (needed for unit_template stat computation) ---------------------
@@ -488,6 +490,7 @@ fn load_statuses(data_dir: &Path) -> Result<HashMap<StatusId, StatusDef>, LoadEr
                 speed_bonus: r.speed_bonus,
             },
             hp_percent_dot: r.hp_percent_dot,
+            heal_per_tick: r.heal_per_tick,
         };
         map.insert(id, def);
     }

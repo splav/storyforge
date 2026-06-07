@@ -44,6 +44,17 @@ pub enum Event {
         pierces: bool,
         amount: i32,
     },
+    /// Fused event emitted when a HoT tick restores HP.  Analogous to
+    /// `DotDamaged` for the heal-over-time path.  Emitted by
+    /// `effect_to_event(TickHeal)` when `heal_per_tick > 0` and the unit is
+    /// not already at max HP.  When the tick is a no-op (zero heal or already
+    /// at max), `StatusTicked` is emitted instead — matching the zero-damage
+    /// DoT convention.
+    HotHealed {
+        target: UnitId,
+        source_status: StatusId,
+        amount: i32,
+    },
     ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
     UnitDied { unit: UnitId },
     /// Cast crit-failed.  Fired by `step()`'s `Action::Cast` arm immediately
@@ -248,6 +259,28 @@ pub fn effect_to_event(
                 })
             } else {
                 // Zero-damage tick (buff-only status): emit StatusTicked.
+                state.unit(*target).and_then(|u| {
+                    u.statuses
+                        .iter()
+                        .find(|s| s.id == *status)
+                        .map(|s| Event::StatusTicked {
+                            target: *target,
+                            status: status.clone(),
+                            source: s.applier,
+                        })
+                })
+            }
+        }
+        Effect::TickHeal { target, status } => {
+            if let Some(hot) = &ctx.hot_heal {
+                // Healing tick: emit fused HotHealed.
+                Some(Event::HotHealed {
+                    target: *target,
+                    source_status: hot.source_status.clone(),
+                    amount: hot.amount,
+                })
+            } else {
+                // Zero-heal tick (heal_per_tick == 0 or already at max): emit StatusTicked.
                 state.unit(*target).and_then(|u| {
                     u.statuses
                         .iter()

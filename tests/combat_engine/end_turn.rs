@@ -29,6 +29,7 @@ fn make_def(skips_turn: bool) -> StatusDef {
         skips_turn,
         bonuses: StatusBonuses::default(),
         hp_percent_dot: 0,
+        heal_per_tick: 0,
     }
 }
 

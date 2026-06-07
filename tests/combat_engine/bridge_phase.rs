@@ -358,6 +358,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
             buff_class: None,
             engine: combat_engine::StatusDef {
                 hp_percent_dot: 10,
+                heal_per_tick: 0,
                 ..Default::default()
             },
         });

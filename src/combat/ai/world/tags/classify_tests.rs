@@ -65,6 +65,7 @@ fn empty_engine_status() -> combat_engine::StatusDef {
         skips_turn: false,
         bonuses: combat_engine::StatusBonuses::default(),
         hp_percent_dot: 0,
+        heal_per_tick: 0,
     }
 }
 
@@ -544,6 +545,7 @@ fn derive_status_tags_compulsion_set_for_forces_targeting() {
             skips_turn: false,
             blocks_mana_abilities: false,
             hp_percent_dot: 0,
+            heal_per_tick: 0,
             causes_disadvantage: false,
         },
     };

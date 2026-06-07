@@ -69,3 +69,10 @@ name        = "Ранен"
 # Mirrors exhaustion/defending in field layout: armor_bonus + speed_bonus only.
 armor_bonus = -1
 speed_bonus = -1
+
+[[statuses]]
+id            = "vital_infusion"
+name          = "Вливание жизни"
+# Heal-over-time: restores 4 HP per tick over the caster's turns.
+# 2 rounds → +8 HP total.
+heal_per_tick = 4

@@ -61,6 +61,7 @@ impl Stub {
                 forces_targeting: false,
                 skips_turn: false,
                 hp_percent_dot: 0,
+                heal_per_tick: 0,
                 bonuses: StatusBonuses { armor_bonus: 0, damage_taken_bonus: 0, speed_bonus: 0 },
             },
         )

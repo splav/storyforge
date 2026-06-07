@@ -80,6 +80,11 @@ pub enum Effect {
     /// to match ECS parity (`tick_statuses_on_entity` calls `apply_damage`
     /// directly, skipping the armor formula).
     TickDot { target: UnitId, status: StatusId },
+    /// Apply one HoT tick for `status` on `target`. Reads `heal_per_tick` from
+    /// content (content-driven, analogous to `hp_percent_dot` for DoT).
+    /// Restores HP clamped to `max_hp`. Never derives Death, EnterPhase, or
+    /// rage — healing cannot kill, phase-trigger, or grant rage.
+    TickHeal { target: UnitId, status: StatusId },
     /// Decrement `rounds_remaining` by 1 for `status` on `target`.
     /// If it reaches 0: remove and derive `RefreshAggregates { unit: target }`.
     ExpireStatus { target: UnitId, status: StatusId },
@@ -171,6 +176,18 @@ pub struct DotDamageCtx {
     pub final_amount: i32,
 }
 
+/// Structured HoT tick breakdown produced by the `TickHeal` effect arm.
+///
+/// Populated when a tick restores HP (`heal_per_tick > 0` from content).
+/// `amount` is the actual HP restored (may be < `heal_per_tick` if the unit
+/// was near max HP).
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HotHealCtx {
+    pub source: crate::state::EffectSource,
+    pub source_status: crate::StatusId,
+    pub amount: i32,
+}
+
 /// Why a `Spawn` effect did not produce a new unit.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -218,6 +235,11 @@ pub struct ApplyCtx {
     /// can emit `Event::DotDamaged` instead of the now-separate StatusTicked +
     /// UnitDamaged pair.
     pub dot_damage: Option<DotDamageCtx>,
+    /// Set by `TickHeal` when the tick restores HP (`heal_per_tick > 0`).
+    /// Carries source + amount so `effect_to_event` can emit
+    /// `Event::HotHealed`.  `None` when `heal_per_tick == 0` or the unit is
+    /// already at max HP (no-op tick).
+    pub hot_heal: Option<HotHealCtx>,
     /// Additional `Event::PoolChanged` events produced by pool-mutation effects
     /// (`PayCost`, `DecrementAP`, `DecrementMP`, `GainRage`). Drained by the
     /// pump loop in `step()` immediately after the main event from
@@ -723,6 +745,43 @@ pub fn apply_effect(
             }
         }
 
+        Effect::TickHeal { target, status } => {
+            let (applier, hp_before, max_hp) = {
+                let Some(u) = state.unit(*target) else { return (vec![], ApplyCtx::default()); };
+                let Some(s) = u.statuses.iter().find(|s| s.id == *status) else {
+                    return (vec![], ApplyCtx::default());
+                };
+                (s.applier, u.hp(), u.max_hp())
+            };
+
+            let heal = content.status_def(status).map(|sd| sd.heal_per_tick).unwrap_or(0);
+
+            if heal > 0 && hp_before < max_hp {
+                let hp_after = if let Some(u) = state.unit_mut(*target) {
+                    let p = u.pools[crate::PoolKind::Hp].as_mut().unwrap();
+                    p.0 = (p.0 + heal).min(p.1);
+                    u.hp()
+                } else {
+                    hp_before
+                };
+
+                let actual_restored = hp_after - hp_before;
+                let ctx = ApplyCtx {
+                    hot_heal: Some(HotHealCtx {
+                        source: applier,
+                        source_status: status.clone(),
+                        amount: actual_restored,
+                    }),
+                    ..ApplyCtx::default()
+                };
+                (vec![], ctx)
+            } else {
+                // Zero-heal tick (heal_per_tick == 0 or already at max HP): no-op.
+                // effect_to_event will emit StatusTicked so the log records the tick.
+                (vec![], ApplyCtx::default())
+            }
+        }
+
         Effect::ExpireStatus { target, status } => {
             let expired = if let Some(u) = state.unit_mut(*target) {
                 if let Some(s) = u.statuses.iter_mut().find(|s| s.id == *status) {
@@ -997,6 +1056,178 @@ pub fn apply_effect(
                 spawn_pos: Some(pos),
                 ..ApplyCtx::default()
             })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::{ContentView, StatusBonuses};
+    use crate::state::{CombatState, EffectSource, ActiveStatus, Team};
+    use crate::{AbilityId, AbilityDef, StatusId, StatusDef, PoolKind, RegenRule};
+    use crate::state::UnitId;
+    use enum_map::enum_map;
+    use hexx::Hex;
+
+    // ── Shared helpers ────────────────────────────────────────────────────────
+
+    fn make_unit_hp(id: UnitId, hp: i32, max_hp: i32) -> crate::state::Unit {
+        crate::state::Unit::new(
+            id, Team::Player, Hex::ZERO,
+            0, 0, 0, 3, 3, 1, 1, vec![], None, None,
+            Default::default(), None, Vec::new(), Vec::new(),
+            enum_map! {
+                PoolKind::Hp     => Some((hp, max_hp)),
+                PoolKind::Mana   => None,
+                PoolKind::Rage   => None,
+                PoolKind::Energy => None,
+                PoolKind::Ap     => Some((1, 2)),
+                PoolKind::Mp     => Some((3, 3)),
+            },
+            enum_map! {
+                PoolKind::Hp     => RegenRule::None,
+                PoolKind::Mana   => RegenRule::None,
+                PoolKind::Rage   => RegenRule::None,
+                PoolKind::Energy => RegenRule::None,
+                PoolKind::Ap     => RegenRule::RefillToMax,
+                PoolKind::Mp     => RegenRule::RefillToMax,
+            },
+            None,
+        )
+    }
+
+    /// ContentView stubs for HoT tests — one for `heal_per_tick = 4` and one for 0.
+    struct HotContent4;
+    struct HotContent0;
+
+    static HOT_DEF_4: StatusDef = StatusDef {
+        causes_disadvantage: false, blocks_mana_abilities: false,
+        forces_targeting: false, skips_turn: false,
+        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        hp_percent_dot: 0, heal_per_tick: 4,
+    };
+    static HOT_DEF_10: StatusDef = StatusDef {
+        causes_disadvantage: false, blocks_mana_abilities: false,
+        forces_targeting: false, skips_turn: false,
+        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        hp_percent_dot: 0, heal_per_tick: 10,
+    };
+    static HOT_DEF_0: StatusDef = StatusDef {
+        causes_disadvantage: false, blocks_mana_abilities: false,
+        forces_targeting: false, skips_turn: false,
+        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        hp_percent_dot: 0, heal_per_tick: 0,
+    };
+
+    impl ContentView for HotContent4 {
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&HOT_DEF_4) }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+    }
+    impl ContentView for HotContent0 {
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&HOT_DEF_0) }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+    }
+
+    /// ContentView that returns heal_per_tick = 10 (for clamping test).
+    struct HotContent10;
+    impl ContentView for HotContent10 {
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&HOT_DEF_10) }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+    }
+
+    fn make_state_with_unit(uid: UnitId, hp: i32, max_hp: i32) -> CombatState {
+        let unit = make_unit_hp(uid, hp, max_hp);
+        CombatState::new(vec![unit], 1, crate::state::RoundPhase::ActorTurn, 0)
+    }
+
+    fn add_hot_status(state: &mut CombatState, target: UnitId, applier: UnitId, status_id: &str) {
+        if let Some(u) = state.unit_mut(target) {
+            u.statuses.push(ActiveStatus {
+                id: StatusId(status_id.into()),
+                rounds_remaining: 2,
+                dot_per_tick: 0,
+                applier: EffectSource::Unit(applier),
+            });
+        }
+    }
+
+    // ── TickHeal tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn tick_heal_restores_hp() {
+        let uid = UnitId(1);
+        let mut state = make_state_with_unit(uid, 6, 10);
+        add_hot_status(&mut state, uid, uid, "hot");
+
+        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let (derived, ctx) = apply_effect(&mut state, &eff, &HotContent4);
+
+        assert!(derived.is_empty(), "TickHeal must not derive secondary effects");
+        let hot = ctx.hot_heal.expect("hot_heal should be set");
+        assert_eq!(hot.amount, 4);
+        assert_eq!(state.unit(uid).unwrap().hp(), 10);
+    }
+
+    #[test]
+    fn tick_heal_clamps_to_max_hp() {
+        // heal_per_tick = 10, only 2 deficit → actual restore = 2
+        let uid = UnitId(1);
+        let mut state = make_state_with_unit(uid, 8, 10);
+        add_hot_status(&mut state, uid, uid, "hot");
+
+        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let (_, ctx) = apply_effect(&mut state, &eff, &HotContent10);
+
+        let hot = ctx.hot_heal.expect("hot_heal should be set");
+        assert_eq!(hot.amount, 2);
+        assert_eq!(state.unit(uid).unwrap().hp(), 10);
+    }
+
+    #[test]
+    fn tick_heal_zero_when_already_at_max() {
+        let uid = UnitId(1);
+        let mut state = make_state_with_unit(uid, 10, 10); // full HP
+        add_hot_status(&mut state, uid, uid, "hot");
+
+        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let (_, ctx) = apply_effect(&mut state, &eff, &HotContent4);
+
+        assert!(ctx.hot_heal.is_none(), "no-op when already at max HP");
+        assert_eq!(state.unit(uid).unwrap().hp(), 10);
+    }
+
+    #[test]
+    fn tick_heal_noop_when_heal_per_tick_zero() {
+        let uid = UnitId(1);
+        let mut state = make_state_with_unit(uid, 5, 10);
+        add_hot_status(&mut state, uid, uid, "hot");
+
+        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let (_, ctx) = apply_effect(&mut state, &eff, &HotContent0);
+
+        assert!(ctx.hot_heal.is_none());
+        assert_eq!(state.unit(uid).unwrap().hp(), 5, "HP unchanged for zero-heal tick");
+    }
+
+    #[test]
+    fn tick_heal_never_derives_death_or_phase() {
+        // Even at low HP a heal tick must never produce Death/EnterPhase.
+        let uid = UnitId(1);
+        let mut state = make_state_with_unit(uid, 1, 10);
+        add_hot_status(&mut state, uid, uid, "hot");
+
+        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let (derived, _) = apply_effect(&mut state, &eff, &HotContent4);
+
+        for d in &derived {
+            assert!(
+                !matches!(d, Effect::Death { .. } | Effect::EnterPhase { .. }),
+                "TickHeal must not derive Death or EnterPhase, got: {d:?}"
+            );
         }
     }
 }

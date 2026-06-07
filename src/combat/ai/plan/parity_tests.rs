@@ -767,6 +767,7 @@ mod tests {
                 forces_targeting: false,
                 blocks_mana_abilities: false,
                 hp_percent_dot: 0,
+                heal_per_tick: 0,
                 causes_disadvantage: false,
             },
         }
@@ -864,6 +865,7 @@ mod tests {
                 forces_targeting: false,
                 blocks_mana_abilities: false,
                 hp_percent_dot: 0,
+                heal_per_tick: 0,
                 causes_disadvantage: false,
             },
         };
@@ -952,6 +954,7 @@ mod tests {
                 forces_targeting: false,
                 blocks_mana_abilities: false,
                 hp_percent_dot: 0,
+                heal_per_tick: 0,
                 causes_disadvantage: false,
             },
         };

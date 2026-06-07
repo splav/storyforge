@@ -389,6 +389,7 @@ fn from_ecs_round1_aggregates_preseeded_status_bonuses() {
                         damage_taken_bonus: 0,
                     },
                     hp_percent_dot: 0,
+                    heal_per_tick: 0,
                 },
             },
         );

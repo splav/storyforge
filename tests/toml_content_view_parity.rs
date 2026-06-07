@@ -44,6 +44,7 @@ fn map_status(content: &BridgeContentView, id: &StatusId) -> Option<StatusDef> {
             speed_bonus:        def.bonuses.speed_bonus,
         },
         hp_percent_dot:       def.hp_percent_dot,
+        heal_per_tick: 0,
     })
 }
 

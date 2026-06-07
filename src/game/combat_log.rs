@@ -193,6 +193,12 @@ pub enum CombatEvent {
         pierces: bool,
         amount: i32,
     },
+    /// *engine mirror* — `Event::HotHealed` (fused HoT tick + heal).
+    HotHealed {
+        target: Entity,
+        source_status: StatusId,
+        amount: i32,
+    },
     /// *ECS-only* — emitted once when combat ends.
     CombatEnded {
         victory: bool,
@@ -381,6 +387,13 @@ impl CombatEvent {
                     .get(source_status)
                     .map_or(source_status.0.as_str(), |s| s.name.as_str());
                 format!("    «{}» наносит {} урона ({})", sname, amount, name(*target))
+            }
+            CombatEvent::HotHealed { target, source_status, amount } => {
+                let sname = content
+                    .statuses
+                    .get(source_status)
+                    .map_or(source_status.0.as_str(), |s| s.name.as_str());
+                format!("    «{}» восстанавливает {} HP ({})", sname, amount, name(*target))
             }
             CombatEvent::CriticalMiss { actor } => {
                 format!(

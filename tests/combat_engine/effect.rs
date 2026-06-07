@@ -31,6 +31,7 @@ impl StubContent {
             skips_turn: false,
             bonuses: storyforge::combat_engine::StatusBonuses { armor_bonus, damage_taken_bonus: 0, speed_bonus },
             hp_percent_dot,
+            heal_per_tick: 0,
         }
     }
     fn neutral() -> Self {
