@@ -15,7 +15,7 @@
 | B | Хранилище флагов | **Единый `flags: BTreeSet<String>`** | строковый contract уже есть (`requires_flag: Option<String>`); убирает `BoutKey`/`Outcome`/`Map` из сейва; миграция ch1-флагов тривиальна (они уже строки) |
 | C | `injured` на Aldric | **Обобщено в Атоме 5** (status-fold): `PERMANENT`-статус, `add` перед боем 2; снять/ослабить/забаффать — `remove`+`add` в поздней сцене (арка восстановления) | «однобоевая рана» — частный паттерн фолда; нарративная гибкость без потери C-поведения |
 | D | Оценка objectives | **Чистая `fn objective_met(cond, final_state) -> bool`** отдельно от `determine_outcome` | `determine_outcome` несёт семантику «KeepAlive-death → defeat», для objective не годится |
-| E | SCHEMA-bump | **Атомы 3 и 4 — одним инкрементом** (46→47): `Unit.tags` + `Effect::AddTag/RemoveTag` (А3) и `Effect::TickHeal` (А4) | один разрыв совместимости трейсов вместо двух |
+| E | SCHEMA-bump | **Пересмотрено: два инкремента** (делаем атомы раздельно). Атом 4 (HoT): **46→47** ✅. Атом 3 (теги, `Unit.tags`): **47→48**. Committed-фикстур нет → каждый бамп самосогласован; «один инкремент» был оптимизацией под совместную посадку | честнее: каждое изменение формата = своя версия |
 
 > Теги — плоский `Set<Tag>`; 3 оси (вид / тело / жизнь) — документационная группировка,
 > не enforced, авторятся по необходимости. Заменяют узкую «расу». Детали — Атом 3.
@@ -114,7 +114,7 @@ victory-only флаге сворачивается в сахар над `objecti
   (саммоны); `UnitSnapshot.tags` (AI).
 - `AbilityDef`: `+ requires_tags`, `+ excludes_tags` (`Set<TagId>`). `AuraDef`: `+ affects_tags`
   (requires-семантика). TOML-records `#[serde(default)]`.
-- **SCHEMA-bump 46→47** (объединить с Атомом 4).
+- **SCHEMA-bump 47→48** (Атом 4 уже занял 47; теги — отдельный инкремент).
 
 ### Поведение
 - `ActorView` + `ActionState::target_tags(id) -> &Set<TagId>` в **3 impl** (`EngineCheckState`
@@ -150,7 +150,12 @@ ActorView/ActionState×3. **Оценка: L.**
 
 ---
 
-## Атом 4 — Heal-over-time (M, «Вливание жизни» Орена)
+## Атом 4 — Heal-over-time (M, «Вливание жизни» Орена) ✅ ГОТОВ (коммит `0e32201`)
+
+> Реализовано по дизайну ниже. **SCHEMA 46→47** (HoT отдельно от тегов — два честных
+> инкремента: теги пойдут 47→48; решение E пересмотрено, см. §0). 1454→1465 тестов.
+> Попутно: brittle-пины `required: 46` в SCHEMA-version тестах развязаны (per-version —
+> только `found` через `..`; один — `required == SCHEMA_VERSION`).
 
 ### Дизайн (зеркало `hp_percent_dot` — критик подтвердил прецедент)
 - `combat_engine::content::StatusDef` (`content.rs:234`): `+ heal_per_tick: i32` (фикс, не на `ActiveStatus`, не INT-скейл). Читается движком из контента — как `hp_percent_dot`, который движок читает в `TickDot` (engine-cast хардкодит `dot_per_tick=0`, реальный DoT идёт через `hp_percent_dot` — критик подтвердил).
@@ -214,7 +219,7 @@ ActorView/ActionState×3. **Оценка: L.**
 **Волна 1 (движковые примитивы):**
 1. **Атом 1** — фундамент (`CampaignState.flags`, objectives, defeat-proceed wiring). Самый дорогой и тонкий (state-machine × autosave).
 2. **Атом 2** — сразу после (пишет в `flags`).
-3. **Атомы 3 + 4** — теги + HoT, **одним SCHEMA-bump** (46→47). Атом 3 после/параллельно Атому 1.
+3. **Атом 4** ✅ — HoT (SCHEMA 46→47). **Атом 3** — теги (SCHEMA 47→48), отдельно.
 4. **Атом 5** ✅ — нарративные персистентные статусы (`status_ops` фолд; обобщил start-status).
 5. **Атом 6** — verify (после контента боя 2; зависит от Атома 3 — фильтр в legality).
 
@@ -230,6 +235,6 @@ ActorView/ActionState×3. **Оценка: L.**
 - **Defeat-proceed × state-machine × autosave-порядок** — самое тонкое (Атом 1); flags пишутся до autosave.
 - **CampaignState ↔ CampaignProgress** — две копии истины; синхронизировать запись (обе) и load (CampaignProgress→CampaignState).
 - **Лодка строго в objectives**, не в victory.
-- SCHEMA-bump (Атомы 3+4, один инкремент) ломает старые трейсы — норма проекта.
+- SCHEMA-bump: Атом 4 → 47 ✅, Атом 3 (теги) → 48. `Unit.tags` в `post_state_hash` сломает canary-хеши (Атом 3); HoT хеши не трогал — норма проекта.
 - **Теги мутабельны** (фаза-3) → входят в `post_state_hash`; `aura_targets` обязан вызываться
   из обоих aura-call-site (`aura_effects_on` + `aura_membership_set`), иначе drift.
