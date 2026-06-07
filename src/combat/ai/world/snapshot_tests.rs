@@ -235,6 +235,37 @@ mod snapshot_api_tests {
         assert_eq!(slice[0].id, StatusId::from("bar"));
     }
 
+    /// A persistent status (PERMANENT_DURATION) added at spawn is visible in
+    /// `UnitSnapshot.statuses()` and preserves `rounds_remaining`.
+    ///
+    /// This mirrors the party-status-persistence feature: heroes entering combat
+    /// with a pre-seeded "injured" status must have it reflected in the AI snapshot
+    /// so scoring/intent factors can read it.
+    #[test]
+    fn ai_snapshot_visibility_of_persistent_status() {
+        let mut unit = test_unit();
+        let cache = empty_status_tag_cache();
+
+        assert!(unit.statuses().is_empty(), "no statuses before add");
+
+        unit.add_status(
+            ActiveStatusView {
+                id: StatusId::from("injured"),
+                rounds_remaining: combat_engine::PERMANENT_DURATION,
+                dot_per_tick: 0,
+            },
+            cache,
+        );
+
+        assert_eq!(unit.statuses().len(), 1, "injured status must be visible");
+        assert_eq!(unit.statuses()[0].id, StatusId::from("injured"));
+        assert_eq!(
+            unit.statuses()[0].rounds_remaining,
+            combat_engine::PERMANENT_DURATION,
+            "permanent duration must round-trip",
+        );
+    }
+
     // ── refresh_aggregates: speed ─────────────────────────────────────────────
 
     /// Build a minimal `StatusTagCache` containing a single status with the

@@ -387,7 +387,6 @@ mod tests {
     use crate::content::encounters::{EncounterDef, OnDefeat, VictoryCondition};
     use crate::game::resources::{GameDb, ScenarioState};
     use crate::scenario::AdvanceScenario;
-    use bevy::prelude::*;
     use std::collections::HashMap;
 
     #[derive(Resource, Default)]

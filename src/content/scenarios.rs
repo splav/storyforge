@@ -3,6 +3,36 @@ use crate::content::encounters::EncounterDef;
 use serde::Deserialize;
 use std::collections::HashMap;
 
+/// One operation in a story scene's ordered `status_ops` list: apply or remove a
+/// persistent status on a named party member. Operations fold in declaration order
+/// across scenes (see `active_party_statuses`), so a single ordered list fully and
+/// deterministically describes the result — `add X` then later `remove X` then
+/// `add Y` all compose unambiguously.
+#[derive(Debug, Clone)]
+pub enum PartyStatusOp {
+    /// Apply `status_id` to `unit_name` (`unit_name` must match a `PartyMemberDef::name`;
+    /// `status_id` must exist in `content.statuses`).
+    Add { unit_name: String, status_id: String },
+    /// Remove `status_id` from `unit_name` (no-op if the unit does not currently carry it).
+    Remove { unit_name: String, status_id: String },
+}
+
+impl PartyStatusOp {
+    /// Affected party member's name, regardless of op kind.
+    pub fn unit_name(&self) -> &str {
+        match self {
+            PartyStatusOp::Add { unit_name, .. } | PartyStatusOp::Remove { unit_name, .. } => unit_name,
+        }
+    }
+
+    /// Status id involved, regardless of op kind.
+    pub fn status_id(&self) -> &str {
+        match self {
+            PartyStatusOp::Add { status_id, .. } | PartyStatusOp::Remove { status_id, .. } => status_id,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ScenarioDef {
     pub id: String,
@@ -34,13 +64,17 @@ pub struct PartyMemberDef {
 #[derive(Debug, Clone)]
 pub enum SceneDef {
     /// Dialogue scene. On advance (after the last line) applies `party_add` /
-    /// `party_remove` to the active party. If `lines` is empty, the scene is
-    /// **invisible** — advance skips past it without showing anything, which is
-    /// the idiom for a pure party-change beat between visible scenes.
+    /// `party_remove` to the active party, and the ordered `status_ops` (persistent
+    /// status add/remove on named members). If `lines` is empty, the scene is
+    /// **invisible** — advance skips past it without showing anything, which is the
+    /// idiom for a pure party-change beat between visible scenes.
     Story {
         lines: Vec<DialogueLine>,
         party_add: Vec<PartyMemberDef>,
         party_remove: Vec<String>,
+        /// Ordered persistent-status operations on named party members, applied in
+        /// declaration order when folded (see `active_party_statuses`).
+        status_ops: Vec<PartyStatusOp>,
     },
     Combat {
         encounter_id: String,
@@ -94,6 +128,44 @@ pub fn active_party(scen: &ScenarioDef, up_to: usize) -> Vec<PartyMemberDef> {
     party
 }
 
+/// Accumulated persistent statuses for the active party entering scene at `up_to`.
+///
+/// Folds every story scene's `status_ops` in **declaration order** across scenes
+/// `0..up_to`: `Add` inserts (deduplicated per unit), `Remove` deletes. Because a
+/// single ordered list drives the result, the fold is fully deterministic and
+/// order-significant (`add X … remove X … add Y` composes exactly as written).
+/// Returns `unit_name → Vec<status_id>`; empty entries are dropped so callers can
+/// cheaply check `.contains_key`.
+pub fn active_party_statuses(
+    scen: &ScenarioDef,
+    up_to: usize,
+) -> HashMap<String, Vec<String>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for scene in scen.scenes.iter().take(up_to) {
+        if let SceneDef::Story { status_ops, .. } = scene {
+            for op in status_ops {
+                match op {
+                    PartyStatusOp::Add { unit_name, status_id } => {
+                        let list = map.entry(unit_name.clone()).or_default();
+                        if !list.contains(status_id) {
+                            list.push(status_id.clone());
+                        }
+                    }
+                    PartyStatusOp::Remove { unit_name, status_id } => {
+                        if let Some(list) = map.get_mut(unit_name) {
+                            list.retain(|s| s != status_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    map.retain(|_, v| !v.is_empty());
+    map
+}
+
 
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -124,6 +196,14 @@ struct PartyRecord {
 }
 
 #[derive(Deserialize)]
+struct PartyStatusOpRecord {
+    /// `"add"` | `"remove"`.
+    op: String,
+    unit_name: String,
+    status_id: String,
+}
+
+#[derive(Deserialize)]
 struct SceneRecord {
     #[serde(rename = "type")]
     scene_type: String,
@@ -141,6 +221,9 @@ struct SceneRecord {
     /// Names of members to drop from the party on scene advance (story scenes only).
     #[serde(default)]
     party_remove: Vec<String>,
+    /// Ordered persistent-status operations on named party members (story scenes).
+    #[serde(default)]
+    status_ops: Vec<PartyStatusOpRecord>,
     #[serde(default)]
     options: Vec<ChoiceOptionRecord>,
 }
@@ -209,6 +292,17 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
                         .map(convert_party_record)
                         .collect(),
                     party_remove: s.party_remove,
+                    status_ops: s
+                        .status_ops
+                        .into_iter()
+                        .map(|r| match r.op.as_str() {
+                            "add" => PartyStatusOp::Add { unit_name: r.unit_name, status_id: r.status_id },
+                            "remove" => PartyStatusOp::Remove { unit_name: r.unit_name, status_id: r.status_id },
+                            other => panic!(
+                                "{path}: story scene status op has unknown op '{other}' (expected 'add' or 'remove')"
+                            ),
+                        })
+                        .collect(),
                 },
                 "combat" => SceneDef::Combat {
                     encounter_id: s
@@ -238,6 +332,223 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    fn make_scenario_with_statuses() -> ScenarioDef {
+        // party: Alice (scene 0), Bob added at scene 0 advance
+        // scene 0: story — ops: add Alice/injured, add Bob/injured, remove Bob/injured
+        // scene 1: story — ops: add Alice/exhaustion
+        let party = vec![PartyMemberDef {
+            name: "Alice".into(),
+            race: "human".into(),
+            faction: None,
+            path: None,
+            class_id: "warrior".into(),
+            hex_pos: hexx::Hex::ZERO,
+            template: None,
+        }];
+        let bob = PartyMemberDef {
+            name: "Bob".into(),
+            race: "human".into(),
+            faction: None,
+            path: None,
+            class_id: "mage".into(),
+            hex_pos: hexx::Hex::ZERO,
+            template: None,
+        };
+        ScenarioDef {
+            id: "s1".into(),
+            name: "s1".into(),
+            party,
+            scenes: vec![
+                SceneDef::Story {
+                    lines: vec![],
+                    party_add: vec![bob],
+                    party_remove: vec![],
+                    // Ordered: add injured to Alice and Bob, then remove it from Bob.
+                    status_ops: vec![
+                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
+                        PartyStatusOp::Add { unit_name: "Bob".into(),   status_id: "injured".into() },
+                        PartyStatusOp::Remove { unit_name: "Bob".into(), status_id: "injured".into() },
+                    ],
+                },
+                SceneDef::Story {
+                    lines: vec![],
+                    party_add: vec![],
+                    party_remove: vec![],
+                    status_ops: vec![
+                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "exhaustion".into() },
+                    ],
+                },
+            ],
+            content: ContentView::default(),
+            encounters: HashMap::new(),
+        }
+    }
+
+    // ── active_party_statuses tests ──────────────────────────────────────────────
+
+    /// Before any scenes are processed (up_to=0) the status map is empty.
+    #[test]
+    fn fold_empty_before_any_scene() {
+        let scen = make_scenario_with_statuses();
+        let map = active_party_statuses(&scen, 0);
+        assert!(map.is_empty(), "no statuses before any scene");
+    }
+
+    /// After scene 0: Alice has [injured], Bob has [] (remove undoes add).
+    #[test]
+    fn fold_add_and_remove_within_same_scene() {
+        let scen = make_scenario_with_statuses();
+        let map = active_party_statuses(&scen, 1);
+        assert_eq!(map.get("Alice"), Some(&vec!["injured".to_string()]));
+        // Bob: injured was added then removed — should not appear at all.
+        assert!(!map.contains_key("Bob"), "Bob's injured was removed");
+    }
+
+    /// After scene 1: Alice has [injured, exhaustion].
+    #[test]
+    fn fold_accumulates_across_scenes() {
+        let scen = make_scenario_with_statuses();
+        let map = active_party_statuses(&scen, 2);
+        let alice = map.get("Alice").expect("Alice should have statuses");
+        assert_eq!(alice, &vec!["injured".to_string(), "exhaustion".to_string()]);
+    }
+
+    /// Idempotency: adding the same status twice results in it appearing only once.
+    #[test]
+    fn fold_dedup_same_status_added_twice() {
+        let scen = ScenarioDef {
+            id: "s".into(),
+            name: "s".into(),
+            party: vec![PartyMemberDef {
+                name: "Alice".into(),
+                race: "human".into(),
+                faction: None,
+                path: None,
+                class_id: "warrior".into(),
+                hex_pos: hexx::Hex::ZERO,
+                template: None,
+            }],
+            scenes: vec![
+                SceneDef::Story {
+                    lines: vec![],
+                    party_add: vec![],
+                    party_remove: vec![],
+                    status_ops: vec![
+                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
+                    ],
+                },
+                SceneDef::Story {
+                    lines: vec![],
+                    party_add: vec![],
+                    party_remove: vec![],
+                    // Add injured again — should be deduplicated.
+                    status_ops: vec![
+                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
+                    ],
+                },
+            ],
+            content: ContentView::default(),
+            encounters: HashMap::new(),
+        };
+        let map = active_party_statuses(&scen, 2);
+        let alice = map.get("Alice").expect("Alice should have statuses");
+        assert_eq!(alice.len(), 1, "injured must appear only once after two adds");
+    }
+
+    /// Remove of a status that was never added is a no-op (no panic, no phantom entry).
+    #[test]
+    fn fold_remove_nonexistent_is_noop() {
+        let scen = ScenarioDef {
+            id: "s".into(),
+            name: "s".into(),
+            party: vec![],
+            scenes: vec![SceneDef::Story {
+                lines: vec![],
+                party_add: vec![],
+                party_remove: vec![],
+                status_ops: vec![
+                    PartyStatusOp::Remove { unit_name: "Ghost".into(), status_id: "injured".into() },
+                ],
+            }],
+            content: ContentView::default(),
+            encounters: HashMap::new(),
+        };
+        let map = active_party_statuses(&scen, 1);
+        assert!(map.is_empty(), "removing a never-added status leaves empty map");
+    }
+
+    // ── Parsing tests ────────────────────────────────────────────────────────────
+
+    /// An ordered `status_ops` list (add/remove) in a story scene parses, preserving
+    /// op kind and declaration order.
+    #[test]
+    fn parse_story_with_status_ops() {
+        let toml = r#"
+name = "test"
+party = []
+
+[[scenes]]
+type = "story"
+
+[[scenes.status_ops]]
+op = "add"
+unit_name = "Alice"
+status_id = "injured"
+
+[[scenes.status_ops]]
+op = "remove"
+unit_name = "Bob"
+status_id = "exhaustion"
+"#;
+        let scen = parse_scenario_body("s1", "test.toml", toml);
+        let SceneDef::Story { status_ops, .. } = &scen.scenes[0] else {
+            panic!("expected Story");
+        };
+        assert_eq!(status_ops.len(), 2);
+        assert!(matches!(&status_ops[0],
+            PartyStatusOp::Add { unit_name, status_id } if unit_name == "Alice" && status_id == "injured"));
+        assert!(matches!(&status_ops[1],
+            PartyStatusOp::Remove { unit_name, status_id } if unit_name == "Bob" && status_id == "exhaustion"));
+    }
+
+    /// A story scene with no `status_ops` key parses with an empty vec.
+    #[test]
+    fn parse_story_missing_status_fields_defaults_to_empty() {
+        let toml = r#"
+name = "test"
+party = []
+
+[[scenes]]
+type = "story"
+"#;
+        let scen = parse_scenario_body("s1", "test.toml", toml);
+        let SceneDef::Story { status_ops, .. } = &scen.scenes[0] else {
+            panic!("expected Story");
+        };
+        assert!(status_ops.is_empty());
+    }
+
+    /// An unknown `op` value in a status op panics at parse time.
+    #[test]
+    #[should_panic(expected = "unknown op 'toggle'")]
+    fn parse_story_status_op_unknown_op_panics() {
+        let toml = r#"
+name = "test"
+party = []
+
+[[scenes]]
+type = "story"
+
+[[scenes.status_ops]]
+op = "toggle"
+unit_name = "Alice"
+status_id = "injured"
+"#;
+        parse_scenario_body("s1", "test.toml", toml);
+    }
 
     /// A `type = "choice"` scene with two options and a prompt line parses into
     /// `SceneDef::Choice` with the correct prompt and options.

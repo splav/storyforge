@@ -61,3 +61,11 @@ name        = "Поле прототипа"
 # (живучесть). Снять прототип → аура перестаёт обновляться и спадает → охрана мягче.
 armor_bonus = 2
 buff_class  = "armor_buff"
+
+[[statuses]]
+id          = "injured"
+name        = "Ранен"
+# Persistent penalty applied between combats (e.g. carried wounds from ch2 → ch3).
+# Mirrors exhaustion/defending in field layout: armor_bonus + speed_bonus only.
+armor_bonus = -1
+speed_bonus = -1

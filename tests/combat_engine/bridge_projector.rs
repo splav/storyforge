@@ -331,3 +331,77 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         .unwrap();
     assert_eq!(burning_entry.applier, Some(actor), "burning applier maps from actor_uid to actor entity");
 }
+
+/// `from_ecs` (bootstrap round 1) aggregates `armor_bonus` and `speed_bonus` from
+/// a pre-seeded `StatusEffects` component on a party hero.
+///
+/// Scenario: hero spawns with an "injured" status (armor_bonus=-1, speed_bonus=-1).
+/// After `bootstrap_combat_state` the engine unit's `agg.armor_bonus` and
+/// `agg.speed_bonus` must both be -1.
+#[test]
+fn from_ecs_round1_aggregates_preseeded_status_bonuses() {
+    use storyforge::combat::engine_bridge::{CombatStateRes, entity_to_uid};
+    use storyforge::content::content_view::ActiveContent;
+    use storyforge::content::statuses::StatusDef;
+    use storyforge::game::components::{ActiveStatus, StatusEffects};
+    use combat_engine::{StatusId, StatusDef as EngineStatusDef, StatusBonuses, PERMANENT_DURATION};
+
+    let start = hex_from_offset(0, 0);
+    let mut app = common::apps::bridge::bridge_app();
+
+    let hero = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
+
+    // Pre-seed StatusEffects with "injured" (armor_bonus=-1, speed_bonus=-1).
+    let hero_id = hero;
+    app.world_mut()
+        .entity_mut(hero)
+        .get_mut::<StatusEffects>()
+        .expect("StatusEffects should be on hero after bundle spawn")
+        .0
+        .push(ActiveStatus {
+            id: StatusId::from("injured"),
+            rounds_remaining: PERMANENT_DURATION,
+            applier: Some(hero_id),
+            dot_per_tick: 0,
+        });
+
+    // Register the "injured" status in ActiveContent so from_ecs can look up bonuses.
+    app.world_mut()
+        .resource_mut::<ActiveContent>()
+        .0
+        .statuses
+        .insert(
+            StatusId::from("injured"),
+            StatusDef {
+                id: StatusId::from("injured"),
+                name: "Injured".into(),
+                dot_dice: None,
+                ai_controlled: false,
+                buff_class: None,
+                engine: EngineStatusDef {
+                    causes_disadvantage: false,
+                    blocks_mana_abilities: false,
+                    forces_targeting: false,
+                    skips_turn: false,
+                    bonuses: StatusBonuses {
+                        armor_bonus: -1,
+                        speed_bonus: -1,
+                        damage_taken_bonus: 0,
+                    },
+                    hp_percent_dot: 0,
+                },
+            },
+        );
+
+    common::apps::bridge::bootstrap(&mut app);
+
+    let uid = entity_to_uid(hero);
+    let state = app.world().resource::<CombatStateRes>();
+    let unit = state.0.unit(uid).expect("hero must be in engine state after bootstrap");
+
+    // from_ecs seeds speed = base_speed + speed_bonus from statuses.
+    // Hero was spawned with speed=6 (bridge_stats default). injured adds -1 → effective speed=5.
+    assert_eq!(unit.armor_bonus, -1, "armor_bonus must be -1 from injured status");
+    assert_eq!(unit.speed, 6 - 1, "effective speed must be base(6) + injured speed_bonus(-1)");
+}
+

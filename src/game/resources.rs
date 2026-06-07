@@ -399,6 +399,34 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
         }
     }
 
+    // status_ops validation in story scenes.
+    for (scene_idx, scene) in scen.scenes.iter().enumerate() {
+        if let crate::content::scenarios::SceneDef::Story { status_ops, .. } = scene {
+            // Statuses take effect on advance → the unit must be present in the party
+            // AFTER this scene is processed (i.e. scene_idx + 1).
+            let post_advance_party = crate::content::scenarios::active_party(scen, scene_idx + 1);
+            let post_names: std::collections::HashSet<&str> =
+                post_advance_party.iter().map(|m| m.name.as_str()).collect();
+
+            for op in status_ops {
+                assert!(
+                    post_names.contains(op.unit_name()),
+                    "scenario '{scen_id}' scene {scene_idx}: \
+                     status op unit '{}' is not in the active party after this scene; \
+                     party: {:?}",
+                    op.unit_name(),
+                    post_names,
+                );
+                assert!(
+                    c.statuses.contains_key(op.status_id()),
+                    "scenario '{scen_id}' scene {scene_idx}: \
+                     status op references unknown status '{}'",
+                    op.status_id(),
+                );
+            }
+        }
+    }
+
     // Choice scene validation.
     for (scene_idx, scene) in scen.scenes.iter().enumerate() {
         if let crate::content::scenarios::SceneDef::Choice { options, .. } = scene {
@@ -471,6 +499,109 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                 }
             }
         }
+    }
+}
+
+// ── Validation tests ─────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod validate_party_status_tests {
+    use crate::content::content_view::ContentView;
+    use crate::content::scenarios::{PartyMemberDef, PartyStatusOp, ScenarioDef, SceneDef};
+    use crate::game::resources::GameDb;
+    use std::collections::HashMap;
+
+    fn member(name: &str) -> PartyMemberDef {
+        PartyMemberDef {
+            name: name.into(),
+            race: "human".into(),
+            faction: None,
+            path: None,
+            class_id: "warrior".into(),
+            hex_pos: hexx::Hex::ZERO,
+            template: None,
+        }
+    }
+
+    /// Real global content (races / classes / weapons / armor / statuses, incl.
+    /// `injured`) so party-member validation passes *before* status-op validation
+    /// runs. Hand-building a consistent class equipment chain is brittle; load the
+    /// actual `assets/data` view instead.
+    fn valid_content() -> ContentView {
+        ContentView::load_global_for_tests()
+    }
+
+    fn scenario_with_status_ops(
+        status_ops: Vec<PartyStatusOp>,
+        party: Vec<PartyMemberDef>,
+    ) -> GameDb {
+        let scen = ScenarioDef {
+            id: "s1".into(),
+            name: "s1".into(),
+            party,
+            scenes: vec![SceneDef::Story {
+                lines: vec![],
+                party_add: vec![],
+                party_remove: vec![],
+                status_ops,
+            }],
+            content: valid_content(),
+            encounters: HashMap::new(),
+        };
+        let mut db = GameDb {
+            scenarios: HashMap::new(),
+            campaigns: HashMap::new(),
+            campaign_order: vec![],
+        };
+        db.scenarios.insert("s1".into(), scen);
+        db
+    }
+
+    /// `validate_scenario` panics when a `status_add` entry names a unit not in the
+    /// post-advance party.
+    #[test]
+    #[should_panic(expected = "not in the active party")]
+    fn validate_status_add_unknown_unit_panics() {
+        let db = scenario_with_status_ops(
+            vec![PartyStatusOp::Add { unit_name: "Nobody".into(), status_id: "injured".into() }],
+            vec![member("Alice")],
+        );
+        db.validate();
+    }
+
+    /// `validate_scenario` panics when a `Remove` op names a unit not in
+    /// the post-advance party.
+    #[test]
+    #[should_panic(expected = "not in the active party")]
+    fn validate_status_remove_unknown_unit_panics() {
+        let db = scenario_with_status_ops(
+            vec![PartyStatusOp::Remove { unit_name: "Nobody".into(), status_id: "injured".into() }],
+            vec![member("Alice")],
+        );
+        db.validate();
+    }
+
+    /// `validate_scenario` panics when an op references a status id
+    /// that doesn't exist in content.
+    #[test]
+    #[should_panic(expected = "unknown status")]
+    fn validate_status_add_unknown_status_id_panics() {
+        let db = scenario_with_status_ops(
+            vec![PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "no_such_status".into() }],
+            vec![member("Alice")],
+        );
+        db.validate();
+    }
+
+    /// `validate_scenario` passes for a valid `Add` op naming a known party member
+    /// with a status present in content.
+    #[test]
+    fn validate_status_valid_passes() {
+        let db = scenario_with_status_ops(
+            vec![PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() }],
+            vec![member("Alice")],
+        );
+        db.validate(); // must not panic
     }
 }
 

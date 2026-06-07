@@ -1,7 +1,8 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::content::encounters::VictoryCondition;
-use crate::content::scenarios::{active_party, SceneDef};
+use crate::content::scenarios::{active_party, active_party_statuses, SceneDef};
+use crate::game::components::{ActiveStatus, StatusEffects};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
@@ -67,6 +68,9 @@ fn spawn_combatants(
     // without a deferred second pass.
     let keep_alive_names = collect_keep_alive_names(&enc.victory);
 
+    // Persistent statuses accumulated by the party before this combat scene.
+    let party_statuses = active_party_statuses(scen, scenario.scene_index);
+
     let party = active_party(scen, scenario.scene_index);
     for member in &party {
         // Template-based member (e.g. non-acting NPC added via party_add with template field).
@@ -109,6 +113,17 @@ fn spawn_combatants(
             if keep_alive_names.contains(member.name.as_str()) {
                 ec.insert(KeepAliveTarget { marker_color: keep_alive_marker_color(&enc.victory, &member.name) });
             }
+            // Persistent statuses carried from prior story scenes (e.g. "injured" from ch2).
+            if let Some(ids) = party_statuses.get(&member.name) {
+                let entity_id = ec.id();
+                let statuses = ids.iter().map(|sid| ActiveStatus {
+                    id: combat_engine::StatusId::from(sid.as_str()),
+                    rounds_remaining: combat_engine::PERMANENT_DURATION,
+                    applier: Some(entity_id),
+                    dot_per_tick: 0,
+                }).collect();
+                ec.insert(StatusEffects(statuses));
+            }
             // initial_statuses are applied engine-side in bootstrap_combat_state
             // via CombatState::apply_initial_statuses (reads UnitTemplate from ContentView).
             continue;
@@ -141,6 +156,17 @@ fn spawn_combatants(
         if let Some(ref p) = member.path { ec.insert(CombatPath(p.clone())); }
         if keep_alive_names.contains(member.name.as_str()) {
             ec.insert(KeepAliveTarget { marker_color: keep_alive_marker_color(&enc.victory, &member.name) });
+        }
+        // Persistent statuses carried from prior story scenes (e.g. "injured" from ch2).
+        if let Some(ids) = party_statuses.get(&member.name) {
+            let entity_id = ec.id();
+            let statuses = ids.iter().map(|sid| ActiveStatus {
+                id: combat_engine::StatusId::from(sid.as_str()),
+                rounds_remaining: combat_engine::PERMANENT_DURATION,
+                applier: Some(entity_id),
+                dot_per_tick: 0,
+            }).collect();
+            ec.insert(StatusEffects(statuses));
         }
     }
 

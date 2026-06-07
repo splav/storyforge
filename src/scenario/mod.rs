@@ -555,6 +555,7 @@ mod tests {
             lines: vec![],
             party_add: vec![],
             party_remove: vec![],
+            status_ops: vec![],
         }];
         let db = make_db(scenario);
         let state = ScenarioState { scenario_id: "s1".into(), scene_index: 0 };
@@ -589,6 +590,7 @@ mod tests {
             }],
             party_add: vec![],
             party_remove: vec![],
+            status_ops: vec![],
         });
         let db = make_db(scenario);
 
