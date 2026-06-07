@@ -105,10 +105,17 @@ fn main() {
         // ── Modal (runs in all states) ──────────────────────────────────
         .add_systems(Update, (ui::modal::sync_modal, ui::modal::handle_modal_input))
         // ── Story ────────────────────────────────────────────────────────
-        .add_systems(OnEnter(AppState::Story), ui::story_ui::setup_story_screen)
+        .add_systems(
+            OnEnter(AppState::Story),
+            (ui::story_ui::setup_story_screen, ui::story_ui::setup_choice_screen),
+        )
         .add_systems(
             Update,
-            ui::story_ui::story_input_system.run_if(in_state(AppState::Story)),
+            (
+                ui::story_ui::story_input_system,
+                ui::story_ui::choice_input_system,
+            )
+                .run_if(in_state(AppState::Story)),
         )
         .add_systems(
             OnExit(AppState::Story),
@@ -222,6 +229,7 @@ fn main() {
             scenario::advance_scenario_system
                 .after(scenario::input::victory_input_system)
                 .after(ui::story_ui::story_input_system)
+                .after(ui::story_ui::choice_input_system)
                 .after(ui::combat_ui::defeat_overlay_input)
                 .run_if(
                     in_state(AppState::Story)

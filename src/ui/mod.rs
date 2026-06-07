@@ -90,6 +90,10 @@ pub struct CampaignButton(pub String);
 #[derive(Component)]
 pub struct StoryContinueButton;
 
+/// Marker on a choice option button — stores the option index.
+#[derive(Component)]
+pub struct ChoiceButton(pub usize);
+
 /// Marker on the equipment tooltip panel (right side, hidden until a card is hovered).
 #[derive(Component)]
 pub struct TurnOrderTooltip;

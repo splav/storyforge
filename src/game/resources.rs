@@ -399,6 +399,23 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
         }
     }
 
+    // Choice scene validation.
+    for (scene_idx, scene) in scen.scenes.iter().enumerate() {
+        if let crate::content::scenarios::SceneDef::Choice { options, .. } = scene {
+            assert!(
+                !options.is_empty(),
+                "scenario '{scen_id}' scene {scene_idx}: choice has no options",
+            );
+            for opt in options {
+                assert!(
+                    !opt.set_flag.is_empty(),
+                    "scenario '{scen_id}' scene {scene_idx}: choice option '{}' has empty set_flag",
+                    opt.label,
+                );
+            }
+        }
+    }
+
     // Scene encounter refs + party-vs-enemy hex collisions.
     for (scene_idx, scene) in scen.scenes.iter().enumerate() {
         if let crate::content::scenarios::SceneDef::Combat { encounter_id, .. } = scene {
@@ -624,3 +641,62 @@ bitflags::bitflags! {
 
 #[derive(Resource, Default)]
 pub struct UiDirty(pub UiDirtyFlags);
+
+#[cfg(test)]
+mod validate_choice_tests {
+    use crate::content::content_view::ContentView;
+    use crate::content::scenarios::{ChoiceOption, SceneDef, ScenarioDef};
+    use crate::game::resources::GameDb;
+    use std::collections::HashMap;
+
+    fn choice_scenario(options: Vec<ChoiceOption>) -> (GameDb, String) {
+        let scen = ScenarioDef {
+            id: "s1".into(),
+            name: "s1".into(),
+            party: vec![],
+            scenes: vec![SceneDef::Choice {
+                prompt: vec![],
+                options,
+            }],
+            content: ContentView::default(),
+            encounters: HashMap::new(),
+        };
+        let mut db = GameDb {
+            scenarios: HashMap::new(),
+            campaigns: HashMap::new(),
+            campaign_order: vec![],
+        };
+        let id = scen.id.clone();
+        db.scenarios.insert(id.clone(), scen);
+        (db, id)
+    }
+
+    /// `validate_scenario` panics for a `Choice` scene with no options.
+    #[test]
+    #[should_panic(expected = "choice has no options")]
+    fn validate_choice_empty_options_panics() {
+        let (db, _) = choice_scenario(vec![]);
+        db.validate();
+    }
+
+    /// `validate_scenario` panics when a choice option has an empty `set_flag`.
+    #[test]
+    #[should_panic(expected = "has empty set_flag")]
+    fn validate_choice_empty_set_flag_panics() {
+        let (db, _) = choice_scenario(vec![ChoiceOption {
+            label: "Go".into(),
+            set_flag: "".into(),
+        }]);
+        db.validate();
+    }
+
+    /// `validate_scenario` passes for a well-formed choice scene.
+    #[test]
+    fn validate_choice_valid_passes() {
+        let (db, _) = choice_scenario(vec![
+            ChoiceOption { label: "Help".into(), set_flag: "helped".into() },
+            ChoiceOption { label: "Ignore".into(), set_flag: "ignored".into() },
+        ]);
+        db.validate(); // must not panic
+    }
+}

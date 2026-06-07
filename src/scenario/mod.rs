@@ -70,6 +70,7 @@ pub fn enter_scenario_at(
     match &scen.scenes[scene_index] {
         SceneDef::Story { .. } => next_state.set(AppState::Story),
         SceneDef::Combat { .. } => next_state.set(AppState::Combat),
+        SceneDef::Choice { .. } => next_state.set(AppState::Story),
     }
 }
 
@@ -148,6 +149,7 @@ pub fn advance_scenario_system(
         match &scen.scenes[scenario.scene_index] {
             SceneDef::Story { .. } => next_state.set(AppState::Story),
             SceneDef::Combat { .. } => next_state.set(AppState::Combat),
+            SceneDef::Choice { .. } => next_state.set(AppState::Story),
         }
 
         if let Some(camp) = campaign.as_deref() {

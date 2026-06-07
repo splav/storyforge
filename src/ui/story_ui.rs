@@ -1,5 +1,5 @@
 use super::button::{spawn_standard_button, ButtonStyle};
-use super::{StoryContinueButton, StoryScreenRoot};
+use super::{ChoiceButton, StoryContinueButton, StoryScreenRoot};
 use crate::content::scenarios::{DialogueLine, SceneDef};
 use crate::game::resources::{CampaignState, GameDb, ScenarioState};
 use crate::scenario::AdvanceScenario;
@@ -168,6 +168,128 @@ pub fn story_input_system(
         }
     } else {
         writer.write(AdvanceScenario);
+    }
+}
+
+pub fn setup_choice_screen(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    db: Res<GameDb>,
+    scenario: Res<ScenarioState>,
+    campaign: Option<Res<CampaignState>>,
+) {
+    let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
+    let (prompt, options) = match &scen.scenes[scenario.scene_index] {
+        SceneDef::Choice { prompt, options } => (prompt, options),
+        _ => return,
+    };
+    let empty_flags = std::collections::BTreeSet::new();
+    let flags = campaign
+        .as_deref()
+        .map(|c| &c.flags)
+        .unwrap_or(&empty_flags);
+    let visible_prompt: Vec<DialogueLine> = prompt
+        .iter()
+        .filter(|l| l.requires_flag.as_ref().is_none_or(|f| flags.contains(f)))
+        .cloned()
+        .collect();
+
+    let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
+    let is_last_scene = scenario.scene_index + 1 >= scen.scenes.len();
+    let bg_path = if is_last_scene {
+        "images/victory_background.png"
+    } else {
+        "images/story_background.png"
+    };
+    let bg_image: Handle<Image> = asset_server.load(bg_path);
+
+    commands
+        .spawn((
+            StoryScreenRoot,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            ImageNode {
+                image: bg_image,
+                ..default()
+            },
+            ZIndex(200),
+        ))
+        .with_children(|bg| {
+            bg.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(45.0),
+                    position_type: PositionType::Absolute,
+                    bottom: Val::Px(0.0),
+                    left: Val::Px(0.0),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::FlexEnd,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::all(Val::Px(16.0)),
+                    row_gap: Val::Px(10.0),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.02, 0.02, 0.05, 0.78)),
+            ))
+            .with_children(|root| {
+                // Column holding all visible prompt lines (all shown at once).
+                root.spawn((
+                    StoryLinesColumn,
+                    Node {
+                        width: Val::Px(640.0),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(8.0),
+                        ..default()
+                    },
+                ))
+                .with_children(|col| {
+                    for line in &visible_prompt {
+                        spawn_line(col, &font, line);
+                    }
+                });
+
+                // One button per choice option.
+                for (i, option) in options.iter().enumerate() {
+                    spawn_standard_button(
+                        root,
+                        font.clone(),
+                        option.label.clone(),
+                        Val::Auto,
+                        Val::Auto,
+                        ButtonStyle::Default,
+                    )
+                    .insert(ChoiceButton(i));
+                }
+            });
+        });
+    // No StoryDialogue resource — choices show all prompt lines at once.
+}
+
+pub fn choice_input_system(
+    buttons: Query<(&Interaction, &ChoiceButton), Changed<Interaction>>,
+    db: Res<GameDb>,
+    scenario: Res<ScenarioState>,
+    mut campaign: Option<ResMut<CampaignState>>,
+    mut writer: MessageWriter<AdvanceScenario>,
+) {
+    for (interaction, ChoiceButton(idx)) in &buttons {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+        let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
+        let SceneDef::Choice { options, .. } = &scen.scenes[scenario.scene_index] else {
+            return;
+        };
+        if let Some(opt) = options.get(*idx) {
+            if let Some(campaign) = campaign.as_mut() {
+                campaign.flags.insert(opt.set_flag.clone());
+            }
+            writer.write(AdvanceScenario);
+        }
+        return; // at most one choice per frame
     }
 }
 

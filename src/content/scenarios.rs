@@ -47,6 +47,20 @@ pub enum SceneDef {
         location: Option<String>,
         on_victory_flags: Vec<String>,
     },
+    /// Player decision point. Shows `prompt` dialogue, then one button per
+    /// `option`; clicking option *i* records `option[i].set_flag` into campaign
+    /// flags and advances the scenario. Branching downstream is via the existing
+    /// `DialogueLine.requires_flag` on later scenes.
+    Choice {
+        prompt: Vec<DialogueLine>,
+        options: Vec<ChoiceOption>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct ChoiceOption {
+    pub label: String,
+    pub set_flag: String,
 }
 
 impl SceneDef {
@@ -127,6 +141,14 @@ struct SceneRecord {
     /// Names of members to drop from the party on scene advance (story scenes only).
     #[serde(default)]
     party_remove: Vec<String>,
+    #[serde(default)]
+    options: Vec<ChoiceOptionRecord>,
+}
+
+#[derive(Deserialize)]
+struct ChoiceOptionRecord {
+    label: String,
+    set_flag: String,
 }
 
 #[derive(Deserialize)]
@@ -195,8 +217,87 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
                     location: s.location,
                     on_victory_flags: s.on_victory_flags,
                 },
-                other => panic!("{path}: unknown scene type '{other}' (expected 'story' or 'combat')"),
+                "choice" => SceneDef::Choice {
+                    prompt: s.lines.unwrap_or_default().into_iter()
+                        .map(|l| DialogueLine {
+                            speaker: l.speaker,
+                            text: l.text,
+                            requires_flag: l.requires_flag,
+                        })
+                        .collect(),
+                    options: s.options.into_iter()
+                        .map(|o| ChoiceOption { label: o.label, set_flag: o.set_flag })
+                        .collect(),
+                },
+                other => panic!("{path}: unknown scene type '{other}' (expected 'story', 'combat', or 'choice')"),
             })
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `type = "choice"` scene with two options and a prompt line parses into
+    /// `SceneDef::Choice` with the correct prompt and options.
+    #[test]
+    fn parse_choice_scene_with_prompt_and_options() {
+        let toml = r#"
+name = "test"
+party = []
+
+[[scenes]]
+type = "choice"
+
+[[scenes.lines]]
+speaker = "Narrator"
+text = "What do you do?"
+
+[[scenes.options]]
+label = "Help"
+set_flag = "helped"
+
+[[scenes.options]]
+label = "Ignore"
+set_flag = "ignored"
+"#;
+        let scen = parse_scenario_body("s1", "test.toml", toml);
+        assert_eq!(scen.scenes.len(), 1);
+        let SceneDef::Choice { prompt, options } = &scen.scenes[0] else {
+            panic!("expected Choice variant");
+        };
+        assert_eq!(prompt.len(), 1);
+        assert_eq!(prompt[0].speaker, "Narrator");
+        assert_eq!(prompt[0].text, "What do you do?");
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[0].label, "Help");
+        assert_eq!(options[0].set_flag, "helped");
+        assert_eq!(options[1].label, "Ignore");
+        assert_eq!(options[1].set_flag, "ignored");
+    }
+
+    /// A `type = "choice"` scene with `lines` omitted → empty prompt, options
+    /// still parsed correctly.
+    #[test]
+    fn parse_choice_scene_omitted_lines_gives_empty_prompt() {
+        let toml = r#"
+name = "test"
+party = []
+
+[[scenes]]
+type = "choice"
+
+[[scenes.options]]
+label = "Go"
+set_flag = "went"
+"#;
+        let scen = parse_scenario_body("s1", "test.toml", toml);
+        let SceneDef::Choice { prompt, options } = &scen.scenes[0] else {
+            panic!("expected Choice variant");
+        };
+        assert!(prompt.is_empty(), "prompt should be empty when lines omitted");
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].set_flag, "went");
     }
 }
