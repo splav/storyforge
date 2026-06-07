@@ -24,6 +24,13 @@
 
 ## Атом 1 — Persistent-флаги + `on_defeat: proceed` + objectives (L)
 
+> **Прогресс:** ✅ **срез A готов** (коммит `80300ab`) — хранилище `CampaignState.flags` +
+> `CampaignProgress.flags` (V1 in-place), запись `on_victory_flags` на `OnEnter(Victory)` до
+> autosave, load-восстановление, `requires_flag` читает из набора, `active_flags` удалён,
+> `record_progress(&CampaignState)`. Поведение ch1/ch2 сохранено, SCHEMA не тронут, +6 тестов (1405).
+> ⏳ **Срез B (остаётся):** `[[encounters.objectives]]` + `objective_met` + `on_defeat: proceed`
+> + defeat-overlay/input — даёт лодку (`boat_saved`), условные флаги и BLOCKER-кусок state-machine.
+
 ### Модель данных
 - `CampaignState` (`src/game/resources.rs:468`): `+ flags: BTreeSet<String>`.
 - `CampaignProgress` (`src/persistence/save_repo.rs:25`): `+ #[serde(default)] flags: Vec<String>` (V1 расширяется in-place, новой версии не надо). **`record_progress`** (`save_repo.rs:104`) — передавать `&CampaignState` целиком вместо позиционных полей (заодно лечит too_many_arguments).
