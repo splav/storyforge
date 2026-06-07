@@ -13,7 +13,7 @@
 |---|---|---|---|
 | A | **Теги цели (Атом 3)** | **РЕАЛИЗОВАТЬ** — заказчик выбрал гарантию. `Unit.tags: Set<Tag>` через стек | один примитив, 2 потребителя: предикат хила пастуха (Б.2, `requires: symbiote`) + аура накопителя и её гарантированный обрыв в фазе 3 (Б.4). SCHEMA-bump легитимен |
 | B | Хранилище флагов | **Единый `flags: BTreeSet<String>`** | строковый contract уже есть (`requires_flag: Option<String>`); убирает `BoutKey`/`Outcome`/`Map` из сейва; миграция ch1-флагов тривиальна (они уже строки) |
-| C | `injured` на Aldric | **Постоянный на весь бой 2** (`PERMANENT`-длительность, как stun Эрика); «затухает после» = свежий спавн боя 3 | избегаем «вылечился к середине боя 2»; один механизм вместо двух |
+| C | `injured` на Aldric | **Обобщено в Атоме 5** (status-fold): `PERMANENT`-статус, `add` перед боем 2; снять/ослабить/забаффать — `remove`+`add` в поздней сцене (арка восстановления) | «однобоевая рана» — частный паттерн фолда; нарративная гибкость без потери C-поведения |
 | D | Оценка objectives | **Чистая `fn objective_met(cond, final_state) -> bool`** отдельно от `determine_outcome` | `determine_outcome` несёт семантику «KeepAlive-death → defeat», для objective не годится |
 | E | SCHEMA-bump | **Атомы 3 и 4 — одним инкрементом** (46→47): `Unit.tags` + `Effect::AddTag/RemoveTag` (А3) и `Effect::TickHeal` (А4) | один разрыв совместимости трейсов вместо двух |
 
@@ -175,18 +175,26 @@ ActorView/ActionState×3. **Оценка: L.**
 
 ---
 
-## Атом 5 — Стартовый статус на партийца (S, `injured` на Aldric)
+## Атом 5 — Нарративные персистентные статусы (S→M, `injured` на Aldric) ✅ ГОТОВ
 
-- `EncounterDef` (`encounters.rs`): `+ start_statuses: Vec<StartStatusDef{unit_name, status, duration}>`; TOML `#[serde(default)]`.
-- Навешивание: `spawn_combatants` (`src/scenario/combat_scene.rs`) после спавна — найти entity по `Name == unit_name`, вставить `StatusEffects`-запись `ActiveStatus{ id, rounds_remaining: PERMANENT, dot_per_tick:0, applier: self }`. **Постоянный на бой 2** (решение C); `applier=self` корректно тикает/живёт на ходах носителя.
-- `from_ecs` перенесёт в engine `Unit.statuses` → `RefreshAggregates` учтёт `−1 броня/−1 скорость` с 1-го раунда.
-- Статус `injured`: `armor_bonus=-1, speed_bonus=-1` (выразимо, новый код не нужен).
-- Матчинг по **чистому** партийному `Name` (`combat_scene.rs:132`; у врагов Name = display_name `"{race} {name}"` — Aldric партиец, чистое имя). **Валидировать `unit_name`** в `validate_scenario` (как victory-names, `scenarios.rs:427`) — иначе опечатка молча не навесит.
-- Стэк с провокацией: `injured(armor_bonus -1)` + `defending` суммируются в `RefreshAggregates` корректно. Провокацию не трогаем.
+> **Пересмотрено и обобщено** (план прошёл plan-critic-reviewer: APPROVE WITH CHANGES).
+> Вместо узкого `EncounterDef.start_statuses` (по одному энкаунтеру) — **status-fold по сюжету**:
+> story-сцены добавляют/снимают персистентные статусы на партийцах, фолдятся по `scene_index`
+> (как membership → **без save-стейта**) и ре-применяются на каждом спавне. Это поглощает кейс
+> «однобоевая рана» (решение C = `add` перед боем + `remove` после) и даёт арку восстановления
+> (рана → слабее → бафф), авторскую в сюжете.
 
-### Тесты
-- inline: парс `start_statuses`; validate unknown unit_name/status → panic.
-- full-app: в бою 2 у Aldric с 1-го раунда `armor_bonus=-1`/`speed-1`; в бою 3 статуса нет (свежий спавн).
+- `SceneDef::Story { …, status_ops: Vec<PartyStatusOp> }`; `PartyStatusOp = Add|Remove{unit_name, status_id}` — **единый упорядоченный список** (детерминизм по порядку объявления, без межсписочной неоднозначности). TOML: `[[scenes.status_ops]]` с `op="add"|"remove"`.
+- Фолд `active_party_statuses(scen, up_to)` (`scenarios.rs`, рядом с `active_party`): add (дедуп) / remove в порядке.
+- Применение: `spawn_combatants` (обе ветки — template до `continue`), `StatusEffects` с `PERMANENT_DURATION` + `applier=Some(self)`. `from_ecs` **запекает** `−1 броня/−1 скорость` при конструировании `Unit` → корректно с 1-го раунда (engine-путь `apply_initial_statuses` сюда НЕ годится — фан-аут `RefreshAggregates` не идёт на раунде 1; критик подтвердил).
+- Статус `injured`: `armor_bonus=-1, speed_bonus=-1` в `statuses.toml` (нового engine-кода нет). Стэкается с `defending` через сумму агрегатов.
+- Валидация (`validate_scenario`): `unit_name` ∈ `active_party(scen, scene_idx+1)` (член присутствует ПОСЛЕ сцены — иначе тихий no-op → load-ошибка); `status_id` ∈ контент.
+
+### Тесты (есть)
+- inline (`scenarios.rs`): парс `status_ops`/`op`; фолд (накопление, add+remove в порядке, дедуп, remove несуществующего — no-op); неизвестный `op` → panic.
+- inline (`resources.rs`): validate unknown unit / unknown status → panic; валидный проход (на `load_global_for_tests`).
+- bridge (`bridge_projector.rs`): `from_ecs` запекает агрегаты пресид-статуса с 1-го раунда.
+- AI (`snapshot_tests.rs`): персистентный статус виден в `UnitSnapshot`.
 
 ---
 
@@ -207,7 +215,7 @@ ActorView/ActionState×3. **Оценка: L.**
 1. **Атом 1** — фундамент (`CampaignState.flags`, objectives, defeat-proceed wiring). Самый дорогой и тонкий (state-machine × autosave).
 2. **Атом 2** — сразу после (пишет в `flags`).
 3. **Атомы 3 + 4** — теги + HoT, **одним SCHEMA-bump** (46→47). Атом 3 после/параллельно Атому 1.
-4. **Атом 5** — start-status (независим).
+4. **Атом 5** ✅ — нарративные персистентные статусы (`status_ops` фолд; обобщил start-status).
 5. **Атом 6** — verify (после контента боя 2; зависит от Атома 3 — фильтр в legality).
 
 **Волна 2 (контент):** энкаунтеры боёв (теги юнитов; накопитель + аура `affects_tags`; фаза-3

@@ -521,9 +521,48 @@ name = "Магистр"
 
 This pattern fully replaces the legacy `[[encounters.npcs]]` section — no per-encounter NPC wiring; every unit goes through the unified party flow.
 
+### Persistent statuses (`status_ops`)
+
+A story scene can apply or remove a **persistent status** on a named party member —
+e.g. a wound set narratively when it happens and carried into later fights. These fold
+across scenes exactly like party membership (derived from `scene_index`, so they add **no
+save state**) and are re-applied at every combat spawn until a later scene removes them.
+
+```toml
+[[scenes]]
+type = "story"
+lines = [ { speaker = "Орен", text = "Я перевязал, но рана останется." } ]
+
+# Single ORDERED list — ops apply in declaration order when folded.
+[[scenes.status_ops]]
+op = "add"
+unit_name = "Aldric"      # must be in the party at this scene
+status_id = "injured"     # must exist in statuses.toml
+
+# A later scene can soften the wound, or even turn it into a buff:
+# [[scenes.status_ops]]
+# op = "remove"  ... unit_name = "Aldric"  status_id = "injured"
+# [[scenes.status_ops]]
+# op = "add"     ... unit_name = "Aldric"  status_id = "injured_minor"
+```
+
+- **Ordered, not two lists.** `status_ops` is one ordered list of `add`/`remove`; it folds
+  in declaration order across scenes, so `add X … remove X … add Y` composes exactly as
+  written. Adds dedupe (a status appears at most once per unit).
+- **Permanent-per-bout.** Each `add` grants a `PERMANENT`-duration status, re-derived and
+  re-applied at every combat spawn until a later scene removes it — it never ticks away
+  mid-fight. A one-bout debuff is just `add` in the scene before the fight + `remove` in the
+  scene after.
+- **Status content.** `status_id` is a regular `statuses.toml` entry; a stat condition like
+  `injured` is just `armor_bonus`/`speed_bonus` (no engine code). It stacks with combat
+  statuses (e.g. `defending`) through the normal aggregate sum, and is visible to the AI.
+- **Validated at load.** `unit_name` must be in the party after that scene and `status_id`
+  must exist — a typo fails loudly instead of silently doing nothing.
+
 ### Derived state (no runtime storage)
 
 - **Active party** at scene N = starting `[[party]]` + all `party_add` / `party_remove` from story scenes 0..N-1, folded in order. Save files only store `scene_index`; the party is re-derived on load.
+- **Persistent statuses** on party members at scene N = fold of all `status_ops` over story scenes 0..N-1, in declaration order. Derived (no save state), re-applied at each combat spawn — same as the party itself.
 - **Flags are persisted, not derived.** Combat outcomes write into `CampaignState.flags`
   (saved in `CampaignProgress.flags`, restored on load) via the two mechanisms above. Earlier
   builds re-scanned `on_victory_flags` from all prior combat scenes each frame; that derivation
