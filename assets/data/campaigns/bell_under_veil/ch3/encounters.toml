@@ -1,0 +1,251 @@
+# Энкаунтеры главы III «Остров швов».
+# Дизайн — ch3/docs/description.md §3-6 + engine-requirements.md (Б.1-Б.5).
+# Шаблоны — ch3/unit_templates.toml. Партия в боях 2-4 — ВЧЕТВЕРОМ (с Ореном);
+# баланс под четверых + ослабленный `injured` Aldric — Фаза 5 (плейтест).
+#
+# КООРДИНАТЫ (как ch2): 7 рядов (0..6), ряды чередуют ширину (game/hex.rs):
+# ЧЁТНЫЕ ряды (0,2,4,6) — колонки 0..6, НЕЧЁТНЫЕ (1,3,5) — колонки 0..7.
+# Партия спавнится на западе (col 0..1, scenario.toml), враги — на востоке (col 5..7).
+#
+# on_defeat не задаётся нигде → дефолт `retry` (wipe → рестарт боя): нарратив
+# требует победы, чтобы войти на Остров / продвинуться. Лодка — чистая вторичная
+# цель (keep_alive objective), её гибель = флаг boat_saved=false, НЕ проигрыш.
+#
+# NonActingNpc: лодка — на стороне партии через [[scenes.party_add]] + perma-stun
+# (scenario.toml, паттерн Эрика ch2); Тэо/накопитель/Хорст — враги с perma-`stunned`
+# (никогда не ходят, но атакуемы); victory избегает требовать их смерти, где не нужно.
+
+# ── Бой 1: Высадка на берегу ──────────────────────────────────────────────────
+# Дальняя бухта. Партия высадилась малой лодкой (Лодка — NonActingNpc на стороне
+# партии, добавлена в scenario.toml перед боем). Победа — перебить патруль; ЛОДКУ
+# при этом надо уберечь: дальние искры охраны могут её подбить. Вторичная цель
+# `boat_saved` (скрытая): лодка жива в конце → флаг → штатный путь назад (эпилог).
+# Урок главы: не всё решается убийством — есть что прикрывать.
+[[encounters]]
+id      = "ch3_landing"
+name    = "Высадка на берегу"
+victory = { type = "all_enemies_dead" }
+
+[[encounters.objectives]]
+id        = "boat_saved"
+hidden    = true
+condition = { type = "keep_alive", target_name = "Лодка" }
+
+# Камни и плавник на берегу — преграды (движение + LOS), дают позиции прикрыть лодку.
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 2
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 4
+[[encounters.obstacles]]
+hex_col = 3
+hex_row = 5
+
+# Тяжёлый охранник держит линию впереди; двое био-стрелков и сигнальщик — за ним.
+[[encounters.enemies]]
+template = "heavy_guard"
+hex_col  = 5
+hex_row  = 3
+
+[[encounters.enemies]]
+template = "bio_guard"
+hex_col  = 6
+hex_row  = 2
+[[encounters.enemies]]
+template = "bio_guard"
+hex_col  = 6
+hex_row  = 4
+
+# Сигнальщик — на фланге, «рвётся звать своих» (флейвор); приоритетная цель.
+[[encounters.enemies]]
+template = "signaler"
+hex_col  = 7
+hex_row  = 5
+
+[[encounters.enemies]]
+template = "bio_guard"
+hex_col  = 7
+hex_row  = 1
+
+# ── Бой 2: Лаборатории / Живые анфилады ───────────────────────────────────────
+# Тактический центр главы: «бей лекаря в тылу, а не танка, который не падает».
+# Боевые симбионты (тег `symbiote` → их лечит пастух) толстые и медленные; пастухи
+# (1 AP, хлипкие, в тылу) каждый ход латают симбионта (+3 HP, только цель с тегом
+# `symbiote`). Урок: снять пастуха или фокусить, а не размазывать. Лира (pierce) —
+# структурный ответ против брони 3. Орен — свой лекарь (симметрия усиливает урок).
+[[encounters]]
+id      = "ch3_labs"
+name    = "Живые анфилады"
+victory = { type = "all_enemies_dead" }
+
+# Стойки, баки, оборудование лаборатории — преграды (движение + LOS).
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 3
+[[encounters.obstacles]]
+hex_col = 3
+hex_row = 2
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 5
+
+# Боевые симбионты — фронт (теги задаются здесь, нужны для предиката хила пастуха).
+[[encounters.enemies]]
+template = "combat_symbiote"
+tags     = ["symbiote", "corporeal", "living"]
+hex_col  = 5
+hex_row  = 3
+[[encounters.enemies]]
+template = "combat_symbiote"
+tags     = ["symbiote", "corporeal", "living"]
+hex_col  = 6
+hex_row  = 2
+[[encounters.enemies]]
+template = "combat_symbiote"
+tags     = ["symbiote", "corporeal", "living"]
+hex_col  = 6
+hex_row  = 4
+
+# Пастухи — в тылу за симбионтами. Приоритетные цели боя.
+[[encounters.enemies]]
+template = "shepherd"
+hex_col  = 7
+hex_row  = 1
+[[encounters.enemies]]
+template = "shepherd"
+hex_col  = 7
+hex_row  = 5
+
+# ── Бой 3: Встреча с Тэо ──────────────────────────────────────────────────────
+# Главная лаборатория. Тэо спокоен — он ждал (NonActingNpc, perma-stun, за линией
+# подопытных; его смерть = победа, theo_fate=killed). За ним — линия одержимых
+# носителей (жертвы Колма, среди них Маркен Лесогор — личная ставка Kael).
+# Победа — повергнуть Тэо. Вторичная цель `marken_killed`: убил ли Маркена по пути
+# (рубишь линию → killed; прорвался к Тэо в обход → Маркен жив → эпилог=possessed).
+#
+# Ветка «переговоры» (theo_fate=surrendered) пропускает этот бой целиком —
+# story-choice в scenario.toml (Вставка/Сцена перед боем).
+[[encounters]]
+id      = "ch3_theo"
+name    = "Встреча с Тэо"
+victory = { type = "kill_target", enemy_name = "Эразм Тэо", marker_color = [0.60, 0.30, 0.80] }
+
+# Записать положительные флаги по факту боевого исхода (читаются эпилогом).
+[[encounters.objectives]]
+id        = "theo_killed"
+hidden    = true
+condition = { type = "kill_target", enemy_name = "Эразм Тэо" }
+[[encounters.objectives]]
+id        = "marken_killed"
+hidden    = true
+condition = { type = "kill_target", enemy_name = "Маркен Лесогор" }
+
+# Перегородки главной лаборатории — преграды; за ними Тэо «дирижирует».
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 3
+[[encounters.obstacles]]
+hex_col = 3
+hex_row = 2
+
+# Тэо — за линией, не действует (perma-stun из шаблона). Кого надо повергнуть.
+[[encounters.enemies]]
+template = "theo"
+hex_col  = 7
+hex_row  = 3
+
+# Линия подопытных. Маркен — впереди (его легче зацепить, рубя линию).
+[[encounters.enemies]]
+template = "possessed_host"
+name     = "Маркен Лесогор"
+hex_col  = 5
+hex_row  = 3
+[[encounters.enemies]]
+template = "possessed_host"
+hex_col  = 6
+hex_row  = 2
+[[encounters.enemies]]
+template = "possessed_host"
+hex_col  = 6
+hex_row  = 4
+[[encounters.enemies]]
+template = "possessed_host"
+hex_col  = 7
+hex_row  = 5
+
+# ── Бой 4: Финал «Контейнер» ──────────────────────────────────────────────────
+# Центральный зал. 3-фазный «расконтейнинг»: оболочка (танк) → Гость проступает
+# (маг) → Несобранное (подвижный). Фазы — swap-шаблоны на порогах HP; HP переносится
+# (без heal_to_full) — непрерывное проламывание 30→0.
+#
+# Накопитель («живая батарея» за спиной босса) эмитит баф-ауру на Контейнер
+# (`affects_tags = {symbiote}`): пока жив и босс носит `symbiote` — +3 брони.
+# Выбил накопитель → ослабил босса (callback к бою 2). В фазе 3 Контейнер теряет
+# `symbiote` (→ `incorporeal`) → аура его уже не видит, питание отрезано «в любом
+# случае» (лор-native). Победа — уничтожить Контейнер.
+[[encounters]]
+id      = "ch3_container"
+name    = "Контейнер"
+victory = { type = "kill_target", enemy_name = "Контейнер", marker_color = [0.85, 0.30, 0.20] }
+
+# Колонны/оборудование центрального зала — преграды (позиционирование, LOS, кайтинг ф.3).
+[[encounters.obstacles]]
+hex_col = 4
+hex_row = 3
+[[encounters.obstacles]]
+hex_col = 3
+hex_row = 4
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 1
+
+# Контейнер — 3-фазный босс. Старт ф.1 «Изделие»: теги {symbiote, corporeal}
+# (кормят ауру), высокая броня, низкий урон мили. Блок phases привязан к этому юниту.
+[[encounters.enemies]]
+template = "container"
+tags     = ["symbiote", "corporeal"]
+hex_col  = 6
+hex_row  = 3
+# Ф.2 «Гость проступает» при HP < 66%: маг (spell_damage + контроль), броня средняя.
+# tags не заданы → СОХРАНЯЮТСЯ {symbiote, corporeal} (аура ещё кормит).
+[[encounters.enemies.phases]]
+hp_below_pct = 66
+template     = "container_phase2"
+flavor       = "Оболочка трескается — из швов лезет свет и чужие голоса. Гость проступает."
+# Ф.3 «Несобранное» при HP < 33%: подвижный дальнобой, броня 0. tags ЗАМЕНЯЮТСЯ на
+# {aberration, incorporeal} → снимается symbiote → аура накопителя его теряет.
+[[encounters.enemies.phases]]
+hp_below_pct = 33
+template     = "container_phase3"
+tags         = ["aberration", "incorporeal"]
+flavor       = "Оболочка пала. То, что было внутри, больше ничем не удерживается — и не собирается обратно."
+
+# Накопитель — за спиной босса, неподвижен (perma-stun). Баф-аура на носителей
+# тега `symbiote` среди союзников (т.е. на Контейнер ф.1-2). Радиус 2 от (7,3)
+# накрывает Контейнер (6,3). Выбить → ослабить босса.
+[[encounters.enemies]]
+template = "accumulator"
+hex_col  = 7
+hex_row  = 3
+aura     = { status = "accumulator_field", radius = 2, affects = "allies", affects_tags = ["symbiote"] }
+
+# Два охранника прикрытия (переиспользованный bio_guard) — защищают подход к боссу.
+[[encounters.enemies]]
+template = "bio_guard"
+name     = "Охранник прикрытия"
+hex_col  = 5
+hex_row  = 2
+[[encounters.enemies]]
+template = "bio_guard"
+name     = "Охранник прикрытия"
+hex_col  = 5
+hex_row  = 4
+
+# Мастер Хорст — переговорщик, не боец (perma-stun). Не боевая угроза; стоит в
+# тылу. victory = kill_target(Контейнер), поэтому его жизнь победе не мешает —
+# падает/сдаётся по факту уничтожения создания (нарратив — scenario.toml).
+[[encounters.enemies]]
+template = "horst"
+hex_col  = 7
+hex_row  = 5
