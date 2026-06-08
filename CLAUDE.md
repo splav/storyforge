@@ -68,7 +68,8 @@ Dev-цикл идёт через фичу `dev`, которая включает
 cargo build  --features dev      # сборка
 cargo run    --features dev      # запуск (открывает окно Bevy)
 cargo check  --features dev      # быстрая проверка без линковки
-cargo clippy --features dev      # линтер
+cargo clippy --workspace --features dev --tests   # линтер (--tests ловит ворнинги в test-таргетах; держим zero-warning baseline)
+cargo fmt --all                  # форматирование всего воркспейса (без --features; чисто whitespace)
 
 # Тесты — через cargo-nextest (3× быстрее warm, 10× при filter)
 cargo nextest run --workspace --features dev               # ВСЯ suite воркспейса — канон (~4 s warm)
