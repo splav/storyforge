@@ -92,7 +92,7 @@ victory-only флаге сворачивается в сахар над `objecti
 
 ---
 
-## Атом 3 — Теги цели: `Unit.tags` + предикаты (L–XL) — planner+critic ✅, режется A/B/C
+## Атом 3 — Теги цели: `Unit.tags` + предикаты (L–XL) ✅ ГОТОВ (A `f30ad92`, B `3a175b3`, C1 `a464dce`, C2 `b00638e`)
 
 Плоский `Set<Tag>` на юните, **аддитивно** (движкового `race` нет — content `race` остаётся
 display-only). Предикаты `requires`/`excludes` у способностей, `affects_tags` у ауры, смена тегов
@@ -221,7 +221,7 @@ TOML+bridge-зеркала (`EnemyDef.tags`, `AuraSource.affects_tags`, `Validat
 **Волна 1 (движковые примитивы):**
 1. **Атом 1** — фундамент (`CampaignState.flags`, objectives, defeat-proceed wiring). Самый дорогой и тонкий (state-machine × autosave).
 2. **Атом 2** — сразу после (пишет в `flags`).
-3. **Атом 4** ✅ — HoT (SCHEMA 46→47). **Атом 3** — теги (SCHEMA 47→48), отдельно.
+3. **Атом 4** ✅ — HoT (SCHEMA 46→47). **Атом 3** ✅ — теги (SCHEMA 47→48), A/B/C1/C2.
 4. **Атом 5** ✅ — нарративные персистентные статусы (`status_ops` фолд; обобщил start-status).
 5. **Атом 6** — verify (после контента боя 2; зависит от Атома 3 — фильтр в legality).
 
