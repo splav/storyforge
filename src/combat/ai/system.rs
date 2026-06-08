@@ -81,10 +81,15 @@ pub fn enemy_ai_system(
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
-    if c.faction.0 != Team::Enemy
-        || !c.vital.is_alive()
-        || c.abilities.is_none_or(|a| a.0.is_empty())
-    {
+    // Player / dead actors are resolved by other systems — don't touch the turn.
+    if c.faction.0 != Team::Enemy || !c.vital.is_alive() {
+        return;
+    }
+    // Alive enemy with no abilities = non-acting NPC (e.g. perma-stunned roster
+    // units like Тэо / Хорст / накопитель). It cannot act, so end its turn
+    // explicitly — otherwise the active turn is never advanced and combat hangs.
+    if c.abilities.is_none_or(|a| a.0.is_empty()) {
+        msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
     }
     let session_id = session
