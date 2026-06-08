@@ -843,10 +843,22 @@ pub fn apply_effect(
                 .and_then(|u| u.check_phase_trigger(u.hp(), prev_max_hp))
                 .map(|(_, t)| t);
 
+            // Capture tag replacement before consuming the transition.
+            let new_tags = transition.as_ref().and_then(|t| t.tags.clone());
+
             // Consume the just-triggered phase entry from engine state.
             if let Some(u) = state.unit_mut(*unit) {
                 if !u.enemy_phases.is_empty() {
                     u.enemy_phases.remove(0);
+                }
+            }
+
+            // Apply tag REPLACE if the phase carries a new tag-set.
+            // Done in-arm, before derived stat effects, so it lands between
+            // step.rs's before/after aura-membership snapshots.
+            if let Some(tags) = new_tags {
+                if let Some(u) = state.unit_mut(*unit) {
+                    u.tags = tags;
                 }
             }
 

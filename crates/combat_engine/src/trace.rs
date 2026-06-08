@@ -69,6 +69,9 @@ use crate::{
 /// v47 → v48: `Unit.tags` (BTreeSet<TagId>) added; `#[serde(default)]` → empty on pre-v48 traces.
 ///            (Additive; Slices B/C add `AuraDef.affects_tags` + `PhaseEntry.tags` to the same v48 wire shape.)
 ///            Slice B adds `AuraDef.affects_tags` (also in `Unit.auras` wire, `#[serde(default)]`).
+///            Slice C1 adds `PhaseEntry.tags` (`Option<BTreeSet<TagId>>`, phase tag-replace,
+///            `#[serde(default)]` → `None` on pre-C1 traces); `PhaseTransition.tags` carries the
+///            same value at runtime (not serialized separately).
 pub const SCHEMA_VERSION: u32 = 48;
 
 // ── Record types ─────────────────────────────────────────────────────────────

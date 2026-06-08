@@ -285,7 +285,7 @@ fn replay_phase_trigger() {
 
     // Boss: 100 hp, 50% threshold at 50 hp. Fixed damage of 60 will cross it.
     let mut boss = make_unit(2, Team::Enemy, 100, 100, Hex::new(1, 0));
-    boss.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 150, heal_to_full: false }];
+    boss.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 150, heal_to_full: false, tags: None }];
 
     let mut state = CombatState::new(
         vec![attacker, boss],

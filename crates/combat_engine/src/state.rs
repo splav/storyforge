@@ -677,6 +677,7 @@ impl Unit {
             new_armor: 0,
             new_base_speed: 0,
             heal_to_full: entry.heal_to_full,
+            tags: entry.tags.clone(),
         }))
     }
 }

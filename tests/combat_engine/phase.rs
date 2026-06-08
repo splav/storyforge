@@ -75,7 +75,7 @@ fn phase_trigger_fires_at_threshold() {
     // Boss: 100 max_hp, starts at 60 hp. Damage=25 → hp becomes 35 → crosses 50%.
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false }]),
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false, tags: None }]),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -105,7 +105,7 @@ fn non_triggering_damage_no_enter_phase() {
     // Boss at 90 hp (100 max). Damage=10 → hp=80 → still above 50%.
     let mut state = make_state(
         vec![
-            make_boss(1, 90, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false }]),
+            make_boss(1, 90, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false, tags: None }]),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -134,7 +134,7 @@ fn preempt_death_phase_revives_unit() {
     // Phase fires at 50% with heal_to_full=true and new_max_hp=120.
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true }]),
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true, tags: None }]),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -182,7 +182,7 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
     // Boss at 60 hp (100 max). Phase at 50%; new_max_hp=150, heal_to_full=false.
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 150, heal_to_full: false }]),
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 150, heal_to_full: false, tags: None }]),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -248,8 +248,8 @@ fn multi_threshold_each_damage_fires_own_phase() {
     let mut state = make_state(
         vec![
             make_boss(1, 100, 100, vec![
-                PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false },
-                PhaseEntry { pct: 25, new_max_hp: 120, heal_to_full: false },
+                PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false, tags: None },
+                PhaseEntry { pct: 25, new_max_hp: 120, heal_to_full: false, tags: None },
             ]),
             make_attacker(2),
         ],
@@ -309,7 +309,7 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
     // Only the boss (uid=1) has enemy_phases; "other" has none → dies normally.
     let mut state = make_state(
         vec![
-            make_boss(1, 100, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true }]),
+            make_boss(1, 100, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true, tags: None }]),
             make_attacker(2),
             make_unit(3, 10, 10), // no enemy_phases → dies normally
         ],
@@ -345,7 +345,7 @@ fn preempt_death_no_died_event_in_stream() {
     // Phase at 50%, heal_to_full=true, new_max_hp=100 (same as original).
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 100, heal_to_full: true }]),
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 100, heal_to_full: true, tags: None }]),
             make_attacker(2),
         ],
         vec![attacker, boss],

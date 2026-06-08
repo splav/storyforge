@@ -236,7 +236,7 @@ fn det_phase_transition() {
     let mut boss = make_unit(2, Team::Enemy, 1, 0);
     boss.pools[PoolKind::Hp] = Some((60, 100));
     // Phase triggers at 50% HP (hp ≤ 50)
-    boss.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 0, heal_to_full: false }];
+    boss.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 0, heal_to_full: false, tags: None }];
 
     let mut state = CombatState::new(vec![caster, boss], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![caster_id, boss_id], 0);

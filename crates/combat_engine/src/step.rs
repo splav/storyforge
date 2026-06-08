@@ -48,6 +48,21 @@ use crate::{
 
 const REACTION_DEPTH_LIMIT: usize = 100;
 
+/// Returns `true` for effects that can change aura membership (positions, tags,
+/// presence) and therefore require a before/after membership diff to emit
+/// `AuraStatusGained`/`AuraStatusLost`.
+///
+/// Note: `Spawn` is intentionally excluded — adding it would shift existing
+/// summon traces; that is deferred to a later slice.
+fn effect_changes_aura_membership(e: &crate::effect::Effect) -> bool {
+    matches!(
+        e,
+        crate::effect::Effect::MovePosition { .. }
+            | crate::effect::Effect::Death { .. }
+            | crate::effect::Effect::EnterPhase { .. }
+    )
+}
+
 // ── EngineCheckState ──────────────────────────────────────────────────────────
 
 /// `ActionState` adapter for engine-side legality checks during `step()`.
@@ -691,9 +706,9 @@ fn step_inner(
             None
         };
 
-        // Aura diff-on-move/death (4c): snapshot membership BEFORE the effect.
+        // Aura diff-on-move/death/phase (4c + slice C1): snapshot membership BEFORE the effect.
         // Per-effect snapshots (not per-step) so intermediate transitions are captured.
-        let aura_snap_before = if matches!(&effect, Effect::MovePosition { .. } | Effect::Death { .. }) {
+        let aura_snap_before = if effect_changes_aura_membership(&effect) {
             Some(state.aura_membership_set(content))
         } else {
             None

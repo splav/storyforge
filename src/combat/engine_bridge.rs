@@ -1966,7 +1966,7 @@ pub fn bootstrap_combat_state(
             unit.enemy_phases = phases.pending.iter().map(|phase| {
                 let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
                 let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
-                combat_engine::PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full }
+                combat_engine::PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full, tags: None }
             }).collect();
         }
     }

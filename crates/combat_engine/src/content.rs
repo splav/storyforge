@@ -361,6 +361,10 @@ pub struct PhaseTransition {
     /// If true, the cascade sets `hp = new_max_hp` via `Heal`, allowing a
     /// lethal hit to be reversed before `Effect::Death` is derived.
     pub heal_to_full: bool,
+    /// Full tag-set replacement for the unit.  `None` = keep current tags;
+    /// `Some(set)` = REPLACE `Unit.tags` with this set.  Applied in the
+    /// `EnterPhase` effect arm before derived stat effects.
+    pub tags: Option<std::collections::BTreeSet<crate::TagId>>,
 }
 
 /// Per-phase trigger data stored on `Unit.enemy_phases`.
@@ -378,6 +382,11 @@ pub struct PhaseEntry {
     pub new_max_hp: i32,
     /// Whether to heal the unit to `new_max_hp` after the phase fires.
     pub heal_to_full: bool,
+    /// Full tag-set replacement for the unit on phase entry.
+    /// `None` = keep current tags; `Some(set)` = REPLACE `Unit.tags`.
+    /// `#[serde(default)]` ensures old traces without this field read as `None`.
+    #[serde(default)]
+    pub tags: Option<std::collections::BTreeSet<crate::TagId>>,
 }
 
 /// Static content lookup for the engine.

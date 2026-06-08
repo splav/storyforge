@@ -370,6 +370,7 @@ fn phase_transition_roundtrip() {
         new_armor: 5,
         new_base_speed: 4,
         heal_to_full: true,
+        tags: None,
     });
 }
 

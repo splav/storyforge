@@ -78,3 +78,4 @@ mod determinism;
 #[path = "combat_engine/initiative.rs"] mod initiative;
 #[path = "combat_engine/hot.rs"] mod hot;
 #[path = "combat_engine/tags.rs"] mod tags;
+#[path = "combat_engine/phase_tags.rs"] mod phase_tags;
