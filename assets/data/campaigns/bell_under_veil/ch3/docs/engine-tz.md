@@ -90,6 +90,19 @@ victory-only флаге сворачивается в сахар над `objecti
 - inline: парс `type="choice"`; пустые options → panic.
 - full-app: выбор пишет флаг; ветка-реплика по `requires_flag` показывается/скрывается; пройденный выбор не повторяется.
 
+> **Поправка по факту реализации (Волна 2).** Строка «ветвление через
+> существующий `DialogueLine.requires_flag`» оказалась неполной: line-level
+> гейт прячет только **реплики**, поток сцен линеен и **не умеет пропускать
+> бой**. Для Б.3 («переговоры → бой 3 пропущен») и 3-исходного эпилога
+> добавлены два примитива (Атом 2.5).
+
+## Атом 2.5 — Ветвление потока сцен (Волна 2, app-side, без SCHEMA) ✅ ГОТОВ
+
+- **scene-level `requires_flag: Option<String>`** на всех вариантах `SceneDef` + аксессор `requires_flag()` (`c32cbcd`). `skip_invisible`→`should_skip`/`skip_skipped(flags)`; флаги протянуты в `advance_scenario_system` и `enter_scenario_at` (save-load симметрия); нет кампании ⇒ пустой набор. `enter_scenario_at` больше не паникует на all-gated-tail / non-campaign — graceful MainMenu.
+  - **Контракт:** скип `Combat`-сцены отбрасывает её `on_victory_flags`/objective-флаги → ветка-замена сама выставляет нужные downstream-флаги (`docs/architecture.md`).
+- **line-level `excludes_flag: Option<String>`** (`a3eff0b`) — негатив к `requires_flag` (`line_visible(l, flags)` на обоих фильтр-сайтах story_ui). «Else»-ветки без позитивного флага: лодка потеряна = `excludes boat_saved`; Маркен одержим = `requires theo_killed` + `excludes marken_killed`.
+- Тесты: +12 (scene skip/play, branch, skipped-combat flag-loss, all-gated tail no-panic, save-load reentry, none-campaign) + 5 (excludes truth-table).
+
 ---
 
 ## Атом 3 — Теги цели: `Unit.tags` + предикаты (L–XL) ✅ ГОТОВ (A `f30ad92`, B `3a175b3`, C1 `a464dce`, C2 `b00638e`)
@@ -225,8 +238,16 @@ TOML+bridge-зеркала (`EnemyDef.tags`, `AuraSource.affects_tags`, `Validat
 4. **Атом 5** ✅ — нарративные персистентные статусы (`status_ops` фолд; обобщил start-status).
 5. **Атом 6** — verify (после контента боя 2; зависит от Атома 3 — фильтр в legality).
 
-**Волна 2 (контент):** энкаунтеры боёв (теги юнитов; накопитель + аура `affects_tags`; фаза-3
-мутация тегов босса), story-ветки, кит Орена, ребаланс под четверых.
+**Волна 2 (контент + 2 примитива потока):** ✅ **посажено** (Phase 0–4):
+- Phase 0 (`146ae65`) — abilities `shepherd_heal`/`living_carapace`/`numbness` + statuses.
+- Phase 1 (`c45642b`) — 14 шаблонов ch3 + оружие `lancet` + раса `object`.
+- Phase 2 (`ba4bbfd`) — 4 энкаунтера (теги юнитов; накопитель + аура `affects_tags`;
+  фаза-3 мутация тегов босса; objectives boat_saved/theo_killed/marken_killed).
+- Атом 2.5 (`c32cbcd`+`a3eff0b`) — scene `requires_flag` + line `excludes_flag`.
+- Phase 3+4 (`04540c0`) — `scenario.toml` (21 сцена, story-ветки, кит Орена,
+  `injured` status_op, оба выбора) + регистрация ch3 в `campaign.toml`.
+- Весь контент-DB **грузится и валидируется** с ch3 (1514 тестов зелёные).
+- ⏳ **Остаётся:** Атом 6 (verify AI-хила) + ребаланс под четверых + плейтест (Phase 5).
 
 **Минимум для играбельности:** атомы 1, 2, 3, 4, 5.
 
