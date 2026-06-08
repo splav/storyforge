@@ -118,6 +118,8 @@ The two reasons compose: an invisible scene is always skipped regardless of its 
 - **Combat scene contract**: skipping a `Combat` scene discards its `on_victory_flags` and encounter objectives — those flags are never written to `CampaignState`. Any downstream scene that needs a flag from a skippable fight must receive it via the branching `Choice` option or a dedicated `Story` scene instead.
 - Non-campaign scenarios (no `CampaignState`) treat flags as empty: all `requires_flag`-gated scenes are skipped.
 
+Individual `DialogueLine` entries within a scene also support `requires_flag` (show line only when flag present) and `excludes_flag` (show line only when flag absent — the "else" branch companion).
+
 ### All-gated tail
 
 If `skip_skipped` returns `None` (all remaining scenes gated/invisible), the scenario finishes gracefully — same path as reaching the last scene normally. `enter_scenario_at` does the same (no panic) to handle save-load that lands on an all-gated tail.

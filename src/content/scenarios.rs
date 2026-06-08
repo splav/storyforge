@@ -133,6 +133,19 @@ pub struct DialogueLine {
     pub speaker: String,
     pub text: String,
     pub requires_flag: Option<String>,
+    /// When `Some(f)`, this line is hidden when `f` IS present in campaign flags
+    /// (negative companion to `requires_flag`).
+    pub excludes_flag: Option<String>,
+}
+
+/// Returns `true` if `line` should be shown given the current campaign `flags`.
+///
+/// A line is visible iff:
+/// - `requires_flag` is `None` **or** the flag is present in `flags`, **and**
+/// - `excludes_flag` is `None` **or** the flag is absent from `flags`.
+pub fn line_visible(line: &DialogueLine, flags: &std::collections::BTreeSet<String>) -> bool {
+    line.requires_flag.as_ref().is_none_or(|f| flags.contains(f))
+        && line.excludes_flag.as_ref().is_none_or(|f| !flags.contains(f))
 }
 
 /// Party active when entering scene at `up_to` (i.e. after effects of all prior scenes).
@@ -267,6 +280,8 @@ struct DialogueLineRecord {
     text: String,
     #[serde(default)]
     requires_flag: Option<String>,
+    #[serde(default)]
+    excludes_flag: Option<String>,
 }
 
 fn convert_party_record(p: PartyRecord) -> PartyMemberDef {
@@ -311,6 +326,7 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
                             speaker: l.speaker,
                             text: l.text,
                             requires_flag: l.requires_flag,
+                            excludes_flag: l.excludes_flag,
                         })
                         .collect(),
                     party_add: s
@@ -346,6 +362,7 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
                             speaker: l.speaker,
                             text: l.text,
                             requires_flag: l.requires_flag,
+                            excludes_flag: l.excludes_flag,
                         })
                         .collect(),
                     options: s.options.into_iter()
@@ -645,5 +662,84 @@ set_flag = "went"
         assert!(prompt.is_empty(), "prompt should be empty when lines omitted");
         assert_eq!(options.len(), 1);
         assert_eq!(options[0].set_flag, "went");
+    }
+
+    // ── line_visible tests ───────────────────────────────────────────────────────
+
+    fn make_line(requires: Option<&str>, excludes: Option<&str>) -> DialogueLine {
+        DialogueLine {
+            speaker: "X".into(),
+            text: "t".into(),
+            requires_flag: requires.map(str::to_string),
+            excludes_flag: excludes.map(str::to_string),
+        }
+    }
+
+    fn flags(items: &[&str]) -> std::collections::BTreeSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// No gates at all — line is always visible.
+    #[test]
+    fn line_visible_no_gates_always_shown() {
+        assert!(line_visible(&make_line(None, None), &flags(&[])));
+        assert!(line_visible(&make_line(None, None), &flags(&["any"])));
+    }
+
+    /// `excludes_flag` present: hidden when flag in set, shown when absent.
+    #[test]
+    fn line_visible_excludes_flag() {
+        let line = make_line(None, Some("seen_intro"));
+        assert!(!line_visible(&line, &flags(&["seen_intro"])), "should be hidden when excluded flag present");
+        assert!(line_visible(&line, &flags(&[])), "should be shown when excluded flag absent");
+        assert!(line_visible(&line, &flags(&["other"])), "unrelated flag does not hide line");
+    }
+
+    /// Four-corner truth table for requires+excludes on the same line.
+    #[test]
+    fn line_visible_requires_and_excludes_truth_table() {
+        let line = make_line(Some("req"), Some("exc"));
+
+        // req absent, exc absent → hidden (requires not met)
+        assert!(!line_visible(&line, &flags(&[])));
+        // req present, exc absent → shown
+        assert!(line_visible(&line, &flags(&["req"])));
+        // req absent, exc present → hidden (requires not met)
+        assert!(!line_visible(&line, &flags(&["exc"])));
+        // req present, exc present → hidden (excluded)
+        assert!(!line_visible(&line, &flags(&["req", "exc"])));
+    }
+
+    /// `excludes_flag = None` has no effect — existing requires-only behaviour unchanged.
+    #[test]
+    fn line_visible_excludes_none_is_neutral() {
+        let line_gated   = make_line(Some("flag"), None);
+        let line_ungated = make_line(None, None);
+
+        assert!(!line_visible(&line_gated,   &flags(&[])),     "requires gate respected");
+        assert!(line_visible(&line_gated,    &flags(&["flag"])), "shown when required flag present");
+        assert!(line_visible(&line_ungated,  &flags(&[])),      "no gates → always shown");
+    }
+
+    /// TOML round-trip: `excludes_flag` is parsed from TOML and threaded into the
+    /// `DialogueLine` struct (story scene).
+    #[test]
+    fn parse_story_line_excludes_flag_round_trips() {
+        let toml = r#"
+name = "test"
+party = []
+
+[[scenes]]
+type = "story"
+
+[[scenes.lines]]
+speaker = "X"
+text = "only before"
+excludes_flag = "seen_intro"
+"#;
+        let scen = parse_scenario_body("s1", "test.toml", toml);
+        let SceneDef::Story { lines, .. } = &scen.scenes[0] else { panic!("expected Story"); };
+        assert_eq!(lines[0].excludes_flag.as_deref(), Some("seen_intro"));
+        assert_eq!(lines[0].requires_flag, None);
     }
 }

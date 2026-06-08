@@ -1,6 +1,6 @@
 use super::button::{spawn_standard_button, ButtonStyle};
 use super::{ChoiceButton, StoryContinueButton, StoryScreenRoot};
-use crate::content::scenarios::{DialogueLine, SceneDef};
+use crate::content::scenarios::{line_visible, DialogueLine, SceneDef};
 use crate::game::resources::{CampaignState, GameDb, ScenarioState};
 use crate::scenario::AdvanceScenario;
 use bevy::prelude::*;
@@ -35,7 +35,7 @@ pub fn setup_story_screen(
         .unwrap_or(&empty_flags);
     let lines: Vec<DialogueLine> = all_lines
         .iter()
-        .filter(|l| l.requires_flag.as_ref().is_none_or(|f| flags.contains(f)))
+        .filter(|l| line_visible(l, flags))
         .cloned()
         .collect();
     assert!(!lines.is_empty(), "story scene has no visible dialogue lines");
@@ -190,7 +190,7 @@ pub fn setup_choice_screen(
         .unwrap_or(&empty_flags);
     let visible_prompt: Vec<DialogueLine> = prompt
         .iter()
-        .filter(|l| l.requires_flag.as_ref().is_none_or(|f| flags.contains(f)))
+        .filter(|l| line_visible(l, flags))
         .cloned()
         .collect();
 
