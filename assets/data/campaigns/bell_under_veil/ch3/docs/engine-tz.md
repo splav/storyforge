@@ -218,14 +218,20 @@ TOML+bridge-зеркала (`EnemyDef.tags`, `AuraSource.affects_tags`, `Validat
 
 ---
 
-## Атом 6 — Verify AI-хила (S→M, аудит)
+## Атом 6 — Verify AI-хила (S→M, аудит) ✅ ГОТОВ (`02dc047`)
 
-Инфра есть и идёт через legality (генератор гонит цели через `check_legality` —
-критик подтвердил, `generator.rs:154,483`); скоринг `StepFactor::Heal`
-(`src/combat/ai/scoring/factors/step/heal.rs`); критик `heal_without_rescue_value`.
-1. Тест: пастух + раненый симбионт рядом → AI выбирает `heal`, не атаку; и атакует, когда лечить некого.
-2. Если не хилит — тюнить: role-веса (`config/role.rs:308` `HEAL_IDX`), порог критика `heal_without_rescue_value`, масштаб `compute_offensive_for_step().heal`.
-3. Пассив-фолбэк — только если скоринг не чинится (дороже).
+**Вердикт: AI хилит вменяемо — без правок скоринга.** Подтверждено тестами:
+- Распознавание хила — **по эффекту** (`effect=Heal` + `single_ally` → `AiTags::CAN_HEAL`
+  / `AbilityTag::Rescue`, `world/snapshot.rs:926`, `world/tags/classify.rs:98`);
+  `requires_tags` распознаванию НЕ мешает.
+- Tag-предикат идёт через legality в генератор плана (`has_tags`→`WrongTargetTags`;
+  `rank_targets`/`check_legality` над `SnapshotActionState`, `generator.rs:476`) →
+  не-symbiote союзник отсеивается до скоринга; overheal-гейт (>90% HP) глушит хил по полным.
+- (Примечание: «repair»/`repair_bonus` в этом коде = plan-continuation, НЕ хил — ложный след.)
+
+Тесты (`src/combat/ai/orchestration/mod.rs`): legality-гейт (Ok на symbiote /
+`WrongTargetTags` на обычном союзнике); полный `pick_action` → хилит раненого
+симбионта, не обычного союзника; негатив-контроль → атакует при полном HP союзника.
 
 ---
 
@@ -247,7 +253,8 @@ TOML+bridge-зеркала (`EnemyDef.tags`, `AuraSource.affects_tags`, `Validat
 - Phase 3+4 (`04540c0`) — `scenario.toml` (21 сцена, story-ветки, кит Орена,
   `injured` status_op, оба выбора) + регистрация ch3 в `campaign.toml`.
 - Весь контент-DB **грузится и валидируется** с ch3 (1514 тестов зелёные).
-- ⏳ **Остаётся:** Атом 6 (verify AI-хила) + ребаланс под четверых + плейтест (Phase 5).
+- Атом 6 (`02dc047`) — verify AI-хила: ✅ AI хилит вменяемо (3 теста, без правок скоринга).
+- ⏳ **Остаётся:** ребаланс под четверых + плейтест веток (Phase 5, runtime).
 
 **Минимум для играбельности:** атомы 1, 2, 3, 4, 5.
 
