@@ -33,3 +33,6 @@ mod replay_assert;
 
 #[path = "combat/ai_snapshot.rs"]
 mod ai_snapshot;
+
+#[path = "combat/ai_no_abilities.rs"]
+mod ai_no_abilities;
