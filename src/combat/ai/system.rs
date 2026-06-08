@@ -83,7 +83,7 @@ pub fn enemy_ai_system(
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
-    if c.faction.0 != Team::Enemy || !c.vital.is_alive() || c.abilities.map_or(true, |a| a.0.is_empty()) {
+    if c.faction.0 != Team::Enemy || !c.vital.is_alive() || c.abilities.is_none_or(|a| a.0.is_empty()) {
         return;
     }
     let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
@@ -172,7 +172,7 @@ fn run_ai_turn(
     // Replaces the inline FIXME(step 7) TTL clear on the early-return path.
     goal_lifecycle::pre_tick(memory_ref, &snap, actor_view, &env.status_tags);
 
-    if c.ap.map_or(true, |ap| ap.action_points <= 0 && !ap.can_move()) {
+    if c.ap.is_none_or(|ap| ap.action_points <= 0 && !ap.can_move()) {
         // Step 7.5 / Phase 6c: push actor_tick for skip path (no AP/MP) to
         // pending queue. start_step == end_step — no engine steps advance for
         // this actor (zero-length range is correct semantics).
@@ -401,7 +401,7 @@ pub fn pact_ai_system(
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
-    if c.faction.0 != Team::Player || !c.vital.is_alive() || c.abilities.map_or(true, |a| a.0.is_empty()) {
+    if c.faction.0 != Team::Player || !c.vital.is_alive() || c.abilities.is_none_or(|a| a.0.is_empty()) {
         return;
     }
     if !has_ai_control_status(actor, &statuses, &env.content) {

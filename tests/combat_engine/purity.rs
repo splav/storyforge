@@ -13,7 +13,6 @@
 ///
 /// Comment lines (`//`) are excluded so doc-comment references to these names
 /// don't trip the guard.
-
 use std::{
     fs,
     path::{Path, PathBuf},

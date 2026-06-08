@@ -245,6 +245,7 @@ impl PlanStage for ItemScoringStage {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};

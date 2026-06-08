@@ -536,6 +536,7 @@ pub(crate) fn build_ecs_content_view<'a>(
 /// to avoid a query conflict over `&mut Vital` between the two systems.
 /// `process_action_system` and `bootstrap_combat_state` record `(unit, phase_idx)`
 /// pairs into `PendingPhaseTransitions`; this helper drains them.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn apply_phase_ecs_writes(
     unit: UnitId,
     phase_idx: usize,
@@ -730,6 +731,7 @@ pub fn apply_bridge_queues_pre_projection(
 /// Drains the post-projection half of [`BridgeQueues`]: animations and phase transitions.
 ///
 /// Runs after `project_state_to_ecs`, before `flush_pending_ai_log_system`.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn apply_bridge_queues_post_projection(
     mut queues: ResMut<BridgeQueues>,
     id_map: Res<UnitIdMap>,
@@ -1377,6 +1379,7 @@ fn emit_ability_used(
 /// in step 9d.
 ///
 /// Runs in `CombatStep::Execute`, gated by `CombatPhase::AwaitCommand`.
+#[allow(clippy::too_many_arguments)]
 pub fn process_action_system(
     mut commands: Commands,
     mut reader: MessageReader<ActionInput>,

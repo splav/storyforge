@@ -32,7 +32,7 @@ impl PlanModifier for SummonBonus {
             .state
             .units()
             .iter()
-            .filter(|u| active_uid.map_or(false, |uid| u.summoner == Some(uid)) && u.hp() > 0)
+            .filter(|u| active_uid.is_some_and(|uid| u.summoner == Some(uid)) && u.hp() > 0)
             .count() as f32;
 
         // Global saturation: total live allies on the actor's team (excluding actor).
@@ -42,7 +42,7 @@ impl PlanModifier for SummonBonus {
             .iter()
             .filter(|u| {
                 u.team == active.team
-                    && active_uid.map_or(true, |uid| u.id != uid)
+                    && (active_uid != Some(u.id))
                     && u.hp() > 0
             })
             .count() as f32;

@@ -48,7 +48,7 @@ fn build_snapshot_includes_dead_combatant() {
     app.insert_resource(DifficultyProfile::default());
 
     // Run build_snapshot as a one-shot system; return the entity set it produced.
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
         statuses:   Query<&StatusEffects>,
@@ -105,7 +105,7 @@ fn build_snapshot_maps_ai_behavior_override_to_forced_mode() {
 
     init_engine_state(&mut app);
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
         statuses:   Query<&StatusEffects>,
@@ -190,6 +190,7 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
         ];
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
         statuses:   Query<&StatusEffects>,
@@ -255,7 +256,7 @@ fn build_snapshot_includes_minimal_npc() {
 
     init_engine_state(&mut app);
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
         statuses:   Query<&StatusEffects>,
@@ -307,6 +308,7 @@ fn env_count_for_team(app: &mut App, team: combat_engine::state::Team) -> usize 
     // extra parameters), so we parameterize via two separate concrete functions.
     match team {
         Team::Player => {
+            #[allow(clippy::too_many_arguments)]
             fn sys(
                 combatants: Query<AiCombatantQ, With<Combatant>>,
                 statuses:   Query<&StatusEffects>,
@@ -327,6 +329,7 @@ fn env_count_for_team(app: &mut App, team: combat_engine::state::Team) -> usize 
             app.world_mut().run_system_once(sys).unwrap()
         }
         Team::Enemy => {
+            #[allow(clippy::too_many_arguments)]
             fn sys(
                 combatants: Query<AiCombatantQ, With<Combatant>>,
                 statuses:   Query<&StatusEffects>,

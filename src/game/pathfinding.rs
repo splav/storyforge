@@ -550,8 +550,8 @@ mod tests {
         let legacy = reachable_with_paths(
             start,
             max_steps,
-            |h| in_bounds(h),
-            |h| in_bounds(h),
+            in_bounds,
+            in_bounds,
         );
 
         // reach_from with empty hazard_costs must follow the same code path.

@@ -28,7 +28,7 @@ fn map_ability(content: &BridgeContentView, id: &AbilityId) -> Option<AbilityDef
     // Since EffectDef is now pub use combat_engine::EffectDef in the bridge,
     // bridge AbilityDef fields are the same types as engine fields.
     // is_move_toggle abilities have EffectDef::None as their engine effect.
-    Some((&*content.abilities.get(id)?).into())
+    Some(content.abilities.get(id)?.into())
 }
 
 fn map_status(content: &BridgeContentView, id: &StatusId) -> Option<StatusDef> {
@@ -220,7 +220,7 @@ fn toml_content_view_matches_ecs_content_view() {
     let mut failures: Vec<String> = Vec::new();
 
     // ── ability_def ───────────────────────────────────────────────────────────
-    for (id, _) in &bridge_view.abilities {
+    for id in bridge_view.abilities.keys() {
         let expected = map_ability(&bridge_view, id);
         let got      = toml_view.ability_def(id).cloned();
 
@@ -245,7 +245,7 @@ fn toml_content_view_matches_ecs_content_view() {
     // No easy way to enumerate without exposing internals; skip this direction.
 
     // ── status_def ────────────────────────────────────────────────────────────
-    for (id, _) in &bridge_view.statuses {
+    for id in bridge_view.statuses.keys() {
         let expected = map_status(&bridge_view, id);
         let got      = toml_view.status_def(id).copied();
 
@@ -276,7 +276,7 @@ fn toml_content_view_matches_ecs_content_view() {
     }
 
     // ── status_bonuses ────────────────────────────────────────────────────────
-    for (id, _) in &bridge_view.statuses {
+    for id in bridge_view.statuses.keys() {
         let expected = map_status_bonuses(&bridge_view, id);
         let got      = toml_view.status_bonuses(id);
         if expected != got {
@@ -287,7 +287,7 @@ fn toml_content_view_matches_ecs_content_view() {
     }
 
     // ── unit_template ─────────────────────────────────────────────────────────
-    for (id, _) in &bridge_view.unit_templates {
+    for id in bridge_view.unit_templates.keys() {
         let expected = map_unit_template(&bridge_view, id);
         let got      = toml_view.unit_template(id);
 
@@ -373,7 +373,7 @@ fn environment_ability_parity_scout_traps() {
         .expect("scout_traps not found in BridgeContentView");
     // bridge_def is storyforge::content::abilities::AbilityDef; its engine sub-field
     // holds the combat_engine::AbilityDef.  Deref gives us direct access.
-    let bridge_engine_def: &storyforge::combat_engine::AbilityDef = &**bridge_def;
+    let bridge_engine_def: &storyforge::combat_engine::AbilityDef = bridge_def;
 
     // target_type
     assert_eq!(engine_def.target_type, TargetType::Environment,
@@ -412,6 +412,6 @@ fn environment_ability_parity_scout_traps() {
     );
 
     // Both parsers agree with each other
-    assert!(abilities_eq(&engine_def, &bridge_engine_def),
+    assert!(abilities_eq(&engine_def, bridge_engine_def),
         "scout_traps: TomlContentView and BridgeContentView disagree\n  toml:   {engine_def:?}\n  bridge: {bridge_engine_def:?}");
 }

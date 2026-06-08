@@ -4,6 +4,8 @@
 //! Waves 2–3: engine-only roller + reconciler.
 //! Wave 4: summon initiative roll in `step()` pump + reconcile wiring in BumpRound.
 
+#![allow(clippy::field_reassign_with_default)]
+
 use std::collections::HashMap;
 
 use storyforge::combat_engine::{

@@ -213,6 +213,7 @@ pub fn no_equipment() -> Equipment {
 
 /// Spawn a combatant, register its position in `HexPositions`, and return the
 /// `Entity`. Does NOT call [`bootstrap`] — call that after all spawning is done.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_unit(
     app: &mut App,
     team: Team,

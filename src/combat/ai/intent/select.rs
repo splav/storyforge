@@ -36,6 +36,7 @@ pub struct IntentChoice {
 /// ApplyCC candidate wins within the normal tactical space.
 ///
 /// Called by `build_normal_tactical` when building the `NormalTactical` band agenda.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn select_intent_normal(
     active: UnitView<'_>,
     snap: &BattleSnapshot,
@@ -195,6 +196,7 @@ pub(crate) fn select_intent_normal(
 /// Will be removed in step 12.
 #[deprecated(note = "use assign_band → build_agenda flow; direct callers should migrate to \
                      select_intent_normal for NormalTactical. Removal in step 12.")]
+#[allow(clippy::too_many_arguments)]
 pub fn select_intent(
     active: UnitView<'_>,
     snap: &BattleSnapshot,

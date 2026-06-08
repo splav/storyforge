@@ -163,6 +163,7 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 // ── Update: phase hint ────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_phase_hint(
     dirty: Res<UiDirty>,
     phase: Res<State<CombatPhase>>,

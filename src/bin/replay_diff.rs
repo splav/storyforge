@@ -263,8 +263,8 @@ fn format_step_divergence(_idx: usize, a: &StepLine, b: &StepLine) -> String {
                 "  First extra event in {longer_name} at index {shorter_len}:"
             )
             .unwrap();
-            for extra_idx in shorter_len..(shorter_len + 3).min(longer.len()) {
-                writeln!(out, "    [{extra_idx}] {:?}", longer[extra_idx]).unwrap();
+            for (extra_idx, event) in longer.iter().enumerate().skip(shorter_len).take(3) {
+                writeln!(out, "    [{extra_idx}] {:?}", event).unwrap();
             }
         }
     }

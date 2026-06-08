@@ -325,6 +325,7 @@ fn build_hard_rescue_opportunity(
 ///
 /// `memory` is forwarded to preserve stickiness bonuses within normal-tactical
 /// intent selection, matching prior behaviour in `pick_action`.
+#[allow(clippy::too_many_arguments)]
 fn build_normal_tactical(
     active: UnitView<'_>,
     snap: &BattleSnapshot,

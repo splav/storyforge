@@ -13,6 +13,8 @@
 //!
 //! Gate criteria: #4 (canonical scenarios), #9 (size benchmark).
 
+#![allow(clippy::field_reassign_with_default)]
+
 use hexx::Hex;
 
 use storyforge::combat_engine::{

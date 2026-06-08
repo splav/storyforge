@@ -3,7 +3,6 @@
 /// Verifies that `ApplyCtx::rng_calls` accurately reflects the number of
 /// `DiceSource::roll_d` invocations consumed by each `step()` call, and that
 /// `ExpectedValue::call_count()` stays at 0 (deterministic source).
-
 use storyforge::combat_engine::{
     AbilityId,
     UnitTemplate,

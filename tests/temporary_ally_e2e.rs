@@ -348,7 +348,7 @@ fn engine_sees_magister_as_ally_of_hero() {
     let has_magister = allies.iter().any(|u| {
         id_map.get_entity(u.id)
             .and_then(|e| app.world().get::<Name>(e))
-            .map_or(false, |n| n.as_str() == "Магистр")
+            .is_some_and(|n| n.as_str() == "Магистр")
     });
     assert!(has_magister, "engine must see Магистр as Player-team ally of hero");
 }
