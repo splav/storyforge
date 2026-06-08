@@ -92,6 +92,7 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         victory_override: None,
         turn_limit: None,
         ai_behavior: None,
+        tags: None,
     };
     let boss = app.world_mut().spawn((
         CombatantBundle::new(
@@ -447,5 +448,179 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
         "enemy HP must be unchanged immediately after cast-and-handoff; \
          hero's poison (applier=hero) ticks at hero's turn start (round 2+), \
          not at enemy's turn start. before={enemy_hp_before}, after={enemy_hp_after}",
+    );
+}
+
+/// A `PhaseDef` with `tags = Some({...})` is projected into the engine
+/// `PhaseEntry.tags` during bootstrap (`from_ecs` / `bootstrap_combat_state`).
+///
+/// This covers Step 4 of Slice C2: the `tags: phase.tags.clone()` path in the
+/// `enemy_phases` projection loop.
+#[test]
+fn phase_def_tags_carried_into_engine_phase_entry() {
+    use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
+    use storyforge::combat::engine_bridge::CombatStateRes;
+    use storyforge::game::components::EnemyPhases;
+    use combat_engine::TagId;
+    use std::collections::BTreeSet;
+
+    let boss_hex = hex_from_offset(1, 0);
+
+    let boss_stats = CombatStats {
+        max_hp: 100, strength: 5, dexterity: 5, constitution: 10,
+        intelligence: 0, wisdom: 10, charisma: 10,
+    };
+    let phase_tags: BTreeSet<TagId> = ["aberration", "incorporeal"]
+        .iter()
+        .map(|s| TagId::from(*s))
+        .collect();
+    let phase = PhaseDef {
+        trigger: PhaseTrigger::HpBelowPct(50),
+        name: None,
+        stats: None,
+        ability_ids: None,
+        heal_to_full: false,
+        flavor: None,
+        victory_override: None,
+        turn_limit: None,
+        ai_behavior: None,
+        tags: Some(phase_tags.clone()),
+    };
+
+    let mut app = common::apps::bridge::bridge_app();
+    let boss = app.world_mut().spawn((
+        storyforge::game::bundles::CombatantBundle::new(
+            storyforge::game::components::Team::Enemy,
+            boss_stats,
+            0, 6, vec![],
+            common::apps::bridge::no_equipment(),
+        ),
+        EnemyPhases { pending: vec![phase] },
+    )).id();
+    app.world_mut().resource_mut::<storyforge::game::resources::HexPositions>().insert(boss, boss_hex);
+
+    common::apps::bridge::bootstrap(&mut app);
+
+    // After bootstrap, the engine state should have the boss's phase with tags populated.
+    let state = app.world().resource::<CombatStateRes>();
+    let boss_uid = entity_to_uid(boss);
+    let unit = state.0.unit(boss_uid).expect("boss must be in engine state after bootstrap");
+    assert_eq!(unit.enemy_phases.len(), 1, "boss must have one engine phase entry");
+    let entry = &unit.enemy_phases[0];
+    assert_eq!(
+        entry.tags.as_ref(),
+        Some(&phase_tags),
+        "engine PhaseEntry.tags must match PhaseDef.tags after bootstrap carry; got: {:?}",
+        entry.tags,
+    );
+}
+
+/// After a phase transition (triggered by cast damage), the ECS `Tags` component
+/// on the boss is replaced with the phase's tag set.
+///
+/// This covers Step 5 of Slice C2: the `commands.entity(ent).insert(Tags(...))` path
+/// in `apply_phase_ecs_writes`.
+#[test]
+fn phase_transition_updates_ecs_tags_component() {
+    use storyforge::content::abilities::TargetType;
+    use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
+    use storyforge::game::components::{EnemyPhases, Tags};
+    use combat_engine::TagId;
+    use std::collections::BTreeSet;
+
+    let caster_pos = hex_from_offset(0, 0);
+    let boss_hex = hex_from_offset(1, 0);
+
+    let ability_id = AbilityId::from("tag_nuke");
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Tag Nuke".into(),
+        magic_domains: vec![],
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 60) },
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+            requires_los: false,
+            passive: vec![],
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
+        },
+    };
+
+    let mut app = common::apps::bridge::bridge_app();
+    common::apps::bridge::insert_ability(&mut app, ability_def);
+
+    let zero_str_stats = CombatStats {
+        max_hp: 20, strength: 0, dexterity: 5, constitution: 10,
+        intelligence: 0, wisdom: 10, charisma: 10,
+    };
+    let caster = common::apps::bridge::spawn_unit(
+        &mut app,
+        storyforge::game::components::Team::Player,
+        zero_str_stats,
+        0,
+        6,
+        vec![ability_id.clone()],
+        common::apps::bridge::no_equipment(),
+        caster_pos,
+    );
+
+    let boss_stats = CombatStats {
+        max_hp: 100, strength: 5, dexterity: 5, constitution: 10,
+        intelligence: 0, wisdom: 10, charisma: 10,
+    };
+    let new_tags: BTreeSet<TagId> = ["aberration", "incorporeal"]
+        .iter()
+        .map(|s| TagId::from(*s))
+        .collect();
+    let phase = PhaseDef {
+        trigger: PhaseTrigger::HpBelowPct(50),
+        name: None,
+        stats: None,
+        ability_ids: None,
+        heal_to_full: false,
+        flavor: None,
+        victory_override: None,
+        turn_limit: None,
+        ai_behavior: None,
+        tags: Some(new_tags.clone()),
+    };
+
+    let boss = app.world_mut().spawn((
+        storyforge::game::bundles::CombatantBundle::new(
+            storyforge::game::components::Team::Enemy,
+            boss_stats,
+            0, 6, vec![],
+            common::apps::bridge::no_equipment(),
+        ),
+        EnemyPhases { pending: vec![phase] },
+        Name::new("TagBoss"),
+        // Boss starts with no Tags component — the phase will insert one.
+    )).id();
+    app.world_mut().resource_mut::<storyforge::game::resources::HexPositions>()
+        .insert(boss, boss_hex);
+
+    common::apps::bridge::bootstrap(&mut app);
+    common::apps::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::write_cast(&mut app, caster, ability_id, boss, boss_hex);
+    app.update();
+
+    // After the phase transition, the ECS Tags component must hold the phase's tag set.
+    let tags_component = app.world().entity(boss).get::<Tags>()
+        .expect("boss must have Tags component after phase transition with tags");
+    assert_eq!(
+        tags_component.0,
+        new_tags,
+        "ECS Tags must be replaced with the phase's tag set after transition; got: {:?}",
+        tags_component.0,
     );
 }

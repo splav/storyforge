@@ -174,6 +174,8 @@ pub struct PhaseDef {
     pub turn_limit: Option<u32>,
     /// When set, overrides the unit's AI evaluation regime each turn.
     pub ai_behavior: Option<AiBehaviorKind>,
+    /// `Some` = REPLACE the unit's tags on phase entry; `None` = keep current tags.
+    pub tags: Option<std::collections::BTreeSet<combat_engine::TagId>>,
 }
 
 /// AI evaluation-regime override applied when a boss phase fires.
@@ -337,6 +339,8 @@ struct PhaseRecord {
     turn_limit: Option<u32>,
     #[serde(default)]
     ai_behavior: Option<AiBehaviorKind>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
 }
 
 // ── Resolution helpers ──────────────────────────────────────────────────────
@@ -408,6 +412,7 @@ fn resolve_phase(
         victory_override: p.victory_override.map(|v| resolve_victory(path, enc_id, v)),
         turn_limit: p.turn_limit,
         ai_behavior: p.ai_behavior,
+        tags: p.tags.map(|v| v.into_iter().map(|s| combat_engine::TagId::from(s.as_str())).collect()),
     }
 }
 
@@ -690,6 +695,38 @@ heal_to_full = false
             .expect("PhaseRecord must deserialize from TOML");
         let phase = resolve_phase("test", "enc1", record, &Default::default());
         assert!(phase.ai_behavior.is_none());
+    }
+
+    /// A `PhaseRecord` with `tags = ["aberration", "incorporeal"]` resolves to
+    /// `PhaseDef.tags == Some({aberration, incorporeal})`.
+    #[test]
+    fn phase_record_with_tags_resolves_correctly() {
+        let toml_src = r#"
+hp_below_pct = 50
+heal_to_full = false
+tags = ["aberration", "incorporeal"]
+"#;
+        let record: PhaseRecord = toml::from_str(toml_src)
+            .expect("PhaseRecord must deserialize from TOML");
+        let phase = resolve_phase("test", "enc1", record, &Default::default());
+        let tags = phase.tags.expect("tags must be Some when declared in TOML");
+        assert_eq!(tags.len(), 2);
+        assert!(tags.contains(&combat_engine::TagId::from("aberration")));
+        assert!(tags.contains(&combat_engine::TagId::from("incorporeal")));
+    }
+
+    /// A `PhaseRecord` without `tags` resolves to `PhaseDef.tags == None`
+    /// (absent tags field ⇒ keep current — no replacement).
+    #[test]
+    fn phase_record_without_tags_resolves_to_none() {
+        let toml_src = r#"
+hp_below_pct = 75
+heal_to_full = false
+"#;
+        let record: PhaseRecord = toml::from_str(toml_src)
+            .expect("PhaseRecord must deserialize from TOML");
+        let phase = resolve_phase("test", "enc1", record, &Default::default());
+        assert!(phase.tags.is_none(), "absent tags field must resolve to None");
     }
 
     // ── T5: EnvObjectDef.owner from TOML ─────────────────────────────────────

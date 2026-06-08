@@ -46,7 +46,7 @@ use crate::game::combat_log::{
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, AiBehaviorOverride, AuraSource, BonusMovement,
     CombatPath, CombatStats, Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana,
-    Rage, Reactions, Speed, StatusEffects, SummonedBy, TemplateRef, UnitToken, Vital, VictoryTarget,
+    Rage, Reactions, Speed, StatusEffects, SummonedBy, Tags, TemplateRef, UnitToken, Vital, VictoryTarget,
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
@@ -616,6 +616,14 @@ fn apply_phase_ecs_writes(
     // Insert AI behavior override component if the phase specifies one.
     if let Some(kind) = phase.ai_behavior {
         commands.entity(ent).insert(AiBehaviorOverride { kind });
+    }
+
+    // Mirror tag replacement into the ECS Tags component so Bevy-side legality
+    // (BevyActions / ValidationTargetQ) doesn't read stale tags after the phase.
+    // The engine already replaced Unit.tags in the EnterPhase arm (Slice C1);
+    // this keeps the ECS copy in sync. None = keep existing Tags component unchanged.
+    if let Some(ref new_tags) = phase.tags {
+        commands.entity(ent).insert(Tags(new_tags.clone()));
     }
 
     // Pop exactly once per event (spec §8).
@@ -1966,7 +1974,7 @@ pub fn bootstrap_combat_state(
             unit.enemy_phases = phases.pending.iter().map(|phase| {
                 let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
                 let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
-                combat_engine::PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full, tags: None }
+                combat_engine::PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full, tags: phase.tags.clone() }
             }).collect();
         }
     }
