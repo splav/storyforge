@@ -107,6 +107,8 @@ fn single_enemy_ability() -> AbilityDef {
         statuses: vec![],
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     }
 }
 
@@ -453,6 +455,8 @@ fn cast_aoe_damages_targets_in_per_target_order() {
         statuses: vec![],
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
     let content = StubContent::with_ability("fireball", ability)
         .with_caster(UnitId(1), CasterContext { str_mod: 0, ..Default::default() });
@@ -555,6 +559,8 @@ fn cast_heal_restores_target_hp() {
         statuses: vec![],
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
     let content = StubContent::with_ability("heal", ability)
         .with_caster(UnitId(1), CasterContext { int_mod: 2, spell_power: 1, ..Default::default() });
@@ -609,6 +615,8 @@ fn cast_aoe_heal_restores_multiple_targets() {
         statuses: vec![],
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
     let content = StubContent::with_ability("group_heal", ability);
 
@@ -695,6 +703,8 @@ fn cast_applies_status_to_self_via_myself() {
         }],
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
     let content = StubContent::with_ability("iron_skin", ability);
 
@@ -1042,6 +1052,8 @@ fn cast_applies_status_to_each_aoe_target() {
         }],
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
     let content = StubContent::with_ability("flame_wave", ability);
 
@@ -1113,6 +1125,8 @@ fn summon_ability(max_active: Option<u32>) -> AbilityDef {
         statuses: vec![],
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     }
 }
 

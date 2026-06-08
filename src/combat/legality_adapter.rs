@@ -125,4 +125,16 @@ impl ActionState for BevyActions<'_, '_, '_> {
     fn blocked_hexes(&self) -> &std::collections::HashSet<Hex> {
         self.blocked_hexes
     }
+
+    fn has_tags(
+        &self,
+        target: Entity,
+        requires: &std::collections::BTreeSet<combat_engine::TagId>,
+        excludes: &std::collections::BTreeSet<combat_engine::TagId>,
+    ) -> bool {
+        let Ok(item) = self.targets.get(target) else { return false };
+        let empty = std::collections::BTreeSet::new();
+        let tags = item.tags.map_or(&empty, |t| &t.0);
+        requires.is_subset(tags) && excludes.is_disjoint(tags)
+    }
 }

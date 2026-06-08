@@ -64,6 +64,8 @@ fn trap_ability(n: u32, status: Option<&str>) -> AbilityDef {
         }]).unwrap_or_default(),
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     }
 }
 

@@ -100,6 +100,9 @@ pub enum IllegalReason {
     /// Ability has `target_type == Environment` — it is passive-only and can
     /// never be actively cast by the player or AI.
     PassiveNotCastable,
+    /// The target does not satisfy the ability's `requires_tags` / `excludes_tags`
+    /// predicate (`SingleEnemy` and `SingleAlly` only).
+    WrongTargetTags,
 }
 
 pub trait ActionState {
@@ -138,7 +141,7 @@ pub trait ActionState {
     /// supply the appropriate check (e.g. even-r hex bounds for `storyforge`).
     fn is_in_bounds(&self, pos: Hex) -> bool;
 
-    /// Hexes blocked by static obstacles (preграды).  Default: empty set —
+    /// Hexes blocked by static obstacles (преграды).  Default: empty set —
     /// for backends without obstacles (mock/stub adapters in tests).
     ///
     /// This is the **single point** of divergence between backends for LOS
@@ -159,6 +162,19 @@ pub trait ActionState {
         let blocked = self.blocked_hexes();
         !crate::geom::has_los(from, to, |h| blocked.contains(&h))
     }
+
+    /// Returns `true` if `target` satisfies the tag predicate:
+    /// `requires ⊆ target.tags ∧ excludes ∩ target.tags = ∅`.
+    ///
+    /// No default implementation — every backend must implement this so the
+    /// compiler enforces parity across `EngineCheckState`, `SnapshotActionState`,
+    /// and `BevyActions`.
+    fn has_tags(
+        &self,
+        target: Self::Id,
+        requires: &std::collections::BTreeSet<crate::TagId>,
+        excludes: &std::collections::BTreeSet<crate::TagId>,
+    ) -> bool;
 }
 
 /// Decide whether `action` is legal against `state`.  Single-pass, no side
@@ -239,12 +255,15 @@ pub fn check_legality<S: ActionState>(
                 None => return Err(IllegalReason::TargetUnknown),
                 _ => return Err(IllegalReason::WrongTargetTeam),
             }
-                        // Taunt: any live enemy with `forces_targeting` binds every
+            // Taunt: any live enemy with `forces_targeting` binds every
             // SingleEnemy cast to one of the active taunters.  Multiple
             // taunters are allowed; the actor may choose any of them.
             let taunters = state.taunters_for(actor.team);
             if !taunters.is_empty() && !taunters.contains(&action.target) {
                 return Err(IllegalReason::TauntForcesTarget);
+            }
+            if !state.has_tags(action.target, &def.requires_tags, &def.excludes_tags) {
+                return Err(IllegalReason::WrongTargetTags);
             }
         }
         TargetType::SingleAlly => {
@@ -252,6 +271,9 @@ pub fn check_legality<S: ActionState>(
                 Some(t) if t == actor.team => {}
                 None => return Err(IllegalReason::TargetUnknown),
                 _ => return Err(IllegalReason::WrongTargetTeam),
+            }
+            if !state.has_tags(action.target, &def.requires_tags, &def.excludes_tags) {
+                return Err(IllegalReason::WrongTargetTags);
             }
         }
         TargetType::Ground => {

@@ -220,6 +220,8 @@ impl SummonContent {
             statuses: vec![],
             requires_los: false,
             passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
         };
         Self {
             ability_id: AbilityId::from(ability_id),

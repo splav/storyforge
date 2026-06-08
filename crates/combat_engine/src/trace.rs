@@ -68,6 +68,7 @@ use crate::{
 /// v46 → v47: `Event::HotHealed` + `Effect::TickHeal` + `StatusDef.heal_per_tick` (heal-over-time).
 /// v47 → v48: `Unit.tags` (BTreeSet<TagId>) added; `#[serde(default)]` → empty on pre-v48 traces.
 ///            (Additive; Slices B/C add `AuraDef.affects_tags` + `PhaseEntry.tags` to the same v48 wire shape.)
+///            Slice B adds `AuraDef.affects_tags` (also in `Unit.auras` wire, `#[serde(default)]`).
 pub const SCHEMA_VERSION: u32 = 48;
 
 // ── Record types ─────────────────────────────────────────────────────────────

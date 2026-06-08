@@ -118,6 +118,8 @@ fn cast_emits_damage_result_log_entry() {
             key: None,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     };
 
@@ -171,6 +173,8 @@ fn cast_emits_status_applied_log_entry() {
             key: None,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     };
 
@@ -214,6 +218,8 @@ fn cast_emits_mana_changed_log_entry() {
             key: None,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     };
 
@@ -281,6 +287,8 @@ fn process_action_system_routes_cast_into_engine() {
             key: None,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     };
     common::apps::bridge::insert_ability(&mut app, zap_def);
@@ -355,6 +363,8 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
             key: None,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     };
 
@@ -477,6 +487,8 @@ fn cast_summon_creates_ecs_entity_synchronously() {
             key: None,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     };
 
@@ -604,6 +616,8 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
             key: None,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     };
 

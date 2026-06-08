@@ -92,6 +92,8 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
             .collect(),
         requires_los: def.requires_los,
         passive: def.passive.clone(),
+        requires_tags: def.requires_tags.clone(),
+        excludes_tags: def.excludes_tags.clone(),
     }
 }
 

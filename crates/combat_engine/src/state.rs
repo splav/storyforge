@@ -1226,6 +1226,35 @@ pub(crate) fn template_starting_pool(
     Some((current, max))
 }
 
+// ── Aura shared predicate ─────────────────────────────────────────────────────
+
+/// Returns `true` if an aura from `src_team` at `dist` hexes away applies to a
+/// target with `(target_team, target_tags)`.
+///
+/// Encapsulates the three conjunctive filters shared by `aura_effects_on` and
+/// `aura_membership_set`:
+///   1. Distance  : `dist ≤ aura.radius`
+///   2. Team      : `aura.applies_to` resolved against `(target_team, src_team)`
+///   3. Tag subset: `aura.affects_tags ⊆ target_tags`  (empty → always true)
+#[inline]
+fn aura_target_matches(
+    target_team: Team,
+    target_tags: &std::collections::BTreeSet<crate::TagId>,
+    src_team: Team,
+    dist: u32,
+    aura: &crate::content::AuraDef,
+) -> bool {
+    if dist > aura.radius {
+        return false;
+    }
+    let team_ok = match aura.applies_to {
+        crate::content::TeamRelation::Enemies => target_team != src_team,
+        crate::content::TeamRelation::Allies  => target_team == src_team,
+        crate::content::TeamRelation::All     => true,
+    };
+    team_ok && aura.affects_tags.is_subset(target_tags)
+}
+
 impl CombatState {
     // ── Aura query helpers (Phase 4 step 4c) ─────────────────────────────────
 
@@ -1238,12 +1267,16 @@ impl CombatState {
     /// A dead target receives no aura effects (auras don't apply to corpses).
     /// A dead source contributes nothing (alive_units filter).
     pub fn aura_effects_on(&self, target: UnitId, content: &dyn crate::content::ContentView) -> crate::content::AuraEffects {
-        use crate::content::{AuraEffects, TeamRelation};
+        use crate::content::AuraEffects;
         let mut out = AuraEffects::default();
 
         let (target_pos, target_team) = match self.unit(target) {
             Some(u) if u.is_alive() => (u.pos, u.team),
             _ => return out, // dead or unknown target → no aura effects
+        };
+        let target_tags = match self.unit(target) {
+            Some(u) => u.tags.clone(),
+            None => return out,
         };
 
         // Collect source ids first to avoid borrowing self while iterating.
@@ -1260,15 +1293,7 @@ impl CombatState {
             };
             let dist = src_pos.unsigned_distance_to(target_pos);
             for aura in &auras {
-                if dist > aura.radius {
-                    continue;
-                }
-                let matches = match aura.applies_to {
-                    TeamRelation::Enemies => target_team != src_team,
-                    TeamRelation::Allies  => target_team == src_team,
-                    TeamRelation::All     => true,
-                };
-                if !matches {
+                if !aura_target_matches(target_team, &target_tags, src_team, dist, aura) {
                     continue;
                 }
                 // Fold all bonuses (speed, armor, damage_taken) and flags via one call.
@@ -1298,7 +1323,6 @@ impl CombatState {
         &self,
         _content: &dyn crate::content::ContentView,
     ) -> std::collections::BTreeSet<(UnitId, UnitId, crate::StatusId)> {
-        use crate::content::TeamRelation;
         let mut set = std::collections::BTreeSet::new();
 
         let source_ids: Vec<(UnitId, hexx::Hex, Team)> = self
@@ -1316,17 +1340,13 @@ impl CombatState {
                 if tgt_id == src_id {
                     continue;
                 }
+                let tgt_tags = match self.unit(*tgt_id) {
+                    Some(u) => u.tags.clone(),
+                    None => continue,
+                };
                 let dist = src_pos.unsigned_distance_to(*tgt_pos);
                 for aura in &auras {
-                    if dist > aura.radius {
-                        continue;
-                    }
-                    let matches = match aura.applies_to {
-                        TeamRelation::Enemies => *tgt_team != *src_team,
-                        TeamRelation::Allies  => *tgt_team == *src_team,
-                        TeamRelation::All     => true,
-                    };
-                    if matches {
+                    if aura_target_matches(*tgt_team, &tgt_tags, *src_team, dist, aura) {
                         set.insert((*tgt_id, *src_id, aura.status_id.clone()));
                     }
                 }

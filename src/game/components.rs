@@ -57,7 +57,17 @@ pub struct AuraSource {
     pub status: StatusId,
     pub radius: u32,
     pub affects: crate::content::encounters::AuraAffects,
+    /// Tags the target must carry for this aura to apply.  Empty ⇒ no filter.
+    pub affects_tags: std::collections::BTreeSet<combat_engine::TagId>,
 }
+
+/// Creature tags for this unit (e.g. `"undead"`, `"beast"`, `"living"`).
+///
+/// Populated at spawn from content (`EnemyDef.tags`, `UnitTemplate.tags`).
+/// The bootstrap carry-in loop copies these into the engine `Unit.tags` field
+/// so legality and aura predicates see them.  Absent component ⇒ empty tags.
+#[derive(Component, Debug, Clone, Default)]
+pub struct Tags(pub std::collections::BTreeSet<combat_engine::TagId>);
 
 /// Marker pointing at the summoner that brought this unit into the encounter.
 /// Used only for `max_active` caps — summons outlive their summoner by default.
@@ -376,6 +386,7 @@ pub struct ValidationTargetQ {
     pub vital: &'static Vital,
     pub faction: &'static Faction,
     pub statuses: Option<&'static StatusEffects>,
+    pub tags: Option<&'static Tags>,
 }
 
 #[cfg(test)]

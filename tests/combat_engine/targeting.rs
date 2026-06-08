@@ -58,6 +58,8 @@ fn ability(aoe: AoEShape, target_type: TargetType, friendly_fire: bool) -> Abili
         statuses: Vec::<StatusApplication>::new(),
         requires_los: false,
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     }
 }
 

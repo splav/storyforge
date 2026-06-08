@@ -214,7 +214,11 @@ fn spawn_combatants(
                 status: aura.status.clone(),
                 radius: aura.radius,
                 affects: aura.affects,
+                affects_tags: aura.affects_tags.clone(),
             });
+        }
+        if !enemy.tags.is_empty() {
+            ec.insert(crate::game::components::Tags(enemy.tags.clone()));
         }
     }
 }

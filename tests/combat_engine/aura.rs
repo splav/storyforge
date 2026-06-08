@@ -62,6 +62,7 @@ fn with_aura(mut unit: Unit, content: &AuraContent) -> Unit {
         radius: content.radius,
         status_id: content.status_id.clone(),
         applies_to: content.applies_to,
+        affects_tags: std::collections::BTreeSet::new(),
     }];
     unit
 }

@@ -77,3 +77,4 @@ mod determinism;
 #[path = "combat_engine/trace_helpers.rs"] mod trace_helpers;
 #[path = "combat_engine/initiative.rs"] mod initiative;
 #[path = "combat_engine/hot.rs"] mod hot;
+#[path = "combat_engine/tags.rs"] mod tags;

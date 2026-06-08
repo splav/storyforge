@@ -379,6 +379,7 @@ fn aura_def_roundtrip() {
         radius: 2,
         status_id: sid("slow"),
         applies_to: TeamRelation::Enemies,
+        affects_tags: std::collections::BTreeSet::new(),
     });
 }
 
@@ -388,6 +389,7 @@ fn aura_def_allies() {
         radius: 1,
         status_id: sid("haste"),
         applies_to: TeamRelation::Allies,
+        affects_tags: std::collections::BTreeSet::new(),
     });
 }
 

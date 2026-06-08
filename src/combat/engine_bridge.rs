@@ -1856,6 +1856,7 @@ pub fn bootstrap_combat_state(
     aoo_q: Query<(Entity, &Equipment, &CombatStats, &Abilities, Has<Dead>), With<Combatant>>,
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
+    tags_q: Query<(Entity, &crate::game::components::Tags)>,
     env_params: EnvironmentParams<'_>,
     mut log: ResMut<CombatLog>,
     mut queues: ResMut<BridgeQueues>,
@@ -1944,7 +1945,17 @@ pub fn bootstrap_combat_state(
                 radius: aura_src.radius,
                 status_id: aura_src.status.clone(),
                 applies_to,
+                affects_tags: aura_src.affects_tags.clone(),
             });
+        }
+    }
+
+    // tags: copy BTreeSet<TagId> from Tags component into engine Unit.
+    // Units without the component keep their default empty tag set.
+    for (entity, tags) in tags_q.iter() {
+        let Some(uid) = id_map.get_id(entity) else { continue };
+        if let Some(unit) = state.unit_mut(uid) {
+            unit.tags = tags.0.clone();
         }
     }
 

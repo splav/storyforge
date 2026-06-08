@@ -104,6 +104,8 @@ fn make_ability(
             statuses,
             requires_los: false,
             passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
         },
     }
 }

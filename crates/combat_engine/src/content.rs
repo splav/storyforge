@@ -190,6 +190,12 @@ pub struct AbilityDef {
     /// input, no cost, no crit-fail).  An empty Vec means the ability is
     /// active (player-activated).
     pub passive: Vec<PassiveTrigger>,
+    /// Tags that the primary target MUST have for this ability to be legal.
+    /// Checked by `ActionState::has_tags` for `SingleEnemy` / `SingleAlly`
+    /// target types only.  Empty ⇒ no tag requirement.
+    pub requires_tags: std::collections::BTreeSet<crate::TagId>,
+    /// Tags that the primary target must NOT have.  Empty ⇒ no exclusion.
+    pub excludes_tags: std::collections::BTreeSet<crate::TagId>,
 }
 
 impl Default for AbilityDef {
@@ -206,6 +212,8 @@ impl Default for AbilityDef {
             statuses: vec![],
             requires_los: false,
             passive: vec![],
+            requires_tags: std::collections::BTreeSet::new(),
+            excludes_tags: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -315,6 +323,10 @@ pub struct AuraDef {
     pub status_id: StatusId,
     /// Which team(s) are affected, relative to the aura source.
     pub applies_to: TeamRelation,
+    /// Tag-subset filter: the target must carry ALL of these tags for the
+    /// aura to apply.  Empty ⇒ no tag filter (all targets in range match).
+    #[serde(default)]
+    pub affects_tags: std::collections::BTreeSet<crate::TagId>,
 }
 
 /// Aggregated bonuses and flags that auras confer on a single target.

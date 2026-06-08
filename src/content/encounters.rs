@@ -132,6 +132,9 @@ pub struct EnemyDef {
     /// Optional passive aura: while this enemy is alive, every unit matching
     /// `affects` within `radius` hexes gets `status` reapplied each TurnStart.
     pub aura: Option<AuraDef>,
+    /// Creature tags (e.g. `"undead"`, `"beast"`, `"living"`).
+    /// Populated into `Tags` ECS component at spawn; empty for most enemies.
+    pub tags: std::collections::BTreeSet<combat_engine::TagId>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +142,8 @@ pub struct AuraDef {
     pub status: combat_engine::StatusId,
     pub radius: u32,
     pub affects: AuraAffects,
+    /// Tags the target must carry for this aura to apply.  Empty ⇒ no filter.
+    pub affects_tags: std::collections::BTreeSet<combat_engine::TagId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +297,9 @@ struct EnemyRecord {
     phases: Vec<PhaseRecord>,
     #[serde(default)]
     aura: Option<AuraRecord>,
+    /// Creature tags (e.g. `["undead", "living"]`).  Parsed into `EnemyDef.tags`.
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -300,6 +308,8 @@ struct AuraRecord {
     radius: u32,
     #[serde(default = "default_affects")]
     affects: String,
+    #[serde(default)]
+    affects_tags: Vec<String>,
 }
 
 fn default_affects() -> String {
@@ -358,6 +368,9 @@ fn convert_aura(path: &str, enc_id: &str, a: AuraRecord) -> AuraDef {
         status: combat_engine::StatusId::from(a.status.as_str()),
         radius: a.radius,
         affects,
+        affects_tags: a.affects_tags.iter()
+            .map(|s| combat_engine::TagId::from(s.as_str()))
+            .collect(),
     }
 }
 
@@ -485,6 +498,9 @@ fn resolve_enemy(
             .map(|p| resolve_phase(path, enc_id, p, templates))
             .collect(),
         aura: rec.aura.map(|a| convert_aura(path, enc_id, a)),
+        tags: rec.tags.iter()
+            .map(|s| combat_engine::TagId::from(s.as_str()))
+            .collect(),
     }
 }
 

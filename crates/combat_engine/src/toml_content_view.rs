@@ -164,6 +164,12 @@ struct AbilityRecord {
     /// Passive trigger list. Use `passive = ["turn_start"]` (list form).
     #[serde(default)]
     passive: Vec<String>,
+    /// Tags the target must have (ALL required).  `SingleEnemy`/`SingleAlly` only.
+    #[serde(default)]
+    requires_tags: Vec<String>,
+    /// Tags the target must NOT have.  `SingleEnemy`/`SingleAlly` only.
+    #[serde(default)]
+    excludes_tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -460,6 +466,12 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
         statuses,
         requires_los: r.requires_los,
         passive,
+        requires_tags: r.requires_tags.iter()
+            .map(|s| crate::TagId::from(s.as_str()))
+            .collect(),
+        excludes_tags: r.excludes_tags.iter()
+            .map(|s| crate::TagId::from(s.as_str()))
+            .collect(),
     }
 }
 

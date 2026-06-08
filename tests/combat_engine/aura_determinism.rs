@@ -35,7 +35,7 @@ fn aura_membership_set_iteration_order_is_stable() {
     let tgt_b = uid(3);
 
     let mut src_unit = make_unit(1, Team::Enemy, Hex::ORIGIN);
-    src_unit.auras = vec![AuraDef { radius: 1, status_id: sid("slow"), applies_to: TeamRelation::Enemies }];
+    src_unit.auras = vec![AuraDef { radius: 1, status_id: sid("slow"), applies_to: TeamRelation::Enemies, affects_tags: std::collections::BTreeSet::new() }];
     let units = vec![
         src_unit,
         make_unit(2, Team::Player, Hex::new(1, 0)),
@@ -75,7 +75,7 @@ fn aura_membership_set_sorted_by_unit_id() {
     let tgt_b = uid(5);  // medium target id
 
     let mut src_unit = make_unit(10, Team::Enemy, Hex::ORIGIN);
-    src_unit.auras = vec![AuraDef { radius: 2, status_id: sid("aura"), applies_to: TeamRelation::Enemies }];
+    src_unit.auras = vec![AuraDef { radius: 2, status_id: sid("aura"), applies_to: TeamRelation::Enemies, affects_tags: std::collections::BTreeSet::new() }];
     let units = vec![
         src_unit,
         make_unit(1,  Team::Player, Hex::new(1, 0)),

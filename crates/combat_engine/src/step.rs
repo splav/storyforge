@@ -167,6 +167,17 @@ impl<'a> ActionState for EngineCheckState<'a> {
     fn blocked_hexes(&self) -> &std::collections::HashSet<hexx::Hex> {
         &self.state.blocked_hexes
     }
+
+    fn has_tags(
+        &self,
+        target: crate::state::UnitId,
+        requires: &std::collections::BTreeSet<crate::TagId>,
+        excludes: &std::collections::BTreeSet<crate::TagId>,
+    ) -> bool {
+        self.state
+            .unit(target)
+            .is_some_and(|u| requires.is_subset(&u.tags) && excludes.is_disjoint(&u.tags))
+    }
 }
 
 // ── EngineTargetState ─────────────────────────────────────────────────────────

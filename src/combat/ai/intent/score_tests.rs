@@ -67,6 +67,8 @@
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         (id, def)
@@ -95,6 +97,8 @@
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         (id, def)
@@ -390,6 +394,8 @@
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         let melee = AbilityDef {
@@ -411,6 +417,8 @@
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         content.abilities.insert(stun_shot.id.clone(), stun_shot.clone());
@@ -507,6 +515,8 @@
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         let weak = AbilityDef {
@@ -528,6 +538,8 @@
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         content.abilities.insert(strong.id.clone(), strong.clone());
@@ -622,6 +634,8 @@
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         content.abilities.insert(hit.id.clone(), hit);
@@ -676,6 +690,8 @@
                     key: None,
                     requires_los: false,
                     passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
                 },
             }
         }
@@ -700,6 +716,8 @@
                     key: None,
                     requires_los: false,
                     passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
                 },
             }
         }

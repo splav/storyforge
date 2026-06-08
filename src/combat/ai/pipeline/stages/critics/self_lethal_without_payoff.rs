@@ -542,6 +542,8 @@ mod tests {
                 statuses: Vec::new(),
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
 
@@ -605,6 +607,8 @@ mod tests {
                 statuses: Vec::new(),
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
 

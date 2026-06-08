@@ -96,6 +96,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         }
     }
@@ -366,6 +368,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         content.abilities.insert(def.id.clone(), def.clone());
@@ -846,6 +850,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
 
@@ -983,6 +989,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
 
@@ -1006,6 +1014,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
 
@@ -1259,6 +1269,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
 
@@ -1367,6 +1379,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
 

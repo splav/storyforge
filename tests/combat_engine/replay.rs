@@ -246,6 +246,8 @@ fn replay_cast_damage_basic() {
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 2) },
         statuses: vec![],
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability.clone());
@@ -308,6 +310,8 @@ fn replay_phase_trigger() {
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 60) },
         statuses: vec![],
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
@@ -448,6 +452,8 @@ fn replay_rng_count_divergence_detected() {
         effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
         statuses: vec![],
         passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
@@ -547,6 +553,8 @@ fn replay_summon_initiative_hash_stable() {
                 aoe: AoEShape::None, friendly_fire: false,
                 effect: EffectDef::Summon { template_id: "minion".into(), max_active: None },
                 statuses: vec![], requires_los: false, passive: vec![],
+requires_tags: Default::default(),
+excludes_tags: Default::default()
             };
             Self { ability, template }
         }

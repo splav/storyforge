@@ -109,6 +109,18 @@ impl ActionState for SnapshotActionState<'_> {
     fn blocked_hexes(&self) -> &std::collections::HashSet<Hex> {
         &self.snap.state.blocked_hexes
     }
+
+    fn has_tags(
+        &self,
+        target: Entity,
+        requires: &std::collections::BTreeSet<combat_engine::TagId>,
+        excludes: &std::collections::BTreeSet<combat_engine::TagId>,
+    ) -> bool {
+        // UnitView derefs to &combat_engine::state::Unit, so .tags is directly accessible.
+        self.snap
+            .unit(target)
+            .is_some_and(|v| requires.is_subset(&v.tags) && excludes.is_disjoint(&v.tags))
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -148,6 +160,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         }
     }
@@ -172,6 +186,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         }
     }

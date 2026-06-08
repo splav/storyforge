@@ -429,6 +429,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         }
     }
@@ -453,6 +455,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         }
     }
@@ -547,6 +551,8 @@ mod tests {
                 key: None,
                 requires_los: false,
                 passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             },
         };
         let content = content_with(vec![ping.clone()]);
