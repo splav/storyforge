@@ -225,3 +225,44 @@ See also `engine-migration.md §5` for the authoritative list.
 | Engine-trace writer | Records `(Action, &[Event], rng_calls, hash)`; `Action` is not in the event stream |
 | `EcsContentView` | Bridge boundary: wires Bevy queries to the engine's `ContentView` trait |
 | `from_ecs` heavy bootstrap mapper | Engine must not know about ECS `Equipment`/`CombatStats`/`EnemyPhases`; mapping is correct in shape |
+
+## 10. Tech debt — mutations that should live engine-side
+
+**Principle.** Any mutation to engine-owned unit state that the engine's *derived
+state* depends on — aura membership, stat aggregates, legality, the event stream —
+must go through an engine `Effect` so the `step()` cascade recomputes dependents and
+emits the diff events uniformly. Bridge-side "mutate an ECS component, then let
+`from_ecs` reproject" lands the *value* but **skips the engine's recompute + event
+diff**, so downstream consumers (aura buffs, `AuraStatusGained/Lost`, UI/log
+translators) silently miss the change.
+
+**The instance: phase overrides are split across two mechanisms.**
+
+| Path | Carries | Where | Emits events / recomputes? |
+|------|---------|-------|----------------------------|
+| Engine `Unit.enemy_phases` → `EnterPhase` | HP-trigger, `new_max_hp`, `heal_to_full` | pure engine (`state.rs::check_phase_trigger`, `effect.rs::EnterPhase`) | yes — inside the cascade |
+| Bridge `PhaseDef` → `apply_phase_overrides_system` | `stats`, `ability_ids`, `ai_behavior` | bridge (ECS mutate → `from_ecs`) | no — bypasses the cascade |
+
+Consequences:
+- The engine's own armor/speed phase-override is **dead**: `check_phase_trigger`
+  builds `PhaseTransition` with `new_armor: 0, new_base_speed: 0` hardcoded, so the
+  `SetArmor`/speed derivation in `EnterPhase` is unreachable. The bridge path took over.
+- A phase that changes membership-relevant state (e.g. **creature tags** — boss sheds
+  `symbiote` in phase 3) cannot fire `AuraStatusLost` from the bridge path, breaking the
+  "guaranteed aura cutoff" contract. Surfaced by the target-tags work (Atom 3).
+
+**By good practice, pull into the engine:**
+- Phase `stats` / `ability_ids` / tags overrides → thread the full override through the
+  *serialized* `PhaseEntry`, populate it in `check_phase_trigger`, and apply via the
+  `EnterPhase` effect (revive the dead `SetArmor` path or delete it). Then phase changes
+  recompute aggregates + aura and emit events like any other effect.
+- Keep `ai_behavior` bridge-side — it's an AI-layer regime override, not engine state.
+
+**Related smell — aura recompute trigger is hardcoded.** `step.rs:~685` snapshots aura
+membership only for `matches!(effect, MovePosition | Death)`. Membership is actually a
+pure function of *(positions, tags, teams, alive)*; any new membership axis (tags) must
+be added to that `matches!` or its events silently don't fire. Replace the ad-hoc list
+with a named predicate `effect_changes_aura_membership(effect)` enumerating the
+membership-input-mutating effects, documented from the principle — cheap (those effects
+are rare) and self-extending. Avoid "recompute every step": `aura_membership_set` would
+then run twice per effect inside every AI-sim branch (hot path), a real perf regression.

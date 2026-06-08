@@ -92,61 +92,63 @@ victory-only флаге сворачивается в сахар над `objecti
 
 ---
 
-## Атом 3 — Теги цели: `Unit.tags` + предикаты способностей/ауры (L)
+## Атом 3 — Теги цели: `Unit.tags` + предикаты (L–XL) — planner+critic ✅, режется A/B/C
 
-Заказчик выбрал **гарантию**. Реализуем теги (не узкую «расу»): плоский `Set<Tag>` на
-юните, предикаты `requires`/`excludes` у способностей и ауры, add/remove-tag в фазах.
-Покрывает Б.2 (хил пастуха) и Б.4 (аура + обрыв фазы-3) одним примитивом + задел на будущее
-(бестелесный/нежить).
+Плоский `Set<Tag>` на юните, **аддитивно** (движкового `race` нет — content `race` остаётся
+display-only). Предикаты `requires`/`excludes` у способностей, `affects_tags` у ауры, смена тегов
+в фазе. Покрывает Б.2 (хил пастуха) и Б.4 (аура + обрыв фазы-3). Прошёл planner→plan-critic:
+**APPROVE WITH CHANGES** (Срез A — как есть; B/C — 4 поправки ниже).
 
 ### Словарь тегов (оси — документационные, технически один Set)
 - **вид:** `humanoid` · `beast` · `symbiote` · `construct` · `aberration`
-- **тело:** `corporeal` (дефолт) · `incorporeal`
-- **жизнь:** `living` (дефолт) · `undead` · `inanimate`
+- **тело:** `corporeal` (дефолт) · `incorporeal` — **жизнь:** `living` (дефолт) · `undead` · `inanimate`
 
 Для ch3 авторим только: `symbiote`, `aberration`, `corporeal`, `incorporeal`, `living`.
-Остальное — контент по мере появления механик.
 
-### Модель данных (через стек; Tier-1 снял тест-construction ripple)
-- `Unit.tags: BTreeSet<TagId>` (engine `state.rs`; `TagId`-newtype как `StatusId`). В `UnitWire`
-  `#[serde(default)]`; в `Unit::new`/builder — пустой дефолт. **Мутабельно** (фазы) → входит в `post_state_hash`.
-- ECS-компонент `Tags` (`components.rs`), вставка в спавне; `UnitTemplate.tags` + `Effect::Spawn`
-  (саммоны); `UnitSnapshot.tags` (AI).
-- `AbilityDef`: `+ requires_tags`, `+ excludes_tags` (`Set<TagId>`). `AuraDef`: `+ affects_tags`
-  (requires-семантика). TOML-records `#[serde(default)]`.
-- **SCHEMA-bump 47→48** (Атом 4 уже занял 47; теги — отдельный инкремент).
+### Решения (locked)
+- `TagId` через макрос `string_id!` (как `StatusId`); `Unit.tags: BTreeSet<TagId>`, в `UnitWire`
+  `#[serde(default)]`; дефолт-поле + сеттер (как `passives`), **не 21-й арг** `Unit::new`. Мутабельно (фаза) → в `post_state_hash`.
+- **AI без нового поля** — читает `u.tags` через `UnitView` Deref (иначе коллизия с `AiTags` bitflags).
+- Трейт-предикат `has_tags(target, req, excl) -> bool` (owned, не `&Set`) в **3 impl**; в `check_legality`
+  **только `SingleEnemy/SingleAlly`** (skip Ground/Myself) → `IllegalReason::WrongTargetTags`.
+- Общий `aura_targets` из **обоих** сайтов (`aura_effects_on` ~1214 + `aura_membership_set` ~1271);
+  пустой `affects_tags` ⇒ subset-true ⇒ существующие ауры не меняются.
+- Семантика обрыва (критик подтвердил): накопитель = **источник**, Контейнер = **цель**; `affects_tags`
+  фильтрует цель → Контейнер сбрасывает свой `symbiote` → аура отваливается корректно.
 
-### Поведение
-- `ActorView` + `ActionState::target_tags(id) -> &Set<TagId>` в **3 impl** (`EngineCheckState`
-  `step.rs:67`, `SnapshotActionState` `action_state.rs:22`, Bevy-адаптер `legality_adapter.rs`).
-- `check_legality` (рядом с target-type, `legality.rs:250`): цель имеет **все** `requires_tags`
-  и **ни одного** `excludes_tags`, иначе `IllegalReason::WrongTargetTags`. **AI наследует
-  бесплатно** (берёт цели через `check_legality`).
-- Аура: общий хелпер `aura_targets(src, tgt, aura, content)` (team + `affects_tags`), вызвать из
-  **ОБОИХ** call-site — `aura_effects_on` (`state.rs:1206`) И `aura_membership_set`
-  (`state.rs:1263`); иначе drift бонусов и событий членства.
-- **Фаза-3 мутация:** теги в `PhaseDef`→`PhaseEntry`/`PhaseTransition`→`check_phase_trigger`;
-  `Effect::AddTag/RemoveTag { unit, tag }` деривируется из `EnterPhase` (`effect.rs:772`, по
-  образцу `SetArmor`).
+### Срезы (каждый — отдельный зелёный чекпойнт)
+**A — данные + SCHEMA (M):** `TagId`; `Unit.tags` + `UnitWire #[serde(default)]` + 2 литерала
+(`From<UnitWire>`, `Unit::new` body) + сеттер; `UnitTemplate.tags`; `Effect::Spawn` копирует
+`template.tags`; ECS `Tags(BTreeSet<TagId>)` + bootstrap carry-in `Query<(Entity,&Tags)>` (отсутствие
+компонента ⇒ пусто, back-compat); **SCHEMA 47→48** (обе константы + история). Без поведения.
 
-### Применение
-- **Б.2 хил пастуха:** `requires_tags = {symbiote}`. Симбионты — `{symbiote, corporeal, living}`.
-- **Б.4 аура накопителя:** `affects_tags = {symbiote}`. Контейнер ф.1-2 несёт `symbiote`; **ф.3
-  снимает `symbiote`+`corporeal`, ставит `incorporeal`** → аура отваливается **гарантированно** +
-  физ-атаки слабеют. (Если позже добавим «стрелы не бьют incorporeal» — тот же предикат `excludes`.)
+**B — предикаты на статике (L):** `AbilityDef.{requires,excludes}_tags` (content-only, **не в wire**),
+`AuraDef.affects_tags` (**в wire** — `Unit.auras`); `has_tags`×3 + legality-чек; `aura_targets`-рефактор;
+TOML+bridge-зеркала (`EnemyDef.tags`, `AuraSource.affects_tags`, `ValidationTargetQ.tags: Option<&Tags>`).
+Контент: симбионты `{symbiote,corporeal,living}`, пастух `requires={symbiote}`, накопитель `affects={symbiote}`.
+
+**C — смена тегов в фазе (S→M):** `PhaseEntry.tags: Option<Set>` (**в wire** — `Unit.enemy_phases`) →
+`check_phase_trigger` (state.rs ~649, мёртвый armor/speed-путь) → применяется в арме `EnterPhase`
+(effect.rs ~831); aura-guard `step.rs:685` → именованный `effect_changes_aura_membership` (+`EnterPhase`
+**only**; `Spawn` отложить — сместит summon-трейсы). Контейнер ф.3 `tags={aberration,incorporeal}`.
+
+### Поправки критика к B/C (зафиксировать перед кодом)
+1. **Двойная запись тегов фазы:** движковый in-arm + **ECS-зеркало** в `apply_phase_ecs_writes`
+   (engine_bridge:538, по `Event::PhaseEntered`) + поле `tags` на **bridge** `encounters::PhaseDef`
+   (отдельно от engine `PhaseEntry`) — иначе `BevyActions` читает stale ECS `Tags` после ф.3.
+2. **SCHEMA v48 = ТРИ wire-добавления** (`Unit.tags` A, `AuraDef.affects_tags` B, `PhaseEntry.tags` C),
+   прирастают по срезам; бамп один (47→48 в A), байты v48 разные по A→B→C (фикстур нет — ок).
+3. **Развилка механизма (решить на C):** `Effect::SetTags{unit,tags}` (replace + само-описывающий
+   трейс/seam для ECS-зеркала) ИЛИ ECS-write по `PhaseEntered` (тогда Effect не нужен). НЕ in-arm-«молча».
+4. `Tags` ECS-компонент — нетривиальный скоуп (новый компонент + спавн 2 ветки + ValidationTargetQ).
 
 ### Тесты
-- inline (`legality.rs`): `requires`/`excludes` позитив/негатив; пустые предикаты не влияют.
-- inline (`state.rs` aura): `aura_targets` по `affects_tags`; после `RemoveTag(symbiote)` ф.3 —
-  аура отваливается; `aura_membership_set` синхронен с `aura_effects_on`.
-- inline (`effect.rs`): `AddTag`/`RemoveTag` меняют `Unit.tags`; `EnterPhase` их деривит.
-- engine+bridge: `from_ecs` переносит `Tags`→`Unit.tags`; AI хилит только `symbiote`.
-- serde-roundtrip: `Unit.tags`.
+- A: serde-roundtrip `Unit.tags` (старый трейс без ключа → пусто); determinism (BTreeSet порядок); SCHEMA-reject v47.
+- B: legality `requires/excludes` ±, Ground/Myself игнор; `aura_targets` по `affects_tags`; пустой ⇒ существующие aura-тесты зелёные (регрессия); 3-backend parity.
+- C: **headline** — ф.3 эмитит `AuraStatusLost` по симбионтам + `aura_effects_on(boss)`=default (обрыв «по агрегату и событиям»); `Unit.tags`=={aberration,incorporeal}; `effect_changes_aura_membership` enum-тест.
 
-### Риск/оценка
-Самый дорогой атом (стек + 3 `ActionState` + фаза-мутация). Tier-1 снял тест-construction
-ripple; остаются прод `Unit::new` (~3) + in-crate inline-хелпер + `UnitWire`/`From` +
-ActorView/ActionState×3. **Оценка: L.**
+### Вне скоупа (техдолг `task_06f4cb24`)
+Унификация bridge-фаз в движок; мёртвый armor/speed phase-override; `Spawn`-in-aura события.
 
 ---
 
