@@ -821,4 +821,199 @@ mod tests {
             }
         }
     }
+
+    // ── shepherd_heal: tag-gated heal (Atom 6) ───────────────────────────────
+    //
+    // Verifies the enemy AI sensibly casts the tag-gated heal `shepherd_heal`
+    // (target_type=single_ally, effect=heal, requires_tags=["symbiote"]):
+    //   1. legality honours `requires_tags` — the heal is illegal on a
+    //      non-symbiote ally, legal on a symbiote ally (the same `check_legality`
+    //      path the AI plan generator filters candidates through);
+    //   2. with a wounded symbiote ally in range the AI *chooses* the heal,
+    //      targeting the symbiote (never the non-symbiote);
+    //   3. at full ally HP the AI does NOT heal (overheal gate) and attacks.
+
+    use crate::combat::ai::plan::types::PlanStep;
+    use crate::combat::ai::test_helpers::snapshot_from_pairs;
+    use crate::combat::ai::world::tags::AiTags;
+    use crate::content::content_view::ContentView;
+
+    /// A pure support shepherd (support axis = 1.0) so ProtectAlly triggers at
+    /// the 70% HP threshold (`select_intent`: threshold = 0.5 + support*0.2).
+    fn shepherd_role() -> crate::combat::ai::config::role::AxisProfile {
+        crate::combat::ai::config::role::AxisProfile {
+            tank: 0.0, melee: 0.3, ranged: 0.0, control: 0.0, support: 1.0,
+        }
+    }
+
+    /// Build a `BattleSnapshot` for the shepherd scenario, stamping the engine
+    /// `Unit.tags` set (the field `has_tags` legality reads, distinct from the
+    /// AI `AiTags`). `ally_hp` is the wounded/full HP of the symbiote ally.
+    ///
+    /// Layout (row 0): shepherd actor (0,0), symbiote ally (1,0),
+    /// non-symbiote ally (0,1)-ish via offset, Player enemy adjacent.
+    fn shepherd_snapshot(
+        ally_hp: i32,
+    ) -> (
+        BattleSnapshot,
+        bevy::prelude::Entity, // shepherd
+        bevy::prelude::Entity, // symbiote ally
+        bevy::prelude::Entity, // non-symbiote ally
+    ) {
+        use combat_engine::TagId;
+
+        let actor_pos = hex_from_offset(0, 0);
+        let symbiote_pos = hex_from_offset(1, 0);
+        let plain_pos = hex_from_offset(2, 0);
+        let enemy_pos = hex_from_offset(0, 1);
+
+        let shepherd = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .role(shepherd_role())
+            .ability_names(&["melee_attack", "shepherd_heal"])
+            .ap(2)
+            .mana(5, 8)
+            .tags(AiTags::CAN_HEAL) // mirrors compute_unit_tags: affordable single_ally heal
+            .max_attack_range(1)
+            .build_pair();
+
+        let symbiote = UnitBuilder::new(2, Team::Enemy, symbiote_pos)
+            .hp(ally_hp)
+            .max_hp(20)
+            .build_pair();
+
+        // Equally-wounded NON-symbiote ally: must never be a heal target.
+        let plain = UnitBuilder::new(3, Team::Enemy, plain_pos)
+            .hp(ally_hp)
+            .max_hp(20)
+            .build_pair();
+
+        let enemy = UnitBuilder::new(4, Team::Player, enemy_pos).build_pair();
+
+        let (mut sym_unit, sym_cache) = symbiote;
+        sym_unit.tags = std::iter::once(TagId::from("symbiote")).collect();
+
+        let pairs = vec![
+            shepherd,
+            (sym_unit, sym_cache),
+            plain,
+            enemy,
+        ];
+
+        let snap = snapshot_from_pairs(pairs, 1);
+        (
+            snap,
+            bevy::prelude::Entity::from_raw_u32(1).unwrap(),
+            bevy::prelude::Entity::from_raw_u32(2).unwrap(),
+            bevy::prelude::Entity::from_raw_u32(3).unwrap(),
+        )
+    }
+
+    fn run_shepherd_pick(snap: &BattleSnapshot, actor: bevy::prelude::Entity) -> PickResult {
+        let content = ContentView::load_global_for_tests();
+        let (status_tag_cache, ability_tag_cache) = build_caches(&content);
+        let difficulty = DifficultyProfile::default();
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let memory = crate::combat::ai::intent::AiMemory::default();
+        let mut rng = DiceRng::with_seed(0);
+        let world = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: &ability_tag_cache,
+            status_tags: &status_tag_cache,
+        };
+        let actor_pos = snap.unit(actor).unwrap().pos;
+        pick_action(
+            actor, actor_pos, &world, snap, &maps, &mut rng,
+            &memory, &reservations, false, &HashMap::new(),
+        )
+    }
+
+    /// Extract `(ability, target)` of the first Cast step in the winning plan.
+    fn chosen_cast(result: &PickResult) -> Option<(String, bevy::prelude::Entity)> {
+        result.pool.plans[result.best_idx]
+            .steps
+            .iter()
+            .find_map(|s| match s {
+                PlanStep::Cast { ability, target, .. } => {
+                    Some((ability.to_string(), *target))
+                }
+                _ => None,
+            })
+    }
+
+    /// Slice B premise: the tag predicate is honoured by the *same legality
+    /// path* the AI plan generator filters heal targets through
+    /// (`SnapshotActionState` → `check_legality::has_tags`). A symbiote ally is
+    /// a legal heal target; a non-symbiote ally is rejected as `WrongTargetTags`.
+    #[test]
+    fn shepherd_heal_legality_gated_by_symbiote_tag() {
+        use crate::combat::ai::action_state::SnapshotActionState;
+        use combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
+
+        let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8);
+        let content = ContentView::load_global_for_tests();
+        let state = SnapshotActionState { content: &content, snap: &snap };
+        let ab = combat_engine::AbilityId::from("shepherd_heal");
+
+        let symbiote_pos = snap.unit(symbiote).unwrap().pos;
+        let plain_pos = snap.unit(plain).unwrap().pos;
+
+        assert!(
+            check_legality(
+                ProposedAction { actor: shepherd, ability: &ab, target: symbiote, target_pos: symbiote_pos },
+                &state,
+            ).is_ok(),
+            "shepherd_heal must be LEGAL on a symbiote ally",
+        );
+        assert_eq!(
+            check_legality(
+                ProposedAction { actor: shepherd, ability: &ab, target: plain, target_pos: plain_pos },
+                &state,
+            ),
+            Err(IllegalReason::WrongTargetTags),
+            "shepherd_heal must be ILLEGAL on a non-symbiote ally",
+        );
+    }
+
+    /// Slice C premise: with a wounded symbiote ally in range the AI *chooses*
+    /// shepherd_heal and targets the symbiote — never the equally-wounded
+    /// non-symbiote ally (tag predicate flows into the chosen plan via legality).
+    #[test]
+    fn shepherd_heals_wounded_symbiote_not_plain_ally() {
+        let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8); // 8/20 = 40%
+        let result = run_shepherd_pick(&snap, shepherd);
+
+        let (ability, target) = chosen_cast(&result)
+            .expect("winning plan must contain a Cast step");
+        assert_eq!(
+            ability, "shepherd_heal",
+            "AI must cast shepherd_heal on a wounded symbiote ally, chose {ability}",
+        );
+        assert_eq!(target, symbiote, "heal must target the symbiote ally");
+        assert_ne!(target, plain, "heal must NOT target the non-symbiote ally");
+    }
+
+    /// Negative control: at full ally HP the heal is wasteful — the overheal
+    /// gate drops the candidate and no rescue need fires, so the AI attacks the
+    /// in-range enemy instead of healing.
+    #[test]
+    fn shepherd_attacks_when_symbiote_at_full_hp() {
+        let (snap, shepherd, _symbiote, _plain) = shepherd_snapshot(20); // full HP
+        let result = run_shepherd_pick(&snap, shepherd);
+
+        let cast = chosen_cast(&result);
+        assert_ne!(
+            cast.as_ref().map(|(a, _)| a.as_str()),
+            Some("shepherd_heal"),
+            "AI must NOT heal a full-HP ally; chose {cast:?}",
+        );
+        assert_eq!(
+            cast.map(|(a, _)| a),
+            Some("melee_attack".to_string()),
+            "with no one to heal, the shepherd should attack the in-range enemy",
+        );
+    }
 }

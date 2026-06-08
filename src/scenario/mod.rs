@@ -807,8 +807,6 @@ mod tests {
     /// CampaignState.flags (by design: the gate decides who gets the flags).
     #[test]
     fn skipped_combat_does_not_write_victory_flags() {
-        use crate::content::settings::GameSettings;
-
         let scen = scenario_from_scenes(vec![
             // scene 0: combat gated on "fight" — player chose "flee", so this is skipped
             gated_combat(Some("fight"), vec!["victory_marker"]),
@@ -894,12 +892,12 @@ mod tests {
         let scen = scenario_from_scenes(vec![
             gated_story(Some("secret")), // index 0: gated, flag absent
         ]);
-        let mut db = make_db(scen);
+        let db = make_db(scen);
         // Also need at least one encounter-free scenario so enter_scenario_at doesn't
         // fail on missing content — our scenario has no encounters, that's fine.
 
         let mut commands_queue = bevy::ecs::world::CommandQueue::default();
-        let mut world = bevy::ecs::world::World::new();
+        let world = bevy::ecs::world::World::new();
         let mut commands = Commands::new(&mut commands_queue, &world);
         let mut next_state = NextState::<AppState>::default();
 
