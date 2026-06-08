@@ -18,6 +18,7 @@ use storyforge::combat::ai::plan::types::PlanStep;
 use storyforge::combat::ai::test_helpers::{ent, snapshot_from};
 use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+use storyforge::combat::engine_bridge::entity_to_uid;
 use storyforge::combat_engine::{
     action::Action,
     content::ContentView as EngineContentView,
@@ -25,13 +26,11 @@ use storyforge::combat_engine::{
     state::{CombatState, RoundPhase},
     step::step,
 };
-use storyforge::combat::engine_bridge::entity_to_uid;
 use storyforge::content::abilities::CasterContext;
 use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 
 // ── Shared scenario setup ─────────────────────────────────────────────────────
-
 
 fn make_unit_snap(id: u32, team: Team, col: i32, row: i32, aoo: Option<f32>) -> UnitSnapshot {
     UnitSnapshot {
@@ -109,13 +108,21 @@ fn build_scenario() -> (BattleSnapshot, Entity, Vec<storyforge::game::hex::Hex>)
 struct BenchContent;
 
 impl BenchContent {
-    fn from_snap(_snap: &BattleSnapshot) -> Self { Self }
+    fn from_snap(_snap: &BattleSnapshot) -> Self {
+        Self
+    }
 }
 
 impl EngineContentView for BenchContent {
-    fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &combat_engine::StatusId) -> Option<&combat_engine::StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+    fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> {
+        None
+    }
+    fn status_def(&self, _: &combat_engine::StatusId) -> Option<&combat_engine::StatusDef> {
+        None
+    }
+    fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> {
+        None
+    }
 }
 
 fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
@@ -133,8 +140,16 @@ fn bench_move_10units_engine(c: &mut Criterion) {
     c.bench_function("bench_move_10units_engine", |b| {
         b.iter(|| {
             let mut state = snap_to_combat_state(&snap);
-            let action = Action::Move { actor: actor_uid, path: path.clone() };
-            let _ = step(black_box(&mut state), black_box(action), &mut ExpectedValue, &content);
+            let action = Action::Move {
+                actor: actor_uid,
+                path: path.clone(),
+            };
+            let _ = step(
+                black_box(&mut state),
+                black_box(action),
+                &mut ExpectedValue,
+                &content,
+            );
             black_box(state);
         });
     });
@@ -163,5 +178,9 @@ fn bench_move_10units_legacy(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_move_10units_engine, bench_move_10units_legacy);
+criterion_group!(
+    benches,
+    bench_move_10units_engine,
+    bench_move_10units_legacy
+);
 criterion_main!(benches);

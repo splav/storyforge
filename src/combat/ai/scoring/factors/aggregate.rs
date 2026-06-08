@@ -25,25 +25,26 @@
 //!
 //! Picking jitter (deterministic noise) is applied in `PickBestStage`, not here.
 
-use crate::combat::ai::scoring::factors::{
-    compute_plan_self_survival, compute_plan_tempo_gain,
-    plan as plan_factors, step as step_factors,
-    BatchStats, PlanFactor, PlanFactorValues, ScoredStep, StepFactor, TerminalFactor,
-    default_norm,
-};
-use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::intent::{cc_reach, evaluate_last_stand_step, intent_score, pursuit_move_score, TacticalIntent};
 use crate::combat::ai::adapt::EvaluationMode;
-use crate::combat::ai::scoring::factors::terminal_state::terminal_state_score;
+use crate::combat::ai::intent::{
+    cc_reach, evaluate_last_stand_step, intent_score, pursuit_move_score, TacticalIntent,
+};
+use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::estimate_st_damage;
-use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
-use crate::content::abilities::{CasterContext, EffectDef};
+use crate::combat::ai::scoring::factors::terminal_state::terminal_state_score;
+use crate::combat::ai::scoring::factors::{
+    compute_plan_self_survival, compute_plan_tempo_gain, default_norm, plan as plan_factors,
+    step as step_factors, BatchStats, PlanFactor, PlanFactorValues, ScoredStep, StepFactor,
+    TerminalFactor,
+};
+use crate::combat::ai::world::influence::InfluenceMaps;
 #[cfg(test)]
 use crate::content::abilities::EffectCalcExt;
-use combat_engine::modifier;
+use crate::content::abilities::{CasterContext, EffectDef};
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
+use combat_engine::modifier;
 
 /// Per-factor contribution used both in `aggregate_factors_to_score` (Pass 1) and in
 /// `PickBestStage` (step 11.4 additive composition).
@@ -119,8 +120,14 @@ pub fn rescore_with_intent(
     ctx: &ScoringCtx,
 ) -> Vec<f32> {
     for (p, f) in plans.iter().zip(raw.iter_mut()) {
-        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, intent, ctx, EvaluationMode::Default));
-        f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, intent, ctx));
+        f.set_plan(
+            PlanFactor::Intent,
+            compute_plan_intent_sum(p, intent, ctx, EvaluationMode::Default),
+        );
+        f.set_plan(
+            PlanFactor::TempoGain,
+            compute_plan_tempo_gain(p, intent, ctx),
+        );
     }
     aggregate_factors_to_score(plans, raw, ctx)
 }
@@ -151,7 +158,10 @@ pub fn rescore_with_per_plan_modes(
     for ((p, f), mode) in plans.iter().zip(raw.iter_mut()).zip(modes.iter()) {
         // Pass the mode directly: when LastStand, compute_plan_intent_sum routes
         // to evaluate_last_stand_step; for Default it uses the global intent.
-        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, global, ctx, *mode));
+        f.set_plan(
+            PlanFactor::Intent,
+            compute_plan_intent_sum(p, global, ctx, *mode),
+        );
         // Under Flee there is no offensive target, so approach-tempo is meaningless;
         // the retreat gradient lives in the intent column (evaluate_flee_step).
         // Zeroing here prevents FocusTarget tempo from rewarding APPROACH for a fleeing unit.
@@ -186,15 +196,23 @@ pub fn aggregate_factors_to_score(
         for f in StepFactor::iter() {
             let v = factors.get(f);
             let s = &mut stats[f as usize];
-            if v > s.max { s.max = v; }
-            if v < s.min { s.min = v; }
+            if v > s.max {
+                s.max = v;
+            }
+            if v < s.min {
+                s.min = v;
+            }
         }
         for f in PlanFactor::iter() {
             let idx = StepFactor::count() + f as usize;
             let v = factors.get_plan(f);
             let s = &mut stats[idx];
-            if v > s.max { s.max = v; }
-            if v < s.min { s.min = v; }
+            if v > s.max {
+                s.max = v;
+            }
+            if v < s.min {
+                s.min = v;
+            }
         }
     }
 
@@ -207,7 +225,8 @@ pub fn aggregate_factors_to_score(
         active.cache.role.factor_weights(world.tuning)
     };
     // Intent slot: StepFactor::count() + PlanFactor::Intent as usize = 7 + 0 = 7
-    weights[StepFactor::count() + PlanFactor::Intent as usize] *= world.difficulty.intent_commitment;
+    weights[StepFactor::count() + PlanFactor::Intent as usize] *=
+        world.difficulty.intent_commitment;
     // Scarcity slot: StepFactor::Scarcity as usize = 5
     weights[StepFactor::Scarcity as usize] *= world.difficulty.resource_discipline;
 
@@ -223,7 +242,8 @@ pub fn aggregate_factors_to_score(
             }
             for f in PlanFactor::iter() {
                 let i = StepFactor::count() + f as usize;
-                score += factor_contribution(factors.get_plan(f), &stats[i], f.signed(), weights[i]);
+                score +=
+                    factor_contribution(factors.get_plan(f), &stats[i], f.signed(), weights[i]);
             }
             score
         })
@@ -243,7 +263,10 @@ pub fn aggregate_factors_to_score(
     {
         // Step 6.4: use continuation terminal weights when actor has a stored goal.
         let tw = if ctx.last_goal.is_some() {
-            active.cache.role.terminal_weights_continuation(world.tuning)
+            active
+                .cache
+                .role
+                .terminal_weights_continuation(world.tuning)
         } else {
             active.cache.role.terminal_weights(world.tuning)
         };
@@ -271,9 +294,15 @@ pub fn build_summon_dpr_cache(
     let mut cache: HashMap<String, f32> = HashMap::new();
     for plan in plans {
         for step in &plan.steps {
-            let PlanStep::Cast { ability, .. } = step else { continue };
-            let Some(def) = ctx.content.abilities.get(ability) else { continue };
-            let EffectDef::Summon { template_id, .. } = &def.effect else { continue };
+            let PlanStep::Cast { ability, .. } = step else {
+                continue;
+            };
+            let Some(def) = ctx.content.abilities.get(ability) else {
+                continue;
+            };
+            let EffectDef::Summon { template_id, .. } = &def.effect else {
+                continue;
+            };
             if cache.contains_key(template_id) {
                 continue;
             }
@@ -307,18 +336,21 @@ pub fn compute_plan_factors(
     ctx: &ScoringCtx,
 ) -> PlanFactorValues {
     let mut out = compute_plan_factors_sans_intent(plan, ctx);
-    out.set_plan(PlanFactor::Intent, compute_plan_intent_sum(plan, intent, ctx, EvaluationMode::Default));
-    out.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(plan, intent, ctx));
+    out.set_plan(
+        PlanFactor::Intent,
+        compute_plan_intent_sum(plan, intent, ctx, EvaluationMode::Default),
+    );
+    out.set_plan(
+        PlanFactor::TempoGain,
+        compute_plan_tempo_gain(plan, intent, ctx),
+    );
     out
 }
 
 /// Everything except the intent, tempo_gain, and self_survival factors (they
 /// stay 0.0). Intent-independent, so the utility pipeline computes this once
 /// per plan and reuses it across viability / LastStand intent swaps.
-pub fn compute_plan_factors_sans_intent(
-    plan: &TurnPlan,
-    ctx: &ScoringCtx,
-) -> PlanFactorValues {
+pub fn compute_plan_factors_sans_intent(plan: &TurnPlan, ctx: &ScoringCtx) -> PlanFactorValues {
     let active = ctx.active;
     let snap = ctx.snap;
     // No sim is run here: the generator already produced the sim state after
@@ -350,7 +382,12 @@ pub fn compute_plan_factors_sans_intent(
             // NOTE: StepFactor::Saturation::compute reads ctx.snap as pre-step
             // snapshot — correct only when called inside this with_perspective block.
             let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
-            let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
+            let step_outcome = plan
+                .annotation
+                .outcomes
+                .get(idx)
+                .cloned()
+                .unwrap_or_default();
             for f in StepFactor::iter() {
                 let v = f.compute(&step_ctx, &scored_step, &step_outcome, &ctx.need_signals);
                 sums[f as usize] += v * step_weight;
@@ -366,7 +403,10 @@ pub fn compute_plan_factors_sans_intent(
     }
     // plan-level factors: intent and tempo_gain filled in by compute_plan_factors;
     // self_survival computed here.
-    out.set_plan(PlanFactor::SelfSurvival, compute_plan_self_survival(plan, ctx));
+    out.set_plan(
+        PlanFactor::SelfSurvival,
+        compute_plan_self_survival(plan, ctx),
+    );
     out
 }
 
@@ -432,7 +472,9 @@ pub fn compute_plan_intent_sum(
         let mut step_weight = 1.0f32;
         for (idx, step) in plan.steps.iter().enumerate() {
             let pre_snap = plan.pre_step_snapshot(idx, ctx.snap);
-            let Some(sim_actor) = pre_snap.unit(ctx.active.entity()) else { break; };
+            let Some(sim_actor) = pre_snap.unit(ctx.active.entity()) else {
+                break;
+            };
             let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
             let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
             intent_sum += evaluate_last_stand_step(&scored_step, &step_ctx) * step_weight;
@@ -450,7 +492,9 @@ pub fn compute_plan_intent_sum(
         let mut step_weight = 1.0f32;
         for (idx, step) in plan.steps.iter().enumerate() {
             let pre_snap = plan.pre_step_snapshot(idx, ctx.snap);
-            let Some(sim_actor) = pre_snap.unit(ctx.active.entity()) else { break; };
+            let Some(sim_actor) = pre_snap.unit(ctx.active.entity()) else {
+                break;
+            };
             let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
             let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
             intent_sum += evaluate_flee_step(&scored_step, &step_ctx) * step_weight;
@@ -471,7 +515,10 @@ pub fn compute_plan_intent_sum(
     let base_discount = world.difficulty.plan_step_discount;
 
     // Detect pure-move plan: no Cast step anywhere.
-    let is_pure_move = plan.steps.iter().all(|s| matches!(s, PlanStep::Move { .. }));
+    let is_pure_move = plan
+        .steps
+        .iter()
+        .all(|s| matches!(s, PlanStep::Move { .. }));
 
     // Step-1b: for pure-move plans under pursuit intents, score by final
     // position only — path length must not be a source of intent credit.
@@ -490,8 +537,8 @@ pub fn compute_plan_intent_sum(
             TacticalIntent::ApplyCC { target } => {
                 return match snap.unit(*target) {
                     Some(t) => {
-                        let reach = (active.speed.max(0) as u32)
-                            .saturating_add(cc_reach(active, content));
+                        let reach =
+                            (active.speed.max(0) as u32).saturating_add(cc_reach(active, content));
                         pursuit_move_score(active.pos, plan.final_pos, t.pos, reach)
                     }
                     None => 0.0,
@@ -525,8 +572,19 @@ pub fn compute_plan_intent_sum(
 
         if !goal_achieved {
             let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
-            let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
-            let iv = intent_score(intent, &scored_step, &step_ctx, &step_outcome, EvaluationMode::Default);
+            let step_outcome = plan
+                .annotation
+                .outcomes
+                .get(idx)
+                .cloned()
+                .unwrap_or_default();
+            let iv = intent_score(
+                intent,
+                &scored_step,
+                &step_ctx,
+                &step_outcome,
+                EvaluationMode::Default,
+            );
             intent_sum += iv * step_weight;
         }
 
@@ -551,26 +609,22 @@ pub fn compute_plan_intent_sum(
                 let cast_pos = sim_actor.pos;
                 let tail_discount = step_weight; // = base_discount^(cast_idx+1)
                 let tail_score = match intent {
-                    TacticalIntent::FocusTarget { target } => {
-                        match snap.unit(*target) {
-                            Some(t) => {
-                                let reach = (active.speed.max(0) as u32)
-                                    .saturating_add(active.cache.max_attack_range);
-                                pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
-                            }
-                            None => 0.0,
+                    TacticalIntent::FocusTarget { target } => match snap.unit(*target) {
+                        Some(t) => {
+                            let reach = (active.speed.max(0) as u32)
+                                .saturating_add(active.cache.max_attack_range);
+                            pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
                         }
-                    }
-                    TacticalIntent::ApplyCC { target } => {
-                        match snap.unit(*target) {
-                            Some(t) => {
-                                let reach = (active.speed.max(0) as u32)
-                                    .saturating_add(cc_reach(active, content));
-                                pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
-                            }
-                            None => 0.0,
+                        None => 0.0,
+                    },
+                    TacticalIntent::ApplyCC { target } => match snap.unit(*target) {
+                        Some(t) => {
+                            let reach = (active.speed.max(0) as u32)
+                                .saturating_add(cc_reach(active, content));
+                            pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
                         }
-                    }
+                        None => 0.0,
+                    },
                     _ => 0.0,
                 };
                 intent_sum += tail_score * tail_discount;

@@ -38,20 +38,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::combat::ai::adapt::{AdaptationReason, EvaluationMode};
 use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, TacticalIntent};
 use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
 use crate::combat::ai::intent::considerations::IntentConsiderations;
-use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
+use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, TacticalIntent};
 use crate::combat::ai::memory::goal::GoalKind;
+use crate::combat::ai::orchestration::AiDecision;
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::adapt::{AdaptationReason, EvaluationMode};
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
 use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
+use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::orchestration::AiDecision;
-use combat_engine::AbilityId;
 use crate::game::hex::Hex;
+use combat_engine::AbilityId;
 
 /// Log schema version.
 /// - v1 → v2: added `reactions_left` + `aoo_expected_damage` to `UnitSnapshot`.
@@ -296,7 +296,9 @@ impl AiLogger {
     /// Write one entry as a single JSON line, flushed immediately so crashes
     /// don't lose the last decision.
     pub fn write_entry<T: Serialize>(&mut self, entry: &T) -> std::io::Result<()> {
-        let Some(w) = self.writer.as_mut() else { return Ok(()) };
+        let Some(w) = self.writer.as_mut() else {
+            return Ok(());
+        };
         let json = serde_json::to_string(entry)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         writeln!(w, "{json}")?;
@@ -473,15 +475,23 @@ pub struct TradeBlock {
 #[serde(tag = "kind")]
 pub enum DecisionBlock {
     EndTurn,
-    CastInPlace { ability: String, target_id: u64, target_pos: [i32; 2] },
+    CastInPlace {
+        ability: String,
+        target_id: u64,
+        target_pos: [i32; 2],
+    },
     MoveAndCast {
         path: Vec<[i32; 2]>,
         ability: String,
         target_id: u64,
         target_pos: [i32; 2],
     },
-    MoveOnlyRetreat { path: Vec<[i32; 2]> },
-    MoveCloser { path: Vec<[i32; 2]> },
+    MoveOnlyRetreat {
+        path: Vec<[i32; 2]>,
+    },
+    MoveCloser {
+        path: Vec<[i32; 2]>,
+    },
 }
 
 impl From<&AiDecision> for DecisionBlock {
@@ -491,12 +501,21 @@ impl From<&AiDecision> for DecisionBlock {
         }
         match d {
             AiDecision::EndTurn => Self::EndTurn,
-            AiDecision::CastInPlace { ability, target, target_pos } => Self::CastInPlace {
+            AiDecision::CastInPlace {
+                ability,
+                target,
+                target_pos,
+            } => Self::CastInPlace {
                 ability: ability.0.clone(),
                 target_id: target.to_bits(),
                 target_pos: [target_pos.x, target_pos.y],
             },
-            AiDecision::MoveAndCast { path: p, ability, target, target_pos } => Self::MoveAndCast {
+            AiDecision::MoveAndCast {
+                path: p,
+                ability,
+                target,
+                target_pos,
+            } => Self::MoveAndCast {
                 path: path(p),
                 ability: ability.0.clone(),
                 target_id: target.to_bits(),
@@ -545,7 +564,13 @@ pub fn format_timestamp_utc(epoch_s: u64) -> String {
 /// to embed in a filename across platforms.
 pub fn sanitize_for_filename(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -560,7 +585,7 @@ pub fn build_combat_log_dir(
 ) -> PathBuf {
     let ts = format_timestamp_utc(now_epoch_s);
     let name = format!(
-        "{ts}_{}_{}_{}" ,
+        "{ts}_{}_{}_{}",
         sanitize_for_filename(campaign),
         sanitize_for_filename(scenario),
         sanitize_for_filename(encounter),
@@ -632,7 +657,9 @@ pub fn open_combat_logs_on_combat_enter(
     mut commands: Commands,
 ) {
     let Some(scen_state) = scenario else { return };
-    let Some(scen_def) = db.scenarios.get(&scen_state.scenario_id) else { return };
+    let Some(scen_def) = db.scenarios.get(&scen_state.scenario_id) else {
+        return;
+    };
     let encounter_id = match scen_def.scenes.get(scen_state.scene_index) {
         Some(crate::content::scenarios::SceneDef::Combat { encounter_id, .. }) => {
             encounter_id.as_str()
@@ -649,7 +676,12 @@ pub fn open_combat_logs_on_combat_enter(
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let dir = build_combat_log_dir(campaign_id, &scen_state.scenario_id, encounter_id, now_epoch_s);
+    let dir = build_combat_log_dir(
+        campaign_id,
+        &scen_state.scenario_id,
+        encounter_id,
+        now_epoch_s,
+    );
     if let Err(e) = create_dir_all(&dir) {
         warn!("Combat log dir create failed at {}: {}", dir.display(), e);
     }
@@ -658,17 +690,25 @@ pub fn open_combat_logs_on_combat_enter(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "unknown_session".to_owned());
-    commands.insert_resource(CombatLogSession { session_id: session_id.clone() });
+    commands.insert_resource(CombatLogSession {
+        session_id: session_id.clone(),
+    });
 
     // Engine trace is always opened (independent of ai_log setting) — it is
     // the replay path.
     let engine_path = dir.join("engine.jsonl");
     match trace_writer.open(&engine_path) {
         Ok(()) => info!("Engine trace → {}", engine_path.display()),
-        Err(e) => warn!("Engine trace open failed at {}: {}", engine_path.display(), e),
+        Err(e) => warn!(
+            "Engine trace open failed at {}: {}",
+            engine_path.display(),
+            e
+        ),
     }
 
-    if !settings.ai_log { return; }
+    if !settings.ai_log {
+        return;
+    }
     let ai_path = dir.join("ai.jsonl");
     match logger.open(ai_path.clone()) {
         Ok(()) => {
@@ -703,9 +743,16 @@ pub fn write_engine_trace_init_system(
     rng: Option<Res<crate::combat::DiceRngRes>>,
     session: Option<Res<CombatLogSession>>,
 ) {
-    if !trace_writer.is_open() || trace_writer.step_counter() > 0 { return; }
-    let (Some(combat_state), Some(rng)) = (combat_state, rng) else { return };
-    let session_id = session.as_ref().map(|s| s.session_id.clone()).unwrap_or_default();
+    if !trace_writer.is_open() || trace_writer.step_counter() > 0 {
+        return;
+    }
+    let (Some(combat_state), Some(rng)) = (combat_state, rng) else {
+        return;
+    };
+    let session_id = session
+        .as_ref()
+        .map(|s| s.session_id.clone())
+        .unwrap_or_default();
     let content_hash = compute_data_dir_hash();
     let state = &combat_state.0;
     let init = combat_engine::trace::InitLine {
@@ -725,7 +772,9 @@ pub fn write_engine_trace_init_system(
 }
 
 /// System: closes engine trace on `OnExit(AppState::Combat)`.
-pub fn close_engine_trace_on_combat_exit(mut trace_writer: ResMut<engine_trace::EngineTraceWriter>) {
+pub fn close_engine_trace_on_combat_exit(
+    mut trace_writer: ResMut<engine_trace::EngineTraceWriter>,
+) {
     trace_writer.close();
 }
 
@@ -751,7 +800,10 @@ fn compute_data_dir_hash() -> String {
     };
     // Sort by filename for determinism.
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
-    let refs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let refs: Vec<(&str, &str)> = pairs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     let digest = combat_engine::content_hash::hash_content(&refs);
     combat_engine::content_hash::format_hex(&digest)
 }
@@ -923,7 +975,11 @@ impl From<&StoredGoalContext> for StoredGoalContextSnapshot {
             actor_hp_at_store: g.actor_hp_at_store,
             actor_rage_at_store: g.actor_rage_at_store,
             actor_status_hash: g.actor_status_hash,
-            actor_statuses_at_store: g.actor_statuses_at_store.iter().map(|s| s.0.clone()).collect(),
+            actor_statuses_at_store: g
+                .actor_statuses_at_store
+                .iter()
+                .map(|s| s.0.clone())
+                .collect(),
             target_hp_at_store: g.target_hp_at_store,
             target_pos_at_store: [g.target_pos_at_store.x, g.target_pos_at_store.y],
         }
@@ -944,17 +1000,27 @@ impl From<&StoredGoalContextSnapshot> for StoredGoalContext {
         let kind = match s.kind.as_str() {
             "finish" => target_entity
                 .map(|t| GoalKind::Finish { target: t })
-                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
+                .unwrap_or(GoalKind::Reposition {
+                    region_center: anchor,
+                }),
             "pressure" => target_entity
                 .map(|t| GoalKind::Pressure { target: t })
-                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
+                .unwrap_or(GoalKind::Reposition {
+                    region_center: anchor,
+                }),
             "disable_enemy" => target_entity
                 .map(|t| GoalKind::DisableEnemy { target: t })
-                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
+                .unwrap_or(GoalKind::Reposition {
+                    region_center: anchor,
+                }),
             "heal_ally" => target_entity
                 .map(|t| GoalKind::HealAlly { ally: t })
-                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
-            "retreat" => GoalKind::Retreat { region_anchor: anchor },
+                .unwrap_or(GoalKind::Reposition {
+                    region_center: anchor,
+                }),
+            "retreat" => GoalKind::Retreat {
+                region_anchor: anchor,
+            },
             "setup_aoe" => {
                 if let Some(ability_str) = &s.planned_ability {
                     GoalKind::SetupAOE {
@@ -962,20 +1028,21 @@ impl From<&StoredGoalContextSnapshot> for StoredGoalContext {
                         planned_ability: AbilityId(ability_str.clone()),
                     }
                 } else {
-                    GoalKind::Reposition { region_center: anchor }
+                    GoalKind::Reposition {
+                        region_center: anchor,
+                    }
                 }
             }
-            _ => GoalKind::Reposition { region_center: anchor },
+            _ => GoalKind::Reposition {
+                region_center: anchor,
+            },
         };
 
         StoredGoalContext {
             kind,
             region_anchor: anchor,
             region_radius: s.region_radius,
-            planned_ability: s
-                .planned_ability
-                .as_ref()
-                .map(|a| AbilityId(a.clone())),
+            planned_ability: s.planned_ability.as_ref().map(|a| AbilityId(a.clone())),
             ttl: s.ttl,
             confidence: s.confidence,
             created_round: s.created_round,
@@ -1031,8 +1098,10 @@ impl AiMemorySnapshot {
     /// (no prior decisions), matching the `Option<AiMemorySnapshot>` field
     /// semantics in `AiLogEntry` — keeps the JSON compact for fresh actors.
     pub fn from_memory(m: &AiMemory) -> Option<Self> {
-        if m.last_intent.is_none() && m.last_target.is_none()
-            && m.turns_committed == 0 && m.last_goal.is_none()
+        if m.last_intent.is_none()
+            && m.last_target.is_none()
+            && m.turns_committed == 0
+            && m.last_goal.is_none()
             && m.hp_ratio_at_last_turn.is_none()
             && !m.last_turn_was_defensive
             && m.turns_in_low_hp == 0
@@ -1252,7 +1321,9 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
 
     // Build LoggedDecision.
     let decision = if let Some(reason) = input.skip_reason {
-        LoggedDecision::Skip { reason: reason.to_owned() }
+        LoggedDecision::Skip {
+            reason: reason.to_owned(),
+        }
     } else {
         logged_decision_from_ai(input.decision)
     };
@@ -1271,7 +1342,8 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         let actor_snap = input.snapshot.unit(input.actor);
         let target_snap = stored.target_entity().and_then(|t| input.snapshot.unit(t));
         let severity = actor_snap.and_then(|actor| {
-            stored.check_continuation(actor, target_snap, input.status_tags)
+            stored
+                .check_continuation(actor, target_snap, input.status_tags)
                 .map(|c| c.severity)
         });
         let age = input.round.saturating_sub(stored.created_round);
@@ -1284,15 +1356,21 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
 
     // Build agenda log (empty on skip-path).
     let (band, band_reason, agenda) = if let Some((b, br)) = input.band {
-        let agenda_log = input.agenda.map(|ag| {
-            ag.items.iter().map(|item| AgendaItemLog {
-                kind: item.kind,
-                target: item.target.map(|e| e.to_bits()),
-                raw_score: item.raw_score,
-                considerations: item.considerations,
-                reason: item.reason.clone(),
-            }).collect()
-        }).unwrap_or_default();
+        let agenda_log = input
+            .agenda
+            .map(|ag| {
+                ag.items
+                    .iter()
+                    .map(|item| AgendaItemLog {
+                        kind: item.kind,
+                        target: item.target.map(|e| e.to_bits()),
+                        raw_score: item.raw_score,
+                        considerations: item.considerations,
+                        reason: item.reason.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         (Some(b), Some(br), agenda_log)
     } else {
         (None, None, vec![])
@@ -1324,19 +1402,26 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
 /// decision that has no direct mapping (there are none currently).
 fn logged_decision_from_ai(decision: &AiDecision) -> LoggedDecision {
     match decision {
-        AiDecision::CastInPlace { ability, target, target_pos } => LoggedDecision::Cast {
+        AiDecision::CastInPlace {
+            ability,
+            target,
+            target_pos,
+        } => LoggedDecision::Cast {
             ability: ability.0.clone(),
             target: target.to_bits(),
             target_pos: [target_pos.x, target_pos.y],
         },
-        AiDecision::MoveAndCast { path, ability, target, target_pos } => {
-            LoggedDecision::MoveAndCast {
-                path: path.iter().map(|h| [h.x, h.y]).collect(),
-                ability: ability.0.clone(),
-                target: target.to_bits(),
-                target_pos: [target_pos.x, target_pos.y],
-            }
-        }
+        AiDecision::MoveAndCast {
+            path,
+            ability,
+            target,
+            target_pos,
+        } => LoggedDecision::MoveAndCast {
+            path: path.iter().map(|h| [h.x, h.y]).collect(),
+            ability: ability.0.clone(),
+            target: target.to_bits(),
+            target_pos: [target_pos.x, target_pos.y],
+        },
         AiDecision::Move { path, .. } => LoggedDecision::Move {
             path: path.iter().map(|h| [h.x, h.y]).collect(),
         },
@@ -1394,7 +1479,10 @@ pub fn write_actor_tick_log(logger: &mut AiLogger, input: ActorTickInput<'_>) {
 ///
 /// This is the deferred-write path: called by `flush_pending_ai_log_system`
 /// after `engine_step_range` has been populated.
-pub fn write_actor_tick_event(logger: &mut AiLogger, event: &ActorTickEvent) -> std::io::Result<()> {
+pub fn write_actor_tick_event(
+    logger: &mut AiLogger,
+    event: &ActorTickEvent,
+) -> std::io::Result<()> {
     logger.write_entry(event)
 }
 
@@ -1466,7 +1554,11 @@ pub fn flush_pending_ai_log_system(
         let start_step = entries[i].1;
         // end_step for actor i = start_step of actor i+1 (precise [start, end)
         // range). Last actor uses the live step counter.
-        let end_step = if i + 1 < n { entries[i + 1].1 } else { current_end };
+        let end_step = if i + 1 < n {
+            entries[i + 1].1
+        } else {
+            current_end
+        };
         if trace_open {
             entries[i].0.engine_step_range = Some((start_step, end_step));
         }
@@ -1495,8 +1587,15 @@ pub enum LogError {
 impl std::fmt::Display for LogError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LogError::UnsupportedSchema { found, required, hint } => {
-                write!(f, "unsupported schema v{found} (required v{required}): {hint}")
+            LogError::UnsupportedSchema {
+                found,
+                required,
+                hint,
+            } => {
+                write!(
+                    f,
+                    "unsupported schema v{found} (required v{required}): {hint}"
+                )
             }
             LogError::Json(e) => write!(f, "JSON parse error: {e}"),
         }

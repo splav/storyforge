@@ -42,8 +42,8 @@ impl ActorView {
     pub fn resource_amount(&self, kind: ResourceKind) -> i32 {
         match kind {
             ResourceKind::Hp => self.hp,
-            ResourceKind::Mana   => self.pools[crate::PoolKind::Mana].unwrap_or(0),
-            ResourceKind::Rage   => self.pools[crate::PoolKind::Rage].unwrap_or(0),
+            ResourceKind::Mana => self.pools[crate::PoolKind::Mana].unwrap_or(0),
+            ResourceKind::Rage => self.pools[crate::PoolKind::Rage].unwrap_or(0),
             ResourceKind::Energy => self.pools[crate::PoolKind::Energy].unwrap_or(0),
         }
     }
@@ -212,9 +212,7 @@ pub fn check_legality<S: ActionState>(
         }
     }
     // Faith-crit-fail status forbids any mana-cost ability.
-    if actor.blocks_mana_abilities
-        && def.costs.iter().any(|c| c.resource == ResourceKind::Mana)
-    {
+    if actor.blocks_mana_abilities && def.costs.iter().any(|c| c.resource == ResourceKind::Mana) {
         return Err(IllegalReason::BlockedByStatus);
     }
 
@@ -236,7 +234,10 @@ pub fn check_legality<S: ActionState>(
 
         // LOS check: ranged abilities with requires_los=true reject actions
         // where any intermediate hex on the line is blocked.
-        if def.requires_los && def.range.max > 1 && state.is_blocked_los(actor.pos, action.target_pos) {
+        if def.requires_los
+            && def.range.max > 1
+            && state.is_blocked_los(actor.pos, action.target_pos)
+        {
             return Err(IllegalReason::NoLineOfSight);
         }
     }

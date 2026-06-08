@@ -111,10 +111,10 @@ pub struct StageSpec {
 /// The validator treats these as always-available writers so that stages
 /// depending on them pass the reads-before-writes check.
 pub const INITIAL_FIELDS: &[AnnotationField] = &[
-    AnnotationField::RawFactors,       // populated by score_plans_with_raw
-    AnnotationField::Outcomes,         // populated by sim::apply_step + outcome builder
-    AnnotationField::Plan,             // TurnPlan steps + final_pos
-    AnnotationField::SnapshotFacts,    // BattleSnapshot, influence maps
+    AnnotationField::RawFactors,        // populated by score_plans_with_raw
+    AnnotationField::Outcomes,          // populated by sim::apply_step + outcome builder
+    AnnotationField::Plan,              // TurnPlan steps + final_pos
+    AnnotationField::SnapshotFacts,     // BattleSnapshot, influence maps
     AnnotationField::InitialScoreFacts, // ann.score_initial from initial scoring pass
 ];
 
@@ -269,7 +269,10 @@ pub const STAGE_SPECS: &[StageSpec] = &[
 pub enum ValidationError {
     /// A stage reads a field that is neither in `INITIAL_FIELDS` nor written by
     /// any earlier stage.
-    MissingWriter { stage: StageId, field: AnnotationField },
+    MissingWriter {
+        stage: StageId,
+        field: AnnotationField,
+    },
 
     /// The pipeline contains no `Rescore` stage.
     NoRescore,
@@ -280,7 +283,10 @@ pub enum ValidationError {
     /// A `Rescore` stage appears *after* a stage that already applied score
     /// effects (`Multiplier | Addend | Mask | PostScoreGate`), which would
     /// overwrite those effects.
-    RescoreAfterEffect { rescore_stage: StageId, effect_stage: StageId },
+    RescoreAfterEffect {
+        rescore_stage: StageId,
+        effect_stage: StageId,
+    },
 
     /// A `PostScoreGate` stage appears before the `Rescore` stage, meaning it
     /// would gate on a score that has not yet been established.

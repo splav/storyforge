@@ -32,7 +32,10 @@ use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 // ── Unit helper ───────────────────────────────────────────────────────────────
 
 fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
-    EngineUnitBuilder::new(id).team(team).pos(pos_col, pos_row).build()
+    EngineUnitBuilder::new(id)
+        .team(team)
+        .pos(pos_col, pos_row)
+        .build()
 }
 
 // ── Trace harness ────────────────────────────────────────────────────────────
@@ -61,7 +64,11 @@ fn run_once(
         let (events, ctx) = step(&mut state, action.clone(), &mut rng, content)
             .unwrap_or_else(|e| panic!("step failed: {e:?}"));
         let post_hash = post_state_hash_hex(&state);
-        traces.push(StepTrace { events, post_hash, rng_calls: ctx.rng_calls });
+        traces.push(StepTrace {
+            events,
+            post_hash,
+            rng_calls: ctx.rng_calls,
+        });
     }
 
     traces
@@ -70,8 +77,11 @@ fn run_once(
 /// Assert two trace runs are identical; on mismatch print the first divergent step.
 fn assert_traces_identical(a: &[StepTrace], b: &[StepTrace], scenario: &str) {
     assert_eq!(
-        a.len(), b.len(),
-        "{scenario}: trace length differs ({} vs {})", a.len(), b.len()
+        a.len(),
+        b.len(),
+        "{scenario}: trace length differs ({} vs {})",
+        a.len(),
+        b.len()
     );
     for (idx, (ta, tb)) in a.iter().zip(b.iter()).enumerate() {
         if ta == tb {
@@ -131,12 +141,14 @@ fn det_cast_ap_exhaustion_s6() {
         target_type: TargetType::SingleEnemy,
         aoe: AoEShape::None,
         friendly_fire: false,
-        effect: EffectDef::Damage { dice: storyforge::combat_engine::dice::DiceExpr::new(1, 6, 0) }, // scenario 1
+        effect: EffectDef::Damage {
+            dice: storyforge::combat_engine::dice::DiceExpr::new(1, 6, 0),
+        }, // scenario 1
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
     let content = StubContent::new().with_ability("strike", ability);
 
@@ -162,7 +174,7 @@ fn det_dot_tick_during_dead_skip() {
     let a = make_unit(1, Team::Player, 0, 0);
 
     let mut b = make_unit(2, Team::Enemy, 1, 0);
-    b.pools[PoolKind::Hp] = Some((0, 20));  // dead
+    b.pools[PoolKind::Hp] = Some((0, 20)); // dead
 
     let mut c = make_unit(3, Team::Enemy, 2, 0);
     c.statuses.push(ActiveStatus {
@@ -236,7 +248,12 @@ fn det_phase_transition() {
     let mut boss = make_unit(2, Team::Enemy, 1, 0);
     boss.pools[PoolKind::Hp] = Some((60, 100));
     // Phase triggers at 50% HP (hp ≤ 50)
-    boss.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 0, heal_to_full: false, tags: None }];
+    boss.enemy_phases = vec![PhaseEntry {
+        pct: 50,
+        new_max_hp: 0,
+        heal_to_full: false,
+        tags: None,
+    }];
 
     let mut state = CombatState::new(vec![caster, boss], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![caster_id, boss_id], 0);
@@ -256,8 +273,8 @@ fn det_phase_transition() {
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
     let content = StubContent::new().with_ability("heavy_blow", ability);
 
@@ -293,15 +310,15 @@ fn det_aoe_multi_target_cast() {
     let mut ec = make_unit(12, Team::Enemy, 0, 0);
     ec.pos = neighbors[1];
 
-    let mut state = CombatState::new(
-        vec![actor, ea, eb, ec],
-        1, RoundPhase::ActorTurn, SEED,
-    );
+    let mut state = CombatState::new(vec![actor, ea, eb, ec], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![actor_id, UnitId(10), UnitId(11), UnitId(12)], 0);
 
     // Apply str_mod=2 to actor so caster_context is non-trivial.
     if let Some(u) = state.unit_mut(actor_id) {
-        u.caster_context = CasterContext { str_mod: 2, ..Default::default() };
+        u.caster_context = CasterContext {
+            str_mod: 2,
+            ..Default::default()
+        };
     }
 
     let ability = AbilityDef {
@@ -318,8 +335,8 @@ fn det_aoe_multi_target_cast() {
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
     let content = StubContent::new().with_ability("fireball", ability);
 

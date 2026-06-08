@@ -81,8 +81,8 @@ pub fn load(paths: &AppPaths, slot: u8) -> Option<SlotProfileV1> {
 pub fn save(paths: &AppPaths, slot: u8, data: &SlotProfileV1) -> io::Result<()> {
     fs::create_dir_all(paths.saves_dir())?;
     let file = SaveSlotFile::V1(data.clone());
-    let text = toml::to_string_pretty(&file)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let text =
+        toml::to_string_pretty(&file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let path = slot_path(paths, slot);
     fs::write(&path, text)?;
     info!(
@@ -130,7 +130,9 @@ pub fn record_progress(
 /// Drop a campaign's record from the slot (on completion or explicit delete).
 /// Clears `last_campaign` if it pointed to this one.
 pub fn clear_campaign(paths: &AppPaths, slot: u8, campaign_id: &str) -> io::Result<()> {
-    let Some(mut profile) = load(paths, slot) else { return Ok(()) };
+    let Some(mut profile) = load(paths, slot) else {
+        return Ok(());
+    };
     profile.campaigns.remove(campaign_id);
     if profile.last_campaign.as_deref() == Some(campaign_id) {
         profile.last_campaign = None;
@@ -206,8 +208,14 @@ mod tests {
     #[test]
     fn flags_roundtrip_nonempty() {
         let mut campaigns = HashMap::new();
-        campaigns.insert("c".to_string(), progress(1, vec!["found_token", "kael_found"]));
-        let slot = SlotProfileV1 { last_campaign: Some("c".into()), campaigns };
+        campaigns.insert(
+            "c".to_string(),
+            progress(1, vec!["found_token", "kael_found"]),
+        );
+        let slot = SlotProfileV1 {
+            last_campaign: Some("c".into()),
+            campaigns,
+        };
         let text = toml::to_string_pretty(&SaveSlotFile::V1(slot)).unwrap();
         let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(&text).unwrap();
         let pr = parsed.campaigns.get("c").unwrap();
@@ -219,7 +227,10 @@ mod tests {
     fn flags_roundtrip_empty() {
         let mut campaigns = HashMap::new();
         campaigns.insert("c".to_string(), progress(0, vec![]));
-        let slot = SlotProfileV1 { last_campaign: None, campaigns };
+        let slot = SlotProfileV1 {
+            last_campaign: None,
+            campaigns,
+        };
         let text = toml::to_string_pretty(&SaveSlotFile::V1(slot)).unwrap();
         let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(&text).unwrap();
         let pr = parsed.campaigns.get("c").unwrap();

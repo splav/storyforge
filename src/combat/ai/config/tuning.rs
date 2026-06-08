@@ -28,12 +28,14 @@ pub enum ResponseCurve {
 impl ResponseCurve {
     pub fn eval(&self, x: f32) -> f32 {
         match self {
-            ResponseCurve::Logistic { mid, k } => {
-                1.0 / (1.0 + (-k * (x - mid)).exp())
-            }
+            ResponseCurve::Logistic { mid, k } => 1.0 / (1.0 + (-k * (x - mid)).exp()),
             ResponseCurve::LinearClamped { x_lo, x_hi } => {
                 if (x_hi - x_lo).abs() < f32::EPSILON {
-                    if x >= *x_lo { 1.0 } else { 0.0 }
+                    if x >= *x_lo {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 } else {
                     ((x - x_lo) / (x_hi - x_lo)).clamp(0.0, 1.0)
                 }
@@ -82,10 +84,16 @@ impl Default for Curves {
             self_preserve_dmg_alpha: 0.6,
             continue_commitment_hp: ResponseCurve::Logistic { mid: 0.4, k: 10.0 },
             finish_target_kill: ResponseCurve::Logistic { mid: 0.6, k: 6.0 },
-            reposition_pos_gain: ResponseCurve::LinearClamped { x_lo: 0.05, x_hi: 0.5 },
+            reposition_pos_gain: ResponseCurve::LinearClamped {
+                x_lo: 0.05,
+                x_hi: 0.5,
+            },
             conserve_resource: ResponseCurve::Logistic { mid: 0.3, k: -10.0 },
             rescue_ally: ResponseCurve::Logistic { mid: 0.4, k: 8.0 },
-            apply_cc: ResponseCurve::LinearClamped { x_lo: 2.0, x_hi: 10.0 },
+            apply_cc: ResponseCurve::LinearClamped {
+                x_lo: 2.0,
+                x_hi: 10.0,
+            },
         }
     }
 }
@@ -433,24 +441,42 @@ pub struct AiTuningOverride {
 /// replaces the global value; `None` fields leave the global untouched.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ThresholdsOverride {
-    #[serde(default)] pub survival_floor: Option<f32>,
-    #[serde(default)] pub low_hp_factor: Option<f32>,
-    #[serde(default)] pub aoo_penalty_k: Option<f32>,
-    #[serde(default)] pub aoo_risk_floor: Option<f32>,
-    #[serde(default)] pub self_survival_epsilon: Option<f32>,
-    #[serde(default)] pub mild_penalty: Option<f32>,
-    #[serde(default)] pub stickiness_bonus: Option<f32>,
-    #[serde(default)] pub target_stickiness_bonus: Option<f32>,
-    #[serde(default)] pub max_committed_turns: Option<u8>,
-    #[serde(default)] pub panic_self_preserve_threshold: Option<f32>,
-    #[serde(default)] pub soft_self_preserve_threshold: Option<f32>,
-    #[serde(default)] pub reposition_signal_floor: Option<f32>,
-    #[serde(default)] pub conserve_resource_threshold: Option<f32>,
-    #[serde(default)] pub conserve_resource_bonus: Option<f32>,
-    #[serde(default)] pub repair_region_radius: Option<u32>,
-    #[serde(default)] pub repair_default_ttl: Option<u8>,
-    #[serde(default)] pub goal_finish_p_kill: Option<f32>,
-    #[serde(default)] pub repair_bonus_scale: Option<f32>,
+    #[serde(default)]
+    pub survival_floor: Option<f32>,
+    #[serde(default)]
+    pub low_hp_factor: Option<f32>,
+    #[serde(default)]
+    pub aoo_penalty_k: Option<f32>,
+    #[serde(default)]
+    pub aoo_risk_floor: Option<f32>,
+    #[serde(default)]
+    pub self_survival_epsilon: Option<f32>,
+    #[serde(default)]
+    pub mild_penalty: Option<f32>,
+    #[serde(default)]
+    pub stickiness_bonus: Option<f32>,
+    #[serde(default)]
+    pub target_stickiness_bonus: Option<f32>,
+    #[serde(default)]
+    pub max_committed_turns: Option<u8>,
+    #[serde(default)]
+    pub panic_self_preserve_threshold: Option<f32>,
+    #[serde(default)]
+    pub soft_self_preserve_threshold: Option<f32>,
+    #[serde(default)]
+    pub reposition_signal_floor: Option<f32>,
+    #[serde(default)]
+    pub conserve_resource_threshold: Option<f32>,
+    #[serde(default)]
+    pub conserve_resource_bonus: Option<f32>,
+    #[serde(default)]
+    pub repair_region_radius: Option<u32>,
+    #[serde(default)]
+    pub repair_default_ttl: Option<u8>,
+    #[serde(default)]
+    pub goal_finish_p_kill: Option<f32>,
+    #[serde(default)]
+    pub repair_bonus_scale: Option<f32>,
 }
 
 impl AiTuning {
@@ -460,24 +486,60 @@ impl AiTuning {
     pub fn apply_override(&self, ov: &AiTuningOverride) -> AiTuning {
         let mut out = self.clone();
         if let Some(t) = &ov.thresholds {
-            if let Some(v) = t.survival_floor         { out.thresholds.survival_floor = v; }
-            if let Some(v) = t.low_hp_factor          { out.thresholds.low_hp_factor = v; }
-            if let Some(v) = t.aoo_penalty_k          { out.thresholds.aoo_penalty_k = v; }
-            if let Some(v) = t.aoo_risk_floor         { out.thresholds.aoo_risk_floor = v; }
-            if let Some(v) = t.self_survival_epsilon  { out.thresholds.self_survival_epsilon = v; }
-            if let Some(v) = t.mild_penalty           { out.thresholds.mild_penalty = v; }
-            if let Some(v) = t.stickiness_bonus       { out.thresholds.stickiness_bonus = v; }
-            if let Some(v) = t.target_stickiness_bonus { out.thresholds.target_stickiness_bonus = v; }
-            if let Some(v) = t.max_committed_turns    { out.thresholds.max_committed_turns = v; }
-            if let Some(v) = t.panic_self_preserve_threshold { out.thresholds.panic_self_preserve_threshold = v; }
-            if let Some(v) = t.soft_self_preserve_threshold  { out.thresholds.soft_self_preserve_threshold = v; }
-            if let Some(v) = t.reposition_signal_floor       { out.thresholds.reposition_signal_floor = v; }
-            if let Some(v) = t.conserve_resource_threshold   { out.thresholds.conserve_resource_threshold = v; }
-            if let Some(v) = t.conserve_resource_bonus       { out.thresholds.conserve_resource_bonus = v; }
-            if let Some(v) = t.repair_region_radius          { out.thresholds.repair_region_radius = v; }
-            if let Some(v) = t.repair_default_ttl            { out.thresholds.repair_default_ttl = v; }
-            if let Some(v) = t.goal_finish_p_kill            { out.thresholds.goal_finish_p_kill = v; }
-            if let Some(v) = t.repair_bonus_scale            { out.thresholds.repair_bonus_scale = v; }
+            if let Some(v) = t.survival_floor {
+                out.thresholds.survival_floor = v;
+            }
+            if let Some(v) = t.low_hp_factor {
+                out.thresholds.low_hp_factor = v;
+            }
+            if let Some(v) = t.aoo_penalty_k {
+                out.thresholds.aoo_penalty_k = v;
+            }
+            if let Some(v) = t.aoo_risk_floor {
+                out.thresholds.aoo_risk_floor = v;
+            }
+            if let Some(v) = t.self_survival_epsilon {
+                out.thresholds.self_survival_epsilon = v;
+            }
+            if let Some(v) = t.mild_penalty {
+                out.thresholds.mild_penalty = v;
+            }
+            if let Some(v) = t.stickiness_bonus {
+                out.thresholds.stickiness_bonus = v;
+            }
+            if let Some(v) = t.target_stickiness_bonus {
+                out.thresholds.target_stickiness_bonus = v;
+            }
+            if let Some(v) = t.max_committed_turns {
+                out.thresholds.max_committed_turns = v;
+            }
+            if let Some(v) = t.panic_self_preserve_threshold {
+                out.thresholds.panic_self_preserve_threshold = v;
+            }
+            if let Some(v) = t.soft_self_preserve_threshold {
+                out.thresholds.soft_self_preserve_threshold = v;
+            }
+            if let Some(v) = t.reposition_signal_floor {
+                out.thresholds.reposition_signal_floor = v;
+            }
+            if let Some(v) = t.conserve_resource_threshold {
+                out.thresholds.conserve_resource_threshold = v;
+            }
+            if let Some(v) = t.conserve_resource_bonus {
+                out.thresholds.conserve_resource_bonus = v;
+            }
+            if let Some(v) = t.repair_region_radius {
+                out.thresholds.repair_region_radius = v;
+            }
+            if let Some(v) = t.repair_default_ttl {
+                out.thresholds.repair_default_ttl = v;
+            }
+            if let Some(v) = t.goal_finish_p_kill {
+                out.thresholds.goal_finish_p_kill = v;
+            }
+            if let Some(v) = t.repair_bonus_scale {
+                out.thresholds.repair_bonus_scale = v;
+            }
         }
         // hooks: difficulty and tables override would be applied here.
         out
@@ -493,13 +555,28 @@ mod tests {
         let base = AiTuning::default();
         let result = base.apply_override(&AiTuningOverride::default());
         // Check thresholds
-        assert_eq!(result.thresholds.survival_floor, base.thresholds.survival_floor);
-        assert_eq!(result.thresholds.max_committed_turns, base.thresholds.max_committed_turns);
+        assert_eq!(
+            result.thresholds.survival_floor,
+            base.thresholds.survival_floor
+        );
+        assert_eq!(
+            result.thresholds.max_committed_turns,
+            base.thresholds.max_committed_turns
+        );
         // Check difficulty
-        assert_eq!(result.difficulty.survival_hp_curve.lo, base.difficulty.survival_hp_curve.lo);
+        assert_eq!(
+            result.difficulty.survival_hp_curve.lo,
+            base.difficulty.survival_hp_curve.lo
+        );
         // Check tables (first element of axis_factor_weights and axis_position_weights)
-        assert_eq!(result.tables.axis_factor_weights[0][0], base.tables.axis_factor_weights[0][0]);
-        assert_eq!(result.tables.axis_position_weights[0][0], base.tables.axis_position_weights[0][0]);
+        assert_eq!(
+            result.tables.axis_factor_weights[0][0],
+            base.tables.axis_factor_weights[0][0]
+        );
+        assert_eq!(
+            result.tables.axis_position_weights[0][0],
+            base.tables.axis_position_weights[0][0]
+        );
     }
 
     #[test]
@@ -520,28 +597,46 @@ mod tests {
 
         // Untouched thresholds — must equal default
         let def = Thresholds::default();
-        assert_eq!(result.thresholds.low_hp_factor,           def.low_hp_factor);
-        assert_eq!(result.thresholds.aoo_penalty_k,           def.aoo_penalty_k);
-        assert_eq!(result.thresholds.self_survival_epsilon,   def.self_survival_epsilon);
-        assert_eq!(result.thresholds.mild_penalty,            def.mild_penalty);
-        assert_eq!(result.thresholds.stickiness_bonus,        def.stickiness_bonus);
-        assert_eq!(result.thresholds.target_stickiness_bonus, def.target_stickiness_bonus);
-        assert_eq!(result.thresholds.max_committed_turns,     def.max_committed_turns);
+        assert_eq!(result.thresholds.low_hp_factor, def.low_hp_factor);
+        assert_eq!(result.thresholds.aoo_penalty_k, def.aoo_penalty_k);
+        assert_eq!(
+            result.thresholds.self_survival_epsilon,
+            def.self_survival_epsilon
+        );
+        assert_eq!(result.thresholds.mild_penalty, def.mild_penalty);
+        assert_eq!(result.thresholds.stickiness_bonus, def.stickiness_bonus);
+        assert_eq!(
+            result.thresholds.target_stickiness_bonus,
+            def.target_stickiness_bonus
+        );
+        assert_eq!(
+            result.thresholds.max_committed_turns,
+            def.max_committed_turns
+        );
 
         // Difficulty and tables untouched
-        assert_eq!(result.difficulty.survival_hp_curve.lo, base.difficulty.survival_hp_curve.lo);
-        assert_eq!(result.tables.axis_factor_weights[0][0], base.tables.axis_factor_weights[0][0]);
+        assert_eq!(
+            result.difficulty.survival_hp_curve.lo,
+            base.difficulty.survival_hp_curve.lo
+        );
+        assert_eq!(
+            result.tables.axis_factor_weights[0][0],
+            base.tables.axis_factor_weights[0][0]
+        );
     }
 
     #[test]
     fn apply_override_toml_roundtrip() {
         let toml_src = "[thresholds]\nsurvival_floor = 0.5\n";
-        let ov: AiTuningOverride = toml::from_str(toml_src)
-            .expect("AiTuningOverride should parse from TOML");
+        let ov: AiTuningOverride =
+            toml::from_str(toml_src).expect("AiTuningOverride should parse from TOML");
         let result = AiTuning::default().apply_override(&ov);
         assert_eq!(result.thresholds.survival_floor, 0.5);
         // Other thresholds unchanged
-        assert_eq!(result.thresholds.aoo_risk_floor, Thresholds::default().aoo_risk_floor);
+        assert_eq!(
+            result.thresholds.aoo_risk_floor,
+            Thresholds::default().aoo_risk_floor
+        );
     }
 
     // ── ResponseCurve tests ───────────────────────────────────────────────────
@@ -576,7 +671,10 @@ mod tests {
 
     #[test]
     fn response_curve_linear_clamped_zero_below_lo_one_above_hi() {
-        let c = ResponseCurve::LinearClamped { x_lo: 0.1, x_hi: 0.8 };
+        let c = ResponseCurve::LinearClamped {
+            x_lo: 0.1,
+            x_hi: 0.8,
+        };
         assert_eq!(c.eval(0.0), 0.0);
         assert_eq!(c.eval(0.05), 0.0);
         assert_eq!(c.eval(1.0), 1.0);
@@ -585,14 +683,20 @@ mod tests {
 
     #[test]
     fn response_curve_linear_clamped_lerp_at_midpoint() {
-        let c = ResponseCurve::LinearClamped { x_lo: 0.0, x_hi: 1.0 };
+        let c = ResponseCurve::LinearClamped {
+            x_lo: 0.0,
+            x_hi: 1.0,
+        };
         let v = c.eval(0.5);
         assert!((v - 0.5).abs() < 1e-6, "expected 0.5, got {v}");
     }
 
     #[test]
     fn response_curve_linear_clamped_step_when_lo_eq_hi() {
-        let c = ResponseCurve::LinearClamped { x_lo: 0.5, x_hi: 0.5 };
+        let c = ResponseCurve::LinearClamped {
+            x_lo: 0.5,
+            x_hi: 0.5,
+        };
         // Below the step point → 0.
         assert_eq!(c.eval(0.4), 0.0);
         // At or above → 1.
@@ -626,8 +730,7 @@ mod tests {
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
         ]\n";
-        let tuning2: AiTuning =
-            toml::from_str(toml_explicit).expect("explicit zeros must parse");
+        let tuning2: AiTuning = toml::from_str(toml_explicit).expect("explicit zeros must parse");
         assert_eq!(tuning2.tables.axis_terminal_weights, [[0.0f32; 8]; 5]);
     }
 
@@ -641,10 +744,16 @@ mod tests {
         let tuning: AiTuning = toml::from_str(toml_src).expect("empty [curves] must parse");
         let def = Curves::default();
         // Spot-check a few fields match defaults.
-        assert_eq!(tuning.curves.self_preserve_dmg_alpha, def.self_preserve_dmg_alpha);
+        assert_eq!(
+            tuning.curves.self_preserve_dmg_alpha,
+            def.self_preserve_dmg_alpha
+        );
         // Spot-check curve evals at mid return 0.5.
         match (tuning.curves.self_preserve_hp, def.self_preserve_hp) {
-            (ResponseCurve::Logistic { mid: a, k: ka }, ResponseCurve::Logistic { mid: b, k: kb }) => {
+            (
+                ResponseCurve::Logistic { mid: a, k: ka },
+                ResponseCurve::Logistic { mid: b, k: kb },
+            ) => {
                 assert_eq!(a, b);
                 assert_eq!(ka, kb);
             }

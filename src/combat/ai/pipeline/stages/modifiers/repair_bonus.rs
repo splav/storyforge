@@ -40,22 +40,28 @@ mod tests {
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+    use crate::combat::ai::orchestration::AiWorld;
     use crate::combat::ai::pipeline::stages::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::repair::RepairAffinity;
+    use crate::combat::ai::scoring::trade::unit_value;
+    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, make_scoring_ctx, UnitBuilder,
+    };
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_maps, empty_content, make_scoring_ctx, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::combat::ai::scoring::trade::unit_value;
-    use crate::combat::ai::orchestration::AiWorld;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use std::collections::HashMap;
 
     fn inert_plan(pos: Hex) -> TurnPlan {
-        TurnPlan { steps: vec![], final_pos: pos, ..TurnPlan::default() }
+        TurnPlan {
+            steps: vec![],
+            final_pos: pos,
+            ..TurnPlan::default()
+        }
     }
 
     fn make_stored_goal(
@@ -119,14 +125,25 @@ mod tests {
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         assert!(scoring.last_goal.is_none());
         let mut rng = combat_engine::DiceRng::default();
-        let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+        let stage = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
 
         // ── 3. ModifierCtx ──
         let actor_view = snap.unit(actor.entity).unwrap();
         let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
-        let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
+        let ctx = ModifierCtx {
+            stage: &stage,
+            summon_dpr: &summon_dpr,
+            actor_value,
+            repair_weights,
+        };
 
         // ── 4. Act ──
         let mut plan = inert_plan(pos);
@@ -155,7 +172,12 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
         let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
-        ModifierCtx { stage, summon_dpr, actor_value, repair_weights }
+        ModifierCtx {
+            stage,
+            summon_dpr,
+            actor_value,
+            repair_weights,
+        }
     }
 
     /// Higher continue_commitment → larger repair bonus.
@@ -185,9 +207,18 @@ mod tests {
         let bonus_no_commitment = {
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
-            scoring.need_signals = NeedSignals { continue_commitment: 0.0, ..Default::default() };
+            scoring.need_signals = NeedSignals {
+                continue_commitment: 0.0,
+                ..Default::default()
+            };
             let mut rng = combat_engine::DiceRng::default();
-            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let stage = StageCtx::new(
+                &scoring,
+                TacticalIntent::Reposition,
+                IntentReason::NoRuleDefault,
+                pos,
+                &mut rng,
+            );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
@@ -199,9 +230,18 @@ mod tests {
         let bonus_full_commitment = {
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
-            scoring.need_signals = NeedSignals { continue_commitment: 1.0, ..Default::default() };
+            scoring.need_signals = NeedSignals {
+                continue_commitment: 1.0,
+                ..Default::default()
+            };
             let mut rng = combat_engine::DiceRng::default();
-            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let stage = StageCtx::new(
+                &scoring,
+                TacticalIntent::Reposition,
+                IntentReason::NoRuleDefault,
+                pos,
+                &mut rng,
+            );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
@@ -264,9 +304,18 @@ mod tests {
             };
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
-            scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
+            scoring.need_signals = NeedSignals {
+                continue_commitment: 0.4,
+                ..Default::default()
+            };
             let mut rng = combat_engine::DiceRng::default();
-            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let stage = StageCtx::new(
+                &scoring,
+                TacticalIntent::Reposition,
+                IntentReason::NoRuleDefault,
+                pos,
+                &mut rng,
+            );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
@@ -289,9 +338,18 @@ mod tests {
             };
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
-            scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
+            scoring.need_signals = NeedSignals {
+                continue_commitment: 0.4,
+                ..Default::default()
+            };
             let mut rng = combat_engine::DiceRng::default();
-            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let stage = StageCtx::new(
+                &scoring,
+                TacticalIntent::Reposition,
+                IntentReason::NoRuleDefault,
+                pos,
+                &mut rng,
+            );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
@@ -341,16 +399,30 @@ mod tests {
         // ── 2. Context ──
         let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         scoring.last_goal = Some(&stored_goal);
-        scoring.need_signals = NeedSignals { continue_commitment: 0.5, ..Default::default() };
+        scoring.need_signals = NeedSignals {
+            continue_commitment: 0.5,
+            ..Default::default()
+        };
         let mut rng = combat_engine::DiceRng::default();
-        let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+        let stage = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
 
         // ── 3. ModifierCtx ──
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
         let actor_view = snap.unit(actor.entity).unwrap();
         let actor_value = unit_value(actor_view, world.content);
-        let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
+        let ctx = ModifierCtx {
+            stage: &stage,
+            summon_dpr: &summon_dpr,
+            actor_value,
+            repair_weights,
+        };
 
         // ── 4. Act ──
         let mut plan = inert_plan(pos);

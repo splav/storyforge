@@ -10,9 +10,9 @@ pub const SIGNED: bool = true;
 
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
-use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
 
 pub fn compute(plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f32 {
     compute_plan_intent_sum(plan, intent, ctx, EvaluationMode::Default)
@@ -27,9 +27,11 @@ mod tests {
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
-    
-    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::content::content_view::ContentView;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;

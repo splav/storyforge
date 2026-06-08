@@ -9,14 +9,14 @@
 use std::collections::HashMap;
 
 use storyforge::combat_engine::{
-    AbilityDef, AbilityId, AbilityRange, AoEShape, EffectDef, PoolKind, RegenRule,
-    StatusDef, StatusId, TargetType, UnitTemplate,
     action::Action,
     content::ContentView,
     dice::{DiceRng, ExpectedValue},
     event::Event,
     state::{CombatState, RoundPhase, Unit, UnitId},
     step::step,
+    AbilityDef, AbilityId, AbilityRange, AoEShape, EffectDef, PoolKind, RegenRule, StatusDef,
+    StatusId, TargetType, UnitTemplate,
 };
 
 use storyforge::combat_engine::enum_map::enum_map;
@@ -82,7 +82,12 @@ fn roll_initiative_assigns_and_emits() {
     // Only unit 1 emits an event (preset and already-set emit nothing).
     assert_eq!(events.len(), 1);
     match &events[0] {
-        Event::InitiativeRolled { unit, roll, dex_mod, total } => {
+        Event::InitiativeRolled {
+            unit,
+            roll,
+            dex_mod,
+            total,
+        } => {
             assert_eq!(*unit, uid(1));
             assert_eq!(*roll, 15);
             assert_eq!(*dex_mod, 2);
@@ -220,8 +225,8 @@ impl SummonContent {
             statuses: vec![],
             requires_los: false,
             passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         };
         Self {
             ability_id: AbilityId::from(ability_id),
@@ -247,11 +252,21 @@ excludes_tags: Default::default()
 
 impl ContentView for SummonContent {
     fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-        if id == &self.ability_id { Some(&self.ability) } else { None }
+        if id == &self.ability_id {
+            Some(&self.ability)
+        } else {
+            None
+        }
     }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&self.status_def) }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+        Some(&self.status_def)
+    }
     fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
-        if id == self.template_id { Some(self.template.clone()) } else { None }
+        if id == self.template_id {
+            Some(self.template.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -332,12 +347,7 @@ fn summon_rolls_initiative_and_acts_next_round() {
         .initiative(5)
         .build();
 
-    let mut state = CombatState::new(
-        vec![summoner, enemy],
-        1,
-        RoundPhase::ActorTurn,
-        0,
-    );
+    let mut state = CombatState::new(vec![summoner, enemy], 1, RoundPhase::ActorTurn, 0);
     // Pre-set turn order: summoner first (initiative=10), enemy second (5).
     state.turn_queue.order = vec![UnitId(1), UnitId(2)];
     state.turn_queue.index = 0;
@@ -361,19 +371,31 @@ fn summon_rolls_initiative_and_acts_next_round() {
         },
         &mut rng,
         &content,
-    ).expect("summon cast should succeed");
+    )
+    .expect("summon cast should succeed");
 
     // 1. InitiativeRolled event for the new unit.
-    let init_ev = spawn_events.iter().find(|e| matches!(e, Event::InitiativeRolled { .. }))
+    let init_ev = spawn_events
+        .iter()
+        .find(|e| matches!(e, Event::InitiativeRolled { .. }))
         .expect("InitiativeRolled must appear in spawn step events");
 
     let (ev_uid, ev_roll, ev_dex, ev_total) = match init_ev {
-        Event::InitiativeRolled { unit, roll, dex_mod, total } => (*unit, *roll, *dex_mod, *total),
+        Event::InitiativeRolled {
+            unit,
+            roll,
+            dex_mod,
+            total,
+        } => (*unit, *roll, *dex_mod, *total),
         _ => unreachable!(),
     };
 
     // 2. roll + dex_mod == total.
-    assert_eq!(ev_roll + ev_dex, ev_total, "total must equal roll + dex_mod");
+    assert_eq!(
+        ev_roll + ev_dex,
+        ev_total,
+        "total must equal roll + dex_mod"
+    );
     assert_eq!(ev_dex, dex_mod);
     assert_eq!(ev_total, expected_total);
 
@@ -398,7 +420,8 @@ fn summon_rolls_initiative_and_acts_next_round() {
         Action::EndTurn { actor: UnitId(1) },
         &mut ExpectedValue,
         &content,
-    ).expect("end summoner turn");
+    )
+    .expect("end summoner turn");
 
     // End enemy's turn — this triggers BumpRound.
     let (bump_events, _) = step(
@@ -406,7 +429,8 @@ fn summon_rolls_initiative_and_acts_next_round() {
         Action::EndTurn { actor: UnitId(2) },
         &mut ExpectedValue,
         &content,
-    ).expect("end enemy turn / BumpRound");
+    )
+    .expect("end enemy turn / BumpRound");
 
     // 5a. Summon IS now in the order.
     assert!(
@@ -415,9 +439,17 @@ fn summon_rolls_initiative_and_acts_next_round() {
     );
 
     // 5b. Summon is at the correct position (initiative=15 > summoner=10 > enemy=5).
-    let pos = state.turn_queue.order.iter().position(|&id| id == new_uid)
+    let pos = state
+        .turn_queue
+        .order
+        .iter()
+        .position(|&id| id == new_uid)
         .expect("summon uid in order");
-    let summoner_pos = state.turn_queue.order.iter().position(|&id| id == UnitId(1))
+    let summoner_pos = state
+        .turn_queue
+        .order
+        .iter()
+        .position(|&id| id == UnitId(1))
         .expect("summoner uid in order");
     assert!(
         pos < summoner_pos,
@@ -426,7 +458,9 @@ fn summon_rolls_initiative_and_acts_next_round() {
 
     // 5c. TurnStarted emitted for someone (round 2 begins).
     assert!(
-        bump_events.iter().any(|e| matches!(e, Event::TurnStarted { .. })),
+        bump_events
+            .iter()
+            .any(|e| matches!(e, Event::TurnStarted { .. })),
         "TurnStarted must be emitted when BumpRound settles the new round",
     );
 }

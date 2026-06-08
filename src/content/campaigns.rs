@@ -69,44 +69,34 @@ pub fn load_campaigns() -> CampaignsLoad {
     for campaign_id in campaign_ids {
         let campaign_dir = campaigns_dir.join(&campaign_id);
         let campaign_file = campaign_dir.join("campaign.toml");
-        let src = std::fs::read_to_string(&campaign_file).unwrap_or_else(|e| {
-            panic!("Cannot read {}: {e}", campaign_file.display())
-        });
-        let rec: CampaignRecord = toml::from_str(&src).unwrap_or_else(|e| {
-            panic!("Cannot parse {}: {e}", campaign_file.display())
-        });
+        let src = std::fs::read_to_string(&campaign_file)
+            .unwrap_or_else(|e| panic!("Cannot read {}: {e}", campaign_file.display()));
+        let rec: CampaignRecord = toml::from_str(&src)
+            .unwrap_or_else(|e| panic!("Cannot parse {}: {e}", campaign_file.display()));
 
         for scenario_id in &rec.scenarios {
             let scen_dir = campaign_dir.join(scenario_id);
             let scen_file = scen_dir.join("scenario.toml");
             let enc_file = scen_dir.join("encounters.toml");
 
-            let scen_src = std::fs::read_to_string(&scen_file).unwrap_or_else(|e| {
-                panic!("Cannot read {}: {e}", scen_file.display())
-            });
-            let mut scen = parse_scenario_body(
-                scenario_id,
-                &scen_file.display().to_string(),
-                &scen_src,
-            );
+            let scen_src = std::fs::read_to_string(&scen_file)
+                .unwrap_or_else(|e| panic!("Cannot read {}: {e}", scen_file.display()));
+            let mut scen =
+                parse_scenario_body(scenario_id, &scen_file.display().to_string(), &scen_src);
 
             // Layered content view: global → campaign → scenario.
             scen.content = ContentView::load_layered(&campaign_dir, &scen_dir);
 
             // Encounters resolve templates against the scenario's merged pool.
-            let enc_src = std::fs::read_to_string(&enc_file).unwrap_or_else(|e| {
-                panic!("Cannot read {}: {e}", enc_file.display())
-            });
+            let enc_src = std::fs::read_to_string(&enc_file)
+                .unwrap_or_else(|e| panic!("Cannot read {}: {e}", enc_file.display()));
             let encounters = load_encounters_from_str(
                 scenario_id,
                 &enc_file.display().to_string(),
                 &enc_src,
                 &scen.content.unit_templates,
             );
-            scen.encounters = encounters
-                .into_iter()
-                .map(|e| (e.id.clone(), e))
-                .collect();
+            scen.encounters = encounters.into_iter().map(|e| (e.id.clone(), e)).collect();
 
             let prev = scenarios.insert(scenario_id.clone(), scen);
             assert!(
@@ -123,5 +113,8 @@ pub fn load_campaigns() -> CampaignsLoad {
         });
     }
 
-    CampaignsLoad { campaigns, scenarios }
+    CampaignsLoad {
+        campaigns,
+        scenarios,
+    }
 }

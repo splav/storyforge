@@ -36,10 +36,10 @@ impl NeedAxis {
         match self {
             Self::SelfPreserve => 1.0 + n.self_preserve,
             Self::FinishTarget => 1.0 + n.finish_target,
-            Self::RescueAlly   => 1.0 + n.rescue_ally,
-            Self::Reposition   => 1.0 + n.reposition,
-            Self::SetupAOE     => 1.0 + n.setup_aoe,
-            Self::None         => 1.0,
+            Self::RescueAlly => 1.0 + n.rescue_ally,
+            Self::Reposition => 1.0 + n.reposition,
+            Self::SetupAOE => 1.0 + n.setup_aoe,
+            Self::None => 1.0,
         }
     }
 }
@@ -55,7 +55,11 @@ pub fn default_norm(raw: f32, batch: &BatchStats, signed: bool) -> f32 {
     } else {
         batch.max
     };
-    if denom > f32::EPSILON { raw / denom } else { 0.0 }
+    if denom > f32::EPSILON {
+        raw / denom
+    } else {
+        0.0
+    }
 }
 
 // ── factor_kind! macro ────────────────────────────────────────────────────────
@@ -108,7 +112,10 @@ mod tests {
 
     #[test]
     fn default_norm_signed_uses_abs_max() {
-        let batch = BatchStats { min: -3.0, max: 2.0 };
+        let batch = BatchStats {
+            min: -3.0,
+            max: 2.0,
+        };
         // denom = 3.0
         assert!((default_norm(-3.0, &batch, true) - -1.0).abs() < f32::EPSILON);
         assert!((default_norm(2.0, &batch, true) - (2.0 / 3.0)).abs() < 1e-6);

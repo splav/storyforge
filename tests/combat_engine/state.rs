@@ -6,12 +6,12 @@
 use bevy::prelude::*;
 
 use storyforge::combat::engine_bridge::{from_ecs, UnitIdMap};
-use storyforge::content::content_view::ActiveContent;
 use storyforge::combat_engine::state::{CombatState, Team};
+use storyforge::content::content_view::ActiveContent;
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::{
-    ActionPoints, Combatant, CombatStats, Dead, Energy, Equipment, Faction, Mana,
-    Rage, Reactions, Speed, StatusEffects, Team as EcsTeam, TemplateRef, Vital,
+    ActionPoints, CombatStats, Combatant, Dead, Energy, Equipment, Faction, Mana, Rage, Reactions,
+    Speed, StatusEffects, Team as EcsTeam, TemplateRef, Vital,
 };
 use storyforge::game::hex::{hex_from_offset, Hex};
 use storyforge::game::resources::{HexCorpses, HexPositions};
@@ -42,7 +42,14 @@ fn run_from_ecs(world: &mut World, round: u32, id_map: &mut UnitIdMap) -> Combat
         Res<ActiveContent>,
     )> = bevy::ecs::system::SystemState::new(world);
     let (combatants, positions, corpses, active_content) = ss.get(world);
-    from_ecs(&combatants, &positions, &corpses, round, id_map, &active_content)
+    from_ecs(
+        &combatants,
+        &positions,
+        &corpses,
+        round,
+        id_map,
+        &active_content,
+    )
 }
 
 fn minimal_stats() -> CombatStats {
@@ -91,7 +98,7 @@ fn build_10_unit_world(world: &mut World) -> (Vec<Entity>, Vec<Hex>) {
         let bundle = CombatantBundle::new(
             EcsTeam::Player,
             minimal_stats(),
-            2,          // armor
+            2,            // armor
             3 + i as i32, // speed varies so we can distinguish units
             vec![],
             minimal_equipment(),
@@ -106,7 +113,7 @@ fn build_10_unit_world(world: &mut World) -> (Vec<Entity>, Vec<Hex>) {
         let bundle = CombatantBundle::new(
             EcsTeam::Enemy,
             minimal_stats(),
-            1,          // different armor
+            1, // different armor
             2 + i as i32,
             vec![],
             minimal_equipment(),
@@ -132,7 +139,11 @@ fn from_ecs_round_trip_10_units() {
     let combat_state = run_from_ecs(&mut world, 1, &mut id_map);
 
     // All 10 units present.
-    assert_eq!(combat_state.units().len(), 10, "expected 10 units in CombatState");
+    assert_eq!(
+        combat_state.units().len(),
+        10,
+        "expected 10 units in CombatState"
+    );
 
     // Every spawned entity is in the map and the engine state.
     for (entity, expected_hex) in entities.iter().zip(hexes.iter()) {
@@ -145,7 +156,10 @@ fn from_ecs_round_trip_10_units() {
             .unwrap_or_else(|| panic!("UnitId {uid:?} not in CombatState"));
 
         // Position round-trip.
-        assert_eq!(unit.pos, *expected_hex, "pos mismatch for entity {entity:?}");
+        assert_eq!(
+            unit.pos, *expected_hex,
+            "pos mismatch for entity {entity:?}"
+        );
 
         // HP matches (alive units start at max_hp).
         assert_eq!(unit.hp(), 20);
@@ -163,8 +177,16 @@ fn from_ecs_round_trip_10_units() {
     }
 
     // Teams are correct.
-    let player_count = combat_state.units().iter().filter(|u| u.team == Team::Player).count();
-    let enemy_count = combat_state.units().iter().filter(|u| u.team == Team::Enemy).count();
+    let player_count = combat_state
+        .units()
+        .iter()
+        .filter(|u| u.team == Team::Player)
+        .count();
+    let enemy_count = combat_state
+        .units()
+        .iter()
+        .filter(|u| u.team == Team::Enemy)
+        .count();
     assert_eq!(player_count, 5);
     assert_eq!(enemy_count, 5);
 
@@ -184,7 +206,10 @@ fn dead_unit_is_tombstone_with_hp_zero() {
         .spawn(CombatantBundle::new(
             EcsTeam::Player,
             minimal_stats(),
-            0, 3, vec![], minimal_equipment(),
+            0,
+            3,
+            vec![],
+            minimal_equipment(),
         ))
         .id();
     positions.insert(alive, hex_from_offset(0, 0));
@@ -197,7 +222,10 @@ fn dead_unit_is_tombstone_with_hp_zero() {
             CombatantBundle::new(
                 EcsTeam::Enemy,
                 minimal_stats(),
-                0, 3, vec![], minimal_equipment(),
+                0,
+                3,
+                vec![],
+                minimal_equipment(),
             ),
             Dead,
         ))

@@ -6,8 +6,8 @@
 //! the mirror types use `String` for serde compatibility.
 
 use crate::combat::ai::adapt::EvaluationMode;
-use crate::combat::ai::pipeline::stages::sanity::SanityRule;
 use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
+use crate::combat::ai::pipeline::stages::sanity::SanityRule;
 
 /// Source of a multiplier hit — for diagnostics only, not used in `compute()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -27,8 +27,13 @@ pub enum MultiplierKind {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MultiplierDetail {
-    Sanity { rule: SanityRule },
-    Critic { critic: CriticKind, reason: CriticReason },
+    Sanity {
+        rule: SanityRule,
+    },
+    Critic {
+        critic: CriticKind,
+        reason: CriticReason,
+    },
 }
 
 /// Note: `Copy` is dropped because `MultiplierDetail::Critic` carries `CriticReason`
@@ -157,18 +162,40 @@ impl From<&ScoreTrace> for ScoreTraceLog {
         Self {
             base: t.base,
             rescore_mode: t.rescore_mode,
-            multipliers: t.multipliers.iter().map(|h| MultiplierHitLog {
-                kind: h.kind,
-                value: h.value,
-                detail: h.detail.clone(),
-            }).collect(),
-            addends: t.addends.iter().map(|h| AddendHitLog { name: h.name.to_owned(), value: h.value }).collect(),
-            masks: t.masks.iter().map(|h| MaskHitLog {
-                kind: h.kind,
-                source: h.source.to_owned(),
-                original_score: h.original_score,
-            }).collect(),
-            gates: t.gates.iter().map(|h| GateHitLog { outcome: h.outcome, source: h.source.to_owned() }).collect(),
+            multipliers: t
+                .multipliers
+                .iter()
+                .map(|h| MultiplierHitLog {
+                    kind: h.kind,
+                    value: h.value,
+                    detail: h.detail.clone(),
+                })
+                .collect(),
+            addends: t
+                .addends
+                .iter()
+                .map(|h| AddendHitLog {
+                    name: h.name.to_owned(),
+                    value: h.value,
+                })
+                .collect(),
+            masks: t
+                .masks
+                .iter()
+                .map(|h| MaskHitLog {
+                    kind: h.kind,
+                    source: h.source.to_owned(),
+                    original_score: h.original_score,
+                })
+                .collect(),
+            gates: t
+                .gates
+                .iter()
+                .map(|h| GateHitLog {
+                    outcome: h.outcome,
+                    source: h.source.to_owned(),
+                })
+                .collect(),
         }
     }
 }
@@ -220,7 +247,9 @@ impl ScoreTrace {
 
     /// `true` if any Gate has marked this plan as rejected.
     pub fn is_gated(&self) -> bool {
-        self.gates.iter().any(|g| matches!(g.outcome, GateOutcome::Reject))
+        self.gates
+            .iter()
+            .any(|g| matches!(g.outcome, GateOutcome::Reject))
     }
 
     // Builder-style helpers — will be called by stages in P3a.{1..5}.
@@ -261,34 +290,72 @@ mod tests {
 
     #[test]
     fn compute_base_only() {
-        let trace = ScoreTrace { base: 10.0, ..Default::default() };
+        let trace = ScoreTrace {
+            base: 10.0,
+            ..Default::default()
+        };
         assert_eq!(trace.compute(), 10.0);
     }
 
     #[test]
     fn compute_applies_multipliers_in_push_order() {
-        let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5, detail: None });
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Critic, value: 0.8, detail: None });
+        let mut trace = ScoreTrace {
+            base: 10.0,
+            ..Default::default()
+        };
+        trace.push_multiplier(MultiplierHit {
+            kind: MultiplierKind::Sanity,
+            value: 0.5,
+            detail: None,
+        });
+        trace.push_multiplier(MultiplierHit {
+            kind: MultiplierKind::Critic,
+            value: 0.8,
+            detail: None,
+        });
         // 10 * 0.5 * 0.8 = 4.0
         assert!((trace.compute() - 4.0).abs() < 1e-6);
     }
 
     #[test]
     fn compute_applies_addends_after_multipliers() {
-        let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5, detail: None });
-        trace.push_addend(AddendHit { name: "test_bonus", value: 2.0 });
+        let mut trace = ScoreTrace {
+            base: 10.0,
+            ..Default::default()
+        };
+        trace.push_multiplier(MultiplierHit {
+            kind: MultiplierKind::Sanity,
+            value: 0.5,
+            detail: None,
+        });
+        trace.push_addend(AddendHit {
+            name: "test_bonus",
+            value: 2.0,
+        });
         // (10 * 0.5) + 2 = 7.0 — NOT 10 * (0.5 + 2), critical semantic rule
         assert!((trace.compute() - 7.0).abs() < 1e-6);
     }
 
     #[test]
     fn compute_ignores_masks() {
-        let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
-        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "protect_self", original_score: None });
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5, detail: None });
-        trace.push_addend(AddendHit { name: "test_bonus", value: 5.0 });
+        let mut trace = ScoreTrace {
+            base: 10.0,
+            ..Default::default()
+        };
+        trace.push_mask(MaskHit {
+            kind: MaskKind::Poison,
+            source: "protect_self",
+            original_score: None,
+        });
+        trace.push_multiplier(MultiplierHit {
+            kind: MultiplierKind::Sanity,
+            value: 0.5,
+            detail: None,
+        });
+        trace.push_addend(AddendHit {
+            name: "test_bonus",
+            value: 5.0,
+        });
         // Mask does not affect compute() — score = 10.0 * 0.5 + 5.0 = 10.0
         assert!((trace.compute() - 10.0).abs() < 1e-6);
         // Mask is recorded in trace flags
@@ -297,9 +364,19 @@ mod tests {
 
     #[test]
     fn compute_gates_do_not_zero_score() {
-        let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
-        trace.push_gate(GateHit { outcome: GateOutcome::Reject, source: "killable_gate" });
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Critic, value: 0.5, detail: None });
+        let mut trace = ScoreTrace {
+            base: 10.0,
+            ..Default::default()
+        };
+        trace.push_gate(GateHit {
+            outcome: GateOutcome::Reject,
+            source: "killable_gate",
+        });
+        trace.push_multiplier(MultiplierHit {
+            kind: MultiplierKind::Critic,
+            value: 0.5,
+            detail: None,
+        });
         // Gate does not affect score — only sets is_gated flag
         assert!((trace.compute() - 5.0).abs() < 1e-6);
         assert!(trace.is_gated());
@@ -308,19 +385,45 @@ mod tests {
     #[test]
     fn compute_addends_sum_in_order() {
         let mut trace = ScoreTrace::default(); // base = 0
-        trace.push_addend(AddendHit { name: "a", value: 1.0 });
-        trace.push_addend(AddendHit { name: "b", value: 2.0 });
-        trace.push_addend(AddendHit { name: "c", value: 3.0 });
+        trace.push_addend(AddendHit {
+            name: "a",
+            value: 1.0,
+        });
+        trace.push_addend(AddendHit {
+            name: "b",
+            value: 2.0,
+        });
+        trace.push_addend(AddendHit {
+            name: "c",
+            value: 3.0,
+        });
         assert!((trace.compute() - 6.0).abs() < 1e-6);
     }
 
     #[test]
     fn reset_effects_clears_but_preserves_base() {
-        let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5, detail: None });
-        trace.push_addend(AddendHit { name: "a", value: 2.0 });
-        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "protect_self", original_score: None });
-        trace.push_gate(GateHit { outcome: GateOutcome::Reject, source: "killable_gate" });
+        let mut trace = ScoreTrace {
+            base: 10.0,
+            ..Default::default()
+        };
+        trace.push_multiplier(MultiplierHit {
+            kind: MultiplierKind::Sanity,
+            value: 0.5,
+            detail: None,
+        });
+        trace.push_addend(AddendHit {
+            name: "a",
+            value: 2.0,
+        });
+        trace.push_mask(MaskHit {
+            kind: MaskKind::Poison,
+            source: "protect_self",
+            original_score: None,
+        });
+        trace.push_gate(GateHit {
+            outcome: GateOutcome::Reject,
+            source: "killable_gate",
+        });
 
         trace.reset_effects();
 
@@ -337,12 +440,29 @@ mod tests {
 
     #[test]
     fn score_trace_log_roundtrips_through_json() {
-        let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
+        let mut trace = ScoreTrace {
+            base: 10.0,
+            ..Default::default()
+        };
         trace.rescore_mode = Some(EvaluationMode::Default);
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5, detail: None });
-        trace.push_addend(AddendHit { name: "summon_bonus", value: 0.3 });
-        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "protect_self", original_score: None });
-        trace.push_gate(GateHit { outcome: GateOutcome::Reject, source: "killable_gate" });
+        trace.push_multiplier(MultiplierHit {
+            kind: MultiplierKind::Sanity,
+            value: 0.5,
+            detail: None,
+        });
+        trace.push_addend(AddendHit {
+            name: "summon_bonus",
+            value: 0.3,
+        });
+        trace.push_mask(MaskHit {
+            kind: MaskKind::Poison,
+            source: "protect_self",
+            original_score: None,
+        });
+        trace.push_gate(GateHit {
+            outcome: GateOutcome::Reject,
+            source: "killable_gate",
+        });
 
         let log = ScoreTraceLog::from(&trace);
         let json = serde_json::to_string(&log).expect("serialize");
@@ -351,7 +471,10 @@ mod tests {
         assert!((restored.base - 10.0).abs() < 1e-6);
         assert_eq!(restored.rescore_mode, Some(EvaluationMode::Default));
         assert_eq!(restored.multipliers.len(), 1);
-        assert!(matches!(restored.multipliers[0].kind, MultiplierKind::Sanity));
+        assert!(matches!(
+            restored.multipliers[0].kind,
+            MultiplierKind::Sanity
+        ));
         assert!((restored.multipliers[0].value - 0.5).abs() < 1e-6);
         assert_eq!(restored.addends.len(), 1);
         assert_eq!(restored.addends[0].name, "summon_bonus");
@@ -367,14 +490,26 @@ mod tests {
     #[test]
     fn score_trace_log_empty_fields_omitted_in_json() {
         // Empty vecs and None rescore_mode must not appear in JSON (skip_serializing_if).
-        let log = ScoreTraceLog { base: 5.0, ..Default::default() };
+        let log = ScoreTraceLog {
+            base: 5.0,
+            ..Default::default()
+        };
         let json = serde_json::to_string(&log).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
-        assert!(v.get("multipliers").is_none(), "empty multipliers should be omitted");
-        assert!(v.get("addends").is_none(), "empty addends should be omitted");
+        assert!(
+            v.get("multipliers").is_none(),
+            "empty multipliers should be omitted"
+        );
+        assert!(
+            v.get("addends").is_none(),
+            "empty addends should be omitted"
+        );
         assert!(v.get("masks").is_none(), "empty masks should be omitted");
         assert!(v.get("gates").is_none(), "empty gates should be omitted");
-        assert!(v.get("rescore_mode").is_none(), "None rescore_mode should be omitted");
+        assert!(
+            v.get("rescore_mode").is_none(),
+            "None rescore_mode should be omitted"
+        );
         assert!((v["base"].as_f64().unwrap() - 5.0).abs() < 1e-6);
     }
 
@@ -398,7 +533,11 @@ mod tests {
     fn is_masked_detects_any_mask() {
         let mut trace = ScoreTrace::default();
         assert!(!trace.is_masked());
-        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "x", original_score: None });
+        trace.push_mask(MaskHit {
+            kind: MaskKind::Poison,
+            source: "x",
+            original_score: None,
+        });
         assert!(trace.is_masked());
     }
 
@@ -432,7 +571,9 @@ mod tests {
         assert_eq!(ann.score_trace.multipliers.len(), 1);
         assert_eq!(
             ann.score_trace.multipliers[0].detail,
-            Some(MultiplierDetail::Sanity { rule: SanityRule::HealerExposure }),
+            Some(MultiplierDetail::Sanity {
+                rule: SanityRule::HealerExposure
+            }),
             "detail must be derived from paired Sanity observation",
         );
     }
@@ -441,8 +582,8 @@ mod tests {
     fn tle_1_2_multiplier_hit_carries_critic_detail_when_paired_with_critic_obs() {
         use crate::combat::ai::pipeline::effects::{AppliedEffect, EffectObservation, ScoreHit};
         use crate::combat::ai::pipeline::order::StageId;
-        use crate::combat::ai::pipeline::stages::critics::{CriticHit, CriticKind, CriticReason};
         use crate::combat::ai::pipeline::stages::critics::overcommit_into_danger::OvercommitSource;
+        use crate::combat::ai::pipeline::stages::critics::{CriticHit, CriticKind, CriticReason};
 
         let mut ann = crate::combat::ai::outcome::PlanAnnotation::with_score(
             crate::combat::ai::outcome::PlanAnnotation::default(),
@@ -540,11 +681,16 @@ mod tests {
     fn tle_1_5_score_trace_log_serializes_detail_field() {
         use crate::combat::ai::pipeline::stages::sanity::SanityRule;
 
-        let mut trace = ScoreTrace { base: 1.0, ..Default::default() };
+        let mut trace = ScoreTrace {
+            base: 1.0,
+            ..Default::default()
+        };
         trace.push_multiplier(MultiplierHit {
             kind: MultiplierKind::Sanity,
             value: 0.5,
-            detail: Some(MultiplierDetail::Sanity { rule: SanityRule::HealerExposure }),
+            detail: Some(MultiplierDetail::Sanity {
+                rule: SanityRule::HealerExposure,
+            }),
         });
 
         // Round-trip through JSON.
@@ -555,22 +701,29 @@ mod tests {
         assert_eq!(restored.multipliers.len(), 1);
         assert_eq!(
             restored.multipliers[0].detail,
-            Some(MultiplierDetail::Sanity { rule: SanityRule::HealerExposure }),
+            Some(MultiplierDetail::Sanity {
+                rule: SanityRule::HealerExposure
+            }),
             "detail must round-trip through JSON",
         );
 
         // Verify JSON shape contains expected keys.
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
         let detail = &v["multipliers"][0]["detail"];
-        assert_eq!(detail["kind"], "sanity", "detail kind must be snake_case 'sanity'");
-        assert_eq!(detail["rule"], "healer_exposure", "rule must be snake_case serialized");
+        assert_eq!(
+            detail["kind"], "sanity",
+            "detail kind must be snake_case 'sanity'"
+        );
+        assert_eq!(
+            detail["rule"], "healer_exposure",
+            "rule must be snake_case serialized"
+        );
 
         // v33-shape JSON (no detail field) deserializes with detail=None.
         let old_json = r#"{"base":1.0,"multipliers":[{"kind":"sanity","value":0.5}]}"#;
         let old_log: ScoreTraceLog = serde_json::from_str(old_json).expect("deserialize old");
         assert_eq!(
-            old_log.multipliers[0].detail,
-            None,
+            old_log.multipliers[0].detail, None,
             "old logs without detail field must deserialize as None",
         );
     }

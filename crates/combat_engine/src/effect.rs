@@ -43,7 +43,12 @@ pub enum Effect {
     /// Deduct `by` action points from the actor.
     DecrementAP { actor: UnitId, by: i32 },
     /// Deal raw (pre-mitigation) damage from `source` to `target`.
-    Damage { target: UnitId, raw: f32, source: crate::state::EffectSource, pierces: bool },
+    Damage {
+        target: UnitId,
+        raw: f32,
+        source: crate::state::EffectSource,
+        pierces: bool,
+    },
     /// Restore HP on `target`, after first neutralizing active DoT
     /// statuses (Bevy parity — see `apply_effects.rs:73-114`).
     /// `amount` is the raw heal pool; final HP gain may be less if DoTs
@@ -51,7 +56,11 @@ pub enum Effect {
     Heal { target: UnitId, amount: i32 },
     /// Deduct a resource pool (mana / rage / energy / hp) from `actor`.
     /// Mirrors `effects_outcome::pay_costs`.
-    PayCost { actor: UnitId, kind: ResourceKind, amount: i32 },
+    PayCost {
+        actor: UnitId,
+        kind: ResourceKind,
+        amount: i32,
+    },
     /// Add or refresh a status on `target`.  Re-apply replaces an existing
     /// entry with the same `id` (matches `apply_effects_system`'s reapply
     /// semantics).  Derives `RefreshAggregates` so derived stats catch any
@@ -114,7 +123,6 @@ pub enum Effect {
     BumpRound,
 
     // ── Phase-transition atomics (Phase 4 step 4d) ────────────────────────
-
     /// Boss enters phase `phase_idx`.  Cascades into `SetMaxHp`, `SetArmor`,
     /// `SetBaseSpeed`, optionally `Heal`, and `RefreshAggregates`.
     ///
@@ -135,7 +143,6 @@ pub enum Effect {
     SetBaseSpeed { unit: UnitId, base_speed: i32 },
 
     // ── Passive ability effects ───────────────────────────────────────────
-
     /// Scan `state.environment` for hazards not yet visible to the caster's
     /// team within `range` hexes of `caster`.  Derives one
     /// `RevealEnv { id, revealer }` per match.  No own event.  Zero rng.
@@ -148,7 +155,10 @@ pub enum Effect {
     /// `revealer` field ensures only the caster's own team gains knowledge.
     ///
     /// Emits `Event::EnvRevealed { env_id: id }` when newly revealed.
-    RevealEnv { id: crate::state::EnvId, revealer: crate::state::Team },
+    RevealEnv {
+        id: crate::state::EnvId,
+        revealer: crate::state::Team,
+    },
 }
 
 /// Structured damage breakdown produced by the `Damage` effect arm.
@@ -279,9 +289,9 @@ pub(crate) fn skip_or_settle_current(
 
     // Stunned-skip: walk direct statuses OR check aura stun (4c).
     let is_stunned_by_status = state.unit(actor).is_some_and(|u| {
-        u.statuses.iter().any(|s| {
-            content.status_def(&s.id).is_some_and(|d| d.skips_turn)
-        })
+        u.statuses
+            .iter()
+            .any(|s| content.status_def(&s.id).is_some_and(|d| d.skips_turn))
     });
     let is_stunned_by_aura = state.aura_effects_on(actor, content).skips_turn;
     if is_stunned_by_status || is_stunned_by_aura {
@@ -383,7 +393,12 @@ pub fn apply_effect(
             (vec![], ctx)
         }
 
-        Effect::Damage { target, raw, source, pierces } => {
+        Effect::Damage {
+            target,
+            raw,
+            source,
+            pierces,
+        } => {
             // Read the target's current armor (base + bonus) for mitigation.
             let (armor, armor_bonus) = state
                 .unit(*target)
@@ -416,24 +431,31 @@ pub fn apply_effect(
             derived.push(Effect::GainRage { target: *target });
 
             let max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
-            if let Some((phase_idx, _transition)) =
-                state.unit(*target).and_then(|u| u.check_phase_trigger(hp_after, max_hp))
+            if let Some((phase_idx, _transition)) = state
+                .unit(*target)
+                .and_then(|u| u.check_phase_trigger(hp_after, max_hp))
             {
-                derived.push(Effect::EnterPhase { unit: *target, phase_idx });
+                derived.push(Effect::EnterPhase {
+                    unit: *target,
+                    phase_idx,
+                });
             } else if hp_after <= 0 {
                 derived.push(Effect::Death { unit: *target });
             }
 
             let mitigation = if *pierces { 0 } else { armor + armor_bonus };
-            (derived, ApplyCtx {
-                damage: Some(DamageCtx {
-                    raw: *raw,
-                    mitigation,
-                    pierces: *pierces,
-                    final_amount: final_dmg.round() as i32,
-                }),
-                ..ApplyCtx::default()
-            })
+            (
+                derived,
+                ApplyCtx {
+                    damage: Some(DamageCtx {
+                        raw: *raw,
+                        mitigation,
+                        pierces: *pierces,
+                        final_amount: final_dmg.round() as i32,
+                    }),
+                    ..ApplyCtx::default()
+                },
+            )
         }
 
         Effect::Heal { target, amount } => {
@@ -491,10 +513,20 @@ pub fn apply_effect(
                 vec![]
             };
 
-            (derived, ApplyCtx { heal_amount: Some(hp_restored), ..ApplyCtx::default() })
+            (
+                derived,
+                ApplyCtx {
+                    heal_amount: Some(hp_restored),
+                    ..ApplyCtx::default()
+                },
+            )
         }
 
-        Effect::PayCost { actor, kind, amount } => {
+        Effect::PayCost {
+            actor,
+            kind,
+            amount,
+        } => {
             let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*actor) {
                 match kind {
@@ -543,7 +575,13 @@ pub fn apply_effect(
             (vec![], ctx)
         }
 
-        Effect::ApplyStatus { target, status, rounds, dot_per_tick, applier } => {
+        Effect::ApplyStatus {
+            target,
+            status,
+            rounds,
+            dot_per_tick,
+            applier,
+        } => {
             if let Some(u) = state.unit_mut(*target) {
                 // Re-apply replaces existing entries with the same id.
                 u.statuses.retain(|s| s.id != *status);
@@ -623,7 +661,10 @@ pub fn apply_effect(
 
             let mut derived: Vec<Effect> = statuses_to_clean
                 .into_iter()
-                .map(|status| Effect::RemoveStatus { target: *unit, status })
+                .map(|status| Effect::RemoveStatus {
+                    target: *unit,
+                    status,
+                })
                 .collect();
 
             let mut ctx = ApplyCtx::default();
@@ -644,7 +685,7 @@ pub fn apply_effect(
             (derived, ctx)
         }
 
-                Effect::RefreshAggregates { unit } => {
+        Effect::RefreshAggregates { unit } => {
             // Recompute speed, armor_bonus, and damage_taken_bonus from active
             // statuses + aura effects.
             // Reads status bonuses via ContentView — no Bevy dep in the engine.
@@ -666,8 +707,8 @@ pub fn apply_effect(
             // Fold aura bonuses on top of status-derived aggregates.
             let aura_fx = state.aura_effects_on(unit_id, content);
             if let Some(u) = state.unit_mut(unit_id) {
-                u.speed              += aura_fx.speed_bonus;
-                u.armor_bonus        += aura_fx.armor_bonus;
+                u.speed += aura_fx.speed_bonus;
+                u.armor_bonus += aura_fx.armor_bonus;
                 u.damage_taken_bonus += aura_fx.damage_taken_bonus;
             }
             (vec![], ApplyCtx::default())
@@ -677,17 +718,26 @@ pub fn apply_effect(
             let mut derived: Vec<Effect> = Vec::new();
 
             let (dot_per_tick, applier, max_hp) = {
-                let Some(u) = state.unit(*target) else { return (derived, ApplyCtx::default()); };
+                let Some(u) = state.unit(*target) else {
+                    return (derived, ApplyCtx::default());
+                };
                 let Some(s) = u.statuses.iter().find(|s| s.id == *status) else {
                     return (derived, ApplyCtx::default());
                 };
                 (s.dot_per_tick, s.applier, u.max_hp())
             };
 
-            let percent = content.status_def(status).map(|sd| sd.hp_percent_dot).unwrap_or(0);
+            let percent = content
+                .status_def(status)
+                .map(|sd| sd.hp_percent_dot)
+                .unwrap_or(0);
 
             // Compute total raw DoT damage from both components (flat + percent).
-            let flat_raw = if dot_per_tick > 0 { dot_per_tick as f32 } else { 0.0 };
+            let flat_raw = if dot_per_tick > 0 {
+                dot_per_tick as f32
+            } else {
+                0.0
+            };
             let percent_raw = if percent > 0 {
                 let amount = (max_hp * percent + 99) / 100;
                 amount as f32
@@ -718,10 +768,14 @@ pub fn apply_effect(
                 derived.push(Effect::GainRage { target: *target });
 
                 let cur_max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
-                if let Some((phase_idx, _transition)) =
-                    state.unit(*target).and_then(|u| u.check_phase_trigger(hp_after, cur_max_hp))
+                if let Some((phase_idx, _transition)) = state
+                    .unit(*target)
+                    .and_then(|u| u.check_phase_trigger(hp_after, cur_max_hp))
                 {
-                    derived.push(Effect::EnterPhase { unit: *target, phase_idx });
+                    derived.push(Effect::EnterPhase {
+                        unit: *target,
+                        phase_idx,
+                    });
                 } else if hp_after <= 0 {
                     derived.push(Effect::Death { unit: *target });
                 }
@@ -747,14 +801,19 @@ pub fn apply_effect(
 
         Effect::TickHeal { target, status } => {
             let (applier, hp_before, max_hp) = {
-                let Some(u) = state.unit(*target) else { return (vec![], ApplyCtx::default()); };
+                let Some(u) = state.unit(*target) else {
+                    return (vec![], ApplyCtx::default());
+                };
                 let Some(s) = u.statuses.iter().find(|s| s.id == *status) else {
                     return (vec![], ApplyCtx::default());
                 };
                 (s.applier, u.hp(), u.max_hp())
             };
 
-            let heal = content.status_def(status).map(|sd| sd.heal_per_tick).unwrap_or(0);
+            let heal = content
+                .status_def(status)
+                .map(|sd| sd.heal_per_tick)
+                .unwrap_or(0);
 
             if heal > 0 && hp_before < max_hp {
                 let hp_after = if let Some(u) = state.unit_mut(*target) {
@@ -799,7 +858,10 @@ pub fn apply_effect(
             };
 
             let derived = if expired {
-                vec![Effect::RemoveStatus { target: *target, status: status.clone() }]
+                vec![Effect::RemoveStatus {
+                    target: *target,
+                    status: status.clone(),
+                }]
             } else {
                 vec![]
             };
@@ -827,7 +889,6 @@ pub fn apply_effect(
         }
 
         // ── Phase-transition atomics (4d) ─────────────────────────────────────
-
         Effect::EnterPhase { unit, phase_idx: _ } => {
             // Re-read the current max_hp before any mutation for the event.
             let prev_max_hp = state.unit(*unit).map(|u| u.max_hp()).unwrap_or(0);
@@ -862,19 +923,31 @@ pub fn apply_effect(
                 }
             }
 
-            let (new_max_hp, new_armor, new_base_speed, heal_to_full) =
-                transition.map(|t| (t.new_max_hp, t.new_armor, t.new_base_speed, t.heal_to_full))
-                    .unwrap_or((prev_max_hp, 0, 0, false));
+            let (new_max_hp, new_armor, new_base_speed, heal_to_full) = transition
+                .map(|t| (t.new_max_hp, t.new_armor, t.new_base_speed, t.heal_to_full))
+                .unwrap_or((prev_max_hp, 0, 0, false));
 
-            let mut derived: Vec<Effect> = vec![Effect::SetMaxHp { unit: *unit, max_hp: new_max_hp }];
+            let mut derived: Vec<Effect> = vec![Effect::SetMaxHp {
+                unit: *unit,
+                max_hp: new_max_hp,
+            }];
             if new_armor != 0 {
-                derived.push(Effect::SetArmor { unit: *unit, armor: new_armor });
+                derived.push(Effect::SetArmor {
+                    unit: *unit,
+                    armor: new_armor,
+                });
             }
             if new_base_speed != 0 {
-                derived.push(Effect::SetBaseSpeed { unit: *unit, base_speed: new_base_speed });
+                derived.push(Effect::SetBaseSpeed {
+                    unit: *unit,
+                    base_speed: new_base_speed,
+                });
             }
             if heal_to_full {
-                derived.push(Effect::Heal { target: *unit, amount: new_max_hp });
+                derived.push(Effect::Heal {
+                    target: *unit,
+                    amount: new_max_hp,
+                });
             }
             derived.push(Effect::RefreshAggregates { unit: *unit });
 
@@ -912,7 +985,6 @@ pub fn apply_effect(
         }
 
         // ── Passive reveal effects ────────────────────────────────────────────
-
         Effect::RevealEnvInRange { caster, range } => {
             // Read caster position and team; bail if caster is unknown.
             let (caster_pos, caster_team) = match state.unit(*caster) {
@@ -922,7 +994,10 @@ pub fn apply_effect(
             let targets = scan_revealable_in_range(state, caster_pos, *range, caster_team);
             let derived: Vec<Effect> = targets
                 .into_iter()
-                .map(|id| Effect::RevealEnv { id, revealer: caster_team })
+                .map(|id| Effect::RevealEnv {
+                    id,
+                    revealer: caster_team,
+                })
                 .collect();
             (derived, ApplyCtx::default())
         }
@@ -939,7 +1014,13 @@ pub fn apply_effect(
             } else {
                 false
             };
-            (vec![], ApplyCtx { env_revealed: changed, ..ApplyCtx::default() })
+            (
+                vec![],
+                ApplyCtx {
+                    env_revealed: changed,
+                    ..ApplyCtx::default()
+                },
+            )
         }
 
         Effect::BumpRound => {
@@ -972,21 +1053,35 @@ pub fn apply_effect(
             (derived, skip_ctx)
         }
 
-        Effect::Spawn { summoner, template_id, max_active } => {
+        Effect::Spawn {
+            summoner,
+            template_id,
+            max_active,
+        } => {
             let template = match content.unit_template(template_id) {
                 Some(t) => t,
-                None => return (vec![], ApplyCtx {
-                    spawn_blocked: Some(SpawnBlockedReason::TemplateMissing),
-                    ..ApplyCtx::default()
-                }),
+                None => {
+                    return (
+                        vec![],
+                        ApplyCtx {
+                            spawn_blocked: Some(SpawnBlockedReason::TemplateMissing),
+                            ..ApplyCtx::default()
+                        },
+                    )
+                }
             };
 
             let (summoner_pos, summoner_team) = match state.unit(*summoner) {
                 Some(u) => (u.pos, u.team),
-                None => return (vec![], ApplyCtx {
-                    spawn_blocked: Some(SpawnBlockedReason::TemplateMissing),
-                    ..ApplyCtx::default()
-                }),
+                None => {
+                    return (
+                        vec![],
+                        ApplyCtx {
+                            spawn_blocked: Some(SpawnBlockedReason::TemplateMissing),
+                            ..ApplyCtx::default()
+                        },
+                    )
+                }
             };
 
             if let Some(cap) = max_active {
@@ -995,10 +1090,13 @@ pub fn apply_effect(
                     .filter(|u| u.summoner == Some(*summoner))
                     .count() as u32;
                 if active >= *cap {
-                    return (vec![], ApplyCtx {
-                        spawn_blocked: Some(SpawnBlockedReason::MaxActiveReached),
-                        ..ApplyCtx::default()
-                    });
+                    return (
+                        vec![],
+                        ApplyCtx {
+                            spawn_blocked: Some(SpawnBlockedReason::MaxActiveReached),
+                            ..ApplyCtx::default()
+                        },
+                    );
                 }
             }
 
@@ -1015,10 +1113,15 @@ pub fn apply_effect(
 
             let pos = match pos {
                 Some(p) => p,
-                None => return (vec![], ApplyCtx {
-                    spawn_blocked: Some(SpawnBlockedReason::NoFreePosition),
-                    ..ApplyCtx::default()
-                }),
+                None => {
+                    return (
+                        vec![],
+                        ApplyCtx {
+                            spawn_blocked: Some(SpawnBlockedReason::NoFreePosition),
+                            ..ApplyCtx::default()
+                        },
+                    )
+                }
             };
 
             let new_uid = state.alloc_synthetic_uid();
@@ -1035,7 +1138,7 @@ pub fn apply_effect(
                 1,
                 Vec::new(),
                 Some(*summoner),
-                None,               // initiative: not yet rolled
+                None, // initiative: not yet rolled
                 template.caster_context.clone(),
                 template.aoo_dice,
                 template.auras.clone(),
@@ -1064,11 +1167,14 @@ pub fn apply_effect(
                 crate::state::apply_template_initial_statuses(unit, &template);
             }
 
-            (vec![], ApplyCtx {
-                spawn_uid: Some(new_uid),
-                spawn_pos: Some(pos),
-                ..ApplyCtx::default()
-            })
+            (
+                vec![],
+                ApplyCtx {
+                    spawn_uid: Some(new_uid),
+                    spawn_pos: Some(pos),
+                    ..ApplyCtx::default()
+                },
+            )
         }
     }
 }
@@ -1077,9 +1183,9 @@ pub fn apply_effect(
 mod tests {
     use super::*;
     use crate::content::{ContentView, StatusBonuses};
-    use crate::state::{CombatState, EffectSource, ActiveStatus, Team};
-    use crate::{AbilityId, AbilityDef, StatusId, StatusDef, PoolKind, RegenRule};
     use crate::state::UnitId;
+    use crate::state::{ActiveStatus, CombatState, EffectSource, Team};
+    use crate::{AbilityDef, AbilityId, PoolKind, RegenRule, StatusDef, StatusId};
     use enum_map::enum_map;
     use hexx::Hex;
 
@@ -1087,9 +1193,23 @@ mod tests {
 
     fn make_unit_hp(id: UnitId, hp: i32, max_hp: i32) -> crate::state::Unit {
         crate::state::Unit::new(
-            id, Team::Player, Hex::ZERO,
-            0, 0, 0, 3, 3, 1, 1, vec![], None, None,
-            Default::default(), None, Vec::new(), Vec::new(),
+            id,
+            Team::Player,
+            Hex::ZERO,
+            0,
+            0,
+            0,
+            3,
+            3,
+            1,
+            1,
+            vec![],
+            None,
+            None,
+            Default::default(),
+            None,
+            Vec::new(),
+            Vec::new(),
             enum_map! {
                 PoolKind::Hp     => Some((hp, max_hp)),
                 PoolKind::Mana   => None,
@@ -1115,41 +1235,80 @@ mod tests {
     struct HotContent0;
 
     static HOT_DEF_4: StatusDef = StatusDef {
-        causes_disadvantage: false, blocks_mana_abilities: false,
-        forces_targeting: false, skips_turn: false,
-        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
-        hp_percent_dot: 0, heal_per_tick: 4,
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 4,
     };
     static HOT_DEF_10: StatusDef = StatusDef {
-        causes_disadvantage: false, blocks_mana_abilities: false,
-        forces_targeting: false, skips_turn: false,
-        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
-        hp_percent_dot: 0, heal_per_tick: 10,
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 10,
     };
     static HOT_DEF_0: StatusDef = StatusDef {
-        causes_disadvantage: false, blocks_mana_abilities: false,
-        forces_targeting: false, skips_turn: false,
-        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
-        hp_percent_dot: 0, heal_per_tick: 0,
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
     };
 
     impl ContentView for HotContent4 {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&HOT_DEF_4) }
-        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+            Some(&HOT_DEF_4)
+        }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> {
+            None
+        }
     }
     impl ContentView for HotContent0 {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&HOT_DEF_0) }
-        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+            Some(&HOT_DEF_0)
+        }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> {
+            None
+        }
     }
 
     /// ContentView that returns heal_per_tick = 10 (for clamping test).
     struct HotContent10;
     impl ContentView for HotContent10 {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&HOT_DEF_10) }
-        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+            Some(&HOT_DEF_10)
+        }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> {
+            None
+        }
     }
 
     fn make_state_with_unit(uid: UnitId, hp: i32, max_hp: i32) -> CombatState {
@@ -1176,10 +1335,16 @@ mod tests {
         let mut state = make_state_with_unit(uid, 6, 10);
         add_hot_status(&mut state, uid, uid, "hot");
 
-        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let eff = Effect::TickHeal {
+            target: uid,
+            status: StatusId("hot".into()),
+        };
         let (derived, ctx) = apply_effect(&mut state, &eff, &HotContent4);
 
-        assert!(derived.is_empty(), "TickHeal must not derive secondary effects");
+        assert!(
+            derived.is_empty(),
+            "TickHeal must not derive secondary effects"
+        );
         let hot = ctx.hot_heal.expect("hot_heal should be set");
         assert_eq!(hot.amount, 4);
         assert_eq!(state.unit(uid).unwrap().hp(), 10);
@@ -1192,7 +1357,10 @@ mod tests {
         let mut state = make_state_with_unit(uid, 8, 10);
         add_hot_status(&mut state, uid, uid, "hot");
 
-        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let eff = Effect::TickHeal {
+            target: uid,
+            status: StatusId("hot".into()),
+        };
         let (_, ctx) = apply_effect(&mut state, &eff, &HotContent10);
 
         let hot = ctx.hot_heal.expect("hot_heal should be set");
@@ -1206,7 +1374,10 @@ mod tests {
         let mut state = make_state_with_unit(uid, 10, 10); // full HP
         add_hot_status(&mut state, uid, uid, "hot");
 
-        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let eff = Effect::TickHeal {
+            target: uid,
+            status: StatusId("hot".into()),
+        };
         let (_, ctx) = apply_effect(&mut state, &eff, &HotContent4);
 
         assert!(ctx.hot_heal.is_none(), "no-op when already at max HP");
@@ -1219,11 +1390,18 @@ mod tests {
         let mut state = make_state_with_unit(uid, 5, 10);
         add_hot_status(&mut state, uid, uid, "hot");
 
-        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let eff = Effect::TickHeal {
+            target: uid,
+            status: StatusId("hot".into()),
+        };
         let (_, ctx) = apply_effect(&mut state, &eff, &HotContent0);
 
         assert!(ctx.hot_heal.is_none());
-        assert_eq!(state.unit(uid).unwrap().hp(), 5, "HP unchanged for zero-heal tick");
+        assert_eq!(
+            state.unit(uid).unwrap().hp(),
+            5,
+            "HP unchanged for zero-heal tick"
+        );
     }
 
     #[test]
@@ -1233,7 +1411,10 @@ mod tests {
         let mut state = make_state_with_unit(uid, 1, 10);
         add_hot_status(&mut state, uid, uid, "hot");
 
-        let eff = Effect::TickHeal { target: uid, status: StatusId("hot".into()) };
+        let eff = Effect::TickHeal {
+            target: uid,
+            status: StatusId("hot".into()),
+        };
         let (derived, _) = apply_effect(&mut state, &eff, &HotContent4);
 
         for d in &derived {

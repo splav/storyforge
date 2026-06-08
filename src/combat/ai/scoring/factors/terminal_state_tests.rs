@@ -10,16 +10,15 @@
 
 use super::*;
 
+use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::TerminalFactor;
+use crate::combat::ai::test_helpers::{
+    empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
+};
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::world::tags::AiTags;
-use crate::combat::ai::test_helpers::{
-    empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-    snapshot_from,
-};
-use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::scoring::factors::TerminalFactor;
 use crate::game::components::Team;
 use crate::game::hex::hex_from_offset;
 
@@ -303,39 +302,42 @@ fn plan_with_outcomes(
 #[test]
 fn secure_kill_zero_for_no_kill_plan() {
     let pos = hex_from_offset(0, 0);
-    let plan = plan_with_outcomes(pos, vec![
-        crate::combat::ai::outcome::ActionOutcomeEstimate {
+    let plan = plan_with_outcomes(
+        pos,
+        vec![crate::combat::ai::outcome::ActionOutcomeEstimate {
             p_kill_now: 0.0,
             p_kill_soon: 0.0,
             ..Default::default()
-        },
-    ]);
+        }],
+    );
     assert_eq!(compute_secure_kill(&plan), 0.0);
 }
 
 #[test]
 fn secure_kill_high_when_p_kill_now_one() {
     let pos = hex_from_offset(0, 0);
-    let plan = plan_with_outcomes(pos, vec![
-        crate::combat::ai::outcome::ActionOutcomeEstimate {
+    let plan = plan_with_outcomes(
+        pos,
+        vec![crate::combat::ai::outcome::ActionOutcomeEstimate {
             p_kill_now: 1.0,
             p_kill_soon: 0.0,
             ..Default::default()
-        },
-    ]);
+        }],
+    );
     assert_eq!(compute_secure_kill(&plan), 1.0);
 }
 
 #[test]
 fn secure_kill_partial_credit_for_kill_soon() {
     let pos = hex_from_offset(0, 0);
-    let plan = plan_with_outcomes(pos, vec![
-        crate::combat::ai::outcome::ActionOutcomeEstimate {
+    let plan = plan_with_outcomes(
+        pos,
+        vec![crate::combat::ai::outcome::ActionOutcomeEstimate {
             p_kill_now: 0.0,
             p_kill_soon: 1.0,
             ..Default::default()
-        },
-    ]);
+        }],
+    );
     let score = compute_secure_kill(&plan);
     assert!(
         (score - 0.5).abs() < 1e-5,
@@ -363,7 +365,9 @@ fn ally_rescue_zero_when_no_endangered_ally() {
     let actor_pos = hex_from_offset(0, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
     // Ally has full HP — not endangered
-    let ally = UnitBuilder::new(2, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
+    let ally = UnitBuilder::new(2, Team::Enemy, hex_from_offset(1, 0))
+        .full_hp(20)
+        .build();
     let snap = snapshot_from(vec![actor.clone(), ally], 1);
     let content = crate::content::content_view::ContentView::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
@@ -383,8 +387,14 @@ fn ally_rescue_zero_when_endangered_ally_still_low_at_end() {
     let ally_pos = hex_from_offset(1, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
     // Ally at 20% HP — endangered; stays low in end snap
-    let ally_initial = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(4).max_hp(20).build();
-    let ally_end = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(4).max_hp(20).build();
+    let ally_initial = UnitBuilder::new(2, Team::Enemy, ally_pos)
+        .hp(4)
+        .max_hp(20)
+        .build();
+    let ally_end = UnitBuilder::new(2, Team::Enemy, ally_pos)
+        .hp(4)
+        .max_hp(20)
+        .build();
     let initial_snap = snapshot_from(vec![actor.clone(), ally_initial], 1);
     let end_snap = snapshot_from(vec![actor.clone(), ally_end], 1);
     let content = crate::content::content_view::ContentView::load_global_for_tests();
@@ -407,8 +417,14 @@ fn ally_rescue_credits_low_hp_to_safe_transition() {
     let ally_pos = hex_from_offset(1, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
     // Ally at 20% HP initially (4/20), recovered to 80% (16/20) at end
-    let ally_initial = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(4).max_hp(20).build();
-    let ally_end = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(16).max_hp(20).build();
+    let ally_initial = UnitBuilder::new(2, Team::Enemy, ally_pos)
+        .hp(4)
+        .max_hp(20)
+        .build();
+    let ally_end = UnitBuilder::new(2, Team::Enemy, ally_pos)
+        .hp(16)
+        .max_hp(20)
+        .build();
     let initial_snap = snapshot_from(vec![actor.clone(), ally_initial], 1);
     let end_snap = snapshot_from(vec![actor.clone(), ally_end], 1);
     let content = crate::content::content_view::ContentView::load_global_for_tests();
@@ -432,7 +448,10 @@ fn ally_rescue_credits_low_hp_to_safe_transition() {
 fn ally_rescue_skips_self() {
     let actor_pos = hex_from_offset(0, 0);
     // Actor itself is at low HP and in high danger — should be ignored
-    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(4).max_hp(20).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+        .hp(4)
+        .max_hp(20)
+        .build();
     let snap = snapshot_from(vec![actor.clone()], 1);
     let content = crate::content::content_view::ContentView::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
@@ -523,7 +542,10 @@ fn board_control_gain_negative_when_moved_to_worse() {
         annotation: Default::default(),
     };
     let score = compute_board_control_gain(&plan, &ctx);
-    assert!(score < 0.0, "expected negative gain when moving to worse tile, got {score}");
+    assert!(
+        score < 0.0,
+        "expected negative gain when moving to worse tile, got {score}"
+    );
 }
 
 // ── line_actionability ────────────────────────────────────────────────
@@ -629,7 +651,10 @@ fn line_actionability_proportional_to_targets_in_range() {
     let ctx3 = make_scoring_ctx(&world, &snap3, &maps, &reservations, &actor);
     let plan3 = idle_plan(actor_pos, snap3.clone());
     let score3 = compute_line_actionability(&plan3, &snap3, &ctx3);
-    assert_eq!(score3, 1.0, "3 enemies in range → expected 1.0, got {score3}");
+    assert_eq!(
+        score3, 1.0,
+        "3 enemies in range → expected 1.0, got {score3}"
+    );
 }
 
 // ── density_value ──────────────────────────────────────────────────────

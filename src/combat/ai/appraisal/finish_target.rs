@@ -44,11 +44,11 @@ pub(super) fn compute_finish_target(ctx: &AppraisalCtx<'_>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
+    use crate::combat::ai::appraisal::tests::{default_memory, make_ctx, snap};
     use crate::combat::ai::config::tuning::AiTuning;
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::combat::ai::appraisal::tests::{default_memory, snap, make_ctx};
 
     #[test]
     fn finish_target_zero_when_no_killable() {
@@ -92,7 +92,10 @@ mod tests {
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         let signal = compute_finish_target(&ctx);
-        assert!(signal > 0.7, "expected > 0.7 for killable low-HP enemy, got {signal}");
+        assert!(
+            signal > 0.7,
+            "expected > 0.7 for killable low-HP enemy, got {signal}"
+        );
     }
 
     #[test]
@@ -114,6 +117,10 @@ mod tests {
         let content = empty_content();
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
-        assert_eq!(compute_finish_target(&ctx), 0.0, "no AP should yield 0 (filter blocks killable iter)");
+        assert_eq!(
+            compute_finish_target(&ctx),
+            0.0,
+            "no AP should yield 0 (filter blocks killable iter)"
+        );
     }
 }

@@ -18,14 +18,19 @@ pub struct StartCombat {
 /// `Action::EndTurn` routes here since Phase 4 step 4e.
 #[derive(Message, Debug)]
 pub enum ActionInput {
-    Move { actor: Entity, path: Vec<hexx::Hex> },
+    Move {
+        actor: Entity,
+        path: Vec<hexx::Hex>,
+    },
     Cast {
         actor: Entity,
         ability: combat_engine::AbilityId,
         target: Entity,
         target_pos: hexx::Hex,
     },
-    EndTurn { actor: Entity },
+    EndTurn {
+        actor: Entity,
+    },
 }
 
 /// Перезапустить текущий бой: восстановить всех участников, сохранив инициативу.

@@ -31,9 +31,8 @@
 //!    to `CanFinish` and prune legit offensive-vs-target plans. See
 //!    `docs/ai_rework.md §3.1`, §3.2a.
 
-use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
-use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::adapt::EvaluationMode;
+use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
 use crate::combat::ai::pipeline::effects::{
     apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
@@ -42,6 +41,7 @@ use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use bevy::prelude::Entity;
 
@@ -138,8 +138,7 @@ pub fn apply_killable_gate(
     // some other enemy (kn=1, step.target != intent_target) would spuriously
     // raise strength to CanFinish.
     let can_finish = live.iter().any(|&i| {
-        plan_is_offensive_vs(&plans[i], target)
-            && raw[i].get(StepFactor::KillNow) >= 1.0
+        plan_is_offensive_vs(&plans[i], target) && raw[i].get(StepFactor::KillNow) >= 1.0
     });
     let has_pressure = live.iter().any(|&i| {
         plan_is_offensive_vs(&plans[i], target)
@@ -160,8 +159,7 @@ pub fn apply_killable_gate(
             KillLineStrength::None => true,
             KillLineStrength::Pressure => plan_is_offensive_vs(&plans[i], target),
             KillLineStrength::CanFinish => {
-                plan_is_offensive_vs(&plans[i], target)
-                    && raw[i].get(StepFactor::KillNow) >= 1.0
+                plan_is_offensive_vs(&plans[i], target) && raw[i].get(StepFactor::KillNow) >= 1.0
             }
         };
         if !keep {
@@ -170,7 +168,11 @@ pub fn apply_killable_gate(
         }
     }
 
-    GateStats { applied: true, strength, pruned_count: pruned }
+    GateStats {
+        applied: true,
+        strength,
+        pruned_count: pruned,
+    }
 }
 
 // ── Stage ─────────────────────────────────────────────────────────────────────
@@ -257,11 +259,11 @@ mod algorithm_tests {
     use super::*;
     use crate::combat::ai::adapt::EvaluationMode;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::test_helpers::{empty_plan, ent, snapshot_from, UnitBuilder};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{ent, empty_plan, snapshot_from, UnitBuilder};
-    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::AbilityId;
 
     // ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -289,7 +291,9 @@ mod algorithm_tests {
 
     fn move_plan() -> TurnPlan {
         TurnPlan {
-            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
+            steps: vec![PlanStep::Move {
+                path: vec![hex_from_offset(1, 0)],
+            }],
             ..TurnPlan::default()
         }
     }
@@ -363,7 +367,10 @@ mod algorithm_tests {
         assert!(stats.applied);
         assert_eq!(stats.pruned_count, 1);
         assert_eq!(scores[0], 0.6, "offensive plan survives");
-        assert!(scores[1].is_infinite() && scores[1] < 0.0, "heal pruned to -inf");
+        assert!(
+            scores[1].is_infinite() && scores[1] < 0.0,
+            "heal pruned to -inf"
+        );
     }
 
     // ── Test 3: can_finish tier prunes all non-killing ─────────────────────
@@ -392,7 +399,10 @@ mod algorithm_tests {
         assert!(stats.applied);
         assert_eq!(stats.pruned_count, 2);
         assert_eq!(scores[0], 0.7, "killing plan survives");
-        assert!(scores[1].is_infinite() && scores[1] < 0.0, "weak offensive pruned");
+        assert!(
+            scores[1].is_infinite() && scores[1] < 0.0,
+            "weak offensive pruned"
+        );
         assert!(scores[2].is_infinite() && scores[2] < 0.0, "heal pruned");
     }
 
@@ -423,23 +433,35 @@ mod algorithm_tests {
         let modes = default_modes(3);
         // Add other_enemy to the snapshot so it's non-empty; target has hp=20
         let target_unit = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
-            .hp(20).max_hp(20).build();
+            .hp(20)
+            .max_hp(20)
+            .build();
         let other_unit = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 0))
-            .hp(10).max_hp(20).build();
+            .hp(10)
+            .max_hp(20)
+            .build();
         let snap = snapshot_from(vec![target_unit, other_unit], 1);
         let intent = TacticalIntent::FocusTarget { target };
 
         let stats = apply_killable_gate(&plans, &raw, &mut scores, &modes, &intent, &snap);
 
         // Strength must be Pressure, NOT CanFinish
-        assert_eq!(stats.strength, KillLineStrength::Pressure,
-            "collateral kill on other enemy must not raise strength to CanFinish");
+        assert_eq!(
+            stats.strength,
+            KillLineStrength::Pressure,
+            "collateral kill on other enemy must not raise strength to CanFinish"
+        );
         // Under Pressure: keep = offensive_vs_target.
         // A (cast at other) and C (heal) are not offensive vs target → both pruned.
         // B (cast at target) survives.
-        assert_eq!(stats.pruned_count, 2, "collateral + heal pruned under Pressure");
-        assert!(scores[0].is_infinite() && scores[0] < 0.0,
-            "collateral plan is not offensive vs target → pruned by Pressure");
+        assert_eq!(
+            stats.pruned_count, 2,
+            "collateral + heal pruned under Pressure"
+        );
+        assert!(
+            scores[0].is_infinite() && scores[0] < 0.0,
+            "collateral plan is not offensive vs target → pruned by Pressure"
+        );
         assert_eq!(scores[1], 0.7, "offensive vs target survives Pressure");
         assert!(scores[2].is_infinite() && scores[2] < 0.0, "heal pruned");
     }
@@ -465,9 +487,13 @@ mod algorithm_tests {
         let mut scores = vec![0.7, 0.8];
         let modes = default_modes(2);
         let target_unit = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
-            .hp(20).max_hp(20).build();
+            .hp(20)
+            .max_hp(20)
+            .build();
         let other_unit = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 0))
-            .hp(20).max_hp(20).build();
+            .hp(20)
+            .max_hp(20)
+            .build();
         let snap = snapshot_from(vec![target_unit, other_unit], 1);
         let intent = TacticalIntent::FocusTarget { target };
 
@@ -508,10 +534,19 @@ mod algorithm_tests {
         let stats = apply_killable_gate(&plans, &raw, &mut scores, &modes, &intent, &snap);
 
         // Masked plan A is invisible → strength driven by B alone → Pressure
-        assert_eq!(stats.strength, KillLineStrength::Pressure,
-            "already-masked killing plan must not inflate strength to CanFinish");
-        assert_eq!(stats.pruned_count, 0, "B is offensive vs target → survives Pressure");
-        assert!(scores[0].is_infinite() && scores[0] < 0.0, "A stays at -inf (untouched by gate)");
+        assert_eq!(
+            stats.strength,
+            KillLineStrength::Pressure,
+            "already-masked killing plan must not inflate strength to CanFinish"
+        );
+        assert_eq!(
+            stats.pruned_count, 0,
+            "B is offensive vs target → survives Pressure"
+        );
+        assert!(
+            scores[0].is_infinite() && scores[0] < 0.0,
+            "A stays at -inf (untouched by gate)"
+        );
         assert_eq!(scores[1], 0.5, "B survives");
     }
 
@@ -540,8 +575,11 @@ mod algorithm_tests {
 
         let stats = apply_killable_gate(&plans, &raw, &mut scores, &modes, &intent, &snap);
 
-        assert_eq!(stats.strength, KillLineStrength::None,
-            "LastStand plan is invisible → no kill-line detected");
+        assert_eq!(
+            stats.strength,
+            KillLineStrength::None,
+            "LastStand plan is invisible → no kill-line detected"
+        );
         assert!(!stats.applied);
         assert_eq!(stats.pruned_count, 0);
         assert_eq!(scores[1], 0.5, "defensive plan survives");
@@ -554,10 +592,7 @@ mod algorithm_tests {
         // Intent is ApplyCC (not FocusTarget) → early return, no pruning.
         let target = ent(2);
         let plans = vec![cast_plan(target), empty_plan()];
-        let raw = vec![
-            factors_with(20.0, 1.0),
-            factors_with(0.0, 0.0),
-        ];
+        let raw = vec![factors_with(20.0, 1.0), factors_with(0.0, 0.0)];
         let mut scores = vec![0.7, 0.9];
         let modes = default_modes(2);
         let snap = snap_with_target(2, 20);
@@ -598,16 +633,16 @@ mod algorithm_tests {
 mod stage_tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, ent, make_scoring_ctx, make_test_ctx, snapshot_from,
+        PoolBuilder, StageTestHarness, UnitBuilder,
+    };
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
-        StageTestHarness, UnitBuilder, ent, snapshot_from,
-    };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::{AbilityId, DiceRng};
@@ -683,8 +718,14 @@ mod stage_tests {
         h.run(|ctx| KillableGateStage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
-        assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-FocusTarget intent");
-        assert!(pool.annotations[0].score_trace.gates.is_empty(), "no gate hits expected for non-FocusTarget intent");
+        assert_eq!(
+            pool.annotations[0].score, 0.5,
+            "score should be untouched for non-FocusTarget intent"
+        );
+        assert!(
+            pool.annotations[0].score_trace.gates.is_empty(),
+            "no gate hits expected for non-FocusTarget intent"
+        );
     }
 
     // ── gate writes annotation when pruning ───────────────────────────────────
@@ -698,7 +739,10 @@ mod stage_tests {
         let target_entity = ent(2);
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos)
+            .hp(1)
+            .max_hp(10)
+            .build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         // Plan 0: offensive vs target with kill_now=1.0 (can finish).
@@ -713,7 +757,9 @@ mod stage_tests {
         };
         // Plan 1: move (non-offensive vs target).
         let non_offensive_plan = TurnPlan {
-            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
+            steps: vec![PlanStep::Move {
+                path: vec![hex_from_offset(1, 0)],
+            }],
             final_pos: hex_from_offset(1, 0),
             ..TurnPlan::default()
         };
@@ -726,22 +772,41 @@ mod stage_tests {
         ];
 
         let pool = run_stage_with_snap(
-            plans, scores, raw,
-            TacticalIntent::FocusTarget { target: target_entity },
-            &snap, &actor,
+            plans,
+            scores,
+            raw,
+            TacticalIntent::FocusTarget {
+                target: target_entity,
+            },
+            &snap,
+            &actor,
         );
 
         // plan 1 should be gated via score_trace (TLE-3a: legacy contract field removed)
-        assert!(!pool.annotations[1].is_selectable(), "non-offensive plan should be gated");
         assert!(
-            pool.annotations[1].score_trace.gates.iter().any(|g| g.source == "killable_gate"),
+            !pool.annotations[1].is_selectable(),
+            "non-offensive plan should be gated"
+        );
+        assert!(
+            pool.annotations[1]
+                .score_trace
+                .gates
+                .iter()
+                .any(|g| g.source == "killable_gate"),
             "expected killable_gate GateHit in score_trace for gated plan"
         );
 
         // plan 0 should be untouched
-        assert!(pool.annotations[0].score.is_finite(), "offensive plan should survive gate");
         assert!(
-            pool.annotations[0].score_trace.gates.iter().all(|g| g.source != "killable_gate"),
+            pool.annotations[0].score.is_finite(),
+            "offensive plan should survive gate"
+        );
+        assert!(
+            pool.annotations[0]
+                .score_trace
+                .gates
+                .iter()
+                .all(|g| g.source != "killable_gate"),
             "no killable_gate GateHit for offensive plan"
         );
     }
@@ -755,7 +820,10 @@ mod stage_tests {
         let target_entity = ent(2);
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(10).max_hp(10).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos)
+            .hp(10)
+            .max_hp(10)
+            .build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
@@ -764,14 +832,22 @@ mod stage_tests {
         let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
 
         let pool = run_stage_with_snap(
-            plans, scores, raw,
-            TacticalIntent::FocusTarget { target: target_entity },
-            &snap, &actor,
+            plans,
+            scores,
+            raw,
+            TacticalIntent::FocusTarget {
+                target: target_entity,
+            },
+            &snap,
+            &actor,
         );
 
         for ann in &pool.annotations {
             assert!(
-                ann.score_trace.gates.iter().all(|g| g.source != "killable_gate"),
+                ann.score_trace
+                    .gates
+                    .iter()
+                    .all(|g| g.source != "killable_gate"),
                 "no killable_gate GateHit when gate does not fire"
             );
         }
@@ -789,7 +865,10 @@ mod stage_tests {
         let target_entity = ent(2);
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos)
+            .hp(1)
+            .max_hp(10)
+            .build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let offensive_plan = TurnPlan {
@@ -802,7 +881,9 @@ mod stage_tests {
             ..TurnPlan::default()
         };
         let non_offensive_plan = TurnPlan {
-            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
+            steps: vec![PlanStep::Move {
+                path: vec![hex_from_offset(1, 0)],
+            }],
             final_pos: hex_from_offset(1, 0),
             ..TurnPlan::default()
         };
@@ -812,18 +893,35 @@ mod stage_tests {
         let raw = vec![pfv_kill_now(1.0), PlanFactorValues::default()];
 
         let pool = run_stage_with_snap(
-            plans, scores, raw,
-            TacticalIntent::FocusTarget { target: target_entity },
-            &snap, &actor,
+            plans,
+            scores,
+            raw,
+            TacticalIntent::FocusTarget {
+                target: target_entity,
+            },
+            &snap,
+            &actor,
         );
 
         let trace = &pool.annotations[1].score_trace;
         assert_eq!(trace.gates.len(), 1, "exactly one GateHit expected");
-        assert_eq!(trace.gates[0].outcome, crate::combat::ai::pipeline::score_trace::GateOutcome::Reject);
+        assert_eq!(
+            trace.gates[0].outcome,
+            crate::combat::ai::pipeline::score_trace::GateOutcome::Reject
+        );
         assert_eq!(trace.gates[0].source, "killable_gate");
-        assert!(trace.masks.is_empty(), "no MaskHit after Phase 3 Step 4 single-emit");
-        assert!(trace.is_gated(), "is_gated() must return true for gated plan");
-        assert!(!trace.is_masked(), "is_masked() must be false — only Gate is emitted");
+        assert!(
+            trace.masks.is_empty(),
+            "no MaskHit after Phase 3 Step 4 single-emit"
+        );
+        assert!(
+            trace.is_gated(),
+            "is_gated() must return true for gated plan"
+        );
+        assert!(
+            !trace.is_masked(),
+            "is_masked() must be false — only Gate is emitted"
+        );
     }
 
     #[test]
@@ -848,8 +946,14 @@ mod stage_tests {
 
         // ── 5. Assert ──
         let trace = &pool.annotations[0].score_trace;
-        assert!(trace.gates.is_empty(), "no GateHit for non-FocusTarget intent");
-        assert!(trace.masks.is_empty(), "no MaskHit for non-FocusTarget intent");
+        assert!(
+            trace.gates.is_empty(),
+            "no GateHit for non-FocusTarget intent"
+        );
+        assert!(
+            trace.masks.is_empty(),
+            "no MaskHit for non-FocusTarget intent"
+        );
     }
 
     #[test]
@@ -861,7 +965,10 @@ mod stage_tests {
         let target_entity = ent(2);
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos)
+            .hp(1)
+            .max_hp(10)
+            .build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let offensive_plan = TurnPlan {
@@ -874,7 +981,9 @@ mod stage_tests {
             ..TurnPlan::default()
         };
         let non_offensive_plan = TurnPlan {
-            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
+            steps: vec![PlanStep::Move {
+                path: vec![hex_from_offset(1, 0)],
+            }],
             final_pos: hex_from_offset(1, 0),
             ..TurnPlan::default()
         };
@@ -884,16 +993,30 @@ mod stage_tests {
         let raw = vec![pfv_kill_now(1.0), PlanFactorValues::default()];
 
         let pool = run_stage_with_snap(
-            plans, scores, raw,
-            TacticalIntent::FocusTarget { target: target_entity },
-            &snap, &actor,
+            plans,
+            scores,
+            raw,
+            TacticalIntent::FocusTarget {
+                target: target_entity,
+            },
+            &snap,
+            &actor,
         );
 
         let ann = &pool.annotations[1];
-        assert!(ann.score_trace.is_gated(), "gate must be recorded in trace for gated plan");
-        assert!(!ann.score_trace.is_masked(), "no mask in trace — Phase 3 Step 4 emits Gate only");
+        assert!(
+            ann.score_trace.is_gated(),
+            "gate must be recorded in trace for gated plan"
+        );
+        assert!(
+            !ann.score_trace.is_masked(),
+            "no mask in trace — Phase 3 Step 4 emits Gate only"
+        );
         assert!(!ann.is_selectable(), "gated plan must not be selectable");
         // score is finite after Step 3 cutover (compute() ignores gates)
-        assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
+        assert!(
+            ann.score.is_finite(),
+            "score is finite after Step 3 cutover"
+        );
     }
 }

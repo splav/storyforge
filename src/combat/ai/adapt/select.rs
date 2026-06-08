@@ -9,14 +9,14 @@
 //!   `select_evaluation_modes` + `FinalizeStage` instead.
 
 use crate::combat::ai::adapt::{Adaptation, AdaptationReason, EvaluationMode};
-use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::scoring::horizon::expected_aoo_damage;
-use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::plan::TurnPlan;
+use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
+use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
+use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::content_view::ContentView;
 
 /// Sum of damage the actor is guaranteed to take from active status
@@ -46,7 +46,8 @@ pub fn pending_dot_before_next_action(active: UnitView<'_>, content: &ContentVie
         total = total.saturating_add(s.dot_per_tick.max(0));
         if let Some(sd) = content.statuses.get(&s.id) {
             if sd.hp_percent_dot > 0 {
-                let tick = (active.max_hp() as f32 * sd.hp_percent_dot as f32 / 100.0).ceil() as i32;
+                let tick =
+                    (active.max_hp() as f32 * sd.hp_percent_dot as f32 / 100.0).ceil() as i32;
                 total = total.saturating_add(tick.max(0));
             }
         }
@@ -134,9 +135,12 @@ pub fn select_evaluation_modes(
 
     // ── Global rules under ProtectSelf ────────────────────────────────────
     if matches!(intent, TacticalIntent::ProtectSelf) {
-        let any_defensive = raw
-            .iter()
-            .any(|f| plan_is_defensive(f.get_plan(PlanFactor::SelfSurvival), ctx.world.tuning.thresholds.self_survival_epsilon));
+        let any_defensive = raw.iter().any(|f| {
+            plan_is_defensive(
+                f.get_plan(PlanFactor::SelfSurvival),
+                ctx.world.tuning.thresholds.self_survival_epsilon,
+            )
+        });
         if !any_defensive {
             for i in 0..plans.len() {
                 adaptation.modes[i] = EvaluationMode::LastStand;
@@ -238,9 +242,12 @@ pub fn apply_adaptation(
     // Applied first because global — any per-plan ExpectedSelfLethal
     // rule would be shadowed by a global switch anyway.
     if matches!(intent, TacticalIntent::ProtectSelf) {
-        let any_defensive = raw
-            .iter()
-            .any(|f| plan_is_defensive(f.get_plan(PlanFactor::SelfSurvival), ctx.world.tuning.thresholds.self_survival_epsilon));
+        let any_defensive = raw.iter().any(|f| {
+            plan_is_defensive(
+                f.get_plan(PlanFactor::SelfSurvival),
+                ctx.world.tuning.thresholds.self_survival_epsilon,
+            )
+        });
         if !any_defensive {
             for i in 0..plans.len() {
                 adaptation.modes[i] = EvaluationMode::LastStand;
@@ -323,15 +330,14 @@ pub fn apply_adaptation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::pipeline::stages::sanity::sanity_adjust_plans;
     use crate::combat::ai::plan::PlanStep;
     use crate::combat::ai::world::reservations::Reservations;
-    
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
+
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        snapshot_from,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
     };
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -427,12 +433,20 @@ mod tests {
         // raw[0] is the empty defensive plan — self_survival ≥ ε so spatial
         // check passes (any_defensive=true) and ExpectedSelfLethal is gated off.
         let mut raw = vec![
-            { let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f },
+            {
+                let mut f = PlanFactorValues::default();
+                f.set_plan(PlanFactor::SelfSurvival, 0.2);
+                f
+            },
             PlanFactorValues::default(),
         ];
         let mut scored = vec![0.5, 0.5];
         let adaptation = apply_adaptation(
-            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans,
+            &mut raw,
+            &mut scored,
+            &TacticalIntent::ProtectSelf,
+            &ctx,
         );
 
         assert!(
@@ -466,7 +480,11 @@ mod tests {
         let mut raw = vec![PlanFactorValues::default()];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans,
+            &mut raw,
+            &mut scored,
+            &TacticalIntent::ProtectSelf,
+            &ctx,
         );
 
         assert!(matches!(adaptation.modes[0], EvaluationMode::LastStand));
@@ -485,9 +503,7 @@ mod tests {
     // Tests construct `sim_snapshots` by hand — we're exercising
     // adaptation logic, not the generator's sim.
 
-    use crate::content::abilities::{
-        AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType,
-    };
+    use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
     use crate::content::statuses::StatusDef;
     use combat_engine::{AbilityId, DiceExpr, StatusId};
 
@@ -506,7 +522,9 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleAlly,
                 range: AbilityRange { min: 0, max: 0 },
-                effect: EffectDef::Heal { dice: DiceExpr::new(1, 6, 0) },
+                effect: EffectDef::Heal {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
                 costs: Vec::new(),
                 cost_ap: 1,
                 aoe: AoEShape::None,
@@ -590,11 +608,13 @@ mod tests {
             .max_hp(20)
             .build();
         let mut actor_with_dot = actor.clone();
-        actor_with_dot.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
-            id: StatusId::from("poison"),
-            rounds_remaining: 1,
-            dot_per_tick: 4,
-        });
+        actor_with_dot
+            .statuses
+            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
+                id: StatusId::from("poison"),
+                rounds_remaining: 1,
+                dot_per_tick: 4,
+            });
 
         let mut plans = vec![skip_plan(actor_with_dot.pos)];
         let snap = snapshot_from(vec![actor_with_dot.clone()], 1);
@@ -607,15 +627,26 @@ mod tests {
 
         // self_survival ≥ ε so spatial check (any_defensive) passes and the
         // doom/rescue branch is reached. The skip plan has no rescue → Futile.
-        let mut raw = vec![{ let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f }];
+        let mut raw = vec![{
+            let mut f = PlanFactorValues::default();
+            f.set_plan(PlanFactor::SelfSurvival, 0.2);
+            f
+        }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans,
+            &mut raw,
+            &mut scored,
+            &TacticalIntent::ProtectSelf,
+            &ctx,
         );
 
         assert!(matches!(adaptation.modes[0], EvaluationMode::LastStand));
         match &adaptation.reasons[0] {
-            Some(AdaptationReason::ProtectSelfFutile { pending_dot, actor_hp }) => {
+            Some(AdaptationReason::ProtectSelfFutile {
+                pending_dot,
+                actor_hp,
+            }) => {
                 assert_eq!(*pending_dot, 4);
                 assert_eq!(*actor_hp, 2);
             }
@@ -634,11 +665,13 @@ mod tests {
             .hp(2)
             .max_hp(20)
             .build();
-        actor_doomed.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
-            id: StatusId::from("poison"),
-            rounds_remaining: 1,
-            dot_per_tick: 4,
-        });
+        actor_doomed
+            .statuses
+            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
+                id: StatusId::from("poison"),
+                rounds_remaining: 1,
+                dot_per_tick: 4,
+            });
         // Post-plan: self-heal raises HP to 12, DoT still pending (heal
         // didn't cleanse). 12 > 4 → rescue holds.
         let mut actor_healed = actor_doomed.clone();
@@ -657,10 +690,18 @@ mod tests {
 
         // self_survival ≥ ε so spatial check passes; rescue plan heals above
         // pending DoT → any_rescue=true → contract holds.
-        let mut raw = vec![{ let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f }];
+        let mut raw = vec![{
+            let mut f = PlanFactorValues::default();
+            f.set_plan(PlanFactor::SelfSurvival, 0.2);
+            f
+        }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans,
+            &mut raw,
+            &mut scored,
+            &TacticalIntent::ProtectSelf,
+            &ctx,
         );
 
         assert!(
@@ -679,11 +720,13 @@ mod tests {
             .hp(2)
             .max_hp(20)
             .build();
-        actor_doomed.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
-            id: StatusId::from("poison"),
-            rounds_remaining: 1,
-            dot_per_tick: 4,
-        });
+        actor_doomed
+            .statuses
+            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
+                id: StatusId::from("poison"),
+                rounds_remaining: 1,
+                dot_per_tick: 4,
+            });
         // Post-plan: statuses vec cleared (cleanse). HP unchanged.
         let mut actor_cleansed = actor_doomed.clone();
         actor_cleansed.statuses.clear();
@@ -701,10 +744,18 @@ mod tests {
 
         // self_survival ≥ ε so spatial check passes; cleanse drops pending
         // DoT to 0 → any_rescue=true → contract holds.
-        let mut raw = vec![{ let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f }];
+        let mut raw = vec![{
+            let mut f = PlanFactorValues::default();
+            f.set_plan(PlanFactor::SelfSurvival, 0.2);
+            f
+        }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans,
+            &mut raw,
+            &mut scored,
+            &TacticalIntent::ProtectSelf,
+            &ctx,
         );
 
         assert!(
@@ -723,11 +774,13 @@ mod tests {
             .max_hp(40)
             .build();
         let mut actor_sick = actor.clone();
-        actor_sick.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
-            id: StatusId::from("exhaustion"),
-            rounds_remaining: 1,
-            dot_per_tick: 0, // the flat-damage channel is empty
-        });
+        actor_sick
+            .statuses
+            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
+                id: StatusId::from("exhaustion"),
+                rounds_remaining: 1,
+                dot_per_tick: 0, // the flat-damage channel is empty
+            });
         let mut content = empty_content();
         content.statuses.insert(
             StatusId::from("exhaustion"),
@@ -800,7 +853,11 @@ mod tests {
         let scored_before = vec![0.5];
         let mut scored = scored_before.clone();
         let adaptation = apply_adaptation(
-            &mut plans, &mut raw, &mut scored, &TacticalIntent::Reposition, &ctx,
+            &mut plans,
+            &mut raw,
+            &mut scored,
+            &TacticalIntent::Reposition,
+            &ctx,
         );
 
         assert!(matches!(adaptation.modes[0], EvaluationMode::Default));
@@ -872,7 +929,7 @@ mod tests {
             .aoo(5.0, 1)
             .build();
         let plans = vec![
-            move_plan(vec![hex_from_offset(2, 0)]), // move away
+            move_plan(vec![hex_from_offset(2, 0)]),  // move away
             move_plan(vec![hex_from_offset(-1, 0)]), // move away other dir
         ];
         let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
@@ -894,8 +951,14 @@ mod tests {
                 "plan[{i}] mode must be Flee"
             );
             assert!(
-                matches!(adaptation.reasons[i], Some(AdaptationReason::Forced { mode: EvaluationMode::Flee })),
-                "plan[{i}] reason must be Forced{{mode:Flee}}, got {:?}", adaptation.reasons[i]
+                matches!(
+                    adaptation.reasons[i],
+                    Some(AdaptationReason::Forced {
+                        mode: EvaluationMode::Flee
+                    })
+                ),
+                "plan[{i}] reason must be Forced{{mode:Flee}}, got {:?}",
+                adaptation.reasons[i]
             );
         }
     }

@@ -9,15 +9,18 @@
 use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
 
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::plan::types::PlanStep;
-use crate::combat::ai::repair::{PlanContinuationCheck, StatusDelta, classify_mismatch, compute_status_delta_engine, MismatchContext};
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::intent::TacticalIntent;
-use combat_engine::AbilityId;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
+use crate::combat::ai::plan::types::PlanStep;
+use crate::combat::ai::repair::{
+    classify_mismatch, compute_status_delta_engine, MismatchContext, PlanContinuationCheck,
+    StatusDelta,
+};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
+use crate::combat::ai::world::tags::StatusTagCache;
 use crate::game::hex::Hex;
+use combat_engine::AbilityId;
 
 // ── GoalKind ─────────────────────────────────────────────────────────────────
 
@@ -176,7 +179,10 @@ impl StoredGoalContext {
         status_tags: &StatusTagCache,
     ) -> Option<PlanContinuationCheck> {
         // 1. Actor position mismatch — topology broken.
-        let no_delta_ctx = MismatchContext { status_delta: None, status_tags };
+        let no_delta_ctx = MismatchContext {
+            status_delta: None,
+            status_tags,
+        };
         if actor.pos != self.expected_actor_pos {
             return Some(PlanContinuationCheck {
                 severity: classify_mismatch("actor_pos_mismatch", &no_delta_ctx),
@@ -191,17 +197,26 @@ impl StoredGoalContext {
             });
         }
         // 3. Actor rage changed — cosmetic side-effect of AoO / round mechanics.
-        if actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0) != self.actor_rage_at_store {
+        if actor.pools[combat_engine::PoolKind::Rage]
+            .map(|(r, _)| r)
+            .unwrap_or(0)
+            != self.actor_rage_at_store
+        {
             return Some(PlanContinuationCheck {
                 severity: classify_mismatch("actor_rage_changed", &no_delta_ctx),
                 reason_code: "actor_rage_changed",
             });
         }
         // 4. Actor status set changed — compute delta for semantic classification.
-        if crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses) != self.actor_status_hash {
+        if crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses)
+            != self.actor_status_hash
+        {
             let delta: StatusDelta =
                 compute_status_delta_engine(&self.actor_statuses_at_store, &actor.statuses);
-            let delta_ctx = MismatchContext { status_delta: Some(&delta), status_tags };
+            let delta_ctx = MismatchContext {
+                status_delta: Some(&delta),
+                status_tags,
+            };
             return Some(PlanContinuationCheck {
                 severity: classify_mismatch("actor_status_changed", &delta_ctx),
                 reason_code: "actor_status_changed",
@@ -280,7 +295,14 @@ pub fn extract_goal_context(
     round: u32,
     tuning: &AiTuning,
 ) -> Option<StoredGoalContext> {
-    let kind = intent_to_goal_kind(chosen_intent, chosen_steps, chosen_outcomes, chosen_final_pos, snap, tuning)?;
+    let kind = intent_to_goal_kind(
+        chosen_intent,
+        chosen_steps,
+        chosen_outcomes,
+        chosen_final_pos,
+        snap,
+        tuning,
+    )?;
 
     let region_anchor = region_anchor_for(&kind, snap)?;
 
@@ -297,8 +319,11 @@ pub fn extract_goal_context(
     // region_anchor is also captured for the target severity checks.
     let target_entity = kind.target_entity();
     let target_snap = target_entity.and_then(|e| snap.unit(e));
-    let actor_rage_at_store = actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0);
-    let actor_status_hash = crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses);
+    let actor_rage_at_store = actor.pools[combat_engine::PoolKind::Rage]
+        .map(|(r, _)| r)
+        .unwrap_or(0);
+    let actor_status_hash =
+        crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses);
     // Status id list for delta-based severity classification (step 9.B.3).
     let actor_statuses_at_store: Vec<combat_engine::StatusId> =
         actor.statuses.iter().map(|s| s.id.clone()).collect();
@@ -337,11 +362,7 @@ fn intent_to_goal_kind(
         TacticalIntent::FocusTarget { target } => {
             // Distinguish Finish vs Pressure by target HP and cumulative p_kill_now.
             let t = snap.unit(target)?;
-            let p_kill_now: f32 = outcomes
-                .iter()
-                .map(|o| o.p_kill_now)
-                .sum::<f32>()
-                .min(1.0);
+            let p_kill_now: f32 = outcomes.iter().map(|o| o.p_kill_now).sum::<f32>().min(1.0);
             if p_kill_now >= tuning.thresholds.goal_finish_p_kill || t.hp_pct() < 0.30 {
                 Some(GoalKind::Finish { target })
             } else {
@@ -353,9 +374,9 @@ fn intent_to_goal_kind(
         // LastStand is now an EvaluationMode, not a TacticalIntent; adapt-triggered
         // plans that used LastStand scoring may be selected under any global intent,
         // but the goal kind here follows the global intent selection.
-        TacticalIntent::ProtectSelf => {
-            Some(GoalKind::Retreat { region_anchor: final_pos })
-        }
+        TacticalIntent::ProtectSelf => Some(GoalKind::Retreat {
+            region_anchor: final_pos,
+        }),
         TacticalIntent::SetupAOE => {
             // SetupAOE without a following Cast step is not a representable goal.
             let ability = steps.get(1).and_then(|s| match s {
@@ -367,9 +388,9 @@ fn intent_to_goal_kind(
                 planned_ability: ability,
             })
         }
-        TacticalIntent::Reposition => {
-            Some(GoalKind::Reposition { region_center: final_pos })
-        }
+        TacticalIntent::Reposition => Some(GoalKind::Reposition {
+            region_center: final_pos,
+        }),
     }
 }
 
@@ -378,18 +399,16 @@ fn intent_to_goal_kind(
 /// For target-bound goals the anchor is the target's current position (so the
 /// region check in 6.2 is relative to where the target was at store time).
 /// For positional goals it is `chosen_final_pos`.
-fn region_anchor_for(
-    kind: &GoalKind,
-    snap: &BattleSnapshot,
-) -> Option<Hex> {
+fn region_anchor_for(kind: &GoalKind, snap: &BattleSnapshot) -> Option<Hex> {
     match kind {
         GoalKind::Finish { target }
         | GoalKind::Pressure { target }
         | GoalKind::DisableEnemy { target } => Some(snap.unit(*target)?.pos),
         GoalKind::HealAlly { ally } => Some(snap.unit(*ally)?.pos),
         GoalKind::Retreat { region_anchor } => Some(*region_anchor),
-        GoalKind::SetupAOE { region_center, .. }
-        | GoalKind::Reposition { region_center } => Some(*region_center),
+        GoalKind::SetupAOE { region_center, .. } | GoalKind::Reposition { region_center } => {
+            Some(*region_center)
+        }
     }
 }
 
@@ -398,12 +417,11 @@ fn region_anchor_for(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{UnitBuilder, ent, snapshot_from};
     use crate::combat::ai::config::tuning::AiTuning;
+    use crate::combat::ai::test_helpers::{ent, snapshot_from, UnitBuilder};
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::Hex;
-    
 
     fn default_tuning() -> AiTuning {
         AiTuning::default()
@@ -437,7 +455,9 @@ mod tests {
 
     // A Move step for use in plan steps.
     fn move_step() -> PlanStep {
-        PlanStep::Move { path: vec![Hex::new(1, 0)] }
+        PlanStep::Move {
+            path: vec![Hex::new(1, 0)],
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -515,7 +535,10 @@ mod tests {
         let tuning = default_tuning(); // goal_finish_p_kill = 0.6
 
         // …but p_kill_now = 0.7 ≥ 0.6 → Finish
-        let high_kill = vec![ActionOutcomeEstimate { p_kill_now: 0.7, ..Default::default() }];
+        let high_kill = vec![ActionOutcomeEstimate {
+            p_kill_now: 0.7,
+            ..Default::default()
+        }];
 
         let result = extract_goal_context(
             TacticalIntent::FocusTarget { target },
@@ -559,7 +582,10 @@ mod tests {
 
         let ctx = result.expect("should produce a goal");
         match &ctx.kind {
-            GoalKind::SetupAOE { planned_ability, region_center } => {
+            GoalKind::SetupAOE {
+                planned_ability,
+                region_center,
+            } => {
                 assert_eq!(planned_ability, &ability_id);
                 assert_eq!(*region_center, Hex::new(4, 0));
             }
@@ -591,7 +617,10 @@ mod tests {
             &tuning,
         );
 
-        assert!(result.is_none(), "SetupAOE without Cast step should produce None");
+        assert!(
+            result.is_none(),
+            "SetupAOE without Cast step should produce None"
+        );
     }
 
     /// ProtectSelf → Retreat with region_anchor == chosen_final_pos.
@@ -616,7 +645,9 @@ mod tests {
         );
 
         let ctx = result.expect("should produce a goal");
-        assert!(matches!(ctx.kind, GoalKind::Retreat { region_anchor } if region_anchor == final_pos));
+        assert!(
+            matches!(ctx.kind, GoalKind::Retreat { region_anchor } if region_anchor == final_pos)
+        );
         assert_eq!(ctx.region_anchor, final_pos);
     }
 
@@ -695,9 +726,11 @@ mod tests {
         use combat_engine::StatusId;
 
         let stored_statuses: Vec<StatusId> = vec![];
-        let current_statuses = vec![
-            ActiveStatusView { id: StatusId::from("stunned"), rounds_remaining: 2, dot_per_tick: 0 }
-        ];
+        let current_statuses = vec![ActiveStatusView {
+            id: StatusId::from("stunned"),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+        }];
 
         let delta = compute_status_delta(&stored_statuses, &current_statuses);
         assert_eq!(delta.added, vec![StatusId::from("stunned")]);

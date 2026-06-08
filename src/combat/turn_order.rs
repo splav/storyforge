@@ -3,7 +3,6 @@ use crate::combat::ai::world::reservations::Reservations;
 use crate::game::resources::CombatContext;
 use bevy::prelude::*;
 
-
 pub fn build_turn_order(
     mut ctx: ResMut<CombatContext>,
     mut reservations: ResMut<Reservations>,

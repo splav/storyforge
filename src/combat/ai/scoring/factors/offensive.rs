@@ -7,13 +7,13 @@
 //! `compute_aoe_damage` and the local `friendly_fire_penalty` helper are gone.
 
 use super::{crit_fail_adjusted, OffensiveFactors};
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::orchestration::ScoringCtx;
-use combat_engine::aoe_cells;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::content::abilities::{AbilityDef, EffectDef};
-use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
+use combat_engine::aoe_cells;
+use combat_engine::AbilityId;
 use std::collections::HashSet;
 
 /// Compute offensive factors for a single Cast step.
@@ -93,9 +93,20 @@ pub(crate) fn compute_offensive(
     let heal = if outcome.hp_restored > 0.0 {
         snap.unit(target).map_or(0.0, |t| {
             let danger = ctx.maps.danger.get(t.pos);
-            let horizon_sum: f32 = t.cache.damage_horizon.iter().sum::<f32>().max(t.cache.threat);
-            let raw = policy::heal::value(outcome.hp_restored, t.max_hp(), t.hp(), danger, horizon_sum);
-            crit_fail_adjusted(raw, def, &active.cache.crit_fail_effect, ctx.world.crit_fail_chance)
+            let horizon_sum: f32 = t
+                .cache
+                .damage_horizon
+                .iter()
+                .sum::<f32>()
+                .max(t.cache.threat);
+            let raw =
+                policy::heal::value(outcome.hp_restored, t.max_hp(), t.hp(), danger, horizon_sum);
+            crit_fail_adjusted(
+                raw,
+                def,
+                &active.cache.crit_fail_effect,
+                ctx.world.crit_fail_chance,
+            )
         })
     } else {
         0.0
@@ -112,26 +123,34 @@ pub(crate) fn compute_offensive(
     let kill_now = outcome.p_kill_now;
     let kill_promised = outcome.p_kill_soon;
 
-    OffensiveFactors { damage, heal, kill_now, kill_promised, cc }
+    OffensiveFactors {
+        damage,
+        heal,
+        kill_now,
+        kill_promised,
+        cc,
+    }
 }
 
 /// Expand an AoE def into the set of affected tiles. Thin wrapper over
 /// `combat_engine::aoe_cells` that materialises the result as a `HashSet` for
 /// fast `contains` checks in the planner.
 pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<Hex> {
-    aoe_cells(def.aoe, caster_tile, target_pos).into_iter().collect()
+    aoe_cells(def.aoe, caster_tile, target_pos)
+        .into_iter()
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::UnitBuilder;
-    
+
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::scoring::policy;
-    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::AbilityId;
 
     fn db() -> crate::content::content_view::ContentView {
         crate::content::content_view::ContentView::load_global_for_tests()
@@ -144,9 +163,9 @@ mod tests {
     fn compute_offensive_reads_facts_and_applies_policy() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
-        
-        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
+
         use crate::combat::ai::test_helpers::snapshot_from;
+        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
 
         let content = db();
         let difficulty = DifficultyProfile::default();
@@ -156,7 +175,9 @@ mod tests {
         let target_pos = hex_from_offset(1, 0);
 
         // Target at half HP so damage progression > 0.
-        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos)
+            .full_hp(100)
+            .build();
         let target = UnitBuilder::new(2, Team::Player, target_pos)
             .hp(50)
             .max_hp(100)
@@ -218,9 +239,9 @@ mod tests {
     fn compute_offensive_aoe_per_entity_progression() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
-        
-        use crate::combat::ai::test_helpers::{ent, empty_maps, make_scoring_ctx, make_test_ctx};
+
         use crate::combat::ai::test_helpers::snapshot_from;
+        use crate::combat::ai::test_helpers::{empty_maps, ent, make_scoring_ctx, make_test_ctx};
 
         let content = db();
         let difficulty = DifficultyProfile::default();
@@ -229,7 +250,9 @@ mod tests {
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(1, 0);
 
-        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos)
+            .full_hp(100)
+            .build();
         // low-HP target: 10 HP remaining (raw=10 hits hard — progress=1.0).
         let low_hp = UnitBuilder::new(2, Team::Player, target_pos)
             .hp(10)
@@ -240,10 +263,7 @@ mod tests {
             .full_hp(100)
             .build();
 
-        let snap = snapshot_from(
-            vec![actor.clone(), low_hp.clone(), high_hp.clone()],
-            1,
-        );
+        let snap = snapshot_from(vec![actor.clone(), low_hp.clone(), high_hp.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -307,9 +327,9 @@ mod tests {
     fn compute_offensive_friendly_fire_super_linear() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
-        
-        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
+
         use crate::combat::ai::test_helpers::snapshot_from;
+        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
 
         let content = db();
         let difficulty = DifficultyProfile::default();
@@ -318,7 +338,9 @@ mod tests {
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(1, 0);
 
-        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos)
+            .full_hp(100)
+            .build();
         // Enemy target so we don't accidentally zero-out from missing snap.unit.
         let enemy_target = UnitBuilder::new(2, Team::Player, target_pos)
             .full_hp(100)
@@ -328,10 +350,7 @@ mod tests {
             .full_hp(100)
             .build();
 
-        let snap = snapshot_from(
-            vec![actor.clone(), enemy_target.clone(), ally.clone()],
-            1,
-        );
+        let snap = snapshot_from(vec![actor.clone(), enemy_target.clone(), ally.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);

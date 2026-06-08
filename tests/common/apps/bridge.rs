@@ -22,31 +22,31 @@
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
-use storyforge::combat::{
-    DiceRngRes,
-    engine_bridge::{
-        apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
-        bootstrap_combat_state, entity_to_uid,
-        process_action_system, project_state_to_ecs,
-        BridgeQueues, CombatStateRes, UnitIdMap,
-    },
-};
-use storyforge::combat::ai::log::AiLogger;
+use combat_engine::{AbilityId, DiceExpr, WeaponId};
 use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
+use storyforge::combat::ai::log::AiLogger;
 use storyforge::combat::ai::log::PendingAiLogEntries;
 use storyforge::combat::ai::world::tags::AbilityTagCache;
+use storyforge::combat::{
+    engine_bridge::{
+        apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
+        bootstrap_combat_state, entity_to_uid, process_action_system, project_state_to_ecs,
+        BridgeQueues, CombatStateRes, UnitIdMap,
+    },
+    DiceRngRes,
+};
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
 use storyforge::content::content_view::{ActiveContent, ContentView};
 use storyforge::content::statuses::StatusDef;
 use storyforge::content::weapons::{HandType, WeaponDef};
-use combat_engine::{AbilityId, DiceExpr, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment, Team};
 use storyforge::game::hex::Hex;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatEnvironment, HexCorpses, HexPositions, TurnQueue, UiDirty,
+    CombatBlockedHexes, CombatContext, CombatEnvironment, HexCorpses, HexPositions, TurnQueue,
+    UiDirty,
 };
 use storyforge::ui::animation::AnimationQueue;
 use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
@@ -151,9 +151,7 @@ pub fn bootstrap(app: &mut App) {
 /// value; if the test triggers a second d20 draw, `DiceRng` will panic by
 /// design — this surfaces hidden RNG draws that the test author must account for.
 pub fn script_no_crit_fail(app: &mut App) {
-    app.world_mut()
-        .resource_mut::<DiceRngRes>()
-        .script(&[11]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[11]);
 }
 
 /// Script the next d20 draw to an arbitrary value.
@@ -226,7 +224,9 @@ pub fn spawn_unit(
 ) -> Entity {
     let entity = app
         .world_mut()
-        .spawn(CombatantBundle::new(team, stats, armor, speed, abilities, equipment))
+        .spawn(CombatantBundle::new(
+            team, stats, armor, speed, abilities, equipment,
+        ))
         .id();
     app.world_mut()
         .resource_mut::<HexPositions>()
@@ -237,7 +237,16 @@ pub fn spawn_unit(
 /// Convenience: spawn a Player unit at `pos` with [`bridge_stats`],
 /// [`no_equipment`], and the given abilities.
 pub fn spawn_caster(app: &mut App, pos: Hex, abilities: Vec<AbilityId>) -> Entity {
-    spawn_unit(app, Team::Player, bridge_stats(), 0, 6, abilities, no_equipment(), pos)
+    spawn_unit(
+        app,
+        Team::Player,
+        bridge_stats(),
+        0,
+        6,
+        abilities,
+        no_equipment(),
+        pos,
+    )
 }
 
 /// Like [`spawn_caster`] but with explicit `speed` — used by movement tests
@@ -248,13 +257,31 @@ pub fn spawn_caster_with_speed(
     abilities: Vec<AbilityId>,
     speed: i32,
 ) -> Entity {
-    spawn_unit(app, Team::Player, bridge_stats(), 0, speed, abilities, no_equipment(), pos)
+    spawn_unit(
+        app,
+        Team::Player,
+        bridge_stats(),
+        0,
+        speed,
+        abilities,
+        no_equipment(),
+        pos,
+    )
 }
 
 /// Convenience: spawn an Enemy unit at `pos` with [`bridge_stats`],
 /// no abilities, and [`no_equipment`].
 pub fn spawn_target(app: &mut App, pos: Hex) -> Entity {
-    spawn_unit(app, Team::Enemy, bridge_stats(), 0, 6, vec![], no_equipment(), pos)
+    spawn_unit(
+        app,
+        Team::Enemy,
+        bridge_stats(),
+        0,
+        6,
+        vec![],
+        no_equipment(),
+        pos,
+    )
 }
 
 /// Spawn an Enemy with a weapon in `main_hand` — used by AoO-flavored tests
@@ -272,7 +299,16 @@ pub fn spawn_enemy_with_weapon(
         legs: "".into(),
         feet: "".into(),
     };
-    spawn_unit(app, Team::Enemy, bridge_stats(), 0, 6, abilities, equipment, pos)
+    spawn_unit(
+        app,
+        Team::Enemy,
+        bridge_stats(),
+        0,
+        6,
+        abilities,
+        equipment,
+        pos,
+    )
 }
 
 // ─── Content injection ────────────────────────────────────────────────────────

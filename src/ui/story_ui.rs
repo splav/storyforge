@@ -38,7 +38,10 @@ pub fn setup_story_screen(
         .filter(|l| line_visible(l, flags))
         .cloned()
         .collect();
-    assert!(!lines.is_empty(), "story scene has no visible dialogue lines");
+    assert!(
+        !lines.is_empty(),
+        "story scene has no visible dialogue lines"
+    );
 
     let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
     let is_last_scene = scenario.scene_index + 1 >= scen.scenes.len();
@@ -180,7 +183,9 @@ pub fn setup_choice_screen(
 ) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
     let (prompt, options) = match &scen.scenes[scenario.scene_index] {
-        SceneDef::Choice { prompt, options, .. } => (prompt, options),
+        SceneDef::Choice {
+            prompt, options, ..
+        } => (prompt, options),
         _ => return,
     };
     let empty_flags = std::collections::BTreeSet::new();

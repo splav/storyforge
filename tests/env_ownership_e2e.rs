@@ -16,22 +16,19 @@
 
 use std::collections::HashMap;
 
-use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
 use storyforge::combat::ai::plan::reach::reach_from as ai_reach_from;
+use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
 use storyforge::combat_engine::{
-    AbilityId,
-    DiceExpr, StatusBonuses, StatusDef, StatusId,
     action::Action,
     content::{AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, TargetType},
     dice::ExpectedValue,
     event::Event,
-    state::{
-        CombatState, EnvId, EnvKind, EnvObject, RoundPhase, Team, TeamSet, Unit, UnitId,
-    },
+    state::{CombatState, EnvId, EnvKind, EnvObject, RoundPhase, Team, TeamSet, Unit, UnitId},
     step::step,
+    AbilityId, DiceExpr, StatusBonuses, StatusDef, StatusId,
 };
-use storyforge::game::hex::hex_from_offset;
 use storyforge::game::components::Team as AppTeam;
+use storyforge::game::hex::hex_from_offset;
 
 // ── Engine-test harness (inline, mirrors tests/combat_engine/trap.rs) ────────
 
@@ -49,12 +46,14 @@ impl Stub {
                     target_type: TargetType::SingleEnemy,
                     aoe: AoEShape::None,
                     friendly_fire: false,
-                    effect: EffectDef::Damage { dice: DiceExpr::new(n, 1, 0) },
+                    effect: EffectDef::Damage {
+                        dice: DiceExpr::new(n, 1, 0),
+                    },
                     statuses: vec![],
                     requires_los: false,
                     passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+                    requires_tags: Default::default(),
+                    excludes_tags: Default::default(),
                 },
             )]),
             StatusDef {
@@ -64,33 +63,43 @@ excludes_tags: Default::default()
                 skips_turn: false,
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
-                bonuses: StatusBonuses { armor_bonus: 0, damage_taken_bonus: 0, speed_bonus: 0 },
+                bonuses: StatusBonuses {
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                    speed_bonus: 0,
+                },
             },
         )
     }
 }
 impl ContentView for Stub {
-    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> { self.0.get(id) }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&self.1) }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+        self.0.get(id)
+    }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+        Some(&self.1)
+    }
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+        None
+    }
 }
 
 /// Simple engine unit for step-level tests. Mirrors the pattern in
 /// `tests/combat_engine/trap.rs::unit()`, but without `EngineUnitBuilder`
 /// (unavailable in a standalone test binary).
 fn eng_unit(id: u64, team: Team, col: i32, hp: i32) -> Unit {
-    use storyforge::combat_engine::{PoolKind, RegenRule, enum_map::enum_map};
+    use storyforge::combat_engine::{enum_map::enum_map, PoolKind, RegenRule};
     Unit::new(
         UnitId(id),
         team,
         hex_from_offset(col, 0),
-        0,  // armor
-        0,  // armor_bonus
-        0,  // damage_taken_bonus
-        4,  // base_speed
-        4,  // speed
-        1,  // reactions_left
-        1,  // reactions_max
+        0, // armor
+        0, // armor_bonus
+        0, // damage_taken_bonus
+        4, // base_speed
+        4, // speed
+        1, // reactions_left
+        1, // reactions_max
         vec![],
         None,
         None,               // initiative
@@ -114,7 +123,7 @@ fn eng_unit(id: u64, team: Team, col: i32, hp: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        None,               // template_id
+        None, // template_id
     )
 }
 
@@ -160,7 +169,10 @@ fn enemy_owned_trap_visible_to_enemy_ai_not_player() {
 
     // Simulate what build_snapshot does: retain only visible-to-ai-team objects.
     // Enemy actor's team is Enemy → retain visible_to(Enemy).
-    enemy_snap.state.environment.retain(|e| e.visible_to(AppTeam::Enemy));
+    enemy_snap
+        .state
+        .environment
+        .retain(|e| e.visible_to(AppTeam::Enemy));
     assert!(
         enemy_snap.state.environment.iter().any(|e| e.id == trap_id),
         "enemy-owned trap must be visible in enemy snapshot"
@@ -176,9 +188,16 @@ fn enemy_owned_trap_visible_to_enemy_ai_not_player() {
         owner: Some(Team::Enemy),
         revealed_to: TeamSet::EMPTY,
     });
-    player_snap.state.environment.retain(|e| e.visible_to(AppTeam::Player));
+    player_snap
+        .state
+        .environment
+        .retain(|e| e.visible_to(AppTeam::Player));
     assert!(
-        !player_snap.state.environment.iter().any(|e| e.id == trap_id),
+        !player_snap
+            .state
+            .environment
+            .iter()
+            .any(|e| e.id == trap_id),
         "enemy-owned trap must be absent from player snapshot"
     );
 }
@@ -213,7 +232,9 @@ fn enemy_ai_soft_avoids_own_visible_trap_when_alternative_exists() {
         revealed_to: TeamSet::EMPTY,
     });
     // T3 filter: retain only objects visible to the actor's team (Enemy).
-    snap.state.environment.retain(|e| e.visible_to(AppTeam::Enemy));
+    snap.state
+        .environment
+        .retain(|e| e.visible_to(AppTeam::Enemy));
     // Severity > 0 → hazard_costs will route around.
     snap.cache.env_severity.insert(trap_id, 50.0);
 
@@ -257,7 +278,10 @@ fn player_steps_on_hidden_enemy_trap_and_it_fires() {
     let path = vec![hex_from_offset(1, 0)];
     let (events, _) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &content,
     )
@@ -267,11 +291,16 @@ fn player_steps_on_hidden_enemy_trap_and_it_fires() {
     assert_eq!(hp(&state, 1), 7, "hidden enemy trap deals 3 damage");
     // HazardTriggered event emitted.
     assert!(
-        events.iter().any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))),
+        events
+            .iter()
+            .any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))),
         "HazardTriggered must be emitted even though trap was not visible to player"
     );
     // Trap removed after firing.
-    assert!(state.environment.is_empty(), "one-shot trap removed after firing");
+    assert!(
+        state.environment.is_empty(),
+        "one-shot trap removed after firing"
+    );
 }
 
 // ── Test 4: neutral trap fires on both teams ──────────────────────────────────
@@ -288,7 +317,10 @@ fn neutral_trap_fires_on_both_teams() {
 
         let (events, _) = step(
             &mut state,
-            Action::Move { actor: UnitId(1), path: vec![hex_from_offset(1, 0)] },
+            Action::Move {
+                actor: UnitId(1),
+                path: vec![hex_from_offset(1, 0)],
+            },
             &mut ExpectedValue,
             &content,
         )
@@ -296,10 +328,15 @@ fn neutral_trap_fires_on_both_teams() {
 
         assert_eq!(hp(&state, 1), 8, "neutral trap deals 2 damage ({team:?})");
         assert!(
-            events.iter().any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))),
+            events.iter().any(
+                |e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))
+            ),
             "HazardTriggered for {team:?}"
         );
-        assert!(state.environment.is_empty(), "trap removed after firing ({team:?})");
+        assert!(
+            state.environment.is_empty(),
+            "trap removed after firing ({team:?})"
+        );
     }
 }
 
@@ -357,8 +394,12 @@ fn ai_sim_and_prod_hazard_costs_agree() {
     let view_a = snap_a.unit(actor_a.entity).unwrap();
     let view_b = snap_b.unit(actor_b.entity).unwrap();
 
-    let path_a = ai_reach_from(&snap_a, view_a).path_to(goal).expect("a reaches goal");
-    let path_b = ai_reach_from(&snap_b, view_b).path_to(goal).expect("b reaches goal");
+    let path_a = ai_reach_from(&snap_a, view_a)
+        .path_to(goal)
+        .expect("a reaches goal");
+    let path_b = ai_reach_from(&snap_b, view_b)
+        .path_to(goal)
+        .expect("b reaches goal");
 
     assert_eq!(
         path_a, path_b,

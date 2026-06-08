@@ -19,14 +19,17 @@ use crate::StatusId;
 
 /// Opaque unit identifier inside the engine.  Maps 1-to-1 with a Bevy
 /// `Entity` via `crate::combat::engine_bridge::UnitIdMap`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct UnitId(pub u64);
 
 /// Opaque environment-object identifier. Used as the payload for
 /// `EffectSource::Env`. No environment objects are constructed yet —
 /// this variant is reserved for the trap/hazard system (a later commit).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord,
-         serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct EnvId(pub u32);
 
 /// Broad category of environment object.  One variant for now; more expected
@@ -201,13 +204,16 @@ pub struct TeamSet {
 }
 
 impl TeamSet {
-    pub const EMPTY: Self = TeamSet { player: false, enemy: false };
+    pub const EMPTY: Self = TeamSet {
+        player: false,
+        enemy: false,
+    };
 
     /// Returns `true` if `team` is in this set.
     pub fn contains(self, team: Team) -> bool {
         match team {
             Team::Player => self.player,
-            Team::Enemy  => self.enemy,
+            Team::Enemy => self.enemy,
         }
     }
 
@@ -215,7 +221,7 @@ impl TeamSet {
     pub fn insert(&mut self, team: Team) {
         match team {
             Team::Player => self.player = true,
-            Team::Enemy  => self.enemy  = true,
+            Team::Enemy => self.enemy = true,
         }
     }
 }
@@ -421,8 +427,14 @@ where
         None => Ok(None),
         Some(serde_json::Value::Null) => Ok(None),
         Some(serde_json::Value::Array(arr)) if arr.len() == 2 => {
-            let cur = arr[0].as_i64().ok_or_else(|| serde::de::Error::custom("expected int"))? as i32;
-            let max = arr[1].as_i64().ok_or_else(|| serde::de::Error::custom("expected int"))? as i32;
+            let cur = arr[0]
+                .as_i64()
+                .ok_or_else(|| serde::de::Error::custom("expected int"))?
+                as i32;
+            let max = arr[1]
+                .as_i64()
+                .ok_or_else(|| serde::de::Error::custom("expected int"))?
+                as i32;
             Ok(Some((cur, max)))
         }
         _ => Ok(None),
@@ -671,14 +683,21 @@ impl Unit {
         if max_hp == 0 || new_hp * 100 > max_hp * entry.pct {
             return None;
         }
-        let new_max_hp = if entry.new_max_hp > 0 { entry.new_max_hp } else { max_hp };
-        Some((0, crate::content::PhaseTransition {
-            new_max_hp,
-            new_armor: 0,
-            new_base_speed: 0,
-            heal_to_full: entry.heal_to_full,
-            tags: entry.tags.clone(),
-        }))
+        let new_max_hp = if entry.new_max_hp > 0 {
+            entry.new_max_hp
+        } else {
+            max_hp
+        };
+        Some((
+            0,
+            crate::content::PhaseTransition {
+                new_max_hp,
+                new_armor: 0,
+                new_base_speed: 0,
+                heal_to_full: entry.heal_to_full,
+                tags: entry.tags.clone(),
+            },
+        ))
     }
 }
 
@@ -855,7 +874,8 @@ impl CombatState {
 
     pub(crate) fn alloc_synthetic_uid(&mut self) -> UnitId {
         let uid = UnitId(self.next_synthetic_uid);
-        self.next_synthetic_uid = self.next_synthetic_uid
+        self.next_synthetic_uid = self
+            .next_synthetic_uid
             .checked_add(1)
             .expect("synthetic UID exhaustion — combat lifetime > 2^63 spawns");
         uid
@@ -909,18 +929,22 @@ impl CombatState {
     /// meaningful external source).
     pub fn apply_initial_statuses(&mut self, content: &dyn ContentView) {
         for unit in self.units.iter_mut() {
-            let Some(ref tid) = unit.template_id.clone() else { continue };
-            let Some(template) = content.unit_template(tid) else { continue };
+            let Some(ref tid) = unit.template_id.clone() else {
+                continue;
+            };
+            let Some(template) = content.unit_template(tid) else {
+                continue;
+            };
             apply_template_initial_statuses(unit, &template);
         }
     }
 
-
-
     /// All living enemies of `actor_id`.
     pub fn enemies_of(&self, actor_id: UnitId) -> impl Iterator<Item = &Unit> {
         let team = self.unit(actor_id).map(|u| u.team);
-        self.units.iter().filter(move |u| u.is_alive() && Some(u.team) != team)
+        self.units
+            .iter()
+            .filter(move |u| u.is_alive() && Some(u.team) != team)
     }
 
     /// Refill AP and MP, then regen resources for the actor whose turn is beginning.
@@ -947,7 +971,9 @@ impl CombatState {
                 // Unified regen loop: iteration order is load-bearing for
                 // determinism (Mana, Rage, Energy, Ap, Mp).
                 for (kind, rule) in u.regen_per_pool.iter() {
-                    let Some((cur, max)) = u.pools[kind].as_mut() else { continue };
+                    let Some((cur, max)) = u.pools[kind].as_mut() else {
+                        continue;
+                    };
                     match rule {
                         RegenRule::None => {}
                         RegenRule::Increment(amount) => {
@@ -1005,9 +1031,9 @@ impl CombatState {
         actor: UnitId,
         content: &dyn crate::content::ContentView,
     ) -> Vec<crate::event::Event> {
-        use std::collections::VecDeque;
         use crate::effect::{apply_effect, Effect};
         use crate::event::effect_to_event;
+        use std::collections::VecDeque;
 
         let initial: Vec<Effect> = self
             .units()
@@ -1021,13 +1047,20 @@ impl CombatState {
                         let has_hot = content
                             .status_def(&s.id)
                             .is_some_and(|sd| sd.heal_per_tick > 0);
-                        let mut effects = vec![
-                            Effect::TickDot { target: uid, status: s.id.clone() },
-                        ];
+                        let mut effects = vec![Effect::TickDot {
+                            target: uid,
+                            status: s.id.clone(),
+                        }];
                         if has_hot {
-                            effects.push(Effect::TickHeal { target: uid, status: s.id.clone() });
+                            effects.push(Effect::TickHeal {
+                                target: uid,
+                                status: s.id.clone(),
+                            });
                         }
-                        effects.push(Effect::ExpireStatus { target: uid, status: s.id.clone() });
+                        effects.push(Effect::ExpireStatus {
+                            target: uid,
+                            status: s.id.clone(),
+                        });
                         effects
                     })
                     .collect::<Vec<_>>()
@@ -1111,9 +1144,9 @@ impl CombatState {
         content: &dyn crate::content::ContentView,
         trigger: &crate::content::PassiveTrigger,
     ) -> Vec<crate::event::Event> {
-        use std::collections::VecDeque;
         use crate::effect::{apply_effect, Effect};
         use crate::event::effect_to_event;
+        use std::collections::VecDeque;
 
         // Collect initial effects from matching passives.
         let initial: Vec<Effect> = {
@@ -1130,7 +1163,10 @@ impl CombatState {
                     }
                     match &def.effect {
                         crate::content::EffectDef::RevealEnvInRange { range } => {
-                            Some(Effect::RevealEnvInRange { caster: actor, range: *range })
+                            Some(Effect::RevealEnvInRange {
+                                caster: actor,
+                                range: *range,
+                            })
                         }
                         // Other effect kinds are not passive-resolvable yet.
                         _ => None,
@@ -1170,7 +1206,6 @@ impl CombatState {
     }
 }
 
-
 /// Apply `template.initial_statuses` to `unit` with `PERMANENT_DURATION`.
 ///
 /// Shared helper between `CombatState::apply_initial_statuses` (bootstrap path)
@@ -1206,12 +1241,12 @@ pub(crate) fn template_starting_pool(
     kind: crate::PoolKind,
 ) -> Option<(i32, i32)> {
     let max = match kind {
-        crate::PoolKind::Hp     => template.max_hp,
-        crate::PoolKind::Mana   => template.mana_max,
-        crate::PoolKind::Rage   => template.rage_max,
+        crate::PoolKind::Hp => template.max_hp,
+        crate::PoolKind::Mana => template.mana_max,
+        crate::PoolKind::Rage => template.rage_max,
         crate::PoolKind::Energy => template.energy_max,
-        crate::PoolKind::Ap     => template.max_ap,
-        crate::PoolKind::Mp     => template.base_speed,
+        crate::PoolKind::Ap => template.max_ap,
+        crate::PoolKind::Mp => template.base_speed,
     };
     // Non-Hp pools are absent when max == 0.
     if max == 0 && kind != crate::PoolKind::Hp {
@@ -1219,7 +1254,7 @@ pub(crate) fn template_starting_pool(
     }
     let default_current = match kind {
         crate::PoolKind::Rage => 0,
-        _                     => max,
+        _ => max,
     };
     let current = template.initial_pools[kind]
         .unwrap_or(default_current)
@@ -1250,8 +1285,8 @@ fn aura_target_matches(
     }
     let team_ok = match aura.applies_to {
         crate::content::TeamRelation::Enemies => target_team != src_team,
-        crate::content::TeamRelation::Allies  => target_team == src_team,
-        crate::content::TeamRelation::All     => true,
+        crate::content::TeamRelation::Allies => target_team == src_team,
+        crate::content::TeamRelation::All => true,
     };
     team_ok && aura.affects_tags.is_subset(target_tags)
 }
@@ -1267,7 +1302,11 @@ impl CombatState {
     ///
     /// A dead target receives no aura effects (auras don't apply to corpses).
     /// A dead source contributes nothing (alive_units filter).
-    pub fn aura_effects_on(&self, target: UnitId, content: &dyn crate::content::ContentView) -> crate::content::AuraEffects {
+    pub fn aura_effects_on(
+        &self,
+        target: UnitId,
+        content: &dyn crate::content::ContentView,
+    ) -> crate::content::AuraEffects {
         use crate::content::AuraEffects;
         let mut out = AuraEffects::default();
 
@@ -1299,11 +1338,11 @@ impl CombatState {
                 }
                 // Fold all bonuses (speed, armor, damage_taken) and flags via one call.
                 let b = content.status_bonuses(&aura.status_id);
-                out.speed_bonus         += b.speed_bonus;
-                out.armor_bonus         += b.armor_bonus;
-                out.damage_taken_bonus  += b.damage_taken_bonus;
+                out.speed_bonus += b.speed_bonus;
+                out.armor_bonus += b.armor_bonus;
+                out.damage_taken_bonus += b.damage_taken_bonus;
                 if let Some(def) = content.status_def(&aura.status_id) {
-                    out.skips_turn          |= def.skips_turn;
+                    out.skips_turn |= def.skips_turn;
                     out.causes_disadvantage |= def.causes_disadvantage;
                 }
             }
@@ -1326,10 +1365,8 @@ impl CombatState {
     ) -> std::collections::BTreeSet<(UnitId, UnitId, crate::StatusId)> {
         let mut set = std::collections::BTreeSet::new();
 
-        let source_ids: Vec<(UnitId, hexx::Hex, Team)> = self
-            .alive_units()
-            .map(|u| (u.id, u.pos, u.team))
-            .collect();
+        let source_ids: Vec<(UnitId, hexx::Hex, Team)> =
+            self.alive_units().map(|u| (u.id, u.pos, u.team)).collect();
 
         for (src_id, src_pos, src_team) in &source_ids {
             let auras = match self.unit(*src_id) {
@@ -1375,9 +1412,9 @@ impl CombatState {
         content: &dyn crate::content::ContentView,
         budget: &mut usize,
     ) -> Vec<crate::event::Event> {
-        use std::collections::VecDeque;
         use crate::effect::{apply_effect, Effect};
         use crate::event::effect_to_event;
+        use std::collections::VecDeque;
 
         let mut events: Vec<crate::event::Event> = Vec::new();
         let mut queue: VecDeque<Effect> = seed;
@@ -1429,8 +1466,8 @@ impl CombatState {
         &mut self,
         content: &dyn crate::content::ContentView,
     ) -> Vec<crate::event::Event> {
-        use std::collections::VecDeque;
         use crate::effect::Effect;
+        use std::collections::VecDeque;
 
         let mut events: Vec<crate::event::Event> = Vec::new();
 
@@ -1442,8 +1479,7 @@ impl CombatState {
 
         // 2. Check the current cursor actor.  If dead/stunned, derive
         //    AdvanceTurn and let the pump settle the cascade.
-        let (skip_effects, mut skip_ctx) =
-            crate::effect::skip_or_settle_current(self, content);
+        let (skip_effects, mut skip_ctx) = crate::effect::skip_or_settle_current(self, content);
 
         // Collect skip events from the initial check.
         events.append(&mut skip_ctx.turn_skip_events);
@@ -1461,12 +1497,14 @@ impl CombatState {
         let cursor = self.turn_queue.current();
         let is_valid = cursor.is_some_and(|id| {
             let alive = self.unit(id).is_some_and(|u| u.is_alive());
-            if !alive { return false; }
+            if !alive {
+                return false;
+            }
             // Check for stun via status or aura — mirror skip_or_settle_current.
             let by_status = self.unit(id).is_some_and(|u| {
-                u.statuses.iter().any(|s| {
-                    content.status_def(&s.id).is_some_and(|d| d.skips_turn)
-                })
+                u.statuses
+                    .iter()
+                    .any(|s| content.status_def(&s.id).is_some_and(|d| d.skips_turn))
             });
             let by_aura = self.aura_effects_on(id, content).skips_turn;
             !by_status && !by_aura
@@ -1556,11 +1594,19 @@ impl CombatState {
         // Stable sort: descending initiative, ascending UnitId tie-break.
         // `None` initiative sorts last (maps to i32::MIN via unwrap_or).
         order.sort_by(|a, b| {
-            let init_a = self.idx.get(a).and_then(|&i| self.units[i].initiative).unwrap_or(i32::MIN);
-            let init_b = self.idx.get(b).and_then(|&i| self.units[i].initiative).unwrap_or(i32::MIN);
+            let init_a = self
+                .idx
+                .get(a)
+                .and_then(|&i| self.units[i].initiative)
+                .unwrap_or(i32::MIN);
+            let init_b = self
+                .idx
+                .get(b)
+                .and_then(|&i| self.units[i].initiative)
+                .unwrap_or(i32::MIN);
             init_b
-                .cmp(&init_a)              // descending initiative
-                .then_with(|| a.cmp(b))    // ascending UnitId tie-break
+                .cmp(&init_a) // descending initiative
+                .then_with(|| a.cmp(b)) // ascending UnitId tie-break
         });
         self.turn_queue.order = order;
     }
@@ -1569,9 +1615,9 @@ impl CombatState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hexx::Hex;
     use crate::content::{ContentView, StatusBonuses};
     use crate::{AbilityDef, AbilityId, StatusDef, StatusId};
+    use hexx::Hex;
 
     /// No-op `ContentView` for state-level unit tests. `start_actor_turn` and
     /// `tick_actor_statuses` take `&dyn ContentView` because their generic
@@ -1584,17 +1630,25 @@ mod tests {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn: false,
-        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
         hp_percent_dot: 0,
         heal_per_tick: 0,
     };
 
     impl ContentView for StubContent {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
             Some(&STUB_STATUS_DEF)
         }
-        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> {
+            None
+        }
     }
 
     fn make_unit(id: UnitId, action_points: i32, max_ap: i32, mana: Option<Pool>) -> Unit {
@@ -1612,7 +1666,7 @@ mod tests {
             1,
             vec![],
             None,
-            None,               // initiative: not yet rolled
+            None, // initiative: not yet rolled
             Default::default(),
             None,
             Vec::new(),
@@ -1658,25 +1712,57 @@ mod tests {
         let events = state.start_actor_turn(uid, &content);
 
         let u = state.unit(uid).unwrap();
-        assert_eq!(u.pools[PoolKind::Ap].map(|(c, _)| c), Some(2), "AP refilled to max");
-        assert_eq!(u.pools[PoolKind::Mp].map(|(c, _)| c), Some(3), "MP refilled to speed");
-        assert_eq!(u.pools[PoolKind::Mana], Some((2, 10)), "mana incremented to 2");
+        assert_eq!(
+            u.pools[PoolKind::Ap].map(|(c, _)| c),
+            Some(2),
+            "AP refilled to max"
+        );
+        assert_eq!(
+            u.pools[PoolKind::Mp].map(|(c, _)| c),
+            Some(3),
+            "MP refilled to speed"
+        );
+        assert_eq!(
+            u.pools[PoolKind::Mana],
+            Some((2, 10)),
+            "mana incremented to 2"
+        );
         // C6: only PoolChanged events (no legacy events).
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PoolChanged { unit: UnitId(1), pool: crate::PoolKind::Mana,
-                current: 2, max: 10, cause: crate::PoolChangeCause::Regen }
-        )), "PoolChanged{{Regen, Mana}} must fire");
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PoolChanged { pool: crate::PoolKind::Ap,
-                cause: crate::PoolChangeCause::Refill, .. }
-        )), "PoolChanged{{Refill, Ap}} must fire when AP was depleted");
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PoolChanged { pool: crate::PoolKind::Mp,
-                cause: crate::PoolChangeCause::Refill, .. }
-        )), "PoolChanged{{Refill, Mp}} must fire when MP was depleted");
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    unit: UnitId(1),
+                    pool: crate::PoolKind::Mana,
+                    current: 2,
+                    max: 10,
+                    cause: crate::PoolChangeCause::Regen
+                }
+            )),
+            "PoolChanged{{Regen, Mana}} must fire"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: crate::PoolKind::Ap,
+                    cause: crate::PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "PoolChanged{{Refill, Ap}} must fire when AP was depleted"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: crate::PoolKind::Mp,
+                    cause: crate::PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "PoolChanged{{Refill, Mp}} must fire when MP was depleted"
+        );
     }
 
     #[test]
@@ -1733,10 +1819,17 @@ mod tests {
 
         let events = state.start_actor_turn(uid, &content);
 
-        assert_eq!(state.unit(uid).unwrap().pools[PoolKind::Mana], Some((10, 10)));
+        assert_eq!(
+            state.unit(uid).unwrap().pools[PoolKind::Mana],
+            Some((10, 10))
+        );
         assert!(
             !events.iter().any(|e| matches!(
-                e, Event::PoolChanged { pool: crate::PoolKind::Mana, .. }
+                e,
+                Event::PoolChanged {
+                    pool: crate::PoolKind::Mana,
+                    ..
+                }
             )),
             "no PoolChanged{{Mana}} when mana already at max",
         );
@@ -1755,9 +1848,20 @@ mod tests {
         let events = state.start_actor_turn(uid, &content);
 
         let u = state.unit(uid).unwrap();
-        assert_eq!(u.pools[PoolKind::Ap].map(|(c, _)| c), Some(0), "dead unit AP unchanged");
-        assert_eq!(u.pools[PoolKind::Mp].map(|(c, _)| c), Some(0), "dead unit MP unchanged");
-        assert!(events.is_empty(), "no refill events and no statuses to tick");
+        assert_eq!(
+            u.pools[PoolKind::Ap].map(|(c, _)| c),
+            Some(0),
+            "dead unit AP unchanged"
+        );
+        assert_eq!(
+            u.pools[PoolKind::Mp].map(|(c, _)| c),
+            Some(0),
+            "dead unit MP unchanged"
+        );
+        assert!(
+            events.is_empty(),
+            "no refill events and no statuses to tick"
+        );
     }
 
     #[test]
@@ -1767,35 +1871,61 @@ mod tests {
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
-        victim_unit.statuses.push(make_status("burning", applier, 3, 3));
-        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        victim_unit
+            .statuses
+            .push(make_status("burning", applier, 3, 3));
+        let mut state =
+            CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
         // Fused DotDamaged event replaces the old StatusTicked + UnitDamaged pair.
-        let dot_ev = events.iter().find(|e| matches!(e,
-            Event::DotDamaged { target, source_status, amount, .. }
-            if *target == victim && source_status.0 == "burning" && *amount == 3
-        ));
-        assert!(dot_ev.is_some(), "DotDamaged(target=victim, status=burning, amount=3) expected");
+        let dot_ev = events.iter().find(|e| {
+            matches!(e,
+                Event::DotDamaged { target, source_status, amount, .. }
+                if *target == victim && source_status.0 == "burning" && *amount == 3
+            )
+        });
+        assert!(
+            dot_ev.is_some(),
+            "DotDamaged(target=victim, status=burning, amount=3) expected"
+        );
 
         // No standalone StatusTicked for the same tick (would indicate regression to old pair).
-        let ticked = events.iter().any(|e| matches!(e,
-            Event::StatusTicked { target, status, .. }
-            if *target == victim && status.0 == "burning"
-        ));
-        assert!(!ticked, "StatusTicked must NOT appear for a damaging tick (regression guard)");
+        let ticked = events.iter().any(|e| {
+            matches!(e,
+                Event::StatusTicked { target, status, .. }
+                if *target == victim && status.0 == "burning"
+            )
+        });
+        assert!(
+            !ticked,
+            "StatusTicked must NOT appear for a damaging tick (regression guard)"
+        );
 
         // No standalone UnitDamaged for the same tick target (fusion guard).
-        let standalone_damaged = events.iter().any(|e| matches!(e,
-            Event::UnitDamaged { target, .. }
-            if *target == victim
-        ));
-        assert!(!standalone_damaged, "standalone UnitDamaged must NOT appear for a DoT tick (regression guard)");
+        let standalone_damaged = events.iter().any(|e| {
+            matches!(e,
+                Event::UnitDamaged { target, .. }
+                if *target == victim
+            )
+        });
+        assert!(
+            !standalone_damaged,
+            "standalone UnitDamaged must NOT appear for a DoT tick (regression guard)"
+        );
 
-        assert_eq!(state.unit(victim).unwrap().hp(), 17, "HP should be reduced by 3");
-        assert_eq!(state.unit(victim).unwrap().statuses[0].rounds_remaining, 2, "rounds_remaining decremented");
+        assert_eq!(
+            state.unit(victim).unwrap().hp(),
+            17,
+            "HP should be reduced by 3"
+        );
+        assert_eq!(
+            state.unit(victim).unwrap().statuses[0].rounds_remaining,
+            2,
+            "rounds_remaining decremented"
+        );
     }
 
     /// A buff-only status (dot_per_tick=0, hp_percent_dot=0) emits `StatusTicked`
@@ -1807,24 +1937,36 @@ mod tests {
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         // dot_per_tick = 0 → zero-damage tick; StubContent has hp_percent_dot = 0.
-        victim_unit.statuses.push(make_status("haste", applier, 2, 0));
-        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        victim_unit
+            .statuses
+            .push(make_status("haste", applier, 2, 0));
+        let mut state =
+            CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
-        let ticked = events.iter().any(|e| matches!(e,
-            Event::StatusTicked { target, status, .. }
-            if *target == victim && status.0 == "haste"
-        ));
+        let ticked = events.iter().any(|e| {
+            matches!(e,
+                Event::StatusTicked { target, status, .. }
+                if *target == victim && status.0 == "haste"
+            )
+        });
         assert!(ticked, "StatusTicked expected for zero-damage buff tick");
 
         // No DotDamaged emitted for a zero-damage tick.
         let dot = events.iter().any(|e| matches!(e, Event::DotDamaged { .. }));
-        assert!(!dot, "DotDamaged must NOT appear for a zero-damage buff tick");
+        assert!(
+            !dot,
+            "DotDamaged must NOT appear for a zero-damage buff tick"
+        );
 
         // HP untouched.
-        assert_eq!(state.unit(victim).unwrap().hp(), 10, "HP must be unchanged for zero-damage tick");
+        assert_eq!(
+            state.unit(victim).unwrap().hp(),
+            10,
+            "HP must be unchanged for zero-damage tick"
+        );
     }
 
     /// Two different DoT statuses on the same victim (both from the same applier)
@@ -1836,26 +1978,39 @@ mod tests {
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
-        victim_unit.statuses.push(make_status("poison", applier, 2, 3));
-        victim_unit.statuses.push(make_status("burning", applier, 2, 2));
-        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        victim_unit
+            .statuses
+            .push(make_status("poison", applier, 2, 3));
+        victim_unit
+            .statuses
+            .push(make_status("burning", applier, 2, 2));
+        let mut state =
+            CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
-        let poison_ev = events.iter().any(|e| matches!(e,
-            Event::DotDamaged { target, source_status, amount, .. }
-            if *target == victim && source_status.0 == "poison" && *amount == 3
-        ));
-        let burning_ev = events.iter().any(|e| matches!(e,
-            Event::DotDamaged { target, source_status, amount, .. }
-            if *target == victim && source_status.0 == "burning" && *amount == 2
-        ));
+        let poison_ev = events.iter().any(|e| {
+            matches!(e,
+                Event::DotDamaged { target, source_status, amount, .. }
+                if *target == victim && source_status.0 == "poison" && *amount == 3
+            )
+        });
+        let burning_ev = events.iter().any(|e| {
+            matches!(e,
+                Event::DotDamaged { target, source_status, amount, .. }
+                if *target == victim && source_status.0 == "burning" && *amount == 2
+            )
+        });
         assert!(poison_ev, "DotDamaged(poison, 3) expected");
         assert!(burning_ev, "DotDamaged(burning, 2) expected");
 
         // HP reduced by both: 20 - 3 - 2 = 15.
-        assert_eq!(state.unit(victim).unwrap().hp(), 15, "HP reduced by both DoT ticks");
+        assert_eq!(
+            state.unit(victim).unwrap().hp(),
+            15,
+            "HP reduced by both DoT ticks"
+        );
     }
 
     #[test]
@@ -1865,18 +2020,26 @@ mod tests {
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
-        victim_unit.statuses.push(make_status("burning", applier, 1, 3));
-        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        victim_unit
+            .statuses
+            .push(make_status("burning", applier, 1, 3));
+        let mut state =
+            CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
-        let removed = events.iter().any(|e| matches!(e,
-            Event::StatusRemoved { target, status }
-            if *target == victim && status.0 == "burning"
-        ));
+        let removed = events.iter().any(|e| {
+            matches!(e,
+                Event::StatusRemoved { target, status }
+                if *target == victim && status.0 == "burning"
+            )
+        });
         assert!(removed, "StatusRemoved expected on last tick");
-        assert!(state.unit(victim).unwrap().statuses.is_empty(), "status cleared from unit");
+        assert!(
+            state.unit(victim).unwrap().statuses.is_empty(),
+            "status cleared from unit"
+        );
         assert_eq!(state.unit(victim).unwrap().hp(), 17);
     }
 
@@ -1888,21 +2051,32 @@ mod tests {
         applier_unit.pools[crate::PoolKind::Hp] = Some((0, 10));
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.pools[crate::PoolKind::Hp] = Some((20, 20));
-        victim_unit.statuses.push(make_status("poison", applier, 2, 4));
-        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        victim_unit
+            .statuses
+            .push(make_status("poison", applier, 2, 4));
+        let mut state =
+            CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
         // Dead applier: no pool regen events.
-        let no_pool_regen = !events.iter().any(|e| matches!(e,
-            Event::PoolChanged { cause: crate::PoolChangeCause::Regen, .. }
-        ));
+        let no_pool_regen = !events.iter().any(|e| {
+            matches!(
+                e,
+                Event::PoolChanged {
+                    cause: crate::PoolChangeCause::Regen,
+                    ..
+                }
+            )
+        });
         assert!(no_pool_regen, "dead applier must not emit regen events");
-        let damaged = events.iter().any(|e| matches!(e,
-            Event::DotDamaged { target, amount, .. }
-            if *target == victim && *amount == 4
-        ));
+        let damaged = events.iter().any(|e| {
+            matches!(e,
+                Event::DotDamaged { target, amount, .. }
+                if *target == victim && *amount == 4
+            )
+        });
         assert!(damaged, "tick still fires for dead applier");
         assert_eq!(state.unit(victim).unwrap().hp(), 16);
     }
@@ -1914,17 +2088,27 @@ mod tests {
         let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.pools[crate::PoolKind::Hp] = Some((1, 20));
-        victim_unit.statuses.push(make_status("burning", applier, 3, 5));
-        victim_unit.statuses.push(make_status("slowed", UnitId(99), 2, 0));
-        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        victim_unit
+            .statuses
+            .push(make_status("burning", applier, 3, 5));
+        victim_unit
+            .statuses
+            .push(make_status("slowed", UnitId(99), 2, 0));
+        let mut state =
+            CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
-        let died = events.iter().any(|e| matches!(e, Event::UnitDied { unit } if *unit == victim));
+        let died = events
+            .iter()
+            .any(|e| matches!(e, Event::UnitDied { unit } if *unit == victim));
         assert!(died, "UnitDied expected when DoT is lethal");
         assert_eq!(state.unit(victim).unwrap().hp(), 0);
-        assert!(state.unit(victim).unwrap().statuses.is_empty(), "death clears local statuses");
+        assert!(
+            state.unit(victim).unwrap().statuses.is_empty(),
+            "death clears local statuses"
+        );
     }
 
     #[test]
@@ -1940,17 +2124,29 @@ mod tests {
 
         let events = state.start_actor_turn(uid, &content);
 
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PoolChanged { pool: crate::PoolKind::Mana,
-                cause: crate::PoolChangeCause::Regen, .. }
-        )), "PoolChanged{{Regen,Mana}} must fire");
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: crate::PoolKind::Mana,
+                    cause: crate::PoolChangeCause::Regen,
+                    ..
+                }
+            )),
+            "PoolChanged{{Regen,Mana}} must fire"
+        );
         // No PoolChanged{Refill,Mp}: MP was already at max in make_unit.
-        assert!(!events.iter().any(|e| matches!(
-            e,
-            Event::PoolChanged { pool: crate::PoolKind::Mp,
-                cause: crate::PoolChangeCause::Refill, .. }
-        )), "no PoolChanged{{Refill,Mp}} when MP was already full");
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: crate::PoolKind::Mp,
+                    cause: crate::PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "no PoolChanged{{Refill,Mp}} when MP was already full"
+        );
         // All events are pool-related; no status tick or damage events.
         for e in &events {
             assert!(
@@ -1959,11 +2155,17 @@ mod tests {
             );
         }
         // verify AP refill event present
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PoolChanged { pool: PoolKind::Ap,
-                cause: crate::PoolChangeCause::Refill, .. }
-        )), "PoolChanged{{Refill,Ap}} must fire when AP was depleted");
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Ap,
+                    cause: crate::PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "PoolChanged{{Refill,Ap}} must fire when AP was depleted"
+        );
     }
 
     /// ContentView stub that returns a StatusDef with damage_taken_bonus = 2
@@ -1974,14 +2176,24 @@ mod tests {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn: false,
-        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 2 },
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 2,
+        },
         hp_percent_dot: 0,
         heal_per_tick: 0,
     };
     impl ContentView for VulnContent {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&VULN_STATUS_DEF) }
-        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+            Some(&VULN_STATUS_DEF)
+        }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> {
+            None
+        }
     }
 
     #[test]
@@ -2000,7 +2212,11 @@ mod tests {
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = VulnContent;
 
-        apply_effect(&mut state, &Effect::RefreshAggregates { unit: uid }, &content);
+        apply_effect(
+            &mut state,
+            &Effect::RefreshAggregates { unit: uid },
+            &content,
+        );
 
         assert_eq!(
             state.unit(uid).unwrap().damage_taken_bonus,
@@ -2016,21 +2232,21 @@ mod tests {
     /// - Rage: skipped (RegenRule::None), unchanged.
     #[test]
     fn unified_regen_loop_increments_mana_energy_refills_ap_mp_skips_rage() {
-        use crate::{PoolKind, PoolChangeCause, RegenRule};
+        use crate::{PoolChangeCause, PoolKind, RegenRule};
 
         let uid = UnitId(42);
         // Start with all resources partially spent / not full.
         let mut unit = make_unit(uid, 1, 3, Some((4, 10))); // ap=1/3, mana=4/10
         unit.pools[PoolKind::Energy] = Some((2, 8));
-        unit.pools[PoolKind::Rage]   = Some((3, 6));
+        unit.pools[PoolKind::Rage] = Some((3, 6));
         // mp: make_unit sets pools[Mp]=Some((3,3)), spend 1
         unit.pools[PoolKind::Mp] = Some((2, 3));
         // Set regen rules: Mana/Energy increment, Ap/Mp refill, Rage none.
-        unit.regen_per_pool[PoolKind::Mana]   = RegenRule::Increment(1);
-        unit.regen_per_pool[PoolKind::Rage]   = RegenRule::None;
+        unit.regen_per_pool[PoolKind::Mana] = RegenRule::Increment(1);
+        unit.regen_per_pool[PoolKind::Rage] = RegenRule::None;
         unit.regen_per_pool[PoolKind::Energy] = RegenRule::Increment(1);
-        unit.regen_per_pool[PoolKind::Ap]     = RegenRule::RefillToMax;
-        unit.regen_per_pool[PoolKind::Mp]     = RegenRule::RefillToMax;
+        unit.regen_per_pool[PoolKind::Ap] = RegenRule::RefillToMax;
+        unit.regen_per_pool[PoolKind::Mp] = RegenRule::RefillToMax;
 
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
@@ -2039,41 +2255,116 @@ mod tests {
         let u = state.unit(uid).unwrap();
 
         // Mana: 4 → 5 (incremented).
-        assert_eq!(u.pools[PoolKind::Mana], Some((5, 10)), "pools[Mana] must increment");
+        assert_eq!(
+            u.pools[PoolKind::Mana],
+            Some((5, 10)),
+            "pools[Mana] must increment"
+        );
 
         // Energy: 2 → 3 (incremented).
-        assert_eq!(u.pools[PoolKind::Energy], Some((3, 8)), "pools[Energy] must increment");
+        assert_eq!(
+            u.pools[PoolKind::Energy],
+            Some((3, 8)),
+            "pools[Energy] must increment"
+        );
 
         // Rage: unchanged at 3 (RegenRule::None).
-        assert_eq!(u.pools[PoolKind::Rage], Some((3, 6)), "pools[Rage] must not change");
+        assert_eq!(
+            u.pools[PoolKind::Rage],
+            Some((3, 6)),
+            "pools[Rage] must not change"
+        );
 
         // Ap: refilled to max=3.
-        assert_eq!(u.pools[PoolKind::Ap], Some((3, 3)), "pools[Ap] must refill to max");
+        assert_eq!(
+            u.pools[PoolKind::Ap],
+            Some((3, 3)),
+            "pools[Ap] must refill to max"
+        );
 
         // Mp: refilled to max=3.
-        assert_eq!(u.pools[PoolKind::Mp], Some((3, 3)), "pools[Mp] must refill to max");
+        assert_eq!(
+            u.pools[PoolKind::Mp],
+            Some((3, 3)),
+            "pools[Mp] must refill to max"
+        );
 
         // C6: PoolChanged events only (no legacy events).
-        assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
-        )), "PoolChanged{{Regen,Mana}} must fire");
-        assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Energy, cause: PoolChangeCause::Regen, .. }
-        )), "PoolChanged{{Regen,Energy}} must fire");
-        assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
-        )), "PoolChanged{{Refill,Ap}} must fire");
-        assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mp, cause: PoolChangeCause::Refill, .. }
-        )), "PoolChanged{{Refill,Mp}} must fire");
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Mana,
+                    cause: PoolChangeCause::Regen,
+                    ..
+                }
+            )),
+            "PoolChanged{{Regen,Mana}} must fire"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Energy,
+                    cause: PoolChangeCause::Regen,
+                    ..
+                }
+            )),
+            "PoolChanged{{Regen,Energy}} must fire"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Ap,
+                    cause: PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "PoolChanged{{Refill,Ap}} must fire"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Mp,
+                    cause: PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "PoolChanged{{Refill,Mp}} must fire"
+        );
         // Iteration order: Mana before Energy.
-        let mana_pos   = events.iter().position(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
-        )).unwrap();
-        let energy_pos = events.iter().position(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Energy, cause: PoolChangeCause::Regen, .. }
-        )).unwrap();
-        assert!(mana_pos < energy_pos, "Mana PoolChanged must precede Energy PoolChanged");
+        let mana_pos = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    Event::PoolChanged {
+                        pool: PoolKind::Mana,
+                        cause: PoolChangeCause::Regen,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let energy_pos = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    Event::PoolChanged {
+                        pool: PoolKind::Energy,
+                        cause: PoolChangeCause::Regen,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert!(
+            mana_pos < energy_pos,
+            "Mana PoolChanged must precede Energy PoolChanged"
+        );
     }
 
     // ── C4/C6 tests: Event::PoolChanged ──────────────────────────────────────
@@ -2082,35 +2373,47 @@ mod tests {
     /// a `PoolChanged` event with the correct cause.
     #[test]
     fn pool_changed_emitted_for_each_mutation_kind() {
-        use crate::{PoolKind, PoolChangeCause, RegenRule};
-        use crate::effect::{apply_effect, Effect};
         use crate::content::{ContentView, StatusBonuses};
-        use crate::{AbilityId, AbilityDef, StatusId, StatusDef};
+        use crate::effect::{apply_effect, Effect};
+        use crate::{AbilityDef, AbilityId, StatusDef, StatusId};
+        use crate::{PoolChangeCause, PoolKind, RegenRule};
 
         struct Stub;
         static DEF: StatusDef = StatusDef {
-            causes_disadvantage: false, blocks_mana_abilities: false,
-            forces_targeting: false, skips_turn: false,
-            bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+            causes_disadvantage: false,
+            blocks_mana_abilities: false,
+            forces_targeting: false,
+            skips_turn: false,
+            bonuses: StatusBonuses {
+                speed_bonus: 0,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
             hp_percent_dot: 0,
             heal_per_tick: 0,
         };
         impl ContentView for Stub {
-            fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-            fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&DEF) }
-            fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+            fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+                None
+            }
+            fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+                Some(&DEF)
+            }
+            fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> {
+                None
+            }
         }
 
         // Unit with all pools populated.
         let uid = UnitId(1);
         let mut unit = make_unit(uid, 1, 3, Some((5, 10)));
-        unit.pools[PoolKind::Rage]   = Some((2, 8));
+        unit.pools[PoolKind::Rage] = Some((2, 8));
         unit.pools[PoolKind::Energy] = Some((3, 6));
-        unit.regen_per_pool[PoolKind::Mana]   = RegenRule::Increment(1);
-        unit.regen_per_pool[PoolKind::Rage]   = RegenRule::None;
+        unit.regen_per_pool[PoolKind::Mana] = RegenRule::Increment(1);
+        unit.regen_per_pool[PoolKind::Rage] = RegenRule::None;
         unit.regen_per_pool[PoolKind::Energy] = RegenRule::Increment(1);
-        unit.regen_per_pool[PoolKind::Ap]     = RegenRule::RefillToMax;
-        unit.regen_per_pool[PoolKind::Mp]     = RegenRule::RefillToMax;
+        unit.regen_per_pool[PoolKind::Ap] = RegenRule::RefillToMax;
+        unit.regen_per_pool[PoolKind::Mp] = RegenRule::RefillToMax;
         // Spend AP so Refill fires.
         unit.pools[PoolKind::Ap] = Some((1, 3));
 
@@ -2119,37 +2422,81 @@ mod tests {
 
         // --- Regen: turn-start fires PoolChanged{Regen} for Mana and Energy ---
         let regen_events = state.start_actor_turn(uid, &content);
-        assert!(regen_events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
-        )), "PoolChanged{{Regen,Mana}} must fire");
-        assert!(regen_events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Energy, cause: PoolChangeCause::Regen, .. }
-        )), "PoolChanged{{Regen,Energy}} must fire");
+        assert!(
+            regen_events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Mana,
+                    cause: PoolChangeCause::Regen,
+                    ..
+                }
+            )),
+            "PoolChanged{{Regen,Mana}} must fire"
+        );
+        assert!(
+            regen_events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Energy,
+                    cause: PoolChangeCause::Regen,
+                    ..
+                }
+            )),
+            "PoolChanged{{Regen,Energy}} must fire"
+        );
 
         // --- Refill: AP was spent → PoolChanged{Refill,Ap} ---
-        assert!(regen_events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
-        )), "PoolChanged{{Refill,Ap}} must fire when AP was spent");
+        assert!(
+            regen_events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Ap,
+                    cause: PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "PoolChanged{{Refill,Ap}} must fire when AP was spent"
+        );
 
         // --- Spent: PayCost{Mana} → PoolChanged{Spent,Mana} ---
-        let pay_eff = Effect::PayCost { actor: uid, kind: crate::ResourceKind::Mana, amount: 2 };
+        let pay_eff = Effect::PayCost {
+            actor: uid,
+            kind: crate::ResourceKind::Mana,
+            amount: 2,
+        };
         let (_, ctx) = apply_effect(&mut state, &pay_eff, &content);
-        assert!(ctx.pool_events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Spent, .. }
-        )), "PoolChanged{{Spent,Mana}} must be in ctx.pool_events");
+        assert!(
+            ctx.pool_events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Mana,
+                    cause: PoolChangeCause::Spent,
+                    ..
+                }
+            )),
+            "PoolChanged{{Spent,Mana}} must be in ctx.pool_events"
+        );
 
         // --- Gained: GainRage → PoolChanged{Gained,Rage} ---
         let rage_eff = Effect::GainRage { target: uid };
         let (_, rage_ctx) = apply_effect(&mut state, &rage_eff, &content);
-        assert!(rage_ctx.pool_events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Rage, cause: PoolChangeCause::Gained, .. }
-        )), "PoolChanged{{Gained,Rage}} must be in ctx.pool_events");
+        assert!(
+            rage_ctx.pool_events.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Rage,
+                    cause: PoolChangeCause::Gained,
+                    ..
+                }
+            )),
+            "PoolChanged{{Gained,Rage}} must be in ctx.pool_events"
+        );
     }
 
     /// C6: PoolChanged{Regen,Mana} fires with correct current/max values.
     #[test]
     fn pool_changed_regen_mana_carries_correct_values() {
-        use crate::{PoolKind, PoolChangeCause};
+        use crate::{PoolChangeCause, PoolKind};
 
         let uid = UnitId(7);
         let unit = make_unit(uid, 2, 2, Some((3, 10))); // mana=3/10
@@ -2158,9 +2505,19 @@ mod tests {
 
         let events = state.start_actor_turn(uid, &content);
 
-        let unified = events.iter().find(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
-        )).expect("PoolChanged{{Regen,Mana}} must fire");
+        let unified = events
+            .iter()
+            .find(|e| {
+                matches!(
+                    e,
+                    Event::PoolChanged {
+                        pool: PoolKind::Mana,
+                        cause: PoolChangeCause::Regen,
+                        ..
+                    }
+                )
+            })
+            .expect("PoolChanged{{Regen,Mana}} must fire");
 
         let (uni_cur, uni_max) = match unified {
             Event::PoolChanged { current, max, .. } => (*current, *max),
@@ -2174,7 +2531,7 @@ mod tests {
     /// When they are already at max, no Refill event is emitted.
     #[test]
     fn ap_mp_refill_emits_pool_changed_only_on_change() {
-        use crate::{PoolKind, PoolChangeCause};
+        use crate::{PoolChangeCause, PoolKind};
 
         let uid = UnitId(3);
 
@@ -2185,25 +2542,57 @@ mod tests {
         let content = StubContent;
 
         let events_a = state_a.start_actor_turn(uid, &content);
-        assert!(events_a.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
-        )), "Refill must fire for AP when depleted");
-        assert!(events_a.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mp, cause: PoolChangeCause::Refill, .. }
-        )), "Refill must fire for MP when depleted");
+        assert!(
+            events_a.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Ap,
+                    cause: PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "Refill must fire for AP when depleted"
+        );
+        assert!(
+            events_a.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Mp,
+                    cause: PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "Refill must fire for MP when depleted"
+        );
 
         // --- Case B: AP/MP already at max → no Refill event ---
         let unit_b = make_unit(uid, 2, 2, None); // AP=2/max=2 (full)
-        // make_unit sets MP=3/max=3 (full)
+                                                 // make_unit sets MP=3/max=3 (full)
         let mut state_b = CombatState::new(vec![unit_b], 1, RoundPhase::ActorTurn, 0);
 
         let events_b = state_b.start_actor_turn(uid, &content);
-        assert!(!events_b.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
-        )), "no Refill for AP when already at max");
-        assert!(!events_b.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: PoolKind::Mp, cause: PoolChangeCause::Refill, .. }
-        )), "no Refill for MP when already at max");
+        assert!(
+            !events_b.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Ap,
+                    cause: PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "no Refill for AP when already at max"
+        );
+        assert!(
+            !events_b.iter().any(|e| matches!(
+                e,
+                Event::PoolChanged {
+                    pool: PoolKind::Mp,
+                    cause: PoolChangeCause::Refill,
+                    ..
+                }
+            )),
+            "no Refill for MP when already at max"
+        );
     }
 
     // ── T1: TeamSet + EnvObject visibility ───────────────────────────────────
@@ -2223,7 +2612,10 @@ mod tests {
     fn env_owner_always_visible_to_own_team() {
         let e = env_obj(1, Some(Team::Player));
         assert!(e.visible_to(Team::Player), "owner team sees their own trap");
-        assert!(!e.visible_to(Team::Enemy), "enemy does not see an unrevealed player-owned trap");
+        assert!(
+            !e.visible_to(Team::Enemy),
+            "enemy does not see an unrevealed player-owned trap"
+        );
     }
 
     #[test]
@@ -2237,14 +2629,23 @@ mod tests {
     #[test]
     fn env_neutral_unrevealed_invisible_to_both() {
         let e = env_obj(3, None);
-        assert!(!e.visible_to(Team::Player), "neutral unrevealed: player cannot see");
-        assert!(!e.visible_to(Team::Enemy),  "neutral unrevealed: enemy cannot see");
+        assert!(
+            !e.visible_to(Team::Player),
+            "neutral unrevealed: player cannot see"
+        );
+        assert!(
+            !e.visible_to(Team::Enemy),
+            "neutral unrevealed: enemy cannot see"
+        );
     }
 
     #[test]
     fn teamset_serialization_deterministic() {
         // Serialized form must be a stable object (not a set that varies by hash).
-        let ts = TeamSet { player: true, enemy: false };
+        let ts = TeamSet {
+            player: true,
+            enemy: false,
+        };
         let s = serde_json::to_string(&ts).expect("serialize");
         assert!(s.contains("\"player\":true"), "player field present");
         assert!(s.contains("\"enemy\":false"), "enemy field present");
@@ -2260,8 +2661,14 @@ mod tests {
         let json = serde_json::to_string(&e).expect("serialize");
         let e2: EnvObject = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(e, e2);
-        assert!(e2.visible_to(Team::Enemy),  "enemy owner still visible after roundtrip");
-        assert!(e2.visible_to(Team::Player), "player revealed_to preserved after roundtrip");
+        assert!(
+            e2.visible_to(Team::Enemy),
+            "enemy owner still visible after roundtrip"
+        );
+        assert!(
+            e2.visible_to(Team::Player),
+            "player revealed_to preserved after roundtrip"
+        );
     }
 
     /// A pre-v46 JSON that omits `owner` and `revealed_to` must deserialize to
@@ -2278,10 +2685,20 @@ mod tests {
         let obj: EnvObject = serde_json::from_str(json)
             .expect("should deserialize even without owner/revealed_to fields");
         assert_eq!(obj.owner, None, "owner defaults to None (neutral hazard)");
-        assert_eq!(obj.revealed_to, TeamSet::EMPTY, "revealed_to defaults to EMPTY");
+        assert_eq!(
+            obj.revealed_to,
+            TeamSet::EMPTY,
+            "revealed_to defaults to EMPTY"
+        );
         // Consequently, neither team can see it.
-        assert!(!obj.visible_to(Team::Player), "player cannot see hidden neutral trap");
-        assert!(!obj.visible_to(Team::Enemy),  "enemy cannot see hidden neutral trap");
+        assert!(
+            !obj.visible_to(Team::Player),
+            "player cannot see hidden neutral trap"
+        );
+        assert!(
+            !obj.visible_to(Team::Enemy),
+            "enemy cannot see hidden neutral trap"
+        );
     }
 
     // ── HoT (heal-over-time) fanout tests ────────────────────────────────────
@@ -2295,7 +2712,11 @@ mod tests {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn: false,
-        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
         hp_percent_dot: 0,
         heal_per_tick: 4,
     };
@@ -2305,17 +2726,29 @@ mod tests {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn: false,
-        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
         hp_percent_dot: 0,
         heal_per_tick: 0,
     };
     impl ContentView for HotContent {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
         // Heal only for vital_infusion; poisoned is pure DoT (heal_per_tick = 0).
         fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
-            if id.0 == "poisoned" { Some(&POISON_STATUS_DEF) } else { Some(&HOT_STATUS_DEF) }
+            if id.0 == "poisoned" {
+                Some(&POISON_STATUS_DEF)
+            } else {
+                Some(&HOT_STATUS_DEF)
+            }
         }
-        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> {
+            None
+        }
     }
 
     /// A status with `heal_per_tick > 0` applied by `actor` should produce a
@@ -2336,21 +2769,29 @@ mod tests {
 
         // Tick 1
         let events = state.tick_actor_statuses(actor, &content);
-        let healed = events.iter().find(|e| matches!(e,
-            Event::HotHealed { target, source_status, amount }
-            if *target == actor && source_status.0 == "vital_infusion" && *amount == 4
-        ));
+        let healed = events.iter().find(|e| {
+            matches!(e,
+                Event::HotHealed { target, source_status, amount }
+                if *target == actor && source_status.0 == "vital_infusion" && *amount == 4
+            )
+        });
         assert!(healed.is_some(), "HotHealed event expected on first tick");
         assert_eq!(state.unit(actor).unwrap().hp(), 16, "+4 HP after tick 1");
 
         // Tick 2 (rounds_remaining decremented to 1 after first tick_actor_statuses)
         let events2 = state.tick_actor_statuses(actor, &content);
-        let healed2 = events2.iter().find(|e| matches!(e,
-            Event::HotHealed { target, amount, .. }
-            if *target == actor && *amount == 4
-        ));
+        let healed2 = events2.iter().find(|e| {
+            matches!(e,
+                Event::HotHealed { target, amount, .. }
+                if *target == actor && *amount == 4
+            )
+        });
         assert!(healed2.is_some(), "HotHealed event expected on second tick");
-        assert_eq!(state.unit(actor).unwrap().hp(), 20, "+8 HP total after 2 ticks");
+        assert_eq!(
+            state.unit(actor).unwrap().hp(),
+            20,
+            "+8 HP total after 2 ticks"
+        );
     }
 
     /// After 2 ticks, `ExpireStatus` fires and the HoT status is removed.
@@ -2373,7 +2814,10 @@ mod tests {
         state.tick_actor_statuses(actor, &content);
 
         let statuses = &state.unit(actor).unwrap().statuses;
-        assert!(statuses.is_empty(), "vital_infusion should be removed after 2 ticks");
+        assert!(
+            statuses.is_empty(),
+            "vital_infusion should be removed after 2 ticks"
+        );
 
         // Third tick: status gone, no HotHealed event.
         let events3 = state.tick_actor_statuses(actor, &content);
@@ -2385,7 +2829,7 @@ mod tests {
     /// on their respective appliers' turns without interfering.
     #[test]
     fn dot_and_hot_coexist_on_different_appliers() {
-        let healer = UnitId(1);  // applies HoT
+        let healer = UnitId(1); // applies HoT
         let poisoner = UnitId(2); // applies DoT
         let victim = UnitId(3);
 
@@ -2415,43 +2859,65 @@ mod tests {
 
         let mut state = CombatState::new(
             vec![healer_unit, poisoner_unit, victim_unit],
-            1, RoundPhase::ActorTurn, 0,
+            1,
+            RoundPhase::ActorTurn,
+            0,
         );
         let content = HotContent; // heal_per_tick=4 for all statuses (incl. poisoned)
 
         // Healer's turn: only HoT ticks (applier == healer)
         let healer_events = state.tick_actor_statuses(healer, &content);
-        let hot_ev = healer_events.iter().any(|e| matches!(e,
-            Event::HotHealed { target, source_status, .. }
-            if *target == victim && source_status.0 == "vital_infusion"
-        ));
+        let hot_ev = healer_events.iter().any(|e| {
+            matches!(e,
+                Event::HotHealed { target, source_status, .. }
+                if *target == victim && source_status.0 == "vital_infusion"
+            )
+        });
         assert!(hot_ev, "HotHealed should fire on healer's turn");
         // DoT should NOT fire on healer's turn
-        let dot_on_healer_turn = healer_events.iter().any(|e| matches!(e,
-            Event::DotDamaged { target, source_status, .. }
-            if *target == victim && source_status.0 == "poisoned"
-        ));
-        assert!(!dot_on_healer_turn, "DotDamaged must NOT fire on healer's turn");
+        let dot_on_healer_turn = healer_events.iter().any(|e| {
+            matches!(e,
+                Event::DotDamaged { target, source_status, .. }
+                if *target == victim && source_status.0 == "poisoned"
+            )
+        });
+        assert!(
+            !dot_on_healer_turn,
+            "DotDamaged must NOT fire on healer's turn"
+        );
 
         let hp_after_healer = state.unit(victim).unwrap().hp();
-        assert_eq!(hp_after_healer, 14, "HP should increase after HoT tick (10+4=14)");
+        assert_eq!(
+            hp_after_healer, 14,
+            "HP should increase after HoT tick (10+4=14)"
+        );
 
         // Poisoner's turn: only DoT ticks (applier == poisoner)
         let poisoner_events = state.tick_actor_statuses(poisoner, &content);
-        let dot_ev = poisoner_events.iter().any(|e| matches!(e,
-            Event::DotDamaged { target, source_status, .. }
-            if *target == victim && source_status.0 == "poisoned"
-        ));
+        let dot_ev = poisoner_events.iter().any(|e| {
+            matches!(e,
+                Event::DotDamaged { target, source_status, .. }
+                if *target == victim && source_status.0 == "poisoned"
+            )
+        });
         assert!(dot_ev, "DotDamaged should fire on poisoner's turn");
         // HoT should NOT fire on poisoner's turn
-        let hot_on_poisoner_turn = poisoner_events.iter().any(|e| matches!(e,
-            Event::HotHealed { target, source_status, .. }
-            if *target == victim && source_status.0 == "vital_infusion"
-        ));
-        assert!(!hot_on_poisoner_turn, "HotHealed must NOT fire on poisoner's turn");
+        let hot_on_poisoner_turn = poisoner_events.iter().any(|e| {
+            matches!(e,
+                Event::HotHealed { target, source_status, .. }
+                if *target == victim && source_status.0 == "vital_infusion"
+            )
+        });
+        assert!(
+            !hot_on_poisoner_turn,
+            "HotHealed must NOT fire on poisoner's turn"
+        );
 
         let hp_after_poisoner = state.unit(victim).unwrap().hp();
-        assert_eq!(hp_after_poisoner, 11, "HP should decrease after DoT tick (14-3=11)");
+        assert_eq!(
+            hp_after_poisoner, 11,
+            "HP should decrease after DoT tick (14-3=11)"
+        );
     }
 
     // ── Atom 3 Slice A: TagId / Unit.tags serde tests ────────────────────────
@@ -2459,8 +2925,8 @@ mod tests {
     /// Tags round-trip through serde (non-empty set).
     #[test]
     fn unit_tags_roundtrip_nonempty() {
-        use std::collections::BTreeSet;
         use crate::TagId;
+        use std::collections::BTreeSet;
 
         let mut unit = make_unit(UnitId(1), 2, 2, None);
         unit.tags = BTreeSet::from([TagId::from("symbiote"), TagId::from("living")]);
@@ -2498,7 +2964,10 @@ mod tests {
         };
 
         let unit2: Unit = serde_json::from_str(&stripped).expect("deserialize without tags key");
-        assert!(unit2.tags.is_empty(), "missing tags key must default to empty BTreeSet");
+        assert!(
+            unit2.tags.is_empty(),
+            "missing tags key must default to empty BTreeSet"
+        );
         // Sanity: TagId type parses correctly
         let _: TagId = TagId::from("test");
     }
@@ -2507,18 +2976,29 @@ mod tests {
     /// in different insertion order produce identical JSON (determinism for post_state_hash).
     #[test]
     fn unit_tags_serialization_order_deterministic() {
-        use std::collections::BTreeSet;
         use crate::TagId;
+        use std::collections::BTreeSet;
 
         let mut unit_a = make_unit(UnitId(10), 2, 2, None);
-        unit_a.tags = BTreeSet::from([TagId::from("undead"), TagId::from("beast"), TagId::from("living")]);
+        unit_a.tags = BTreeSet::from([
+            TagId::from("undead"),
+            TagId::from("beast"),
+            TagId::from("living"),
+        ]);
 
         let mut unit_b = make_unit(UnitId(10), 2, 2, None);
         // Insert in different order — BTreeSet normalizes to sorted.
-        unit_b.tags = BTreeSet::from([TagId::from("living"), TagId::from("undead"), TagId::from("beast")]);
+        unit_b.tags = BTreeSet::from([
+            TagId::from("living"),
+            TagId::from("undead"),
+            TagId::from("beast"),
+        ]);
 
         let json_a = serde_json::to_string(&unit_a).expect("serialize a");
         let json_b = serde_json::to_string(&unit_b).expect("serialize b");
-        assert_eq!(json_a, json_b, "tag serialization must be order-independent (BTreeSet => sorted JSON)");
+        assert_eq!(
+            json_a, json_b,
+            "tag serialization must be order-independent (BTreeSet => sorted JSON)"
+        );
     }
 }

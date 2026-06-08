@@ -16,11 +16,11 @@ pub struct FactionDef {
 pub enum CritFailEffect {
     #[default]
     Miss,
-    ManaOverload,   // will: мана ×2, способность срабатывает
-    BrokenFaith,    // faith: статус "broken_faith" — блок mana-способностей
-    CircuitBreach,  // tech: самоурон = mana_cost / 2
-    Exhaustion,     // heritage: статус "exhaustion" — -1 скорость, 5% hp/ход
-    PactControl,    // pact: статус "pact_control" — AI управляет героем
+    ManaOverload,  // will: мана ×2, способность срабатывает
+    BrokenFaith,   // faith: статус "broken_faith" — блок mana-способностей
+    CircuitBreach, // tech: самоурон = mana_cost / 2
+    Exhaustion,    // heritage: статус "exhaustion" — -1 скорость, 5% hp/ход
+    PactControl,   // pact: статус "pact_control" — AI управляет героем
 }
 
 #[derive(Debug, Clone)]
@@ -80,14 +80,12 @@ pub fn load_races() -> (Vec<RaceDef>, Vec<FactionDef>, Vec<PathDef>) {
     if !std::path::Path::new(&path).is_file() {
         return (Vec::new(), Vec::new(), Vec::new());
     }
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
     parse_races(&path, &src)
 }
 
 pub fn parse_races(path: &str, src: &str) -> (Vec<RaceDef>, Vec<FactionDef>, Vec<PathDef>) {
-    let file: RaceFile =
-        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
+    let file: RaceFile = toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
 
     let races = file
         .races

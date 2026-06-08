@@ -1,9 +1,8 @@
-
-use storyforge::content::armor::{ArmorDef, ArmorSlot};
-use storyforge::content::weapons::{HandType, WeaponDef};
 use combat_engine::DiceExpr;
-use storyforge::game::components::{CombatStats, Equipment};
+use storyforge::content::armor::{ArmorDef, ArmorSlot};
 use storyforge::content::content_view::ContentView;
+use storyforge::content::weapons::{HandType, WeaponDef};
+use storyforge::game::components::{CombatStats, Equipment};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,7 +34,13 @@ fn armor_piece(id: &str, slot: ArmorSlot, armor: i32) -> ArmorDef {
     }
 }
 
-fn armor_with_bonus(id: &str, slot: ArmorSlot, armor: i32, strength: i32, intelligence: i32) -> ArmorDef {
+fn armor_with_bonus(
+    id: &str,
+    slot: ArmorSlot,
+    armor: i32,
+    strength: i32,
+    intelligence: i32,
+) -> ArmorDef {
     ArmorDef {
         id: id.into(),
         name: id.into(),
@@ -150,7 +155,11 @@ fn bonuses_from_multiple_items_stack() {
     );
     let eq = equip("sword", "chest", "legs", "feet");
     let result = db.effective_stats(&base_stats(), &eq);
-    assert_eq!(result.strength, 4 + 2 + 1 + 1, "base(4) + sword(2) + chest(1) + legs(1)");
+    assert_eq!(
+        result.strength,
+        4 + 2 + 1 + 1,
+        "base(4) + sword(2) + chest(1) + legs(1)"
+    );
 }
 
 // ── equipment_armor ──────────────────────────────────────────────────────────
@@ -182,4 +191,3 @@ fn weapon_armor_counts_in_total() {
     let eq = equip("shield_sword", "chest", "legs", "feet");
     assert_eq!(db.equipment_armor(&eq), 4, "chest(1) + weapon(3)");
 }
-

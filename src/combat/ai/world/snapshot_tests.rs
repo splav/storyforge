@@ -18,14 +18,18 @@ mod affordability_tests {
     use super::*;
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
-    use combat_engine::DiceExpr;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::DiceExpr;
 
     fn base_unit() -> UnitSnapshot {
         UnitSnapshot {
             entity: Entity::from_raw_u32(1).expect("valid"),
             team: Team::Enemy,
-            role: AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() },
+            role: AxisProfile {
+                tank: 0.5,
+                melee: 0.5,
+                ..Default::default()
+            },
             pos: hex_from_offset(0, 0),
             hp: 20,
             max_hp: 20,
@@ -67,7 +71,9 @@ mod affordability_tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 1 },
-                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                effect: EffectDef::Damage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
                 costs,
                 cost_ap,
                 aoe: AoEShape::None,
@@ -83,7 +89,10 @@ mod affordability_tests {
     }
 
     fn cost(kind: ResourceKind, amount: i32) -> ResourceCost {
-        ResourceCost { resource: kind, amount }
+        ResourceCost {
+            resource: kind,
+            amount,
+        }
     }
 
     #[test]
@@ -91,18 +100,33 @@ mod affordability_tests {
         let u = base_unit();
         // (name, ap_cost, costs, expected can_afford)
         let cases: Vec<(&str, i32, Vec<ResourceCost>, bool)> = vec![
-            ("free ability",        1, vec![],                              true),
-            ("AP shortage",         3, vec![],                              false),
-            ("mana ok",             1, vec![cost(ResourceKind::Mana, 5)],   true),
-            ("mana short",          1, vec![cost(ResourceKind::Mana, 6)],   false),
-            ("rage ok",             1, vec![cost(ResourceKind::Rage, 3)],   true),
-            ("rage short",          1, vec![cost(ResourceKind::Rage, 4)],   false),
-            ("energy ok",           1, vec![cost(ResourceKind::Energy, 4)], true),
-            ("energy short",        1, vec![cost(ResourceKind::Energy, 5)], false),
-            ("hp ok",               1, vec![cost(ResourceKind::Hp, 20)],    true),
-            ("hp short",            1, vec![cost(ResourceKind::Hp, 21)],    false),
-            ("two costs both ok",   1, vec![cost(ResourceKind::Mana, 5), cost(ResourceKind::Rage, 3)], true),
-            ("two costs one short", 1, vec![cost(ResourceKind::Mana, 5), cost(ResourceKind::Rage, 4)], false),
+            ("free ability", 1, vec![], true),
+            ("AP shortage", 3, vec![], false),
+            ("mana ok", 1, vec![cost(ResourceKind::Mana, 5)], true),
+            ("mana short", 1, vec![cost(ResourceKind::Mana, 6)], false),
+            ("rage ok", 1, vec![cost(ResourceKind::Rage, 3)], true),
+            ("rage short", 1, vec![cost(ResourceKind::Rage, 4)], false),
+            ("energy ok", 1, vec![cost(ResourceKind::Energy, 4)], true),
+            (
+                "energy short",
+                1,
+                vec![cost(ResourceKind::Energy, 5)],
+                false,
+            ),
+            ("hp ok", 1, vec![cost(ResourceKind::Hp, 20)], true),
+            ("hp short", 1, vec![cost(ResourceKind::Hp, 21)], false),
+            (
+                "two costs both ok",
+                1,
+                vec![cost(ResourceKind::Mana, 5), cost(ResourceKind::Rage, 3)],
+                true,
+            ),
+            (
+                "two costs one short",
+                1,
+                vec![cost(ResourceKind::Mana, 5), cost(ResourceKind::Rage, 4)],
+                false,
+            ),
         ];
         for (name, ap_cost, costs, want) in cases {
             let d = def(ap_cost, costs);
@@ -138,7 +162,10 @@ mod affordability_tests {
         corpse.hp = 0;
         let snap = snapshot_from(vec![alive.clone(), corpse.clone()], 1);
 
-        assert!(snap.unit(corpse.entity).is_some(), "corpse must stay in units");
+        assert!(
+            snap.unit(corpse.entity).is_some(),
+            "corpse must stay in units"
+        );
         assert_eq!(
             snap.unit(corpse.entity).map(|u| u.is_alive()),
             Some(false),
@@ -146,8 +173,16 @@ mod affordability_tests {
         );
 
         // Default accessors hide the dead.
-        assert_eq!(snap.enemies_of(Team::Enemy).count(), 0, "default enemies_of hides dead");
-        assert_eq!(snap.allies_of(Team::Enemy).count(), 1, "alive ally still visible");
+        assert_eq!(
+            snap.enemies_of(Team::Enemy).count(),
+            0,
+            "default enemies_of hides dead"
+        );
+        assert_eq!(
+            snap.allies_of(Team::Enemy).count(),
+            1,
+            "alive ally still visible"
+        );
 
         // Explicit "all" + "dead" variants surface them.
         assert_eq!(snap.all_enemies_of(Team::Enemy).count(), 1);
@@ -160,8 +195,8 @@ mod affordability_tests {
 mod snapshot_api_tests {
     use super::*;
     use crate::combat::ai::test_helpers::{empty_status_tag_cache, snapshot_from, UnitBuilder};
-    use crate::game::hex::hex_from_offset;
     use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
 
     fn test_unit() -> UnitSnapshot {
         UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
@@ -189,8 +224,12 @@ mod snapshot_api_tests {
         value.as_object_mut().unwrap().remove("base_speed");
         let json_v35 = serde_json::to_string(&value).unwrap();
 
-        let restored: UnitSnapshot = serde_json::from_str(&json_v35).expect("deserialise v35 snapshot");
-        assert_eq!(restored.base_speed, 0, "base_speed absent in v35 JSON → deserialises as 0");
+        let restored: UnitSnapshot =
+            serde_json::from_str(&json_v35).expect("deserialise v35 snapshot");
+        assert_eq!(
+            restored.base_speed, 0,
+            "base_speed absent in v35 JSON → deserialises as 0"
+        );
         assert_eq!(restored.speed, unit.speed);
     }
 
@@ -222,8 +261,14 @@ mod snapshot_api_tests {
         let cache = empty_status_tag_cache();
         unit.add_status(test_status("foo"), cache);
 
-        assert!(unit.remove_status(&StatusId::from("foo"), cache), "should return true for existing status");
-        assert!(!unit.remove_status(&StatusId::from("nonexistent"), cache), "should return false for absent status");
+        assert!(
+            unit.remove_status(&StatusId::from("foo"), cache),
+            "should return true for existing status"
+        );
+        assert!(
+            !unit.remove_status(&StatusId::from("nonexistent"), cache),
+            "should return false for absent status"
+        );
         assert!(unit.statuses().is_empty(), "no statuses remain");
     }
 
@@ -289,7 +334,11 @@ mod snapshot_api_tests {
         let cache = cache_with_status(
             "haste",
             StatusTagSet::empty(),
-            StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 },
+            StatusBonuses {
+                speed_bonus: 2,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
         );
         unit.add_status(test_status("haste"), &cache);
         assert_eq!(unit.speed, 5, "base 3 + speed_bonus 2 = 5");
@@ -303,7 +352,11 @@ mod snapshot_api_tests {
         let cache = cache_with_status(
             "slow",
             StatusTagSet::empty(),
-            StatusBonuses { speed_bonus: -1, armor_bonus: 0, damage_taken_bonus: 0 },
+            StatusBonuses {
+                speed_bonus: -1,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
         );
         unit.add_status(test_status("slow"), &cache);
         assert_eq!(unit.speed, 2, "base 3 + speed_bonus -1 = 2");
@@ -317,12 +370,19 @@ mod snapshot_api_tests {
         let cache = cache_with_status(
             "haste",
             StatusTagSet::empty(),
-            StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 },
+            StatusBonuses {
+                speed_bonus: 2,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
         );
         unit.add_status(test_status("haste"), &cache);
         assert_eq!(unit.speed, 5);
         unit.remove_status(&StatusId::from("haste"), &cache);
-        assert_eq!(unit.speed, 3, "after removing haste speed returns to base 3");
+        assert_eq!(
+            unit.speed, 3,
+            "after removing haste speed returns to base 3"
+        );
     }
 
     #[test]
@@ -334,9 +394,23 @@ mod snapshot_api_tests {
         let haste_id = StatusId::from("haste");
         let bless_id = StatusId::from("bless");
         cache.map.insert(haste_id.clone(), StatusTagSet::empty());
-        cache.bonuses.insert(haste_id.clone(), StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 });
+        cache.bonuses.insert(
+            haste_id.clone(),
+            StatusBonuses {
+                speed_bonus: 2,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
+        );
         cache.map.insert(bless_id.clone(), StatusTagSet::empty());
-        cache.bonuses.insert(bless_id.clone(), StatusBonuses { speed_bonus: 1, armor_bonus: 0, damage_taken_bonus: 0 });
+        cache.bonuses.insert(
+            bless_id.clone(),
+            StatusBonuses {
+                speed_bonus: 1,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
+        );
 
         unit.add_status(test_status("haste"), &cache);
         unit.add_status(test_status("bless"), &cache);
@@ -349,7 +423,11 @@ mod snapshot_api_tests {
         let cache = cache_with_status(
             "stone_skin",
             StatusTagSet::empty(),
-            StatusBonuses { speed_bonus: 0, armor_bonus: 5, damage_taken_bonus: 0 },
+            StatusBonuses {
+                speed_bonus: 0,
+                armor_bonus: 5,
+                damage_taken_bonus: 0,
+            },
         );
         unit.add_status(test_status("stone_skin"), &cache);
         assert_eq!(unit.armor_bonus, 5);
@@ -361,7 +439,11 @@ mod snapshot_api_tests {
         let cache = cache_with_status(
             "vuln",
             StatusTagSet::empty(),
-            StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 3 },
+            StatusBonuses {
+                speed_bonus: 0,
+                armor_bonus: 0,
+                damage_taken_bonus: 3,
+            },
         );
         unit.add_status(test_status("vuln"), &cache);
         assert_eq!(unit.damage_taken_bonus, 3);
@@ -370,16 +452,18 @@ mod snapshot_api_tests {
     #[test]
     fn hard_cc_status_makes_unit_is_stunned() {
         let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build();
-        let cache = cache_with_status(
-            "stun",
-            StatusTagSet::HARD_CC,
-            StatusBonuses::default(),
-        );
+        let cache = cache_with_status("stun", StatusTagSet::HARD_CC, StatusBonuses::default());
         unit.add_status(test_status("stun"), &cache);
-        assert!(unit.is_stunned(&cache), "HARD_CC status must make is_stunned true");
+        assert!(
+            unit.is_stunned(&cache),
+            "HARD_CC status must make is_stunned true"
+        );
 
         unit.remove_status(&StatusId::from("stun"), &cache);
-        assert!(!unit.is_stunned(&cache), "removing stun must clear is_stunned");
+        assert!(
+            !unit.is_stunned(&cache),
+            "removing stun must clear is_stunned"
+        );
     }
 
     #[test]
@@ -391,10 +475,16 @@ mod snapshot_api_tests {
             StatusBonuses::default(),
         );
         unit.add_status(test_status("taunted"), &cache);
-        assert!(unit.forces_targeting(&cache), "COMPULSION status must make forces_targeting true");
+        assert!(
+            unit.forces_targeting(&cache),
+            "COMPULSION status must make forces_targeting true"
+        );
 
         unit.remove_status(&StatusId::from("taunted"), &cache);
-        assert!(!unit.forces_targeting(&cache), "removing taunt must clear forces_targeting");
+        assert!(
+            !unit.forces_targeting(&cache),
+            "removing taunt must clear forces_targeting"
+        );
     }
 
     #[test]
@@ -402,18 +492,20 @@ mod snapshot_api_tests {
         let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .tags(AiTags::LOW_HP | AiTags::MELEE_ONLY)
             .build();
-        let cache = cache_with_status(
-            "stun",
-            StatusTagSet::HARD_CC,
-            StatusBonuses::default(),
-        );
+        let cache = cache_with_status("stun", StatusTagSet::HARD_CC, StatusBonuses::default());
         unit.add_status(test_status("stun"), &cache);
 
         // is_stunned reflected via lazy method (no longer a tag bit post-Path-E)
         assert!(unit.is_stunned(&cache));
         // Non-status-derived tag bits must be untouched by refresh_aggregates
-        assert!(unit.tags.contains(AiTags::LOW_HP), "LOW_HP must survive refresh");
-        assert!(unit.tags.contains(AiTags::MELEE_ONLY), "MELEE_ONLY must survive refresh");
+        assert!(
+            unit.tags.contains(AiTags::LOW_HP),
+            "LOW_HP must survive refresh"
+        );
+        assert!(
+            unit.tags.contains(AiTags::MELEE_ONLY),
+            "MELEE_ONLY must survive refresh"
+        );
     }
 
     /// Parity test: `BattleSnapshot::view(e).state` must agree with the
@@ -421,32 +513,31 @@ mod snapshot_api_tests {
     /// Catches divergence while both representations coexist (D-step-2 → D-step-5).
     #[test]
     fn view_state_matches_unit_snapshot_basic_fields() {
-        use combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId};
+        use combat_engine::state::{
+            CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId,
+        };
 
         let pos = hex_from_offset(2, 3);
         let entity = Entity::from_raw_u32(42).expect("valid");
         let uid = UnitId(entity.to_bits());
 
         // Build matching UnitSnapshot and engine Unit with the same fields.
-        let snap_unit = UnitBuilder::new(42, Team::Player, pos)
-            .hp(15)
-            .ap(2)
-            .build();
+        let snap_unit = UnitBuilder::new(42, Team::Player, pos).hp(15).ap(2).build();
 
         let engine_unit = EngineUnit::new(
             uid,
             EngineTeam::Player,
             pos,
-            0,  // armor
-            0,  // armor_bonus
-            0,  // damage_taken_bonus
-            3,  // base_speed
-            3,  // speed
-            0,  // reactions_left
-            1,  // reactions_max
+            0, // armor
+            0, // armor_bonus
+            0, // damage_taken_bonus
+            3, // base_speed
+            3, // speed
+            0, // reactions_left
+            1, // reactions_max
             vec![],
             None,
-            None,               // initiative: not yet rolled
+            None, // initiative: not yet rolled
             Default::default(),
             None,
             Vec::new(),
@@ -470,21 +561,27 @@ mod snapshot_api_tests {
             None,
         );
 
-        let combat_state = CombatState::new(
-            vec![engine_unit],
-            1,
-            RoundPhase::ActorTurn,
-            0,
-        );
+        let combat_state = CombatState::new(vec![engine_unit], 1, RoundPhase::ActorTurn, 0);
 
         let mut snap = snapshot_from(vec![snap_unit.clone()], 1);
         snap.state = combat_state;
 
-        let view = snap.unit(entity).expect("view must resolve for known entity");
-        assert_eq!(view.hp(), snap_unit.hp, "view.hp must match UnitSnapshot.hp");
-        assert_eq!(view.pos, snap_unit.pos, "view.pos must match UnitSnapshot.pos");
+        let view = snap
+            .unit(entity)
+            .expect("view must resolve for known entity");
+        assert_eq!(
+            view.hp(),
+            snap_unit.hp,
+            "view.hp must match UnitSnapshot.hp"
+        );
+        assert_eq!(
+            view.pos, snap_unit.pos,
+            "view.pos must match UnitSnapshot.pos"
+        );
         // AP is read from pools[Ap] on engine Unit.
-        let view_ap = view.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
+        let view_ap = view.pools[combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0);
         assert_eq!(view_ap, snap_unit.action_points, "view.ap must match");
     }
 }
@@ -500,9 +597,9 @@ mod snapshot_api_tests {
 mod computation_tests {
     use super::*;
     use crate::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
-    use crate::game::hex::hex_from_offset;
-    use crate::game::components::Team;
     use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
     use combat_engine::DiceExpr;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -528,7 +625,9 @@ mod computation_tests {
             engine: combat_engine::AbilityDef {
                 target_type: crate::content::abilities::TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 1 },
-                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                effect: EffectDef::Damage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
                 costs: Vec::new(),
                 cost_ap,
                 aoe: AoEShape::None,
@@ -556,10 +655,10 @@ mod computation_tests {
     fn unit_snapshot_is_alive_boundary() {
         // hp > 0 → true; hp = 0 → false; hp < 0 → false.
         let cases: &[(i32, bool)] = &[
-            (1,  true),   // kills "replace > with ==" and "replace with false"
-            (10, true),   // kills "replace with false"
-            (0,  false),  // kills "replace > with >="
-            (-1, false),  // kills "replace > with <"
+            (1, true),   // kills "replace > with ==" and "replace with false"
+            (10, true),  // kills "replace with false"
+            (0, false),  // kills "replace > with >="
+            (-1, false), // kills "replace > with <"
         ];
         for &(hp, expected) in cases {
             let u = unit_with(hp, 20, 0, 0);
@@ -574,11 +673,11 @@ mod computation_tests {
     fn unit_snapshot_eff_hp_additive() {
         let cases: &[(i32, i32, i32, i32)] = &[
             // (hp, armor, armor_bonus, expected)
-            (5,  0, 0,  5),    // baseline — kills const-0, const-1, const-(-1)
-            (5,  3, 0,  8),    // base armor — kills first + → -  (5-3=2 ≠8)
-            (5,  0, 2,  7),    // armor_bonus — kills second + → - (5-2=3 ≠7)
-            (5,  3, 2, 10),    // both — kills + → * (5*3*2=30 ≠10)
-            (0,  5, 0,  5),    // zero hp — kills + → - (0-5=-5 ≠5)
+            (5, 0, 0, 5),  // baseline — kills const-0, const-1, const-(-1)
+            (5, 3, 0, 8),  // base armor — kills first + → -  (5-3=2 ≠8)
+            (5, 0, 2, 7),  // armor_bonus — kills second + → - (5-2=3 ≠7)
+            (5, 3, 2, 10), // both — kills + → * (5*3*2=30 ≠10)
+            (0, 5, 0, 5),  // zero hp — kills + → - (0-5=-5 ≠5)
         ];
         for &(hp, armor, ab, expected) in cases {
             let u = unit_with(hp, 20, armor, ab);
@@ -592,15 +691,19 @@ mod computation_tests {
     #[test]
     fn unit_snapshot_eff_max_hp_additive_and_clamp() {
         let cases: &[(i32, i32, i32, i32)] = &[
-            (10, 0, 0, 10),   // baseline — kills const-0, const-1, const-(-1)
-            (10, 3, 0, 13),   // + armor — kills + → - (10-3=7 ≠13)
-            (10, 0, 2, 12),   // + armor_bonus — kills + → - (10-2=8 ≠12)
-            (10, 3, 2, 15),   // both — kills + → * (10*3*2=60 ≠15)
-            (-5, 0, 0,  1),   // clamped to 1 — kills missing .max(1)
+            (10, 0, 0, 10), // baseline — kills const-0, const-1, const-(-1)
+            (10, 3, 0, 13), // + armor — kills + → - (10-3=7 ≠13)
+            (10, 0, 2, 12), // + armor_bonus — kills + → - (10-2=8 ≠12)
+            (10, 3, 2, 15), // both — kills + → * (10*3*2=60 ≠15)
+            (-5, 0, 0, 1),  // clamped to 1 — kills missing .max(1)
         ];
         for &(max_hp, armor, ab, expected) in cases {
             let u = unit_with(5, max_hp, armor, ab);
-            assert_eq!(u.eff_max_hp(), expected, "max_hp={max_hp} armor={armor} ab={ab}");
+            assert_eq!(
+                u.eff_max_hp(),
+                expected,
+                "max_hp={max_hp} armor={armor} ab={ab}"
+            );
         }
     }
 
@@ -611,16 +714,18 @@ mod computation_tests {
     fn unit_snapshot_hp_pct_correctness() {
         // hp_pct = hp / max_hp.max(1).
         let cases: &[(i32, i32, f32)] = &[
-            (10, 10, 1.0),  // full HP — kills const-0, const-(-1), / → * (100 ≠1)
-            (5,  10, 0.5),  // half — kills / → % (5%10=5 ≠0.5), / → * (50 ≠0.5)
-            (0,  10, 0.0),  // dead
-            (5,   0, 5.0),  // div-by-zero guard: max_hp clamped to 1 → 5/1=5.0
+            (10, 10, 1.0), // full HP — kills const-0, const-(-1), / → * (100 ≠1)
+            (5, 10, 0.5),  // half — kills / → % (5%10=5 ≠0.5), / → * (50 ≠0.5)
+            (0, 10, 0.0),  // dead
+            (5, 0, 5.0),   // div-by-zero guard: max_hp clamped to 1 → 5/1=5.0
         ];
         for &(hp, max_hp, expected) in cases {
             let u = unit_with(hp, max_hp, 0, 0);
             let got = u.hp_pct();
-            assert!((got - expected).abs() < 1e-5,
-                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}");
+            assert!(
+                (got - expected).abs() < 1e-5,
+                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}"
+            );
         }
     }
 
@@ -633,16 +738,18 @@ mod computation_tests {
         // killability = 1 - eff_hp / eff_max_hp.
         // We set armor=0 so eff_hp=hp, eff_max_hp=max_hp.
         let cases: &[(i32, i32, f32)] = &[
-            (10, 10, 0.0),  // full HP → 0.0; kills const-1/const-(-1), - → +
-            (0,  10, 1.0),  // dead → 1.0; kills const-0, - → + (1+0=1 trivially ok so need below)
-            (5,  10, 0.5),  // half → 0.5; kills - → + (1+0.5=1.5), / → * (1-5=... ), / → %
-            (1,  10, 0.9),  // near-dead → 0.9; kills <= → > (eff_max=10>0, not ≤0)
+            (10, 10, 0.0), // full HP → 0.0; kills const-1/const-(-1), - → +
+            (0, 10, 1.0),  // dead → 1.0; kills const-0, - → + (1+0=1 trivially ok so need below)
+            (5, 10, 0.5),  // half → 0.5; kills - → + (1+0.5=1.5), / → * (1-5=... ), / → %
+            (1, 10, 0.9),  // near-dead → 0.9; kills <= → > (eff_max=10>0, not ≤0)
         ];
         for &(hp, max_hp, expected) in cases {
             let u = unit_with(hp, max_hp, 0, 0);
             let got = u.killability();
-            assert!((got - expected).abs() < 1e-5,
-                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}");
+            assert!(
+                (got - expected).abs() < 1e-5,
+                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}"
+            );
         }
     }
 
@@ -650,10 +757,13 @@ mod computation_tests {
     fn unit_snapshot_killability_dead_unit_guard() {
         // When eff_max_hp clamps to 1 and eff_hp ≤ 0, killability ≥ 1.
         // Kills <= → > guard mutation: if eff_max>0 we should NOT return 0.0 early.
-        let u = unit_with(0, 0, 0, 0);  // max_hp=0 → eff_max clamped to 1; hp=0 → eff_hp=0
+        let u = unit_with(0, 0, 0, 0); // max_hp=0 → eff_max clamped to 1; hp=0 → eff_hp=0
         let got = u.killability();
         // 1 - 0/1 = 1.0
-        assert!((got - 1.0).abs() < 1e-5, "dead unit: got {got}, expected 1.0");
+        assert!(
+            (got - 1.0).abs() < 1e-5,
+            "dead unit: got {got}, expected 1.0"
+        );
     }
 
     // ── UnitSnapshot::resource_amount ────────────────────────────────────
@@ -667,10 +777,10 @@ mod computation_tests {
             .rage(3, 10)
             .energy(4, 10)
             .build();
-        assert_eq!(u.resource_amount(ResourceKind::Hp),     15);
-        assert_eq!(u.resource_amount(ResourceKind::Mana),    7);
-        assert_eq!(u.resource_amount(ResourceKind::Rage),    3);
-        assert_eq!(u.resource_amount(ResourceKind::Energy),  4);
+        assert_eq!(u.resource_amount(ResourceKind::Hp), 15);
+        assert_eq!(u.resource_amount(ResourceKind::Mana), 7);
+        assert_eq!(u.resource_amount(ResourceKind::Rage), 3);
+        assert_eq!(u.resource_amount(ResourceKind::Energy), 4);
     }
 
     // ── UnitSnapshot::can_afford ──────────────────────────────────────────
@@ -683,7 +793,7 @@ mod computation_tests {
         let u = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .ap(2)
             .build();
-        assert!( u.can_afford(&def_ap(2)), "AP == cost must succeed");
+        assert!(u.can_afford(&def_ap(2)), "AP == cost must succeed");
         assert!(!u.can_afford(&def_ap(3)), "AP < cost must fail");
     }
 
@@ -697,10 +807,16 @@ mod computation_tests {
             .build();
         // Enough AP but not enough mana: overall false (kills && → ||).
         let not_enough_mana = def_with_cost(2, ResourceKind::Mana, 6);
-        assert!(!u.can_afford(&not_enough_mana), "short mana must fail even with enough AP");
+        assert!(
+            !u.can_afford(&not_enough_mana),
+            "short mana must fail even with enough AP"
+        );
         // Enough mana but not enough AP: overall false (symmetric check).
         let not_enough_ap = def_with_cost(3, ResourceKind::Mana, 5);
-        assert!(!u.can_afford(&not_enough_ap), "short AP must fail even with enough mana");
+        assert!(
+            !u.can_afford(&not_enough_ap),
+            "short AP must fail even with enough mana"
+        );
         // Both exactly sufficient.
         let exact = def_with_cost(2, ResourceKind::Mana, 5);
         assert!(u.can_afford(&exact), "exact AP and mana must succeed");
@@ -720,9 +836,13 @@ mod computation_tests {
     // real UnitView, then exercise the same edge-case table.
     // Targets lines 240:23/42, 245:28/47, 255:9, 256:20, 257:13, 273:9/34, 274:74.
 
-    fn snap_view_with(entity_raw: u32, hp: i32, max_hp: i32, armor: i32, armor_bonus: i32)
-        -> (BattleSnapshot, Entity)
-    {
+    fn snap_view_with(
+        entity_raw: u32,
+        hp: i32,
+        max_hp: i32,
+        armor: i32,
+        armor_bonus: i32,
+    ) -> (BattleSnapshot, Entity) {
         let entity = Entity::from_raw_u32(entity_raw).expect("valid");
         let u = UnitBuilder::new(entity_raw, Team::Player, hex_from_offset(0, 0))
             .hp(hp)
@@ -738,17 +858,16 @@ mod computation_tests {
     fn unit_view_eff_hp_additive() {
         // Lines 240:23, 240:42 — same formula as UnitSnapshot.
         let cases: &[(i32, i32, i32, i32)] = &[
-            (5,  0, 0,  5),
-            (5,  3, 0,  8),
-            (5,  0, 2,  7),
-            (5,  3, 2, 10),
-            (0,  5, 0,  5),
+            (5, 0, 0, 5),
+            (5, 3, 0, 8),
+            (5, 0, 2, 7),
+            (5, 3, 2, 10),
+            (0, 5, 0, 5),
         ];
         for (idx, &(hp, armor, ab, expected)) in cases.iter().enumerate() {
             let (snap, entity) = snap_view_with((idx + 1) as u32, hp, 20, armor, ab);
             let view = snap.unit(entity).expect("view");
-            assert_eq!(view.eff_hp(), expected,
-                "hp={hp} armor={armor} ab={ab}");
+            assert_eq!(view.eff_hp(), expected, "hp={hp} armor={armor} ab={ab}");
         }
     }
 
@@ -760,13 +879,16 @@ mod computation_tests {
             (10, 3, 0, 13),
             (10, 0, 2, 12),
             (10, 3, 2, 15),
-            (-5, 0, 0,  1),  // clamp to 1
+            (-5, 0, 0, 1), // clamp to 1
         ];
         for (idx, &(max_hp, armor, ab, expected)) in cases.iter().enumerate() {
             let (snap, entity) = snap_view_with((idx + 1) as u32, 5, max_hp, armor, ab);
             let view = snap.unit(entity).expect("view");
-            assert_eq!(view.eff_max_hp(), expected,
-                "max_hp={max_hp} armor={armor} ab={ab}");
+            assert_eq!(
+                view.eff_max_hp(),
+                expected,
+                "max_hp={max_hp} armor={armor} ab={ab}"
+            );
         }
     }
 
@@ -775,16 +897,18 @@ mod computation_tests {
         // hp_pct = hp / max_hp.max(1). Tests line 249 (UnitView path).
         let cases: &[(u32, i32, i32, f32)] = &[
             (1, 10, 10, 1.0),
-            (2,  5, 10, 0.5),
-            (3,  0, 10, 0.0),
-            (4,  5,  0, 5.0),  // clamp guard
+            (2, 5, 10, 0.5),
+            (3, 0, 10, 0.0),
+            (4, 5, 0, 5.0), // clamp guard
         ];
         for &(raw, hp, max_hp, expected) in cases {
             let (snap, entity) = snap_view_with(raw, hp, max_hp, 0, 0);
             let view = snap.unit(entity).expect("view");
             let got = view.hp_pct();
-            assert!((got - expected).abs() < 1e-5,
-                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}");
+            assert!(
+                (got - expected).abs() < 1e-5,
+                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}"
+            );
         }
     }
 
@@ -792,17 +916,19 @@ mod computation_tests {
     fn unit_view_killability_correctness() {
         // Lines 255:9, 256:20, 257:13.
         let cases: &[(u32, i32, i32, f32)] = &[
-            (1, 10, 10, 0.0),  // full HP
-            (2,  5, 10, 0.5),  // half HP
-            (3,  0, 10, 1.0),  // dead
-            (4,  1, 10, 0.9),  // near-dead
+            (1, 10, 10, 0.0), // full HP
+            (2, 5, 10, 0.5),  // half HP
+            (3, 0, 10, 1.0),  // dead
+            (4, 1, 10, 0.9),  // near-dead
         ];
         for &(raw, hp, max_hp, expected) in cases {
             let (snap, entity) = snap_view_with(raw, hp, max_hp, 0, 0);
             let view = snap.unit(entity).expect("view");
             let got = view.killability();
-            assert!((got - expected).abs() < 1e-5,
-                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}");
+            assert!(
+                (got - expected).abs() < 1e-5,
+                "hp={hp} max_hp={max_hp}: got {got}, expected {expected}"
+            );
         }
     }
 
@@ -817,11 +943,20 @@ mod computation_tests {
         let snap = snapshot_from(vec![snap_unit], 1);
         let view = snap.unit(entity).expect("view");
 
-        assert!( view.can_afford(&def_ap(2)),                              "AP == cost");
-        assert!(!view.can_afford(&def_ap(3)),                              "AP < cost");
-        assert!(!view.can_afford(&def_with_cost(2, ResourceKind::Mana, 6)), "short mana fails");
-        assert!(!view.can_afford(&def_with_cost(3, ResourceKind::Mana, 5)), "short AP fails even with ok mana");
-        assert!( view.can_afford(&def_with_cost(2, ResourceKind::Mana, 5)), "exact ok");
+        assert!(view.can_afford(&def_ap(2)), "AP == cost");
+        assert!(!view.can_afford(&def_ap(3)), "AP < cost");
+        assert!(
+            !view.can_afford(&def_with_cost(2, ResourceKind::Mana, 6)),
+            "short mana fails"
+        );
+        assert!(
+            !view.can_afford(&def_with_cost(3, ResourceKind::Mana, 5)),
+            "short AP fails even with ok mana"
+        );
+        assert!(
+            view.can_afford(&def_with_cost(2, ResourceKind::Mana, 5)),
+            "exact ok"
+        );
     }
 
     // ── BattleSnapshot::entity_for_uid / uid_for_entity ──────────────────
@@ -833,7 +968,11 @@ mod computation_tests {
         let u = UnitBuilder::new(7, Team::Player, hex_from_offset(0, 0)).build();
         let snap = snapshot_from(vec![u], 1);
         let uid = snap.uid_for_entity(entity).expect("uid must be known");
-        assert_eq!(snap.entity_for_uid(uid), Some(entity), "known uid → Some(entity)");
+        assert_eq!(
+            snap.entity_for_uid(uid),
+            Some(entity),
+            "known uid → Some(entity)"
+        );
 
         // Fabricate an unknown uid.
         let unknown_uid = combat_engine::state::UnitId(u64::MAX);
@@ -850,8 +989,8 @@ mod computation_tests {
         let u = UnitBuilder::new(1, Team::Player, pos).build();
         let snap = snapshot_from(vec![u], 1);
 
-        assert!(snap.unit_at(pos).is_some(),       "occupied position → Some");
-        assert!(snap.unit_at(other_pos).is_none(),  "empty position → None");
+        assert!(snap.unit_at(pos).is_some(), "occupied position → Some");
+        assert!(snap.unit_at(other_pos).is_none(), "empty position → None");
     }
 
     // ── BattleSnapshot::new_with_id_map ──────────────────────────────────
@@ -861,7 +1000,7 @@ mod computation_tests {
     fn new_with_id_map_populates_both_directions() {
         use combat_engine::state::{CombatState, RoundPhase, UnitId};
         let entity = Entity::from_raw_u32(99).expect("valid");
-        let uid = UnitId(42);  // intentionally different from entity.to_bits()
+        let uid = UnitId(42); // intentionally different from entity.to_bits()
 
         let cache = crate::combat::ai::world::cache::AiCache::from_units(vec![]);
         let state = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
@@ -879,32 +1018,53 @@ mod computation_tests {
     #[test]
     fn enemies_of_excludes_dead_and_same_team() {
         // Scenario: 1 live enemy, 1 dead enemy, 1 live ally.
-        let live_enemy = UnitBuilder::new(1, Team::Enemy,  hex_from_offset(0, 0)).hp(10).build();
-        let dead_enemy = UnitBuilder::new(2, Team::Enemy,  hex_from_offset(1, 0)).hp(0).build();
-        let live_ally  = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0)).hp(10).build();
+        let live_enemy = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .build();
+        let dead_enemy = UnitBuilder::new(2, Team::Enemy, hex_from_offset(1, 0))
+            .hp(0)
+            .build();
+        let live_ally = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0))
+            .hp(10)
+            .build();
         let snap = snapshot_from(vec![live_enemy, dead_enemy, live_ally], 1);
 
         // Queried from Player's perspective:
         // enemies_of(Player) → only live Enemy units.
-        assert_eq!(snap.enemies_of(Team::Player).count(), 1,
-            "only live enemies counted");
+        assert_eq!(
+            snap.enemies_of(Team::Player).count(),
+            1,
+            "only live enemies counted"
+        );
         // allies_of(Player) → only live Player units.
-        assert_eq!(snap.allies_of(Team::Player).count(), 1,
-            "ally visible");
+        assert_eq!(snap.allies_of(Team::Player).count(), 1, "ally visible");
     }
 
     #[test]
     fn all_enemies_of_includes_dead_enemies() {
-        let live_enemy = UnitBuilder::new(1, Team::Enemy,  hex_from_offset(0, 0)).hp(10).build();
-        let dead_enemy = UnitBuilder::new(2, Team::Enemy,  hex_from_offset(1, 0)).hp(0).build();
+        let live_enemy = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .build();
+        let dead_enemy = UnitBuilder::new(2, Team::Enemy, hex_from_offset(1, 0))
+            .hp(0)
+            .build();
         let snap = snapshot_from(vec![live_enemy, dead_enemy], 1);
 
-        assert_eq!(snap.all_enemies_of(Team::Player).count(), 2,
-            "all_enemies_of includes corpses");
-        assert_eq!(snap.dead_enemies_of(Team::Player).count(), 1,
-            "dead_enemies_of returns only corpses");
-        assert_eq!(snap.enemies_of(Team::Player).count(), 1,
-            "enemies_of returns only live enemies");
+        assert_eq!(
+            snap.all_enemies_of(Team::Player).count(),
+            2,
+            "all_enemies_of includes corpses"
+        );
+        assert_eq!(
+            snap.dead_enemies_of(Team::Player).count(),
+            1,
+            "dead_enemies_of returns only corpses"
+        );
+        assert_eq!(
+            snap.enemies_of(Team::Player).count(),
+            1,
+            "enemies_of returns only live enemies"
+        );
     }
 
     // ── BattleSnapshot::rebuild_index ────────────────────────────────────
@@ -913,7 +1073,9 @@ mod computation_tests {
     #[test]
     fn rebuild_index_populates_maps_when_empty() {
         let entity = Entity::from_raw_u32(5).expect("valid");
-        let snap_unit = UnitBuilder::new(5, Team::Player, hex_from_offset(0, 0)).hp(10).build();
+        let snap_unit = UnitBuilder::new(5, Team::Player, hex_from_offset(0, 0))
+            .hp(10)
+            .build();
 
         // Build a snapshot via new() to get a properly-seeded uid_to_entity.
         // Then manually clear both maps to simulate deserialization state.
@@ -927,9 +1089,16 @@ mod computation_tests {
         snap.rebuild_index();
 
         // After rebuild, both maps must be repopulated.
-        assert!(snap.uid_for_entity(entity).is_some(), "entity_to_uid populated");
+        assert!(
+            snap.uid_for_entity(entity).is_some(),
+            "entity_to_uid populated"
+        );
         let uid = snap.uid_for_entity(entity).unwrap();
-        assert_eq!(snap.entity_for_uid(uid), Some(entity), "uid_to_entity populated");
+        assert_eq!(
+            snap.entity_for_uid(uid),
+            Some(entity),
+            "uid_to_entity populated"
+        );
     }
 
     #[test]
@@ -994,7 +1163,7 @@ mod env_severity_snapshot_tests {
         // One trap owned by the AI team (visible), one neutral unrevealed (hidden).
         // Use "spike_trap" — present in test content and has a Damage effect.
         let visible_id = EnvId(1u32);
-        let hidden_id  = EnvId(2u32);
+        let hidden_id = EnvId(2u32);
         let ability_id = combat_engine::AbilityId::from("spike_trap");
 
         let mut environment = vec![

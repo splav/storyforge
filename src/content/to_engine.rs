@@ -21,9 +21,9 @@ use combat_engine::{
 /// `CircuitBreach` uses a fixed `SelfDamage(0d1+2)` placeholder (Phase 2 step 6f).
 /// Full mana_cost-derived damage parity is a Phase 2 step 7 follow-up.
 pub fn crit_fail_outcome(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
-    use CritFailEffect::*;
     use combat_engine::CritFailOutcome as Out;
     use combat_engine::{DiceExpr, StatusId};
+    use CritFailEffect::*;
     match e {
         Miss => Out::Miss,
         ManaOverload => Out::DoubleCost,
@@ -42,9 +42,15 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
         costs: def
             .costs
             .iter()
-            .map(|c| EngineCost { resource: c.resource, amount: c.amount })
+            .map(|c| EngineCost {
+                resource: c.resource,
+                amount: c.amount,
+            })
             .collect(),
-        range: combat_engine::AbilityRange { min: def.range.min, max: def.range.max },
+        range: combat_engine::AbilityRange {
+            min: def.range.min,
+            max: def.range.max,
+        },
         target_type: match def.target_type {
             TargetType::SingleEnemy => combat_engine::TargetType::SingleEnemy,
             TargetType::SingleAlly => combat_engine::TargetType::SingleAlly,
@@ -57,9 +63,7 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
             crate::content::abilities::AoEShape::Circle { radius } => {
                 EngineAoEShape::Circle { radius }
             }
-            crate::content::abilities::AoEShape::Line { length } => {
-                EngineAoEShape::Line { length }
-            }
+            crate::content::abilities::AoEShape::Line { length } => EngineAoEShape::Line { length },
         },
         friendly_fire: def.friendly_fire,
         effect: match &def.effect {
@@ -68,9 +72,9 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
             EffectDef::Damage { dice } => EngineEffectDef::Damage { dice: *dice },
             EffectDef::SpellDamage { dice } => EngineEffectDef::SpellDamage { dice: *dice },
             EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
-            EffectDef::GrantMovement { distance } => {
-                EngineEffectDef::GrantMovement { distance: *distance }
-            }
+            EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement {
+                distance: *distance,
+            },
             EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
             // Summon is out of engine scope in Phase 2.
             EffectDef::Summon { .. } => EngineEffectDef::None,

@@ -1,6 +1,6 @@
+use crate::game::resources::{HexCorpses, HexPositions};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use crate::game::resources::{HexCorpses, HexPositions};
 
 /// Spatial-map façade unifying the two occupancy layers:
 ///
@@ -45,7 +45,9 @@ impl<'w> HexMap<'w> {
 
     /// Returns the hex occupied by `entity` in either layer, or `None` if not found.
     pub fn position_of(&self, entity: Entity) -> Option<hexx::Hex> {
-        self.positions.get(&entity).or_else(|| self.corpses.get(&entity))
+        self.positions
+            .get(&entity)
+            .or_else(|| self.corpses.get(&entity))
     }
 
     /// Iterates all living unit `(entity, hex)` pairs.

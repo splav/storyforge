@@ -7,7 +7,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 use storyforge::content::content_view::ContentView;
-use storyforge::content::scenarios::{ChoiceOption, DialogueLine, SceneDef, ScenarioDef};
+use storyforge::content::scenarios::{ChoiceOption, DialogueLine, ScenarioDef, SceneDef};
 use storyforge::game::resources::{CampaignState, GameDb, ScenarioState};
 use storyforge::scenario::AdvanceScenario;
 use storyforge::ui::story_ui::choice_input_system;
@@ -82,10 +82,8 @@ fn base_app(db: GameDb) -> App {
 
 /// Spawn a button entity with `ChoiceButton(idx)` and set its `Interaction` to Pressed.
 fn spawn_pressed_choice_button(app: &mut App, idx: usize) {
-    app.world_mut().spawn((
-        storyforge::ui::ChoiceButton(idx),
-        Interaction::Pressed,
-    ));
+    app.world_mut()
+        .spawn((storyforge::ui::ChoiceButton(idx), Interaction::Pressed));
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -95,8 +93,14 @@ fn spawn_pressed_choice_button(app: &mut App, idx: usize) {
 #[test]
 fn choice_button_sets_flag_and_advances() {
     let db = make_db_with_choice(vec![
-        ChoiceOption { label: "Help".into(), set_flag: "helped".into() },
-        ChoiceOption { label: "Ignore".into(), set_flag: "ignored".into() },
+        ChoiceOption {
+            label: "Help".into(),
+            set_flag: "helped".into(),
+        },
+        ChoiceOption {
+            label: "Ignore".into(),
+            set_flag: "ignored".into(),
+        },
     ]);
     let mut app = base_app(db);
     spawn_pressed_choice_button(&mut app, 0);
@@ -107,7 +111,10 @@ fn choice_button_sets_flag_and_advances() {
 
     // Flag inserted.
     let flags = &app.world().resource::<CampaignState>().flags;
-    assert!(flags.contains("helped"), "set_flag 'helped' must be in CampaignState.flags");
+    assert!(
+        flags.contains("helped"),
+        "set_flag 'helped' must be in CampaignState.flags"
+    );
     assert!(!flags.contains("ignored"), "'ignored' must NOT be set");
 
     // AdvanceScenario message written (drain the reader to confirm).
@@ -126,8 +133,14 @@ fn choice_button_sets_flag_and_advances() {
 #[test]
 fn choice_button_index_1_sets_correct_flag() {
     let db = make_db_with_choice(vec![
-        ChoiceOption { label: "Help".into(), set_flag: "helped".into() },
-        ChoiceOption { label: "Ignore".into(), set_flag: "ignored".into() },
+        ChoiceOption {
+            label: "Help".into(),
+            set_flag: "helped".into(),
+        },
+        ChoiceOption {
+            label: "Ignore".into(),
+            set_flag: "ignored".into(),
+        },
     ]);
     let mut app = base_app(db);
     spawn_pressed_choice_button(&mut app, 1);
@@ -145,9 +158,10 @@ fn choice_button_index_1_sets_correct_flag() {
 /// `AdvanceScenario` is still written (the campaign-less path still advances).
 #[test]
 fn choice_without_campaign_state_does_not_panic() {
-    let db = make_db_with_choice(vec![
-        ChoiceOption { label: "Help".into(), set_flag: "helped".into() },
-    ]);
+    let db = make_db_with_choice(vec![ChoiceOption {
+        label: "Help".into(),
+        set_flag: "helped".into(),
+    }]);
     let mut app = App::new();
     app.add_message::<AdvanceScenario>();
     app.insert_resource(db);
@@ -168,9 +182,10 @@ fn choice_without_campaign_state_does_not_panic() {
 /// the gated line is present only when the flag is set.
 #[test]
 fn requires_flag_gates_story_line_after_choice() {
-    let db = make_db_with_choice(vec![
-        ChoiceOption { label: "Help".into(), set_flag: "helped".into() },
-    ]);
+    let db = make_db_with_choice(vec![ChoiceOption {
+        label: "Help".into(),
+        set_flag: "helped".into(),
+    }]);
     let scen = db.scenarios.get("s1").unwrap();
     let SceneDef::Story { lines, .. } = &scen.scenes[1] else {
         panic!("scene 1 must be Story");
@@ -180,9 +195,17 @@ fn requires_flag_gates_story_line_after_choice() {
     let flags_empty: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let visible_without: Vec<_> = lines
         .iter()
-        .filter(|l| l.requires_flag.as_ref().is_none_or(|f| flags_empty.contains(f)))
+        .filter(|l| {
+            l.requires_flag
+                .as_ref()
+                .is_none_or(|f| flags_empty.contains(f))
+        })
         .collect();
-    assert_eq!(visible_without.len(), 1, "only the ungated line should show without flag");
+    assert_eq!(
+        visible_without.len(),
+        1,
+        "only the ungated line should show without flag"
+    );
     assert_eq!(visible_without[0].text, "Always shown.");
 
     // With the flag, both lines are visible.
@@ -190,7 +213,15 @@ fn requires_flag_gates_story_line_after_choice() {
     flags_with.insert("helped".to_string());
     let visible_with: Vec<_> = lines
         .iter()
-        .filter(|l| l.requires_flag.as_ref().is_none_or(|f| flags_with.contains(f)))
+        .filter(|l| {
+            l.requires_flag
+                .as_ref()
+                .is_none_or(|f| flags_with.contains(f))
+        })
         .collect();
-    assert_eq!(visible_with.len(), 2, "both lines should show when flag is set");
+    assert_eq!(
+        visible_with.len(),
+        2,
+        "both lines should show when flag is set"
+    );
 }

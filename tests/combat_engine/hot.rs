@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use storyforge::combat_engine::content::StatusBonuses;
 use storyforge::combat_engine::{
     self,
     content::{AbilityDef, ContentView, StatusDef},
@@ -12,7 +13,6 @@ use storyforge::combat_engine::{
     state::{ActiveStatus, CombatState, EffectSource, RoundPhase, Team, UnitId},
     AbilityId, StatusId,
 };
-use storyforge::combat_engine::content::StatusBonuses;
 
 // ── ContentView stub ──────────────────────────────────────────────────────────
 
@@ -30,7 +30,11 @@ impl HotContent {
                 blocks_mana_abilities: false,
                 forces_targeting: false,
                 skips_turn: false,
-                bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+                bonuses: StatusBonuses {
+                    speed_bonus: 0,
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                },
                 hp_percent_dot: 0,
                 heal_per_tick: 4,
             },
@@ -40,9 +44,15 @@ impl HotContent {
 }
 
 impl ContentView for HotContent {
-    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> { self.statuses.get(id) }
-    fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+        None
+    }
+    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
+        self.statuses.get(id)
+    }
+    fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> {
+        None
+    }
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -72,21 +82,41 @@ fn hot_two_ticks_yield_plus_eight_hp() {
 
     // Tick 1
     let ev1 = state.tick_actor_statuses(uid, &content);
-    let hot1 = ev1.iter().find(|e| matches!(e,
-        Event::HotHealed { target, source_status, amount }
-        if *target == uid && source_status.0 == "vital_infusion" && *amount == 4
-    ));
-    assert!(hot1.is_some(), "HotHealed(+4) expected on tick 1; got: {:?}", ev1);
-    assert_eq!(state.unit(uid).unwrap().hp(), 16, "HP should be 16 after tick 1");
+    let hot1 = ev1.iter().find(|e| {
+        matches!(e,
+            Event::HotHealed { target, source_status, amount }
+            if *target == uid && source_status.0 == "vital_infusion" && *amount == 4
+        )
+    });
+    assert!(
+        hot1.is_some(),
+        "HotHealed(+4) expected on tick 1; got: {:?}",
+        ev1
+    );
+    assert_eq!(
+        state.unit(uid).unwrap().hp(),
+        16,
+        "HP should be 16 after tick 1"
+    );
 
     // Tick 2
     let ev2 = state.tick_actor_statuses(uid, &content);
-    let hot2 = ev2.iter().find(|e| matches!(e,
-        Event::HotHealed { target, source_status, amount }
-        if *target == uid && source_status.0 == "vital_infusion" && *amount == 4
-    ));
-    assert!(hot2.is_some(), "HotHealed(+4) expected on tick 2; got: {:?}", ev2);
-    assert_eq!(state.unit(uid).unwrap().hp(), 20, "+8 HP total after 2 ticks");
+    let hot2 = ev2.iter().find(|e| {
+        matches!(e,
+            Event::HotHealed { target, source_status, amount }
+            if *target == uid && source_status.0 == "vital_infusion" && *amount == 4
+        )
+    });
+    assert!(
+        hot2.is_some(),
+        "HotHealed(+4) expected on tick 2; got: {:?}",
+        ev2
+    );
+    assert_eq!(
+        state.unit(uid).unwrap().hp(),
+        20,
+        "+8 HP total after 2 ticks"
+    );
 }
 
 /// After 2 ticks the status is removed by ExpireStatus.
@@ -141,7 +171,9 @@ fn dot_and_hot_from_different_appliers_tick_independently() {
 
     let mut state = CombatState::new(
         vec![healer_unit, poisoner_unit, victim_unit],
-        1, RoundPhase::ActorTurn, 0,
+        1,
+        RoundPhase::ActorTurn,
+        0,
     );
     let content = HotContent::with_vital_infusion(); // poison not in content → hp_percent_dot=0
 

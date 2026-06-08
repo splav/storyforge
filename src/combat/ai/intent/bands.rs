@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
-use crate::combat::ai::config::tuning::AiTuning;
 
 // ── PriorityBand ─────────────────────────────────────────────────────────────
 
@@ -65,35 +65,35 @@ impl PriorityBand {
     pub fn weights(self) -> BandWeights {
         match self {
             PriorityBand::ForcedTargeting => BandWeights {
-                urgency:            0.8,
-                feasibility:        1.0,
-                leverage:           0.5,
-                safety:             0.3,
-                role_affinity:      0.4,
+                urgency: 0.8,
+                feasibility: 1.0,
+                leverage: 0.5,
+                safety: 0.3,
+                role_affinity: 0.4,
                 continuation_value: 0.2,
             },
             PriorityBand::CriticalSelfPreservation => BandWeights {
-                urgency:            1.0,
-                feasibility:        0.7,
-                leverage:           0.1,
-                safety:             1.0,
-                role_affinity:      0.2,
+                urgency: 1.0,
+                feasibility: 0.7,
+                leverage: 0.1,
+                safety: 1.0,
+                role_affinity: 0.2,
                 continuation_value: 0.1,
             },
             PriorityBand::HardRescueOpportunity => BandWeights {
-                urgency:            0.8,
-                feasibility:        0.7,
-                leverage:           0.9,
-                safety:             0.4,
-                role_affinity:      0.6,
+                urgency: 0.8,
+                feasibility: 0.7,
+                leverage: 0.9,
+                safety: 0.4,
+                role_affinity: 0.6,
                 continuation_value: 0.3,
             },
             PriorityBand::NormalTactical => BandWeights {
-                urgency:            0.6,
-                feasibility:        0.7,
-                leverage:           0.7,
-                safety:             0.5,
-                role_affinity:      0.8,
+                urgency: 0.6,
+                feasibility: 0.7,
+                leverage: 0.7,
+                safety: 0.5,
+                role_affinity: 0.8,
                 continuation_value: 0.7,
             },
         }
@@ -147,7 +147,9 @@ pub fn assign_band(
     {
         return (
             PriorityBand::ForcedTargeting,
-            BandReason::TauntForced { taunter: taunter.entity() },
+            BandReason::TauntForced {
+                taunter: taunter.entity(),
+            },
         );
     }
 
@@ -171,7 +173,9 @@ pub fn assign_band(
     if needs.rescue_ally >= hard_rescue && active.cache.tags.contains(AiTags::CAN_HEAL) {
         return (
             PriorityBand::HardRescueOpportunity,
-            BandReason::HardRescueNeed { rescue_need: needs.rescue_ally },
+            BandReason::HardRescueNeed {
+                rescue_need: needs.rescue_ally,
+            },
         );
     }
 
@@ -186,11 +190,11 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder, empty_content};
-    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::tuning::AiTuning;
-    use crate::combat::ai::world::tags::AiTags;
+    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
     use crate::combat::ai::world::tags::cache::build_caches;
+    use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::world::tags::StatusTagCache;
     use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
@@ -233,15 +237,18 @@ mod tests {
         status_tags
     }
 
-    fn unit_with_taunt(id: u32, team: Team, pos: crate::game::hex::Hex)
-        -> crate::combat::ai::world::snapshot::UnitSnapshot
-    {
+    fn unit_with_taunt(
+        id: u32,
+        team: Team,
+        pos: crate::game::hex::Hex,
+    ) -> crate::combat::ai::world::snapshot::UnitSnapshot {
         let mut unit = UnitBuilder::new(id, team, pos).build();
-        unit.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
-            id: "taunt".into(),
-            rounds_remaining: 1,
-            dot_per_tick: 0,
-        });
+        unit.statuses
+            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
+                id: "taunt".into(),
+                rounds_remaining: 1,
+                dot_per_tick: 0,
+            });
         unit
     }
 
@@ -257,17 +264,33 @@ mod tests {
         let status_tags = taunt_status_tags();
 
         let active_view = snap.unit(active.entity).expect("active in snap");
-        let (band, reason) = assign_band(active_view, &snap, &maps, &NeedSignals::default(), &difficulty, &tuning, &status_tags);
+        let (band, reason) = assign_band(
+            active_view,
+            &snap,
+            &maps,
+            &NeedSignals::default(),
+            &difficulty,
+            &tuning,
+            &status_tags,
+        );
 
         assert_eq!(band, PriorityBand::ForcedTargeting);
-        assert_eq!(reason, BandReason::TauntForced { taunter: taunter_entity });
+        assert_eq!(
+            reason,
+            BandReason::TauntForced {
+                taunter: taunter_entity
+            }
+        );
     }
 
     // ── 2. CriticalSelfPreservation fires on panic conditions ─────────────
 
     #[test]
     fn band_critical_self_preservation_fires_on_panic() {
-        let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
+        let active = UnitBuilder::new(1, Team::Enemy, origin())
+            .hp(2)
+            .max_hp(20)
+            .build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
         let snap = snapshot_from(vec![active.clone(), enemy], 1);
 
@@ -286,11 +309,22 @@ mod tests {
         };
 
         let active_view = snap.unit(active.entity).expect("active in snap");
-        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
+        let (band, reason) = assign_band(
+            active_view,
+            &snap,
+            &maps,
+            &needs,
+            &difficulty,
+            &tuning,
+            &StatusTagCache::default(),
+        );
 
         assert_eq!(band, PriorityBand::CriticalSelfPreservation);
         match reason {
-            BandReason::PanicOverride { self_preserve, danger } => {
+            BandReason::PanicOverride {
+                self_preserve,
+                danger,
+            } => {
                 assert!(self_preserve >= tuning.thresholds.panic_self_preserve_threshold);
                 assert!(danger > danger_panic);
             }
@@ -320,7 +354,15 @@ mod tests {
         };
 
         let active_view = snap.unit(active.entity).expect("active in snap");
-        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
+        let (band, reason) = assign_band(
+            active_view,
+            &snap,
+            &maps,
+            &needs,
+            &difficulty,
+            &tuning,
+            &StatusTagCache::default(),
+        );
 
         assert_eq!(band, PriorityBand::HardRescueOpportunity);
         match reason {
@@ -345,7 +387,15 @@ mod tests {
         let needs = NeedSignals::default();
 
         let active_view = snap.unit(active.entity).expect("active in snap");
-        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
+        let (band, reason) = assign_band(
+            active_view,
+            &snap,
+            &maps,
+            &needs,
+            &difficulty,
+            &tuning,
+            &StatusTagCache::default(),
+        );
 
         assert_eq!(band, PriorityBand::NormalTactical);
         assert_eq!(reason, BandReason::Normal);
@@ -356,7 +406,10 @@ mod tests {
     #[test]
     fn band_priority_order_forced_beats_critical() {
         // Actor is both taunted AND in a panic state — Forced must win.
-        let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
+        let active = UnitBuilder::new(1, Team::Enemy, origin())
+            .hp(2)
+            .max_hp(20)
+            .build();
         let taunter = unit_with_taunt(2, Team::Player, hex_from_offset(1, 0));
         let taunter_entity = taunter.entity;
         let snap = snapshot_from(vec![active.clone(), taunter], 1);
@@ -378,9 +431,26 @@ mod tests {
         };
 
         let active_view = snap.unit(active.entity).expect("active in snap");
-        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &status_tags);
+        let (band, reason) = assign_band(
+            active_view,
+            &snap,
+            &maps,
+            &needs,
+            &difficulty,
+            &tuning,
+            &status_tags,
+        );
 
-        assert_eq!(band, PriorityBand::ForcedTargeting, "Forced must beat Critical+HardRescue");
-        assert_eq!(reason, BandReason::TauntForced { taunter: taunter_entity });
+        assert_eq!(
+            band,
+            PriorityBand::ForcedTargeting,
+            "Forced must beat Critical+HardRescue"
+        );
+        assert_eq!(
+            reason,
+            BandReason::TauntForced {
+                taunter: taunter_entity
+            }
+        );
     }
 }

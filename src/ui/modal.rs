@@ -19,9 +19,7 @@ pub enum PromptKind {
         progress: CampaignProgress,
     },
     /// Switching active slot while in-flight progress exists.
-    SwitchSlot {
-        target: u8,
-    },
+    SwitchSlot { target: u8 },
 }
 
 #[derive(Component)]
@@ -44,7 +42,9 @@ pub fn sync_modal(
     for e in &roots {
         commands.entity(e).despawn();
     }
-    let Some(kind) = prompt.0.as_ref() else { return };
+    let Some(kind) = prompt.0.as_ref() else {
+        return;
+    };
 
     let font_handle: Handle<Font> = font
         .map(|f| f.0.clone())
@@ -57,7 +57,11 @@ pub fn sync_modal(
         ),
         PromptKind::SwitchSlot { target } => (
             format!("Сохранить прогресс в текущий слот перед переходом на слот {target}?"),
-            vec!["Сохранить и переключить", "Переключить без сохранения", "Отмена"],
+            vec![
+                "Сохранить и переключить",
+                "Переключить без сохранения",
+                "Отмена",
+            ],
         ),
     };
 
@@ -82,9 +86,16 @@ pub fn sync_modal(
         .with_children(|root| {
             root.spawn((
                 Text::new(title),
-                TextFont { font: font_handle.clone(), font_size: 20.0, ..default() },
+                TextFont {
+                    font: font_handle.clone(),
+                    font_size: 20.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.90, 0.88, 0.80)),
-                Node { margin: UiRect::bottom(Val::Px(12.0)), ..default() },
+                Node {
+                    margin: UiRect::bottom(Val::Px(12.0)),
+                    ..default()
+                },
             ));
             for (i, label) in choices.iter().enumerate() {
                 spawn_standard_button(
@@ -119,7 +130,10 @@ pub fn handle_modal_input(
         }
         let Some(kind) = prompt.0.clone() else { return };
         match kind {
-            PromptKind::CampaignHasProgress { campaign_id, progress } => match choice.0 {
+            PromptKind::CampaignHasProgress {
+                campaign_id,
+                progress,
+            } => match choice.0 {
                 0 => {
                     if !validate_and_resume(
                         &mut commands,
@@ -130,23 +144,20 @@ pub fn handle_modal_input(
                     ) {
                         warn!("stale progress — starting fresh");
                         start_campaign_fresh(
-                        &mut commands,
-                        &db,
-                        &mut next_state,
-                        &campaign_id,
-                        paths.as_deref(),
-                        settings.current_slot,
-                    );
+                            &mut commands,
+                            &db,
+                            &mut next_state,
+                            &campaign_id,
+                            paths.as_deref(),
+                            settings.current_slot,
+                        );
                     }
                     prompt.0 = None;
                 }
                 1 => {
                     if let Some(p) = paths.as_deref() {
-                        let _ = save_repo::clear_campaign(
-                            &p.0,
-                            settings.current_slot,
-                            &campaign_id,
-                        );
+                        let _ =
+                            save_repo::clear_campaign(&p.0, settings.current_slot, &campaign_id);
                     }
                     start_campaign_fresh(
                         &mut commands,

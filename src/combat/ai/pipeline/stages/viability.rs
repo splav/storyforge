@@ -23,7 +23,10 @@ impl PlanStage for ViabilityStage {
         let Some(threshold) = intent_viability_threshold(&ctx.intent) else {
             // No threshold for this intent — all plans trivially pass.
             for ann in pool.annotations.iter_mut() {
-                ann.viability = ViabilityResult { passed: true, adjusted_score: ann.score };
+                ann.viability = ViabilityResult {
+                    passed: true,
+                    adjusted_score: ann.score,
+                };
             }
             return;
         };
@@ -31,13 +34,19 @@ impl PlanStage for ViabilityStage {
         let max_align = pool
             .annotations
             .iter()
-            .map(|a| a.factors.get_plan(crate::combat::ai::scoring::factors::PlanFactor::Intent))
+            .map(|a| {
+                a.factors
+                    .get_plan(crate::combat::ai::scoring::factors::PlanFactor::Intent)
+            })
             .fold(f32::NEG_INFINITY, f32::max);
 
         if max_align >= threshold {
             // Gate passes — record current scores as adjusted scores.
             for ann in pool.annotations.iter_mut() {
-                ann.viability = ViabilityResult { passed: true, adjusted_score: ann.score };
+                ann.viability = ViabilityResult {
+                    passed: true,
+                    adjusted_score: ann.score,
+                };
             }
             return;
         }
@@ -47,7 +56,10 @@ impl PlanStage for ViabilityStage {
         let hp_pct = scoring.active.hp_pct();
         let actor_danger = scoring.maps.danger.get(scoring.active.pos);
         let midpanic_hp = scoring.world.difficulty.midpanic_hp_threshold();
-        let panic_danger = scoring.world.difficulty.awareness_danger_threshold(scoring.world.tuning);
+        let panic_danger = scoring
+            .world
+            .difficulty
+            .awareness_danger_threshold(scoring.world.tuning);
         let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
 
         let candidate: Option<(TacticalIntent, IntentReason)> = if midpanic {
@@ -68,34 +80,39 @@ impl PlanStage for ViabilityStage {
                 _ => None,
             };
             let from_kind = ctx.intent.kind();
-            default_focus_target(scoring.active, scoring.snap, &pool.plans, ctx.actor_pos, exclude)
-                .map(|t| {
-                    (
-                        TacticalIntent::FocusTarget { target: t },
-                        IntentReason::ViabilityFallback {
-                            from: from_kind,
-                            max_align,
-                            threshold,
-                        },
-                    )
-                })
+            default_focus_target(
+                scoring.active,
+                scoring.snap,
+                &pool.plans,
+                ctx.actor_pos,
+                exclude,
+            )
+            .map(|t| {
+                (
+                    TacticalIntent::FocusTarget { target: t },
+                    IntentReason::ViabilityFallback {
+                        from: from_kind,
+                        max_align,
+                        threshold,
+                    },
+                )
+            })
         };
 
         let swapped = if let Some((new_intent, new_reason)) = candidate {
-            if ctx.intent.kind() != new_intent.kind()
-                || ctx.intent.target() != new_intent.target()
+            if ctx.intent.kind() != new_intent.kind() || ctx.intent.target() != new_intent.target()
             {
                 ctx.intent = new_intent;
                 ctx.intent_reason = new_reason;
                 // Extract raw_factors as a mut slice for rescore_with_intent.
                 let mut raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
-                let new_scores = rescore_with_intent(
-                    &mut pool.plans,
-                    &mut raw_factors,
-                    &ctx.intent,
-                    scoring,
-                );
-                for (ann, (new_score, new_raw)) in pool.annotations.iter_mut().zip(new_scores.into_iter().zip(raw_factors.into_iter())) {
+                let new_scores =
+                    rescore_with_intent(&mut pool.plans, &mut raw_factors, &ctx.intent, scoring);
+                for (ann, (new_score, new_raw)) in pool
+                    .annotations
+                    .iter_mut()
+                    .zip(new_scores.into_iter().zip(raw_factors.into_iter()))
+                {
                     ann.set_score(new_score);
                     ann.factors = new_raw;
                 }
@@ -109,7 +126,10 @@ impl PlanStage for ViabilityStage {
 
         // Write per-plan viability result (passed=false means a swap occurred).
         for ann in pool.annotations.iter_mut() {
-            ann.viability = ViabilityResult { passed: !swapped, adjusted_score: ann.score };
+            ann.viability = ViabilityResult {
+                passed: !swapped,
+                adjusted_score: ann.score,
+            };
         }
     }
 }
@@ -119,9 +139,9 @@ impl PlanStage for ViabilityStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::IntentReason;
     use crate::combat::ai::plan::types::TurnPlan;
+    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -167,7 +187,10 @@ mod tests {
     fn viability_stage_switches_intent_on_midpanic() {
         // ── 1. Test data ──
         // Low HP + high danger + zero intent alignment → midpanic branch.
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(3).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(3)
+            .max_hp(20)
+            .build();
         let mut pool = pool_with_intent_factor(0.0);
 
         // ── 2. Harness ──
@@ -181,10 +204,14 @@ mod tests {
         });
 
         // ── 5. Assert ──
-        assert!(matches!(post_intent, TacticalIntent::ProtectSelf), "expected ProtectSelf");
+        assert!(
+            matches!(post_intent, TacticalIntent::ProtectSelf),
+            "expected ProtectSelf"
+        );
         assert!(
             matches!(post_reason, IntentReason::MidpanicFallback { .. }),
-            "expected MidpanicFallback, got {:?}", post_reason,
+            "expected MidpanicFallback, got {:?}",
+            post_reason,
         );
         // swap occurred → passed=false
         assert!(!pool.annotations[0].viability.passed);
@@ -218,7 +245,9 @@ mod tests {
     fn viability_stage_no_enemies_keeps_intent() {
         // ── 1. Test data ──
         // Zero intent alignment, no enemies to fall back to → no swap.
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
         let mut pool = pool_with_intent_factor(0.0);
 
         // ── 2. Harness ──

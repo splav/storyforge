@@ -1,9 +1,9 @@
 pub mod advance_turn;
 pub mod ai;
-pub mod dice_resource;
-pub mod engine_bridge;
 pub mod command_input;
+pub mod dice_resource;
 pub mod enemy_popup;
+pub mod engine_bridge;
 pub mod legality_adapter;
 pub mod pipeline;
 pub mod turn_order;
@@ -13,9 +13,9 @@ pub use legality_adapter::BevyActions;
 pub use dice_resource::DiceRngRes;
 
 use crate::app_state::AppState;
+use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::ActiveCombatant;
 use crate::game::messages::StartCombat;
-use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::CombatContext;
 use bevy::prelude::*;
 
@@ -41,7 +41,9 @@ pub fn start_combat_system(
     for ev in events.read() {
         ctx.round = 0;
         ctx.encounter = Some(ev.encounter);
-        for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
+        for e in &active_q {
+            commands.entity(e).remove::<ActiveCombatant>();
+        }
         log.0.clear();
         log.push(CombatEvent::CombatStarted);
         next.set(AppState::Combat);

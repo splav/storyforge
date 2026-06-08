@@ -17,7 +17,6 @@ use storyforge::game::resources::HexPositions;
 
 use super::common;
 
-
 // ── EngineTraceWriter smoke test (Phase 5 step 5d, gate #11 / #12 / #14) ─────
 
 /// Verifies that `EngineTraceWriter` can open a file, write an `InitLine`
@@ -105,12 +104,12 @@ fn engine_trace_writer_init_and_step() {
 /// Gate #14 from Phase 5 §7.
 #[test]
 fn engine_trace_full_combat_record_replay() {
-    use combat_engine::state::CombatState;
-    use combat_engine::trace::{parse_init, parse_step, post_state_hash_hex, SCHEMA_VERSION};
     use combat_engine::dice::DiceRng;
+    use combat_engine::state::CombatState;
     use combat_engine::step::step as engine_step;
-    use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
+    use combat_engine::trace::{parse_init, parse_step, post_state_hash_hex, SCHEMA_VERSION};
     use std::io::BufRead;
+    use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
 
     // Use a unique temp path.
     let ts = std::time::SystemTime::now()
@@ -131,8 +130,8 @@ fn engine_trace_full_combat_record_replay() {
         .spawn(CombatantBundle::new(
             Team::Player,
             common::apps::bridge::bridge_stats(),
-            0,  // armor
-            6,  // speed
+            0, // armor
+            6, // speed
             vec![],
             common::apps::bridge::default_equipment(),
         ))
@@ -178,13 +177,19 @@ fn engine_trace_full_combat_record_replay() {
     // Action 1: Move to step1_hex.
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor, path: vec![step1_hex] });
+        .write(ActionInput::Move {
+            actor,
+            path: vec![step1_hex],
+        });
     app.update();
 
     // Action 2: Move to step2_hex.
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor, path: vec![step2_hex] });
+        .write(ActionInput::Move {
+            actor,
+            path: vec![step2_hex],
+        });
     app.update();
 
     // Action 3: EndTurn.
@@ -222,7 +227,10 @@ fn engine_trace_full_combat_record_replay() {
             parsed_init.phase,
             parsed_init.rng_seed,
         );
-        s.set_turn_queue(parsed_init.turn_queue.order.clone(), parsed_init.turn_queue.index);
+        s.set_turn_queue(
+            parsed_init.turn_queue.order.clone(),
+            parsed_init.turn_queue.index,
+        );
         s.set_next_synthetic_uid(parsed_init.next_synthetic_uid);
         s
     };
@@ -234,8 +242,7 @@ fn engine_trace_full_combat_record_replay() {
     let content = TomlContentView::empty();
 
     for (idx, line_str) in raw_lines[1..].iter().enumerate() {
-        let recorded = parse_step(line_str)
-            .unwrap_or_else(|e| panic!("parse step {idx}: {e}"));
+        let recorded = parse_step(line_str).unwrap_or_else(|e| panic!("parse step {idx}: {e}"));
 
         let (live_events, live_ctx) = engine_step(
             &mut replay_state,
@@ -245,10 +252,7 @@ fn engine_trace_full_combat_record_replay() {
         )
         .unwrap_or_else(|e| panic!("replay step {idx} failed: {e:?}"));
 
-        assert_eq!(
-            live_events, recorded.events,
-            "step {idx}: events diverged"
-        );
+        assert_eq!(live_events, recorded.events, "step {idx}: events diverged");
         assert_eq!(
             live_ctx.rng_calls, recorded.rng_calls,
             "step {idx}: rng_calls diverged (recorded={} live={})",
@@ -277,9 +281,9 @@ fn engine_trace_full_combat_record_replay() {
 ///   5. Read the produced ai.jsonl line; assert engine_step_range == [0, 1].
 #[test]
 fn ai_log_engine_step_range_populated() {
-    use storyforge::combat::ai::log::{AiLogger, PendingAiLogEntries};
-    use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
     use std::io::BufRead;
+    use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
+    use storyforge::combat::ai::log::{AiLogger, PendingAiLogEntries};
 
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -312,8 +316,8 @@ fn ai_log_engine_step_range_populated() {
 
     // Build a minimal actor_tick event (mimics what the AI system would push).
     // We push it directly into PendingAiLogEntries with start_step = 0.
-    let fake_entry: storyforge::combat::ai::log::ActorTickEvent = serde_json::from_value(
-        serde_json::json!({
+    let fake_entry: storyforge::combat::ai::log::ActorTickEvent =
+        serde_json::from_value(serde_json::json!({
             "event_type": "actor_tick",
             "schema_version": 36,
             "round": 1,
@@ -323,9 +327,8 @@ fn ai_log_engine_step_range_populated() {
             "snapshot": {"units": [], "round": 1},
             "plans": [],
             "decision": {"kind": "end_turn"}
-        }),
-    )
-    .expect("test fixture parses as ActorTickEvent");
+        }))
+        .expect("test fixture parses as ActorTickEvent");
     app.world_mut()
         .resource_mut::<PendingAiLogEntries>()
         .entries
@@ -346,7 +349,10 @@ fn ai_log_engine_step_range_populated() {
 
     // Pending queue must be empty after flush.
     assert!(
-        app.world().resource::<PendingAiLogEntries>().entries.is_empty(),
+        app.world()
+            .resource::<PendingAiLogEntries>()
+            .entries
+            .is_empty(),
         "pending queue must be empty after flush"
     );
 
@@ -361,8 +367,12 @@ fn ai_log_engine_step_range_populated() {
     assert_eq!(lines.len(), 1, "expected exactly 1 actor_tick line");
     let v: serde_json::Value = serde_json::from_str(&lines[0]).expect("parse actor_tick json");
 
-    let range = v.get("engine_step_range").expect("engine_step_range must be present");
-    let arr = range.as_array().expect("engine_step_range must be an array");
+    let range = v
+        .get("engine_step_range")
+        .expect("engine_step_range must be present");
+    let arr = range
+        .as_array()
+        .expect("engine_step_range must be an array");
     assert_eq!(arr.len(), 2);
     assert_eq!(arr[0].as_u64().unwrap(), 0, "start_step must be 0");
     assert_eq!(arr[1].as_u64().unwrap(), 1, "end_step must be 1");

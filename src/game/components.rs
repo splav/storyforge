@@ -1,6 +1,6 @@
-use combat_engine::{AbilityId, ArmorId, StatusId, WeaponId};
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
+use combat_engine::{AbilityId, ArmorId, StatusId, WeaponId};
 
 #[derive(Component, Default)]
 pub struct Combatant;
@@ -40,8 +40,6 @@ pub struct KeepAliveTarget {
     pub marker_color: [f32; 3],
 }
 
-
-
 /// Pending phase transformations for an enemy, in declaration order.
 /// Each entry is applied at most once when its trigger fires, then removed.
 #[derive(Component, Debug, Clone)]
@@ -73,7 +71,6 @@ pub struct Tags(pub std::collections::BTreeSet<combat_engine::TagId>);
 /// Used only for `max_active` caps — summons outlive their summoner by default.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SummonedBy(pub Entity);
-
 
 #[derive(Component, Default)]
 pub struct PartyMember;
@@ -162,7 +159,10 @@ impl Default for Reactions {
         // reactions_left = reactions_max on round wrap via `start_round`, then
         // `project_state_to_ecs` mirrors that back into ECS. A unit cannot AoO in the
         // round it was spawned in.
-        Self { remaining: 0, max: 1 }
+        Self {
+            remaining: 0,
+            max: 1,
+        }
     }
 }
 

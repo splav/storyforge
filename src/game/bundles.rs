@@ -1,6 +1,6 @@
-use combat_engine::AbilityId;
 use crate::game::components::*;
 use bevy::prelude::*;
+use combat_engine::AbilityId;
 
 #[derive(Bundle)]
 pub struct CombatantBundle {
@@ -34,7 +34,11 @@ impl CombatantBundle {
             stats,
             speed: Speed(speed),
             initiative: Initiative(0),
-            action_points: ActionPoints { action_points: 1, max_ap: 1, movement_points: speed },
+            action_points: ActionPoints {
+                action_points: 1,
+                max_ap: 1,
+                movement_points: speed,
+            },
             abilities: Abilities(abilities),
             status_effects: StatusEffects::default(),
             equipment,
@@ -83,7 +87,11 @@ pub fn npc_bundle(team: Team, vital: Vital) -> impl Bundle {
         vital,
         Speed(0),
         Initiative(0),
-        ActionPoints { action_points: 1, max_ap: 1, movement_points: 0 },
+        ActionPoints {
+            action_points: 1,
+            max_ap: 1,
+            movement_points: 0,
+        },
         Reactions::default(),
         StatusEffects::default(),
     )

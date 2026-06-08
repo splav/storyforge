@@ -7,20 +7,16 @@
 
 use bevy::prelude::*;
 
+use combat_engine::{AbilityId, DiceExpr, StatusId};
 use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
 use storyforge::content::content_view::ActiveContent;
-use combat_engine::{AbilityId, DiceExpr, StatusId};
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
-use storyforge::game::components::{
-    CombatStats,
-    Team,
-};
+use storyforge::game::components::{CombatStats, Team};
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::resources::HexPositions;
 
 use super::common;
-
 
 // ── Phase 2 step 7b: Cast event → CombatLog translation tests ───────────────
 
@@ -84,8 +80,6 @@ fn run_cast_log_test(
     let _ = target; // silence unused-variable warning
 }
 
-
-
 /// Cast with `EffectDef::Damage` emits `AbilityUsed` + `DamageResult` in CombatLog.
 ///
 /// Caster has strength=0 (str_mod=0) so damage = dice bonus only (5).
@@ -96,8 +90,13 @@ fn cast_emits_damage_result_log_entry() {
     use storyforge::content::abilities::TargetType;
 
     let zero_str_stats = CombatStats {
-        max_hp: 20, strength: 0, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
+        max_hp: 20,
+        strength: 0,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
     };
     let ability_def = AbilityDef {
         id: AbilityId::from("dmg_ability"),
@@ -107,7 +106,9 @@ fn cast_emits_damage_result_log_entry() {
         ai_tags_override: None,
         is_move_toggle: false,
         engine: combat_engine::AbilityDef {
-            effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 5) },
+            effect: EffectDef::Damage {
+                dice: DiceExpr::new(0, 1, 5),
+            },
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             costs: vec![],
@@ -118,32 +119,75 @@ fn cast_emits_damage_result_log_entry() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
 
-    run_cast_log_test(ability_def, zero_str_stats, |_| {}, |log| {
-        let ability_used: Vec<_> = log.0.iter().filter_map(|e| {
-            if let CombatEvent::AbilityUsed { actor: a, ability_name, target: t, is_aoe, .. } = e {
-                Some((*a, ability_name.clone(), *t, *is_aoe))
-            } else { None }
-        }).collect();
-        assert_eq!(ability_used.len(), 1, "expected exactly one AbilityUsed, got {:?}", ability_used);
-        let (_, au_name, _, au_aoe) = &ability_used[0];
-        assert_eq!(au_name, "Fireball");
-        assert!(!au_aoe, "ability is not AoE");
+    run_cast_log_test(
+        ability_def,
+        zero_str_stats,
+        |_| {},
+        |log| {
+            let ability_used: Vec<_> = log
+                .0
+                .iter()
+                .filter_map(|e| {
+                    if let CombatEvent::AbilityUsed {
+                        actor: a,
+                        ability_name,
+                        target: t,
+                        is_aoe,
+                        ..
+                    } = e
+                    {
+                        Some((*a, ability_name.clone(), *t, *is_aoe))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(
+                ability_used.len(),
+                1,
+                "expected exactly one AbilityUsed, got {:?}",
+                ability_used
+            );
+            let (_, au_name, _, au_aoe) = &ability_used[0];
+            assert_eq!(au_name, "Fireball");
+            assert!(!au_aoe, "ability is not AoE");
 
-        let dmg_results: Vec<_> = log.0.iter().filter_map(|e| {
-            if let CombatEvent::DamageResult { target: t, final_damage, armor_reduced, .. } = e {
-                Some((*t, *final_damage, *armor_reduced))
-            } else { None }
-        }).collect();
-        assert_eq!(dmg_results.len(), 1, "expected exactly one DamageResult, got {:?}", dmg_results);
-        let (_, dr_dmg, dr_armor) = dmg_results[0];
-        assert_eq!(dr_dmg, 5, "final_damage must be 5 (0d1+5, str_mod=0, armor=0)");
-        assert_eq!(dr_armor, 0, "armor_reduced must be 0");
-    });
+            let dmg_results: Vec<_> = log
+                .0
+                .iter()
+                .filter_map(|e| {
+                    if let CombatEvent::DamageResult {
+                        target: t,
+                        final_damage,
+                        armor_reduced,
+                        ..
+                    } = e
+                    {
+                        Some((*t, *final_damage, *armor_reduced))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(
+                dmg_results.len(),
+                1,
+                "expected exactly one DamageResult, got {:?}",
+                dmg_results
+            );
+            let (_, dr_dmg, dr_armor) = dmg_results[0];
+            assert_eq!(
+                dr_dmg, 5,
+                "final_damage must be 5 (0d1+5, str_mod=0, armor=0)"
+            );
+            assert_eq!(dr_armor, 0, "armor_reduced must be 0");
+        },
+    );
 }
 
 /// Cast with status-only ability emits `AbilityUsed` + `StatusApplied` in CombatLog.
@@ -169,25 +213,48 @@ fn cast_emits_status_applied_log_entry() {
             cost_ap: 1,
             aoe: AoEShape::None,
             friendly_fire: false,
-            statuses: vec![StatusApplication { status: status_id.clone(), duration_rounds: 2, on: StatusOn::Target }],
+            statuses: vec![StatusApplication {
+                status: status_id.clone(),
+                duration_rounds: 2,
+                on: StatusOn::Target,
+            }],
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
 
-    run_cast_log_test(ability_def, common::apps::bridge::bridge_stats(), |_| {}, |log| {
-        let status_events: Vec<_> = log.0.iter().filter_map(|e| {
-            if let CombatEvent::StatusApplied { target: t, status } = e {
-                Some((*t, status.clone()))
-            } else { None }
-        }).collect();
-        assert_eq!(status_events.len(), 1, "expected exactly one StatusApplied, got {:?}", status_events);
-        let (_, ev_status) = &status_events[0];
-        assert_eq!(*ev_status, status_id, "StatusApplied status must be 'burning'");
-    });
+    run_cast_log_test(
+        ability_def,
+        common::apps::bridge::bridge_stats(),
+        |_| {},
+        |log| {
+            let status_events: Vec<_> = log
+                .0
+                .iter()
+                .filter_map(|e| {
+                    if let CombatEvent::StatusApplied { target: t, status } = e {
+                        Some((*t, status.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(
+                status_events.len(),
+                1,
+                "expected exactly one StatusApplied, got {:?}",
+                status_events
+            );
+            let (_, ev_status) = &status_events[0];
+            assert_eq!(
+                *ev_status, status_id,
+                "StatusApplied status must be 'burning'"
+            );
+        },
+    );
 }
 
 /// Cast with mana cost emits `ManaChanged` in CombatLog.
@@ -196,8 +263,8 @@ fn cast_emits_status_applied_log_entry() {
 /// After cast: mana=(7,10) → bridge diff emits ManaChanged.
 #[test]
 fn cast_emits_mana_changed_log_entry() {
-    use storyforge::content::abilities::{ResourceCost, TargetType};
     use combat_engine::ResourceKind;
+    use storyforge::content::abilities::{ResourceCost, TargetType};
 
     let ability_def = AbilityDef {
         id: AbilityId::from("mana_blast"),
@@ -210,7 +277,10 @@ fn cast_emits_mana_changed_log_entry() {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::None,
-            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+            costs: vec![ResourceCost {
+                resource: ResourceKind::Mana,
+                amount: 3,
+            }],
             cost_ap: 0,
             aoe: AoEShape::None,
             friendly_fire: false,
@@ -218,35 +288,55 @@ fn cast_emits_mana_changed_log_entry() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
 
-    run_cast_log_test(ability_def, common::apps::bridge::bridge_stats(), |unit| {
-        unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
-    }, |log| {
-        let mana_events: Vec<_> = log.0.iter().filter_map(|e| {
-            if let CombatEvent::PoolChanged {
-                actor: a, pool: combat_engine::PoolKind::Mana,
-                current, max, cause: combat_engine::PoolChangeCause::Spent
-            } = e {
-                Some((*a, *current, *max))
-            } else { None }
-        }).collect();
-        assert_eq!(mana_events.len(), 1, "expected exactly one PoolChanged{{Spent,Mana}}, got {:?}", mana_events);
-        let (_, mc_current, mc_max) = mana_events[0];
-        assert_eq!(mc_current, 7, "mana after cast must be 10 - 3 = 7");
-        assert_eq!(mc_max, 10, "mana max must be 10");
-    });
+    run_cast_log_test(
+        ability_def,
+        common::apps::bridge::bridge_stats(),
+        |unit| {
+            unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
+        },
+        |log| {
+            let mana_events: Vec<_> = log
+                .0
+                .iter()
+                .filter_map(|e| {
+                    if let CombatEvent::PoolChanged {
+                        actor: a,
+                        pool: combat_engine::PoolKind::Mana,
+                        current,
+                        max,
+                        cause: combat_engine::PoolChangeCause::Spent,
+                    } = e
+                    {
+                        Some((*a, *current, *max))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(
+                mana_events.len(),
+                1,
+                "expected exactly one PoolChanged{{Spent,Mana}}, got {:?}",
+                mana_events
+            );
+            let (_, mc_current, mc_max) = mana_events[0];
+            assert_eq!(mc_current, 7, "mana after cast must be 10 - 3 = 7");
+            assert_eq!(mc_max, 10, "mana max must be 10");
+        },
+    );
 }
 
 // ── Phase 2 step 7a: ActionInput::Cast routing smoke test ────────────────────
 
 #[test]
 fn process_action_system_routes_cast_into_engine() {
-    use storyforge::content::abilities::{ResourceCost, TargetType};
     use combat_engine::ResourceKind;
+    use storyforge::content::abilities::{ResourceCost, TargetType};
 
     let mut app = common::apps::bridge::bridge_app();
 
@@ -279,7 +369,10 @@ fn process_action_system_routes_cast_into_engine() {
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::None,
             // No damage in 7a — just verify cost flows through
-            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+            costs: vec![ResourceCost {
+                resource: ResourceKind::Mana,
+                amount: 3,
+            }],
             cost_ap: 1,
             aoe: AoEShape::None,
             friendly_fire: false,
@@ -287,8 +380,8 @@ fn process_action_system_routes_cast_into_engine() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
     common::apps::bridge::insert_ability(&mut app, zap_def);
@@ -312,7 +405,9 @@ fn process_action_system_routes_cast_into_engine() {
     let state = app.world().resource::<CombatStateRes>();
     let caster_unit = state.0.unit(caster_uid).expect("caster still in state");
     assert_eq!(
-        caster_unit.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
+        caster_unit.pools[combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
         1,
         "AP cost paid"
     );
@@ -331,8 +426,8 @@ fn process_action_system_routes_cast_into_engine() {
 /// `expect_crit_fail=true`  → log must contain `CriticalMiss`, must NOT contain `DamageResult`.
 /// `expect_crit_fail=false` → log must NOT contain `CriticalMiss` or `CritFailSideEffect`.
 fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
-    use storyforge::content::abilities::{ResourceCost, TargetType};
     use combat_engine::ResourceKind;
+    use storyforge::content::abilities::{ResourceCost, TargetType};
 
     let ability_id = AbilityId::from("cf_test_ability");
     let ability_def = AbilityDef {
@@ -349,10 +444,15 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
             effect: if expect_crit_fail {
                 EffectDef::None
             } else {
-                EffectDef::Damage { dice: DiceExpr::new(0, 1, 5) }
+                EffectDef::Damage {
+                    dice: DiceExpr::new(0, 1, 5),
+                }
             },
             costs: if expect_crit_fail {
-                vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }]
+                vec![ResourceCost {
+                    resource: ResourceKind::Mana,
+                    amount: 3,
+                }]
             } else {
                 vec![]
             },
@@ -363,16 +463,21 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
 
     let caster_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
     let zero_str_stats = CombatStats {
-        max_hp: 20, strength: 0, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
+        max_hp: 20,
+        strength: 0,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
     };
 
     let mut app = common::apps::bridge::bridge_app();
@@ -417,16 +522,44 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
     let log = app.world().resource::<CombatLog>();
 
     if expect_crit_fail {
-        let crit_miss = log.0.iter().any(|e| matches!(e, CombatEvent::CriticalMiss { actor: a } if *a == caster));
-        assert!(crit_miss, "CombatLog must contain CriticalMiss for the caster; got: {:?}", log.0);
+        let crit_miss = log
+            .0
+            .iter()
+            .any(|e| matches!(e, CombatEvent::CriticalMiss { actor: a } if *a == caster));
+        assert!(
+            crit_miss,
+            "CombatLog must contain CriticalMiss for the caster; got: {:?}",
+            log.0
+        );
 
-        let has_damage = log.0.iter().any(|e| matches!(e, CombatEvent::DamageResult { .. }));
-        assert!(!has_damage, "CombatLog must NOT contain DamageResult on crit-fail miss; got: {:?}", log.0);
+        let has_damage = log
+            .0
+            .iter()
+            .any(|e| matches!(e, CombatEvent::DamageResult { .. }));
+        assert!(
+            !has_damage,
+            "CombatLog must NOT contain DamageResult on crit-fail miss; got: {:?}",
+            log.0
+        );
     } else {
-        let has_crit_miss = log.0.iter().any(|e| matches!(e, CombatEvent::CriticalMiss { .. }));
-        let has_crit_side = log.0.iter().any(|e| matches!(e, CombatEvent::CritFailSideEffect { .. }));
-        assert!(!has_crit_miss, "CombatLog must NOT contain CriticalMiss when d20≠1; got: {:?}", log.0);
-        assert!(!has_crit_side, "CombatLog must NOT contain CritFailSideEffect when d20≠1; got: {:?}", log.0);
+        let has_crit_miss = log
+            .0
+            .iter()
+            .any(|e| matches!(e, CombatEvent::CriticalMiss { .. }));
+        let has_crit_side = log
+            .0
+            .iter()
+            .any(|e| matches!(e, CombatEvent::CritFailSideEffect { .. }));
+        assert!(
+            !has_crit_miss,
+            "CombatLog must NOT contain CriticalMiss when d20≠1; got: {:?}",
+            log.0
+        );
+        assert!(
+            !has_crit_side,
+            "CombatLog must NOT contain CritFailSideEffect when d20≠1; got: {:?}",
+            log.0
+        );
     }
 
     let _ = target;
@@ -487,8 +620,8 @@ fn cast_summon_creates_ecs_entity_synchronously() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
 
@@ -499,7 +632,15 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         faction: None,
         path: None,
         speed: 4,
-        stats: CombatStats { max_hp: 8, strength: 2, dexterity: 5, constitution: 8, intelligence: 0, wisdom: 5, charisma: 5 },
+        stats: CombatStats {
+            max_hp: 8,
+            strength: 2,
+            dexterity: 5,
+            constitution: 8,
+            intelligence: 0,
+            wisdom: 5,
+            charisma: 5,
+        },
         equipment: EquipmentBlock {
             main_hand: "unarmed".into(),
             off_hand: None,
@@ -518,7 +659,10 @@ fn cast_summon_creates_ecs_entity_synchronously() {
     {
         let mut content = app.world_mut().resource_mut::<ActiveContent>();
         content.0.abilities.insert(ability_id.clone(), ability_def);
-        content.0.unit_templates.insert(template_id.into(), template);
+        content
+            .0
+            .unit_templates
+            .insert(template_id.into(), template);
     }
 
     let summoner = common::apps::bridge::spawn_unit(
@@ -548,33 +692,57 @@ fn cast_summon_creates_ecs_entity_synchronously() {
     app.update();
 
     // Assert: a new Combatant entity exists (besides the summoner).
-    let combatants: Vec<Entity> = app.world_mut()
+    let combatants: Vec<Entity> = app
+        .world_mut()
         .query::<(Entity, &Combatant)>()
         .iter(app.world())
         .map(|(e, _)| e)
         .filter(|&e| e != summoner)
         .collect();
-    assert_eq!(combatants.len(), 1, "expected exactly one summoned entity, got {:?}", combatants);
+    assert_eq!(
+        combatants.len(),
+        1,
+        "expected exactly one summoned entity, got {:?}",
+        combatants
+    );
     let summoned = combatants[0];
 
     // Assert: registered in UnitIdMap.
     let id_map = app.world().resource::<UnitIdMap>();
-    assert!(id_map.get_id(summoned).is_some(), "summoned entity must be in UnitIdMap");
+    assert!(
+        id_map.get_id(summoned).is_some(),
+        "summoned entity must be in UnitIdMap"
+    );
 
     // Assert: has a position adjacent to summoner.
     let positions = app.world().resource::<HexPositions>();
-    let pos = positions.get(&summoned).expect("summoned entity must have a HexPositions entry");
-    assert_ne!(pos, summoner_pos, "summoned entity must not share summoner's hex");
+    let pos = positions
+        .get(&summoned)
+        .expect("summoned entity must have a HexPositions entry");
+    assert_ne!(
+        pos, summoner_pos,
+        "summoned entity must not share summoner's hex"
+    );
 
     // Assert: SummonedBy component set.
-    let summoned_by = app.world().entity(summoned).get::<SummonedBy>()
+    let summoned_by = app
+        .world()
+        .entity(summoned)
+        .get::<SummonedBy>()
         .expect("summoned entity must have SummonedBy component");
     assert_eq!(summoned_by.0, summoner);
 
     // Assert: CombatLog has Summoned entry.
     let log = app.world().resource::<CombatLog>();
-    let has_summoned = log.0.iter().any(|e| matches!(e, CombatEvent::Summoned { summoner: s, .. } if *s == summoner));
-    assert!(has_summoned, "CombatLog must contain Summoned entry; got: {:?}", log.0);
+    let has_summoned = log
+        .0
+        .iter()
+        .any(|e| matches!(e, CombatEvent::Summoned { summoner: s, .. } if *s == summoner));
+    assert!(
+        has_summoned,
+        "CombatLog must contain Summoned entry; got: {:?}",
+        log.0
+    );
 }
 
 /// After a summon cast, the combat log must contain an `InitiativeRolled` entry
@@ -616,8 +784,8 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
 
@@ -628,7 +796,15 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
         faction: None,
         path: None,
         speed: 4,
-        stats: CombatStats { max_hp: 8, strength: 2, dexterity: 5, constitution: 8, intelligence: 0, wisdom: 5, charisma: 5 },
+        stats: CombatStats {
+            max_hp: 8,
+            strength: 2,
+            dexterity: 5,
+            constitution: 8,
+            intelligence: 0,
+            wisdom: 5,
+            charisma: 5,
+        },
         equipment: EquipmentBlock {
             main_hand: "unarmed".into(),
             off_hand: None,
@@ -647,7 +823,10 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
     {
         let mut content = app.world_mut().resource_mut::<ActiveContent>();
         content.0.abilities.insert(ability_id.clone(), ability_def);
-        content.0.unit_templates.insert(template_id.into(), template);
+        content
+            .0
+            .unit_templates
+            .insert(template_id.into(), template);
     }
 
     let summoner = common::apps::bridge::spawn_unit(
@@ -688,9 +867,10 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
 
     // The combat log must contain InitiativeRolled for the summoned entity.
     let log = app.world().resource::<CombatLog>();
-    let initiative_entry = log.0.iter().find(|e| {
-        matches!(e, CombatEvent::InitiativeRolled { actor, .. } if *actor == summoned)
-    });
+    let initiative_entry = log
+        .0
+        .iter()
+        .find(|e| matches!(e, CombatEvent::InitiativeRolled { actor, .. } if *actor == summoned));
     assert!(
         initiative_entry.is_some(),
         "CombatLog must contain InitiativeRolled for the summoned entity; got: {:?}",

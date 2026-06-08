@@ -24,25 +24,42 @@ use crate::common::engine_unit::EngineUnitBuilder;
 /// (which returns None for unknown statuses).
 struct StubContent;
 
-static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef = storyforge::combat_engine::StatusDef {
-    causes_disadvantage: false,
-    blocks_mana_abilities: false,
-    forces_targeting: false,
-    skips_turn: false,
-    bonuses: storyforge::combat_engine::StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
-    hp_percent_dot: 0,
-    heal_per_tick: 0,
-};
+static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef =
+    storyforge::combat_engine::StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: storyforge::combat_engine::StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    };
 
 impl ContentView for StubContent {
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &storyforge::combat_engine::StatusId) -> Option<&storyforge::combat_engine::StatusDef> {
+    fn ability_def(
+        &self,
+        _: &storyforge::combat_engine::AbilityId,
+    ) -> Option<&storyforge::combat_engine::AbilityDef> {
+        None
+    }
+    fn status_def(
+        &self,
+        _: &storyforge::combat_engine::StatusId,
+    ) -> Option<&storyforge::combat_engine::StatusDef> {
         Some(&STUB_STATUS_DEF)
     }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+        None
+    }
 }
 
-fn uid(n: u64) -> UnitId { UnitId(n) }
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
 
 /// speed=3, Mp=3, reactions_left=0, hp depends on alive.
 fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
@@ -79,9 +96,12 @@ fn new_queue_has_index_zero_and_correct_current() {
 fn advance_steps_through_queue_and_wraps() {
     let mut q = TurnQueue::new(vec![uid(1), uid(2), uid(3)]);
     assert_eq!(q.index, 0);
-    q.advance(); assert_eq!(q.index, 1);
-    q.advance(); assert_eq!(q.index, 2);
-    q.advance(); assert_eq!(q.index, 0); // wrapped
+    q.advance();
+    assert_eq!(q.index, 1);
+    q.advance();
+    assert_eq!(q.index, 2);
+    q.advance();
+    assert_eq!(q.index, 0); // wrapped
     assert_eq!(q.current(), Some(uid(1)));
 }
 
@@ -170,8 +190,8 @@ fn start_round_sets_index_zero_and_phase_actor_turn() {
 
 #[test]
 fn start_round_resets_reactions_for_alive_units_only() {
-    let alive = make_unit(uid(1), true,  2); // reactions_left starts at 0, max=2
-    let dead  = make_unit(uid(2), false, 1); // dead, reactions_left starts at 0
+    let alive = make_unit(uid(1), true, 2); // reactions_left starts at 0, max=2
+    let dead = make_unit(uid(2), false, 1); // dead, reactions_left starts at 0
 
     let mut state = CombatState::new(vec![alive, dead], 1, RoundPhase::PreRound, 0);
     state.set_turn_queue(vec![uid(1), uid(2)], 0);
@@ -196,11 +216,19 @@ fn start_round_resets_reactions_for_alive_units_only() {
 fn start_round_resets_queue_index_even_when_advanced() {
     // Multi-unit queue at a non-zero index must be reset by start_round.
     let u2 = make_unit(uid(2), true, 1);
-    let mut state2 = CombatState::new(vec![make_unit(uid(1), true, 1), u2], 1, RoundPhase::PreRound, 0);
+    let mut state2 = CombatState::new(
+        vec![make_unit(uid(1), true, 1), u2],
+        1,
+        RoundPhase::PreRound,
+        0,
+    );
     state2.set_turn_queue(vec![uid(1), uid(2)], 1);
     assert_eq!(state2.turn_queue.index, 1);
 
     state2.start_round(&StubContent);
 
-    assert_eq!(state2.turn_queue.index, 0, "start_round must reset index to 0");
+    assert_eq!(
+        state2.turn_queue.index, 0,
+        "start_round must reset index to 0"
+    );
 }

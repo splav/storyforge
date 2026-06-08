@@ -7,22 +7,28 @@
 //! builder's pub(crate) items through the file-level `use super::*;` below.
 
 use super::*;
-use crate::combat::ai::test_helpers::{UnitBuilder, snapshot_from, unit_snapshot_to_engine_unit};
+use crate::combat::ai::test_helpers::{snapshot_from, unit_snapshot_to_engine_unit, UnitBuilder};
 use crate::content::content_view::ContentView;
-use combat_engine::{AbilityId, StatusId};
 use crate::game::components::Team;
 use crate::game::hex::hex_from_offset;
+use combat_engine::{AbilityId, StatusId};
 
 fn db() -> ContentView {
     ContentView::load_global_for_tests()
 }
 
 fn get_def<'a>(content: &'a ContentView, id: &str) -> &'a AbilityDef {
-    content.abilities.get(&AbilityId::from(id)).expect("ability not found")
+    content
+        .abilities
+        .get(&AbilityId::from(id))
+        .expect("ability not found")
 }
 
 fn melee_caster(str_mod: i32) -> CasterContext {
-    CasterContext { str_mod, ..Default::default() }
+    CasterContext {
+        str_mod,
+        ..Default::default()
+    }
 }
 
 // --- estimate_kill_soon ---
@@ -38,12 +44,20 @@ fn melee_caster(str_mod: i32) -> CasterContext {
 fn estimate_kill_soon_is_zero_when_direct_damage_kills() {
     let content = db();
     let target = unit_snapshot_to_engine_unit(
-        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(1).build()
+        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
+            .hp(1)
+            .build(),
     );
     let ks = estimate_kill_soon(
-        get_def(&content, "melee_attack"), &target, &melee_caster(2), &content,
+        get_def(&content, "melee_attack"),
+        &target,
+        &melee_caster(2),
+        &content,
     );
-    assert_eq!(ks, 0.0, "kill_soon=0 when direct damage kills (p_kill_now covers it)");
+    assert_eq!(
+        ks, 0.0,
+        "kill_soon=0 when direct damage kills (p_kill_now covers it)"
+    );
 }
 
 /// melee_attack with str_mod=0 → direct=0; pending DoT (3/tick × 2 rounds = 6) ≥ hp=5
@@ -52,7 +66,9 @@ fn estimate_kill_soon_fires_on_pending_dot() {
     use combat_engine::state::ActiveStatus;
     use combat_engine::state::UnitId;
     let content = db();
-    let snap_unit = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
+    let snap_unit = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
+        .full_hp(5)
+        .build();
     let mut target = unit_snapshot_to_engine_unit(&snap_unit);
     target.statuses = vec![ActiveStatus {
         id: combat_engine::StatusId::from("poisoned"),
@@ -61,7 +77,10 @@ fn estimate_kill_soon_fires_on_pending_dot() {
         applier: combat_engine::state::EffectSource::Unit(UnitId(snap_unit.entity.to_bits())),
     }];
     let ks = estimate_kill_soon(
-        get_def(&content, "melee_attack"), &target, &melee_caster(0), &content,
+        get_def(&content, "melee_attack"),
+        &target,
+        &melee_caster(0),
+        &content,
     );
     assert_eq!(ks, 1.0, "pending DoT 6 ≥ hp=5 → kill_soon");
 }
@@ -71,7 +90,9 @@ fn estimate_kill_soon_fires_on_pending_dot() {
 fn estimate_kill_soon_fires_on_new_dot_from_ability() {
     let content = db();
     let target = unit_snapshot_to_engine_unit(
-        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build()
+        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
+            .full_hp(5)
+            .build(),
     );
     let c = CasterContext::default();
     let ks = estimate_kill_soon(get_def(&content, "poison_shot"), &target, &c, &content);
@@ -83,10 +104,15 @@ fn estimate_kill_soon_fires_on_new_dot_from_ability() {
 fn estimate_kill_soon_zero_when_combined_insufficient() {
     let content = db();
     let target = unit_snapshot_to_engine_unit(
-        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(100).build()
+        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
+            .full_hp(100)
+            .build(),
     );
     let ks = estimate_kill_soon(
-        get_def(&content, "melee_attack"), &target, &melee_caster(0), &content,
+        get_def(&content, "melee_attack"),
+        &target,
+        &melee_caster(0),
+        &content,
     );
     assert_eq!(ks, 0.0);
 }
@@ -104,10 +130,20 @@ fn estimate_kill_soon_rounds_expected_to_match_sim() {
         ..Default::default()
     };
     let target = unit_snapshot_to_engine_unit(
-        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(6).build()
+        &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
+            .hp(6)
+            .build(),
     );
-    let ks = estimate_kill_soon(get_def(&content, "melee_attack"), &target, &caster, &content);
-    assert_eq!(ks, 0.0, "expected=5.5 rounds to 6 ≥ hp=6 → direct kills, kill_soon=0");
+    let ks = estimate_kill_soon(
+        get_def(&content, "melee_attack"),
+        &target,
+        &caster,
+        &content,
+    );
+    assert_eq!(
+        ks, 0.0,
+        "expected=5.5 rounds to 6 ≥ hp=6 → direct kills, kill_soon=0"
+    );
 }
 
 // --- step_path_danger ---
@@ -170,14 +206,17 @@ fn hypothetical_enemy_damage_obeys_power_armor_floor_invariants() {
     let dmg = |str_mod: i32, armor: i32| -> f32 {
         let caster = melee_caster(str_mod);
         let target = unit_snapshot_to_engine_unit(
-            &UnitBuilder::new(1, Team::Enemy, fixed_pos).full_hp(200).armor(armor).build()
+            &UnitBuilder::new(1, Team::Enemy, fixed_pos)
+                .full_hp(200)
+                .armor(armor)
+                .build(),
         );
         hypothetical(def, &target, &caster, &content).enemy_damage
     };
 
     // 1. Power-monotonic: higher str_mod → strictly greater enemy_damage
     //    (armor=0 so the floor can't mask the difference).
-    let low_power  = dmg(1, 0);
+    let low_power = dmg(1, 0);
     let high_power = dmg(3, 0);
     assert!(
         high_power > low_power,
@@ -186,7 +225,7 @@ fn hypothetical_enemy_damage_obeys_power_armor_floor_invariants() {
 
     // 2. Armor-monotonic: higher armor → strictly less enemy_damage
     //    (str_mod=5 to stay well above the floor).
-    let low_armor  = dmg(5, 1);
+    let low_armor = dmg(5, 1);
     let high_armor = dmg(5, 3);
     assert!(
         high_armor < low_armor,
@@ -208,12 +247,17 @@ fn hypothetical_kill_now_when_damage_exceeds_hp() {
     let def = get_def(&content, "melee_attack");
     let caster = melee_caster(5); // high str_mod for guaranteed kill
     let target = unit_snapshot_to_engine_unit(
-        &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).hp(1).build()
+        &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0))
+            .hp(1)
+            .build(),
     );
 
     let est = hypothetical(def, &target, &caster, &content);
     assert_eq!(est.p_kill_now, 1.0, "should detect kill when net_dmg >= hp");
-    assert_eq!(est.p_kill_soon, 0.0, "p_kill_soon must be 0 when p_kill_now=1");
+    assert_eq!(
+        est.p_kill_soon, 0.0,
+        "p_kill_soon must be 0 when p_kill_now=1"
+    );
 }
 
 /// `cc_turns_applied = 0` for a pure damage ability with no CC statuses.
@@ -223,10 +267,15 @@ fn hypothetical_cc_zero_for_melee_attack() {
     let def = get_def(&content, "melee_attack");
     let caster = melee_caster(0);
     let target = unit_snapshot_to_engine_unit(
-        &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build()
+        &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0))
+            .full_hp(20)
+            .build(),
     );
     let est = hypothetical(def, &target, &caster, &content);
-    assert_eq!(est.cc_turns_applied, 0.0, "melee_attack has no CC -> cc_turns_applied=0");
+    assert_eq!(
+        est.cc_turns_applied, 0.0,
+        "melee_attack has no CC -> cc_turns_applied=0"
+    );
 }
 
 // ── Step 4.8: new fact fields ──────────────────────────────────────────
@@ -246,7 +295,9 @@ fn single_target_damage_def() -> AbilityDef {
         engine: combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            effect: EffectDef::Damage {
+                dice: DiceExpr::new(1, 6, 0),
+            },
             costs: vec![],
             cost_ap: 1,
             aoe: AoEShape::None,
@@ -255,8 +306,8 @@ fn single_target_damage_def() -> AbilityDef {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     }
 }
@@ -274,7 +325,9 @@ fn aoe_damage_def(radius: u32) -> AbilityDef {
         engine: combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 3 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            effect: EffectDef::Damage {
+                dice: DiceExpr::new(1, 6, 0),
+            },
             costs: vec![],
             cost_ap: 1,
             aoe: AoEShape::Circle { radius },
@@ -283,8 +336,8 @@ fn aoe_damage_def(radius: u32) -> AbilityDef {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     }
 }
@@ -311,15 +364,15 @@ fn stun_def_inner() -> (AbilityDef, crate::content::statuses::StatusDef) {
             aoe: AoEShape::None,
             friendly_fire: false,
             statuses: vec![StatusApplication {
-            status: status_id.clone(),
-            duration_rounds: 2,
-            on: StatusOn::Target,
-        }],
+                status: status_id.clone(),
+                duration_rounds: 2,
+                on: StatusOn::Target,
+            }],
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
     let status = StatusDef {
@@ -354,7 +407,9 @@ fn heal_def_inner() -> AbilityDef {
         engine: combat_engine::AbilityDef {
             target_type: TargetType::SingleAlly,
             range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Heal { dice: DiceExpr::new(2, 6, 0) },
+            effect: EffectDef::Heal {
+                dice: DiceExpr::new(2, 6, 0),
+            },
             costs: vec![],
             cost_ap: 1,
             aoe: AoEShape::None,
@@ -363,13 +418,15 @@ fn heal_def_inner() -> AbilityDef {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     }
 }
 
-fn make_snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> crate::combat::ai::world::snapshot::BattleSnapshot {
+fn make_snap(
+    units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>,
+) -> crate::combat::ai::world::snapshot::BattleSnapshot {
     let n = units.len() as u32;
     snapshot_from(units, n)
 }
@@ -382,20 +439,33 @@ fn enemy_damage_matches_sim_for_single_target() {
     let def = single_target_damage_def();
     let actor_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
-    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).full_hp(20).build();
-    let target = UnitBuilder::new(2, Team::Player, target_pos).full_hp(20).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+        .full_hp(20)
+        .build();
+    let target = UnitBuilder::new(2, Team::Player, target_pos)
+        .full_hp(20)
+        .build();
     let snap = make_snap(vec![actor.clone(), target.clone()]);
     let caster = CasterContext::default();
     let sim_damage = 5.0f32;
 
     let facts = build_damage_facts(
-        &def, target_pos, target.entity,
-        actor_pos, actor.team, actor.entity,
-        &snap, &caster, sim_damage,
+        &def,
+        target_pos,
+        target.entity,
+        actor_pos,
+        actor.team,
+        actor.entity,
+        &snap,
+        &caster,
+        sim_damage,
     );
 
     assert_eq!(facts.enemy_damage, sim_damage);
-    assert!(facts.enemy_damage_per_entity.is_empty(), "single-target: per_entity should be empty");
+    assert!(
+        facts.enemy_damage_per_entity.is_empty(),
+        "single-target: per_entity should be empty"
+    );
     assert_eq!(facts.ally_damage, 0.0);
     assert_eq!(facts.self_damage, 0.0);
 }
@@ -408,17 +478,29 @@ fn enemy_damage_per_entity_populated_for_aoe() {
     let def = aoe_damage_def(1);
     let actor_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
-    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).full_hp(20).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+        .full_hp(20)
+        .build();
     // Two enemies adjacent to target_pos (all in radius 1 AoE)
-    let enemy1 = UnitBuilder::new(2, Team::Player, target_pos).full_hp(20).build();
-    let enemy2 = UnitBuilder::new(3, Team::Player, hex_from_offset(1, 1)).full_hp(20).build();
+    let enemy1 = UnitBuilder::new(2, Team::Player, target_pos)
+        .full_hp(20)
+        .build();
+    let enemy2 = UnitBuilder::new(3, Team::Player, hex_from_offset(1, 1))
+        .full_hp(20)
+        .build();
     let snap = make_snap(vec![actor.clone(), enemy1.clone(), enemy2.clone()]);
     let caster = CasterContext::default();
 
     let facts = build_damage_facts(
-        &def, target_pos, enemy1.entity,
-        actor_pos, actor.team, actor.entity,
-        &snap, &caster, 4.0,
+        &def,
+        target_pos,
+        enemy1.entity,
+        actor_pos,
+        actor.team,
+        actor.entity,
+        &snap,
+        &caster,
+        4.0,
     );
 
     assert!(
@@ -435,15 +517,25 @@ fn ally_damage_zero_for_single_target() {
     let def = single_target_damage_def();
     let actor_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
-    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).full_hp(20).build();
-    let target = UnitBuilder::new(2, Team::Player, target_pos).full_hp(20).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+        .full_hp(20)
+        .build();
+    let target = UnitBuilder::new(2, Team::Player, target_pos)
+        .full_hp(20)
+        .build();
     let snap = make_snap(vec![actor.clone(), target.clone()]);
     let caster = CasterContext::default();
 
     let facts = build_damage_facts(
-        &def, target_pos, target.entity,
-        actor_pos, actor.team, actor.entity,
-        &snap, &caster, 4.0,
+        &def,
+        target_pos,
+        target.entity,
+        actor_pos,
+        actor.team,
+        actor.entity,
+        &snap,
+        &caster,
+        4.0,
     );
 
     assert_eq!(facts.ally_damage, 0.0);
@@ -458,16 +550,25 @@ fn cc_turns_applied_for_stun_ability() {
     let (def, status_def) = stun_def_inner();
     let actor_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
-    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).full_hp(20).build();
-    let target = UnitBuilder::new(2, Team::Player, target_pos).full_hp(20).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+        .full_hp(20)
+        .build();
+    let target = UnitBuilder::new(2, Team::Player, target_pos)
+        .full_hp(20)
+        .build();
     let snap = make_snap(vec![actor.clone(), target.clone()]);
 
     let mut content = crate::combat::ai::test_helpers::empty_content();
     content.statuses.insert(status_def.id.clone(), status_def);
 
     let facts = build_status_facts(
-        &def, target.entity, target_pos, actor_pos,
-        actor.team, &snap, &content,
+        &def,
+        target.entity,
+        target_pos,
+        actor_pos,
+        actor.team,
+        &snap,
+        &content,
     );
 
     assert_eq!(facts.cc_turns_applied, 2.0, "stun duration=2 → cc_turns=2");
@@ -482,7 +583,9 @@ fn cc_turns_applied_for_stun_ability() {
 fn hp_restored_zero_for_full_hp_target() {
     let def = heal_def_inner();
     let target = unit_snapshot_to_engine_unit(
-        &UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).full_hp(20).build()
+        &UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build(),
     );
     let caster = CasterContext::default();
 
@@ -494,12 +597,12 @@ fn hp_restored_zero_for_full_hp_target() {
 #[test]
 fn hp_restored_clamped_to_missing_hp() {
     let def = heal_def_inner(); // 2d6 expected = 7
-    // Target with missing_hp = 3 (less than expected 7)
+                                // Target with missing_hp = 3 (less than expected 7)
     let target = unit_snapshot_to_engine_unit(
         &UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .full_hp(20)
             .hp(17) // missing = 3
-            .build()
+            .build(),
     );
     let caster = CasterContext::default();
 
@@ -538,7 +641,10 @@ fn mp_spent_equals_path_length_via_outcome() {
 fn resource_facts_split_by_kind() {
     use crate::content::abilities::ResourceCost;
     let mut def = single_target_damage_def();
-    def.costs = vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }];
+    def.costs = vec![ResourceCost {
+        resource: ResourceKind::Mana,
+        amount: 3,
+    }];
     def.cost_ap = 1;
 
     let facts = split_resource_costs(&def);

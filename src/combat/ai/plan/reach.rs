@@ -68,7 +68,12 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
         .state
         .environment
         .iter()
-        .map(|e| (e.hex, snap.cache.env_severity.get(&e.id).copied().unwrap_or(0.0)))
+        .map(|e| {
+            (
+                e.hex,
+                snap.cache.env_severity.get(&e.id).copied().unwrap_or(0.0),
+            )
+        })
         .collect();
 
     let env = MovementEnv {
@@ -77,15 +82,17 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
         blocked_hexes: snap.state.blocked_hexes.clone(),
         hazard_costs,
     };
-    let mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    let mp = actor.pools[combat_engine::PoolKind::Mp]
+        .map(|(c, _)| c)
+        .unwrap_or(0);
     reach_from_env(actor.pos, mp, &env)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{unit, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{unit, UnitBuilder};
     use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -155,7 +162,7 @@ mod tests {
     #[test]
     fn ai_reach_populates_hazard_costs_from_snapshot() {
         use combat_engine::state::{EnvId, EnvKind, EnvObject, TeamSet};
-        use combat_engine::{AbilityId, state::Team as EngTeam};
+        use combat_engine::{state::Team as EngTeam, AbilityId};
         // Actor at (0,0) with 2 MP; two equal-length routes to (2,0):
         //   direct:  (0,0)→(1,0)→(2,0)  — trap at (1,0)
         //   detour:  (0,0)→(1,1)→(2,0)  (even-r neighbours — valid on flat grid)
@@ -235,7 +242,7 @@ mod tests {
     #[test]
     fn ai_reach_soft_avoids_visible_trap_when_alternative_exists() {
         use combat_engine::state::{EnvId, EnvKind, EnvObject, TeamSet};
-        use combat_engine::{AbilityId, state::Team as EngTeam};
+        use combat_engine::{state::Team as EngTeam, AbilityId};
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
             .movement_points(4)
@@ -295,7 +302,8 @@ mod tests {
         let (actor_u, actor_c) = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
             .movement_points(3)
             .build_pair();
-        let (block_u, block_c) = UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3)).build_pair();
+        let (block_u, block_c) =
+            UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3)).build_pair();
         let actor_entity = actor_c.entity;
         let actor_uid = actor_u.id;
         let blocker_pos = block_u.pos;

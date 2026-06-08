@@ -179,7 +179,9 @@ impl Adaptation {
 
     /// Did any plan end up in a non-Default mode?
     pub fn any_adapted(&self) -> bool {
-        self.modes.iter().any(|m| !matches!(m, EvaluationMode::Default))
+        self.modes
+            .iter()
+            .any(|m| !matches!(m, EvaluationMode::Default))
     }
 }
 

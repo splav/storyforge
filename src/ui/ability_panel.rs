@@ -2,13 +2,12 @@
 //! Left-side ability panel: compact slot list plus a description panel that
 //! shows the full details of the currently selected ability.
 
-use crate::content::content_view::{ActiveContent, ContentView};
 use super::{AbilityDescPanel, AbilityDescText, AbilitySlot, AbilitySlotLabel, EndTurnButton};
 use crate::content::abilities::{
     AbilityDef, AoEShape, CasterContext, EffectCalcExt, EffectDef, StatusOn, TargetType,
 };
+use crate::content::content_view::{ActiveContent, ContentView};
 use crate::content::statuses::StatusDef;
-use combat_engine::{AbilityId, DiceExpr, ResourceKind};
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
     Faction, Mana, Rage, Team, Vital,
@@ -16,6 +15,7 @@ use crate::game::components::{
 use crate::game::messages::ActionInput;
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
+use combat_engine::{AbilityId, DiceExpr, ResourceKind};
 
 /// Max keyed (universal) + class ability slots.
 pub const MAX_SLOTS: usize = 7;
@@ -178,7 +178,10 @@ pub fn update_ability_panel(
     )>,
     mut labels: Query<(&AbilitySlotLabel, &mut Text, &mut TextColor)>,
 ) {
-    if !dirty.0.intersects(UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::MOVE_BTN) {
+    if !dirty
+        .0
+        .intersects(UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::MOVE_BTN)
+    {
         return;
     }
     let actor_data = active_q
@@ -258,8 +261,12 @@ pub fn update_ability_panel(
 
     for (label, mut text, mut color) in &mut labels {
         let idx = label.0;
-        let Some(id) = displayed.get(idx).cloned() else { continue };
-        let Some(def) = content.abilities.get(&id) else { continue };
+        let Some(id) = displayed.get(idx).cloned() else {
+            continue;
+        };
+        let Some(def) = content.abilities.get(&id) else {
+            continue;
+        };
         let is_move = def.is_move_toggle;
 
         let prefix = if let Some(ref key) = def.key {
@@ -284,7 +291,11 @@ pub fn update_ability_panel(
         }
         text.0 = format!("[{prefix}] {}{}", def.name, costs);
 
-        let selected = if is_move { sel.move_mode } else { sel.selected_ability == Some(id) };
+        let selected = if is_move {
+            sel.move_mode
+        } else {
+            sel.selected_ability == Some(id)
+        };
         let available = if is_move {
             ap.can_move()
         } else {
@@ -321,18 +332,19 @@ pub fn update_ability_description(
         return;
     }
 
-    let Ok(mut vis) = panels.single_mut() else { return };
-    let Ok(mut text) = texts.single_mut() else { return };
+    let Ok(mut vis) = panels.single_mut() else {
+        return;
+    };
+    let Ok(mut text) = texts.single_mut() else {
+        return;
+    };
 
     // In move mode, show the move ability's description.
     let shown_id: Option<AbilityId> = if sel.move_mode {
-        content.keyed_abilities
+        content
+            .keyed_abilities
             .iter()
-            .find(|id| {
-                content.abilities
-                    .get(*id)
-                    .is_some_and(|d| d.is_move_toggle)
-            })
+            .find(|id| content.abilities.get(*id).is_some_and(|d| d.is_move_toggle))
             .cloned()
     } else {
         sel.selected_ability.clone()
@@ -385,14 +397,22 @@ pub fn ability_slot_click_system(
         if *interaction != Interaction::Pressed {
             continue;
         }
-        let Ok(active) = active_q.single() else { continue };
-        let Ok((faction, abilities, ap)) = combatants.get(active) else { continue };
+        let Ok(active) = active_q.single() else {
+            continue;
+        };
+        let Ok((faction, abilities, ap)) = combatants.get(active) else {
+            continue;
+        };
         if faction.0 != Team::Player {
             continue;
         }
         let displayed = displayed_abilities(&content, &abilities.0);
-        let Some(id) = displayed.get(slot.0).cloned() else { continue };
-        let Some(def) = content.abilities.get(&id) else { continue };
+        let Some(id) = displayed.get(slot.0).cloned() else {
+            continue;
+        };
+        let Some(def) = content.abilities.get(&id) else {
+            continue;
+        };
 
         if def.is_move_toggle {
             if ap.can_move() {
@@ -407,8 +427,8 @@ pub fn ability_slot_click_system(
         } else if def.target_type == TargetType::Myself && def.key.is_some() {
             // Keyed self-target abilities (e.g. Rest): first click selects,
             // a second click within the window confirms and fires.
-            let is_double = last_click.slot == Some(slot.0)
-                && (now - last_click.at) <= DOUBLE_CLICK_WINDOW;
+            let is_double =
+                last_click.slot == Some(slot.0) && (now - last_click.at) <= DOUBLE_CLICK_WINDOW;
             if is_double && ap.can_act_for(def.cost_ap) {
                 let target_pos = positions.get(&active).unwrap_or(hexx::Hex::ZERO);
                 action_input.write(ActionInput::Cast {
@@ -450,7 +470,9 @@ pub fn end_turn_button_system(
         return;
     }
     let Ok(actor) = active_q.single() else { return };
-    let Ok(faction) = combatants.get(actor) else { return };
+    let Ok(faction) = combatants.get(actor) else {
+        return;
+    };
     if faction.0 != Team::Player {
         return;
     }
@@ -460,7 +482,11 @@ pub fn end_turn_button_system(
 
 // ── Description formatting ───────────────────────────────────────────────────
 
-fn build_description(def: &AbilityDef, ctx: Option<&CasterContext>, content: &ContentView) -> String {
+fn build_description(
+    def: &AbilityDef,
+    ctx: Option<&CasterContext>,
+    content: &ContentView,
+) -> String {
     let mut out = String::new();
 
     // Header: name + hotkey / target / range / AoE summary
@@ -529,10 +555,7 @@ fn build_description(def: &AbilityDef, ctx: Option<&CasterContext>, content: &Co
             StatusOn::MySelf => "себе",
             StatusOn::Target => "цели",
         };
-        out.push_str(&format!(
-            "→ {} ({} ход.) {}",
-            name, sa.duration_rounds, on
-        ));
+        out.push_str(&format!("→ {} ({} ход.) {}", name, sa.duration_rounds, on));
         if let Some(sd) = status {
             let d = status_desc_ru(sd);
             if !d.is_empty() {
@@ -571,14 +594,21 @@ fn effect_line_ru(def: &AbilityDef, ctx: Option<&CasterContext>) -> String {
         EffectDef::RestoreResources => "восстанавливает HP/ману/ярость/энергию +1".into(),
         EffectDef::None => {
             // is_move_toggle abilities show a fixed label instead of an effect line.
-            if def.is_move_toggle { "режим перемещения".into() } else { String::new() }
+            if def.is_move_toggle {
+                "режим перемещения".into()
+            } else {
+                String::new()
+            }
         }
         // Fallbacks when ctx is None — show raw dice if available.
         EffectDef::Damage { dice } | EffectDef::SpellDamage { dice } | EffectDef::Heal { dice } => {
             format!("{}d{}", dice.count, dice.sides)
         }
         EffectDef::WeaponAttack => "атака оружием".into(),
-        EffectDef::Summon { template_id, max_active } => match max_active {
+        EffectDef::Summon {
+            template_id,
+            max_active,
+        } => match max_active {
             Some(cap) => format!("призыв {template_id} (не более {cap})"),
             None => format!("призыв {template_id}"),
         },
@@ -592,7 +622,10 @@ fn status_desc_ru(def: &StatusDef) -> String {
         parts.push(format!("броня {:+}", def.bonuses.armor_bonus));
     }
     if def.bonuses.damage_taken_bonus != 0 {
-        parts.push(format!("получаемый урон {:+}", def.bonuses.damage_taken_bonus));
+        parts.push(format!(
+            "получаемый урон {:+}",
+            def.bonuses.damage_taken_bonus
+        ));
     }
     if def.skips_turn {
         parts.push("пропускает ход".into());

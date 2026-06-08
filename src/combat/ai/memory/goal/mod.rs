@@ -8,5 +8,5 @@
 pub mod context;
 pub mod lifecycle;
 
-pub use context::{GoalKind, StoredGoalContext, extract_goal_context};
-pub use lifecycle::{pre_tick, post_tick};
+pub use context::{extract_goal_context, GoalKind, StoredGoalContext};
+pub use lifecycle::{post_tick, pre_tick};

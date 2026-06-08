@@ -124,7 +124,11 @@ pub fn spawn_hex_label<M: Component>(
         HexCellLink(cell_id),
         marker,
         Text2d::new(""),
-        TextFont { font, font_size, ..default() },
+        TextFont {
+            font,
+            font_size,
+            ..default()
+        },
         TextLayout::new_with_justify(Justify::Center),
         TextColor(color),
         Anchor::CENTER,
@@ -143,7 +147,10 @@ pub fn label_occupant(
     cells: &Query<(Entity, &Hex, &Children)>,
     map: &HexMap,
 ) -> Option<Entity> {
-    cells.get(link.0).ok().and_then(|(_, &hex, _)| map.any_at(hex))
+    cells
+        .get(link.0)
+        .ok()
+        .and_then(|(_, &hex, _)| map.any_at(hex))
 }
 
 // ── Grid math ─────────────────────────────────────────────────────────────────
@@ -219,9 +226,36 @@ pub fn setup_hex_grid(
                 })
                 .id();
 
-            spawn_hex_label(&mut commands, cell_id, HexNameLabel, pixel, font.clone(), 11.0, Color::WHITE,                      10.0);
-            spawn_hex_label(&mut commands, cell_id, HexHpLabel,   pixel, font.clone(), 10.0, Color::srgb(0.6,  0.9,  0.6),  -4.0);
-            spawn_hex_label(&mut commands, cell_id, HexManaLabel, pixel, font.clone(),  9.0, Color::srgb(0.85, 0.90, 1.0), -16.0);
+            spawn_hex_label(
+                &mut commands,
+                cell_id,
+                HexNameLabel,
+                pixel,
+                font.clone(),
+                11.0,
+                Color::WHITE,
+                10.0,
+            );
+            spawn_hex_label(
+                &mut commands,
+                cell_id,
+                HexHpLabel,
+                pixel,
+                font.clone(),
+                10.0,
+                Color::srgb(0.6, 0.9, 0.6),
+                -4.0,
+            );
+            spawn_hex_label(
+                &mut commands,
+                cell_id,
+                HexManaLabel,
+                pixel,
+                font.clone(),
+                9.0,
+                Color::srgb(0.85, 0.90, 1.0),
+                -16.0,
+            );
         }
     }
 
@@ -229,7 +263,11 @@ pub fn setup_hex_grid(
     commands.spawn((
         HexTooltip,
         Text::new(""),
-        TextFont { font, font_size: 12.0, ..default() },
+        TextFont {
+            font,
+            font_size: 12.0,
+            ..default()
+        },
         TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,

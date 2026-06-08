@@ -52,22 +52,30 @@ pub fn aoe_hits<'a>(
             continue;
         }
         // Build a UnitView for this hit unit; skip if cache mapping is absent.
-        let Some(entity) = snap.entity_for_uid(u.id) else { continue };
-        let Some(view) = snap.unit(entity) else { continue };
+        let Some(entity) = snap.entity_for_uid(u.id) else {
+            continue;
+        };
+        let Some(view) = snap.unit(entity) else {
+            continue;
+        };
         if u.team == active.team {
             allies.push(view);
         } else {
             enemies.push(view);
         }
     }
-    AoeHits { enemies, allies, self_hit }
+    AoeHits {
+        enemies,
+        allies,
+        self_hit,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::unit;
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::unit;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -87,7 +95,10 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
         let hits = aoe_hits(&area, actor_view, &snap);
         assert_eq!(hits.enemies.len(), 1);
-        assert_eq!(hits.enemies[0].id, snap.uid_for_entity(enemy.entity).unwrap());
+        assert_eq!(
+            hits.enemies[0].id,
+            snap.uid_for_entity(enemy.entity).unwrap()
+        );
         assert_eq!(hits.allies.len(), 1);
         assert_eq!(hits.allies[0].id, snap.uid_for_entity(ally.entity).unwrap());
         assert!(hits.self_hit);
@@ -105,7 +116,10 @@ mod tests {
 
         let actor_view = snap.unit(actor.entity).unwrap();
         let hits = aoe_hits(&area, actor_view, &snap);
-        assert!(hits.allies.is_empty(), "actor must not be counted as an ally");
+        assert!(
+            hits.allies.is_empty(),
+            "actor must not be counted as an ally"
+        );
         assert!(hits.self_hit);
         assert_eq!(hits.ally_count_with_self(), 1);
     }

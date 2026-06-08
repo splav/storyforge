@@ -1,23 +1,21 @@
-use crate::combat::ai::world::cache::{AiCache, UnitAiCache};
-use crate::content::content_view::ContentView;
-use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::scoring::{applies_cc, estimate_damage_horizon, estimate_st_damage};
+use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::config::tuning::AiTuningOverride;
-use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
-use crate::content::races::CritFailEffect;
-use combat_engine::{AbilityId, ResourceKind, StatusId};
-use crate::game::components::{
-    Abilities, AiCombatantQ, Combatant, StatusEffects, Team,
-};
-use crate::game::hex::Hex;
-use crate::game::hex_map::HexMap;
-use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
+use crate::combat::ai::scoring::{applies_cc, estimate_damage_horizon, estimate_st_damage};
+use crate::combat::ai::world::cache::{AiCache, UnitAiCache};
 #[cfg(test)]
 use crate::combat::ai::world::tags::cache::StatusBonuses;
 use crate::combat::ai::world::tags::StatusTagSet;
+use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::combat::engine_bridge::UnitIdMap;
+use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
+use crate::content::content_view::ContentView;
+use crate::content::races::CritFailEffect;
+use crate::game::components::{Abilities, AiCombatantQ, Combatant, StatusEffects, Team};
+use crate::game::hex::Hex;
+use crate::game::hex_map::HexMap;
 use bevy::prelude::*;
+use combat_engine::{AbilityId, ResourceKind, StatusId};
 use std::collections::HashMap;
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
@@ -258,7 +256,9 @@ impl<'a> UnitView<'a> {
     /// Killability signal: `1 − eff_hp / eff_max_hp`. 1.0 = dead, 0.0 = full.
     pub fn killability(&self) -> f32 {
         let eff_max = self.eff_max_hp() as f32;
-        if eff_max <= 0.0 { return 0.0; }
+        if eff_max <= 0.0 {
+            return 0.0;
+        }
         1.0 - (self.eff_hp() as f32 / eff_max)
     }
 
@@ -266,36 +266,49 @@ impl<'a> UnitView<'a> {
     pub fn resource_amount(&self, kind: combat_engine::ResourceKind) -> i32 {
         use combat_engine::PoolKind;
         match kind {
-            combat_engine::ResourceKind::Hp     => self.state.hp(),
-            combat_engine::ResourceKind::Mana   => self.state.pools[PoolKind::Mana].map(|(c, _)| c).unwrap_or(0),
-            combat_engine::ResourceKind::Rage   => self.state.pools[PoolKind::Rage].map(|(c, _)| c).unwrap_or(0),
-            combat_engine::ResourceKind::Energy => self.state.pools[PoolKind::Energy].map(|(c, _)| c).unwrap_or(0),
+            combat_engine::ResourceKind::Hp => self.state.hp(),
+            combat_engine::ResourceKind::Mana => self.state.pools[PoolKind::Mana]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            combat_engine::ResourceKind::Rage => self.state.pools[PoolKind::Rage]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            combat_engine::ResourceKind::Energy => self.state.pools[PoolKind::Energy]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
         }
     }
 
     /// True iff the unit has enough AP and every resource cost to cast `def`.
     pub fn can_afford(&self, def: &crate::content::abilities::AbilityDef) -> bool {
-        let ap = self.state.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
+        let ap = self.state.pools[combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0);
         ap >= def.cost_ap
-            && def.costs.iter().all(|c| self.resource_amount(c.resource) >= c.amount)
+            && def
+                .costs
+                .iter()
+                .all(|c| self.resource_amount(c.resource) >= c.amount)
     }
 
     /// True if any active status has the `HARD_CC` tag (stun / paralysis / freeze).
     ///
     /// Computed on the fly from current statuses — never stale.
     pub fn is_stunned(&self, status_tags: &StatusTagCache) -> bool {
-        self.state.statuses.iter().any(|s| {
-            status_tags.get(&s.id).contains(StatusTagSet::HARD_CC)
-        })
+        self.state
+            .statuses
+            .iter()
+            .any(|s| status_tags.get(&s.id).contains(StatusTagSet::HARD_CC))
     }
 
     /// True if any active status has the `COMPULSION` tag (taunt-style binding).
     ///
     /// Computed on the fly from current statuses — never stale.
     pub fn forces_targeting(&self, status_tags: &StatusTagCache) -> bool {
-        self.state.statuses.iter().any(|s| {
-            status_tags.get(&s.id).contains(StatusTagSet::COMPULSION)
-        })
+        self.state
+            .statuses
+            .iter()
+            .any(|s| status_tags.get(&s.id).contains(StatusTagSet::COMPULSION))
     }
 
     /// Override evaluation mode for this unit, if set by a boss phase transition.
@@ -305,8 +318,9 @@ impl<'a> UnitView<'a> {
     }
 }
 
-fn default_reactions_left() -> i32 { 1 }
-
+fn default_reactions_left() -> i32 {
+    1
+}
 
 impl UnitSnapshot {
     /// `hp > 0`. Snapshot keeps dead units (for death-triggered effects,
@@ -376,14 +390,22 @@ impl UnitSnapshot {
     }
 
     /// Add a status and atomically refresh derived aggregates.
-    pub fn add_status(&mut self, status: ActiveStatusView, status_tags: &crate::combat::ai::world::tags::StatusTagCache) {
+    pub fn add_status(
+        &mut self,
+        status: ActiveStatusView,
+        status_tags: &crate::combat::ai::world::tags::StatusTagCache,
+    ) {
         self.statuses.push(status);
         self.refresh_aggregates(status_tags);
     }
 
     /// Remove a status by id and atomically refresh derived aggregates.
     /// Returns `true` if the status was present and removed.
-    pub fn remove_status(&mut self, id: &StatusId, status_tags: &crate::combat::ai::world::tags::StatusTagCache) -> bool {
+    pub fn remove_status(
+        &mut self,
+        id: &StatusId,
+        status_tags: &crate::combat::ai::world::tags::StatusTagCache,
+    ) -> bool {
         let before = self.statuses.len();
         self.statuses.retain(|s| &s.id != id);
         let changed = self.statuses.len() != before;
@@ -430,9 +452,9 @@ impl UnitSnapshot {
     /// Shim for callers that hold a `&UnitSnapshot` (deprecated path /
     /// test fixtures). Prefer `UnitView::is_stunned` in production code.
     pub fn is_stunned(&self, status_tags: &StatusTagCache) -> bool {
-        self.statuses.iter().any(|s| {
-            status_tags.get(&s.id).contains(StatusTagSet::HARD_CC)
-        })
+        self.statuses
+            .iter()
+            .any(|s| status_tags.get(&s.id).contains(StatusTagSet::HARD_CC))
     }
 
     /// True if any active status has the `COMPULSION` tag.
@@ -440,24 +462,17 @@ impl UnitSnapshot {
     /// Shim for callers that hold a `&UnitSnapshot` (deprecated path /
     /// test fixtures). Prefer `UnitView::forces_targeting` in production code.
     pub fn forces_targeting(&self, status_tags: &StatusTagCache) -> bool {
-        self.statuses.iter().any(|s| {
-            status_tags.get(&s.id).contains(StatusTagSet::COMPULSION)
-        })
+        self.statuses
+            .iter()
+            .any(|s| status_tags.get(&s.id).contains(StatusTagSet::COMPULSION))
     }
-
 }
 
 /// Low-level resource-pool lookup. The one place that knows the
 /// `ResourceKind` match arms; everybody else — `UnitSnapshot` methods,
 /// `compute_tags` during snapshot construction, scarcity scoring — funnels
 /// through this so the four-arm match doesn't replicate across the crate.
-pub(crate) fn pool_amount(
-    kind: ResourceKind,
-    hp: i32,
-    mana: i32,
-    rage: i32,
-    energy: i32,
-) -> i32 {
+pub(crate) fn pool_amount(kind: ResourceKind, hp: i32, mana: i32, rage: i32, energy: i32) -> i32 {
     match kind {
         ResourceKind::Hp => hp,
         ResourceKind::Mana => mana,
@@ -502,7 +517,13 @@ impl UnitSnapshot {
             // A placeholder entity that will never be looked up.
             entity: Entity::from_raw_u32(0).expect("raw 0 is a valid Entity"),
             team: Team::Player,
-            role: AxisProfile { tank: 0.0, melee: 0.0, ranged: 0.0, control: 0.0, support: 0.0 },
+            role: AxisProfile {
+                tank: 0.0,
+                melee: 0.0,
+                ranged: 0.0,
+                control: 0.0,
+                support: 0.0,
+            },
             pos: crate::game::hex::hex_from_offset(0, 0),
             hp: NEUTRAL_REF_MAX_HP,
             max_hp: NEUTRAL_REF_MAX_HP,
@@ -575,7 +596,7 @@ pub fn build_snapshot(
             let abilities: &Abilities = c.abilities.unwrap_or(&empty_abilities);
             let caster_ctx = match c.stats {
                 Some(s) => CasterContext::new(s, c.equipment, &content.weapons),
-                None    => CasterContext::default(),
+                None => CasterContext::default(),
             };
             let threat = estimate_st_damage(&caster_ctx, abilities, content);
 
@@ -592,10 +613,12 @@ pub fn build_snapshot(
                 .0
                 .iter()
                 .filter_map(|id| content.abilities.get(id))
-                .filter(|def| matches!(
-                    def.target_type,
-                    TargetType::SingleEnemy | TargetType::Ground
-                ))
+                .filter(|def| {
+                    matches!(
+                        def.target_type,
+                        TargetType::SingleEnemy | TargetType::Ground
+                    )
+                })
                 .map(|def| def.range.max)
                 .max()
                 .unwrap_or(0);
@@ -605,15 +628,14 @@ pub fn build_snapshot(
                     matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
                 })
             });
-            let aoo_expected_damage =
-                if has_melee_weapon_attack {
-                    caster_ctx
-                        .weapon_dice
-                        .as_ref()
-                        .map(|d| d.expected() + caster_ctx.str_mod as f32)
-                } else {
-                    None
-                };
+            let aoo_expected_damage = if has_melee_weapon_attack {
+                caster_ctx
+                    .weapon_dice
+                    .as_ref()
+                    .map(|d| d.expected() + caster_ctx.str_mod as f32)
+            } else {
+                None
+            };
 
             let damage_horizon = estimate_damage_horizon(
                 &caster_ctx,
@@ -635,15 +657,15 @@ pub fn build_snapshot(
 
             // Map AiBehaviorOverride ECS component to EvaluationMode.
             let forced_mode = c.ai_behavior_override.map(|b| {
-                use crate::content::encounters::AiBehaviorKind;
                 use crate::combat::ai::adapt::EvaluationMode;
+                use crate::content::encounters::AiBehaviorKind;
                 match b.kind {
                     AiBehaviorKind::Flee => EvaluationMode::Flee,
                 }
             });
 
             Some(UnitAiCache {
-                entity:              c.entity,
+                entity: c.entity,
                 role,
                 threat,
                 tags,
@@ -655,8 +677,8 @@ pub fn build_snapshot(
                 // unit quirk is introduced. For now, always None — see
                 // UnitTemplateDef.ai_tuning_override and ai_rework_plan.md §2.7.
                 ai_tuning_override: None,
-                abilities:           abilities.0.clone(),
-                caster_ctx:          caster_ctx.clone(),
+                abilities: abilities.0.clone(),
+                caster_ctx: caster_ctx.clone(),
                 forced_mode,
             })
         })
@@ -690,10 +712,17 @@ pub fn build_snapshot(
         .collect();
     // Build entity_to_uid as the inverse — needed by snap.unit(entity) to
     // resolve summons whose synthetic UnitIds are not entity.to_bits().
-    let entity_to_uid: HashMap<Entity, combat_engine::state::UnitId> =
-        uid_to_entity.iter().map(|(&uid, &entity)| (entity, uid)).collect();
+    let entity_to_uid: HashMap<Entity, combat_engine::state::UnitId> = uid_to_entity
+        .iter()
+        .map(|(&uid, &entity)| (entity, uid))
+        .collect();
 
-    BattleSnapshot { cache, state: combat_state, uid_to_entity, entity_to_uid }
+    BattleSnapshot {
+        cache,
+        state: combat_state,
+        uid_to_entity,
+        entity_to_uid,
+    }
 }
 
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
@@ -721,9 +750,16 @@ impl BattleSnapshot {
         // SHORTCUT: valid for test/replay/legacy paths where summons are absent.
         // For production paths with summons, `build_snapshot` derives this from
         // `id_map` (the authoritative source).
-        let entity_to_uid: HashMap<Entity, UnitId> =
-            uid_to_entity.iter().map(|(&uid, &entity)| (entity, uid)).collect();
-        Self { cache, state, uid_to_entity, entity_to_uid }
+        let entity_to_uid: HashMap<Entity, UnitId> = uid_to_entity
+            .iter()
+            .map(|(&uid, &entity)| (entity, uid))
+            .collect();
+        Self {
+            cache,
+            state,
+            uid_to_entity,
+            entity_to_uid,
+        }
     }
 
     /// Rebuild derived caches from `state` + `cache` after deserialization.
@@ -739,15 +775,21 @@ impl BattleSnapshot {
         // valid for deserialized logs (replay/tests) where summons are absent.
         if self.uid_to_entity.is_empty() && !self.state.units().is_empty() {
             use combat_engine::state::UnitId;
-            self.uid_to_entity = self.cache.units.iter().filter_map(|c| {
-                let uid = UnitId(c.entity.to_bits());
-                self.state.unit(uid).map(|_| (uid, c.entity))
-            }).collect();
+            self.uid_to_entity = self
+                .cache
+                .units
+                .iter()
+                .filter_map(|c| {
+                    let uid = UnitId(c.entity.to_bits());
+                    self.state.unit(uid).map(|_| (uid, c.entity))
+                })
+                .collect();
         }
         // Rebuild entity_to_uid as the inverse of uid_to_entity.
         // Always re-derive to stay in sync even if uid_to_entity was just built.
         if self.entity_to_uid.is_empty() && !self.uid_to_entity.is_empty() {
-            self.entity_to_uid = self.uid_to_entity
+            self.entity_to_uid = self
+                .uid_to_entity
                 .iter()
                 .map(|(&uid, &entity)| (entity, uid))
                 .collect();
@@ -801,18 +843,25 @@ impl BattleSnapshot {
             id_pairs.iter().map(|&(e, uid)| (uid, e)).collect();
         let entity_to_uid: HashMap<Entity, UnitId> =
             id_pairs.iter().map(|&(e, uid)| (e, uid)).collect();
-        Self { cache, state, uid_to_entity, entity_to_uid }
+        Self {
+            cache,
+            state,
+            uid_to_entity,
+            entity_to_uid,
+        }
     }
-
-    
 
     /// Position lookup — returns the `UnitView` for the unit at `pos` (if any).
     pub fn unit_at(&self, pos: Hex) -> Option<UnitView<'_>> {
-        self.state.units().iter().find(|u| u.pos == pos).and_then(|u| {
-            let entity = *self.uid_to_entity.get(&u.id)?;
-            let cache = self.cache.unit(entity)?;
-            Some(UnitView { state: u, cache })
-        })
+        self.state
+            .units()
+            .iter()
+            .find(|u| u.pos == pos)
+            .and_then(|u| {
+                let entity = *self.uid_to_entity.get(&u.id)?;
+                let cache = self.cache.unit(entity)?;
+                Some(UnitView { state: u, cache })
+            })
     }
 
     /// Live enemies of `team` as `UnitView`s. Dead units on the opposing
@@ -820,7 +869,9 @@ impl BattleSnapshot {
     pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
-            if u.team != opponent || u.hp() <= 0 { return None; }
+            if u.team != opponent || u.hp() <= 0 {
+                return None;
+            }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -830,7 +881,9 @@ impl BattleSnapshot {
     /// Live allies of `team` (mirrors `enemies_of` contract).
     pub fn allies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         self.state.units().iter().filter_map(move |u| {
-            if u.team != team || u.hp() <= 0 { return None; }
+            if u.team != team || u.hp() <= 0 {
+                return None;
+            }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -841,7 +894,9 @@ impl BattleSnapshot {
     pub fn all_enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
-            if u.team != opponent { return None; }
+            if u.team != opponent {
+                return None;
+            }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -852,7 +907,9 @@ impl BattleSnapshot {
     pub fn dead_enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
-            if u.team != opponent || u.hp() > 0 { return None; }
+            if u.team != opponent || u.hp() > 0 {
+                return None;
+            }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -862,7 +919,9 @@ impl BattleSnapshot {
     /// Every dead unit in the snapshot regardless of team.
     pub fn dead_units(&self) -> impl Iterator<Item = UnitView<'_>> {
         self.state.units().iter().filter_map(|u| {
-            if u.hp() > 0 { return None; }
+            if u.hp() > 0 {
+                return None;
+            }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -876,8 +935,6 @@ pub(crate) fn opponent_team(team: Team) -> Team {
         Team::Enemy => Team::Player,
     }
 }
-
-
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -909,7 +966,9 @@ fn compute_tags(
     let empty = Abilities::default();
     let abilities = c.abilities.unwrap_or(&empty);
     for id in &abilities.0 {
-        let Some(def) = content.abilities.get(id) else { continue };
+        let Some(def) = content.abilities.get(id) else {
+            continue;
+        };
         if def.range.max > max_range {
             max_range = def.range.max;
         }
@@ -918,8 +977,13 @@ fn compute_tags(
         }
 
         let can_afford = def.costs.iter().all(|cost| {
-            pool_amount(cost.resource, c.vital.hp, resources.0, resources.1, resources.2)
-                >= cost.amount
+            pool_amount(
+                cost.resource,
+                c.vital.hp,
+                resources.0,
+                resources.1,
+                resources.2,
+            ) >= cost.amount
         });
 
         if can_afford {
@@ -948,8 +1012,6 @@ fn compute_tags(
 
     tags
 }
-
-
 
 #[cfg(test)]
 #[path = "snapshot_tests.rs"]

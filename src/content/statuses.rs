@@ -23,7 +23,7 @@ pub struct StatusDef {
     pub id: StatusId,
     pub name: String,
     pub dot_dice: Option<DiceExpr>,
-    pub ai_controlled: bool,         // pact: AI управляет персонажем
+    pub ai_controlled: bool, // pact: AI управляет персонажем
     /// AI buff-class for saturation tracking. `None` = not a tracked buff.
     pub buff_class: Option<BuffClass>,
     // ── gameplay (engine) ─────────────────────────────────────────────────
@@ -96,8 +96,7 @@ pub fn load_statuses() -> Vec<StatusDef> {
     if !std::path::Path::new(&path).is_file() {
         return Vec::new();
     }
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
     parse_statuses(&path, &src)
 }
 
@@ -112,10 +111,10 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
                 _ => None,
             };
             let buff_class = r.buff_class.as_deref().and_then(|s| match s {
-                "haste"      => Some(BuffClass::Haste),
+                "haste" => Some(BuffClass::Haste),
                 "armor_buff" => Some(BuffClass::ArmorBuff),
-                "damage_up"  => Some(BuffClass::DamageUp),
-                "shield"     => Some(BuffClass::Shield),
+                "damage_up" => Some(BuffClass::DamageUp),
+                "shield" => Some(BuffClass::Shield),
                 other => {
                     eprintln!("statuses.toml: unknown buff_class '{other}' on '{}'", r.id);
                     None

@@ -1,9 +1,9 @@
 //! Tests for T1.1.4 and T1.2.5: TOML parsing for `keep_alive`, `all_of`,
 //! `[[encounters.npcs]]`, and `[[encounters.obstacles]]`.
 
+use std::collections::HashMap;
 use storyforge::content::encounters::{load_encounters_from_str, VictoryCondition};
 use storyforge::game::hex::hex_from_offset;
-use std::collections::HashMap;
 
 fn no_templates() -> HashMap<String, storyforge::content::unit_templates::UnitTemplateDef> {
     HashMap::new()
@@ -126,8 +126,6 @@ victory = { type = "keep_alive" }
     load_encounters_from_str("test", "test.toml", toml, &no_templates());
 }
 
-
-
 // ── Obstacle parsing (T1.2.5) ─────────────────────────────────────────────────
 
 /// Three obstacles parse into `EncounterDef.obstacles` with correct hex positions.
@@ -169,7 +167,10 @@ name = "No Obstacles"
 enemies = []
 "#;
     let encounters = load_encounters_from_str("test", "test.toml", toml, &no_templates());
-    assert!(encounters[0].obstacles.is_empty(), "obstacles must default to empty");
+    assert!(
+        encounters[0].obstacles.is_empty(),
+        "obstacles must default to empty"
+    );
 }
 
 /// `bootstrap_combat_state` seeds `CombatState.blocked_hexes` from the
@@ -200,7 +201,9 @@ fn bootstrap_combat_state_populates_blocked_hexes() {
         .init_resource::<storyforge::combat::DiceRngRes>()
         .init_resource::<storyforge::game::combat_log::CombatLog>()
         .init_resource::<storyforge::ui::animation::AnimationQueue>()
-        .insert_resource(storyforge::ui::hex_grid::HexGridOffset(bevy::math::Vec2::ZERO))
+        .insert_resource(storyforge::ui::hex_grid::HexGridOffset(
+            bevy::math::Vec2::ZERO,
+        ))
         .insert_resource(storyforge::combat::ai::world::tags::AbilityTagCache::default())
         .init_resource::<storyforge::game::resources::PresetInitiative>()
         .insert_resource(storyforge::ui::hex_grid::HexMaterials::default())
@@ -216,9 +219,7 @@ fn bootstrap_combat_state_populates_blocked_hexes() {
     // Pre-populate CombatBlockedHexes with 2 obstacle hexes.
     let hex_a = hex_from_offset(3, 2);
     let hex_b = hex_from_offset(5, 4);
-    app.world_mut()
-        .resource_mut::<CombatBlockedHexes>()
-        .0 = vec![hex_a, hex_b];
+    app.world_mut().resource_mut::<CombatBlockedHexes>().0 = vec![hex_a, hex_b];
 
     // Run bootstrap (no combatants → state.units is empty, bootstrap fills blocked_hexes).
     app.world_mut()

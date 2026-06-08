@@ -1,14 +1,18 @@
+use super::{
+    TurnOrderCard, TurnOrderCardHp, TurnOrderCardName, TurnOrderTooltip, TurnOrderTooltipText,
+};
+use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, ResourceCost};
+use crate::content::armor::ArmorDef;
 use crate::content::content_view::ActiveContent;
 use crate::content::content_view::ContentView;
-use super::{TurnOrderCard, TurnOrderCardHp, TurnOrderCardName, TurnOrderTooltip, TurnOrderTooltipText};
-use crate::content::armor::ArmorDef;
 use crate::content::weapons::WeaponDef;
-use combat_engine::{ArmorId, WeaponId};
-use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, ResourceCost};
-use combat_engine::ResourceKind;
-use crate::game::components::{Abilities, ActiveCombatant, Combatant, Dead, Equipment, Faction, Team, Vital};
+use crate::game::components::{
+    Abilities, ActiveCombatant, Combatant, Dead, Equipment, Faction, Team, Vital,
+};
 use crate::game::resources::{TurnQueue, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
+use combat_engine::ResourceKind;
+use combat_engine::{ArmorId, WeaponId};
 
 pub const MAX_TURN_CARDS: usize = 8;
 
@@ -186,8 +190,12 @@ pub fn update_turn_order_tooltip(
     mut tooltip_vis: Query<&mut Visibility, With<TurnOrderTooltip>>,
     mut tooltip_text: Query<&mut Text, With<TurnOrderTooltipText>>,
 ) {
-    let Ok(mut vis) = tooltip_vis.single_mut() else { return };
-    let Ok(mut text) = tooltip_text.single_mut() else { return };
+    let Ok(mut vis) = tooltip_vis.single_mut() else {
+        return;
+    };
+    let Ok(mut text) = tooltip_text.single_mut() else {
+        return;
+    };
 
     let hovered = cards.iter().find(|(_, i)| **i == Interaction::Hovered);
     let Some((card, _)) = hovered else {
@@ -272,15 +280,33 @@ fn armor_line(slot: &str, id: &ArmorId, content: &ContentView) -> String {
 
 fn weapon_bonus_str(w: &WeaponDef) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if w.armor != 0 { parts.push(format!("броня {}", w.armor)); }
-    if w.max_hp != 0 { parts.push(format!("хп {:+}", w.max_hp)); }
-    if w.strength != 0 { parts.push(format!("сил {:+}", w.strength)); }
-    if w.dexterity != 0 { parts.push(format!("лов {:+}", w.dexterity)); }
-    if w.constitution != 0 { parts.push(format!("тел {:+}", w.constitution)); }
-    if w.intelligence != 0 { parts.push(format!("инт {:+}", w.intelligence)); }
-    if w.wisdom != 0 { parts.push(format!("мдр {:+}", w.wisdom)); }
-    if w.charisma != 0 { parts.push(format!("хар {:+}", w.charisma)); }
-    if w.spell_power != 0 { parts.push(format!("маг {:+}", w.spell_power)); }
+    if w.armor != 0 {
+        parts.push(format!("броня {}", w.armor));
+    }
+    if w.max_hp != 0 {
+        parts.push(format!("хп {:+}", w.max_hp));
+    }
+    if w.strength != 0 {
+        parts.push(format!("сил {:+}", w.strength));
+    }
+    if w.dexterity != 0 {
+        parts.push(format!("лов {:+}", w.dexterity));
+    }
+    if w.constitution != 0 {
+        parts.push(format!("тел {:+}", w.constitution));
+    }
+    if w.intelligence != 0 {
+        parts.push(format!("инт {:+}", w.intelligence));
+    }
+    if w.wisdom != 0 {
+        parts.push(format!("мдр {:+}", w.wisdom));
+    }
+    if w.charisma != 0 {
+        parts.push(format!("хар {:+}", w.charisma));
+    }
+    if w.spell_power != 0 {
+        parts.push(format!("маг {:+}", w.spell_power));
+    }
     parts.join(", ")
 }
 
@@ -343,14 +369,30 @@ fn cost_summary(costs: &[ResourceCost]) -> String {
 
 fn armor_bonus_str(a: &ArmorDef) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if a.armor != 0 { parts.push(format!("броня {}", a.armor)); }
-    if a.max_hp != 0 { parts.push(format!("хп {:+}", a.max_hp)); }
-    if a.strength != 0 { parts.push(format!("сил {:+}", a.strength)); }
-    if a.dexterity != 0 { parts.push(format!("лов {:+}", a.dexterity)); }
-    if a.constitution != 0 { parts.push(format!("тел {:+}", a.constitution)); }
-    if a.intelligence != 0 { parts.push(format!("инт {:+}", a.intelligence)); }
-    if a.wisdom != 0 { parts.push(format!("мдр {:+}", a.wisdom)); }
-    if a.charisma != 0 { parts.push(format!("хар {:+}", a.charisma)); }
+    if a.armor != 0 {
+        parts.push(format!("броня {}", a.armor));
+    }
+    if a.max_hp != 0 {
+        parts.push(format!("хп {:+}", a.max_hp));
+    }
+    if a.strength != 0 {
+        parts.push(format!("сил {:+}", a.strength));
+    }
+    if a.dexterity != 0 {
+        parts.push(format!("лов {:+}", a.dexterity));
+    }
+    if a.constitution != 0 {
+        parts.push(format!("тел {:+}", a.constitution));
+    }
+    if a.intelligence != 0 {
+        parts.push(format!("инт {:+}", a.intelligence));
+    }
+    if a.wisdom != 0 {
+        parts.push(format!("мдр {:+}", a.wisdom));
+    }
+    if a.charisma != 0 {
+        parts.push(format!("хар {:+}", a.charisma));
+    }
     parts.join(", ")
 }
 

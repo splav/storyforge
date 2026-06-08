@@ -116,7 +116,10 @@ impl EngineUnitBuilder {
         }
     }
 
-    pub fn team(mut self, t: Team) -> Self { self.team = t; self }
+    pub fn team(mut self, t: Team) -> Self {
+        self.team = t;
+        self
+    }
 
     /// Set position from offset coordinates (col, row) — uses `hex_from_offset`.
     pub fn pos(mut self, col: i32, row: i32) -> Self {
@@ -184,29 +187,62 @@ impl EngineUnitBuilder {
         self
     }
 
-    pub fn armor(mut self, a: i32) -> Self { self.armor = a; self }
-    pub fn armor_bonus(mut self, b: i32) -> Self { self.armor_bonus = b; self }
-    pub fn damage_taken_bonus(mut self, d: i32) -> Self { self.damage_taken_bonus = d; self }
+    pub fn armor(mut self, a: i32) -> Self {
+        self.armor = a;
+        self
+    }
+    pub fn armor_bonus(mut self, b: i32) -> Self {
+        self.armor_bonus = b;
+        self
+    }
+    pub fn damage_taken_bonus(mut self, d: i32) -> Self {
+        self.damage_taken_bonus = d;
+        self
+    }
 
-    pub fn aoo_dice(mut self, d: DiceExpr) -> Self { self.aoo_dice = Some(d); self }
+    pub fn aoo_dice(mut self, d: DiceExpr) -> Self {
+        self.aoo_dice = Some(d);
+        self
+    }
 
-    pub fn caster_context(mut self, ctx: CasterContext) -> Self { self.caster_context = ctx; self }
+    pub fn caster_context(mut self, ctx: CasterContext) -> Self {
+        self.caster_context = ctx;
+        self
+    }
 
     /// Set `base_speed` and `speed` independently (when they differ).
     /// Use `.speed(s)` when both should be equal.
-    pub fn base_speed_raw(mut self, base: i32) -> Self { self.base_speed = base; self }
+    pub fn base_speed_raw(mut self, base: i32) -> Self {
+        self.base_speed = base;
+        self
+    }
 
     /// Set only `speed` (current, post-modifier) without changing `base_speed`.
     /// Use `.speed(s)` when both should be equal.
-    pub fn speed_only(mut self, s: i32) -> Self { self.speed = s; self }
+    pub fn speed_only(mut self, s: i32) -> Self {
+        self.speed = s;
+        self
+    }
 
-    pub fn status(mut self, s: ActiveStatus) -> Self { self.statuses.push(s); self }
+    pub fn status(mut self, s: ActiveStatus) -> Self {
+        self.statuses.push(s);
+        self
+    }
 
-    pub fn summoner(mut self, id: u64) -> Self { self.summoner = Some(UnitId(id)); self }
+    pub fn summoner(mut self, id: u64) -> Self {
+        self.summoner = Some(UnitId(id));
+        self
+    }
 
-    pub fn initiative(mut self, v: i32) -> Self { self.initiative = Some(v); self }
+    pub fn initiative(mut self, v: i32) -> Self {
+        self.initiative = Some(v);
+        self
+    }
 
-    pub fn template(mut self, id: impl Into<String>) -> Self { self.template = Some(id.into()); self }
+    pub fn template(mut self, id: impl Into<String>) -> Self {
+        self.template = Some(id.into());
+        self
+    }
 
     pub fn regen(mut self, kind: PoolKind, rule: RegenRule) -> Self {
         self.regens[kind] = rule;
@@ -230,7 +266,9 @@ impl EngineUnitBuilder {
             PoolKind::Ap     => Some((self.ap_cur, self.ap_max)),
             PoolKind::Mp     => Some((self.mp_cur, self.mp_max)),
         };
-        let pos = self.pos_hex.unwrap_or_else(|| hex_from_offset(self.pos_col, self.pos_row));
+        let pos = self
+            .pos_hex
+            .unwrap_or_else(|| hex_from_offset(self.pos_col, self.pos_row));
         Unit::new(
             self.id,
             self.team,
@@ -247,12 +285,13 @@ impl EngineUnitBuilder {
             self.initiative,
             self.caster_context,
             self.aoo_dice,
-            vec![],                 // auras
-            vec![],                 // enemy_phases
+            vec![], // auras
+            vec![], // enemy_phases
             pools,
             self.regens,
             self.template,
-        ).with_tags(self.tags)
+        )
+        .with_tags(self.tags)
     }
 }
 
@@ -273,7 +312,10 @@ pub struct StubContent {
 
 impl StubContent {
     pub fn new() -> Self {
-        Self { abilities: HashMap::new(), statuses: HashMap::new() }
+        Self {
+            abilities: HashMap::new(),
+            statuses: HashMap::new(),
+        }
     }
 
     pub fn with_ability(mut self, id: impl Into<String>, def: AbilityDef) -> Self {
@@ -288,7 +330,9 @@ impl StubContent {
 }
 
 impl Default for StubContent {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ContentView for StubContent {
@@ -300,5 +344,7 @@ impl ContentView for StubContent {
         self.statuses.get(id)
     }
 
-    fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
+    fn unit_template(&self, _: &str) -> Option<UnitTemplate> {
+        None
+    }
 }

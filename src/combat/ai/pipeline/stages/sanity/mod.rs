@@ -16,16 +16,16 @@ mod healer_exposure;
 mod retreat_trap;
 mod synergy_bonus;
 
-use crate::combat::ai::scoring::factors::aoe_area;
-use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::pipeline::effects::{
     apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
 };
 use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
+use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+use crate::combat::ai::scoring::factors::aoe_area;
 use crate::combat::ai::scoring::position_eval::evaluate_position;
-use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
@@ -148,7 +148,8 @@ pub fn sanity_adjust_plans(
         .filter(|u| u.entity() != active.entity())
         .collect();
     let ally_positions: HashSet<Hex> = allies.iter().map(|a| a.pos).collect();
-    let current_pos_eval = evaluate_position(active.pos, &active.cache.role, ctx.world.tuning, maps);
+    let current_pos_eval =
+        evaluate_position(active.pos, &active.cache.role, ctx.world.tuning, maps);
     let current_danger = maps.danger.get(active.pos);
 
     for (idx, (plan, score)) in plans.iter().zip(scores.iter_mut()).enumerate() {
@@ -196,17 +197,27 @@ pub fn sanity_adjust_plans(
 
 pub(crate) fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
     let content = ctx.world.content;
-    plan.walk_with_caster(ctx.active.pos).any(|(_, step, caster_pos)| {
-        let PlanStep::Cast { ability, target_pos, .. } = step else { return false };
-        let Some(def) = content.abilities.get(ability) else { return false };
-        if !def.friendly_fire || def.aoe == AoEShape::None {
-            return false;
-        }
-        // Route through the shared helper so a new `AoEShape` variant lands
-        // here automatically — the inline match we used to have silently
-        // missed anything beyond Circle/Line.
-        aoe_area(def, *target_pos, caster_pos).contains(&caster_pos)
-    })
+    plan.walk_with_caster(ctx.active.pos)
+        .any(|(_, step, caster_pos)| {
+            let PlanStep::Cast {
+                ability,
+                target_pos,
+                ..
+            } = step
+            else {
+                return false;
+            };
+            let Some(def) = content.abilities.get(ability) else {
+                return false;
+            };
+            if !def.friendly_fire || def.aoe == AoEShape::None {
+                return false;
+            }
+            // Route through the shared helper so a new `AoEShape` variant lands
+            // here automatically — the inline match we used to have silently
+            // missed anything beyond Circle/Line.
+            aoe_area(def, *target_pos, caster_pos).contains(&caster_pos)
+        })
 }
 
 // ── ProtectSelf mask ───────────────────────────────────────────────────────
@@ -226,13 +237,16 @@ mod tests {
     use super::*;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::scoring::horizon::expected_aoo_damage;
-    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
 
     fn make_move_plan(path: Vec<Hex>) -> TurnPlan {
-        let final_pos = path.last().copied().unwrap_or_else(|| hex_from_offset(0, 0));
+        let final_pos = path
+            .last()
+            .copied()
+            .unwrap_or_else(|| hex_from_offset(0, 0));
         TurnPlan {
             steps: vec![PlanStep::Move { path }],
             final_pos,
@@ -245,7 +259,9 @@ mod tests {
     #[test]
     fn sanity_stage_no_hits_leaves_annotation_empty() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
@@ -265,7 +281,10 @@ mod tests {
         // ── 5. Assert ──
         for ann in &pool.annotations {
             assert!(
-                ann.score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Sanity)),
+                ann.score_trace
+                    .multipliers
+                    .iter()
+                    .all(|m| !matches!(m.kind, MultiplierKind::Sanity)),
                 "expected no sanity multipliers in trace for healthy actor in safe tile",
             );
         }
@@ -278,7 +297,10 @@ mod tests {
     #[test]
     fn sanity_stage_no_hits_for_low_hp_danger_tile() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(2).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(2)
+            .max_hp(20)
+            .build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
@@ -333,7 +355,10 @@ mod tests {
         use crate::combat::ai::scoring::factors::PlanFactorValues;
 
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
 
         // ── 2. Harness ──
@@ -347,7 +372,10 @@ mod tests {
         });
         let mut pool = PoolBuilder::new(plans)
             .scores(&[0.8, 0.6])
-            .factors(vec![PlanFactorValues::default(), PlanFactorValues::default()])
+            .factors(vec![
+                PlanFactorValues::default(),
+                PlanFactorValues::default(),
+            ])
             .adaptations(vec![adaptation, None])
             .build();
 
@@ -386,7 +414,9 @@ mod tests {
     #[test]
     fn p3a_sanity_no_hits_trace_has_only_base() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
@@ -443,7 +473,10 @@ mod tests {
         use crate::combat::ai::scoring::factors::PlanFactorValues;
 
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
 
         // ── 2. Harness ──
@@ -457,7 +490,10 @@ mod tests {
         });
         let mut pool = PoolBuilder::new(plans)
             .scores(&[0.8, 0.6])
-            .factors(vec![PlanFactorValues::default(), PlanFactorValues::default()])
+            .factors(vec![
+                PlanFactorValues::default(),
+                PlanFactorValues::default(),
+            ])
             .adaptations(vec![adaptation, None])
             .build();
 
@@ -496,7 +532,9 @@ mod tests {
     #[test]
     fn p3a_sanity_invariant_holds_for_all_finite_plans() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let dest_c = hex_from_offset(3, 0);
@@ -522,7 +560,8 @@ mod tests {
         for (i, ann) in pool.annotations.iter().enumerate() {
             assert!(
                 ann.score.is_finite(),
-                "plan[{i}]: score must remain finite, got {}", ann.score,
+                "plan[{i}]: score must remain finite, got {}",
+                ann.score,
             );
             assert!(
                 (ann.score - ann.score_trace.compute()).abs() < 1e-5,
@@ -545,7 +584,9 @@ mod tests {
         use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
 
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
@@ -557,7 +598,11 @@ mod tests {
         let mut pool = PoolBuilder::new(plans)
             .customize(|anns| {
                 // Mask plan[0] through trace — is_selectable() returns false.
-                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test", original_score: None });
+                anns[0].score_trace.push_mask(MaskHit {
+                    kind: MaskKind::Poison,
+                    source: "test",
+                    original_score: None,
+                });
                 // Set score to NEG_INFINITY so the throwaway-scores vec in
                 // sanity_adjust_plans still skips it via !is_finite() (sanity
                 // internal skip — not changed in Step 3).
@@ -575,11 +620,11 @@ mod tests {
         // plan[0]: mask flag stays, sanity multipliers empty (sanity_adjust_plans skips
         // plans with !score.is_finite() in its throwaway scores buffer).
         let masked = &pool.annotations[0];
+        assert!(masked.score_trace.is_masked(), "mask must remain in trace",);
         assert!(
-            masked.score_trace.is_masked(),
-            "mask must remain in trace",
+            !masked.is_selectable(),
+            "masked plan must not be selectable"
         );
-        assert!(!masked.is_selectable(), "masked plan must not be selectable");
         assert!(
             masked.score_trace.multipliers.is_empty(),
             "masked plan must have no sanity multipliers in trace",
@@ -587,7 +632,8 @@ mod tests {
         // score is finite after Step 3 (recompute_score_from_trace uses finite compute())
         assert!(
             masked.score.is_finite(),
-            "score is finite after Step 3 cutover, got {}", masked.score,
+            "score is finite after Step 3 cutover, got {}",
+            masked.score,
         );
 
         // plan[1]: finite plan invariant holds.
@@ -607,7 +653,12 @@ mod tests {
     // ── planning/sanity.rs tests (migrated from planning layer) ──────────────
 
     /// Sanity-suite defaults: max_hp=30, speed=4, aoo=(5.0, 1 reaction).
-    fn unit(id: u32, team: Team, pos: Hex, hp: i32) -> crate::combat::ai::world::snapshot::UnitSnapshot {
+    fn unit(
+        id: u32,
+        team: Team,
+        pos: Hex,
+        hp: i32,
+    ) -> crate::combat::ai::world::snapshot::UnitSnapshot {
         UnitBuilder::new(id, team, pos)
             .hp(hp)
             .max_hp(30)
@@ -689,35 +740,40 @@ mod tests {
         let rows: Vec<Row> = vec![
             Row {
                 name: "leaves adjacency provokes",
-                actor_hp: 20, actor_armor: 0,
+                actor_hp: 20,
+                actor_armor: 0,
                 enemies: vec![default_enemy()],
                 path: vec![hex_from_offset(-1, 0)],
                 expected: Aoo::Positive,
             },
             Row {
                 name: "stays adjacent does not provoke",
-                actor_hp: 20, actor_armor: 0,
+                actor_hp: 20,
+                actor_armor: 0,
                 enemies: vec![default_enemy()],
                 path: vec![hex_from_offset(1, 1)],
                 expected: Aoo::Zero,
             },
             Row {
                 name: "ranged enemy does not provoke",
-                actor_hp: 20, actor_armor: 0,
+                actor_hp: 20,
+                actor_armor: 0,
                 enemies: vec![ranged_enemy()],
                 path: vec![hex_from_offset(-1, 0)],
                 expected: Aoo::Zero,
             },
             Row {
                 name: "hybrid melee+ranged provokes (regression: dropped max_range guard)",
-                actor_hp: 20, actor_armor: 0,
+                actor_hp: 20,
+                actor_armor: 0,
                 enemies: vec![hybrid_enemy()],
                 path: vec![hex_from_offset(-1, 0)],
                 expected: Aoo::Positive,
             },
             Row {
                 name: "enemy with 0 reactions does not provoke",
-                actor_hp: 20, actor_armor: 0,
+                actor_hp: 20,
+                actor_armor: 0,
                 enemies: vec![no_react_enemy()],
                 path: vec![hex_from_offset(-1, 0)],
                 expected: Aoo::Zero,
@@ -725,7 +781,8 @@ mod tests {
             Row {
                 // Between two melees; (0,-1) leaves adjacency with both → 5 × 2.
                 name: "multi-enemy damage sums",
-                actor_hp: 30, actor_armor: 0,
+                actor_hp: 30,
+                actor_armor: 0,
                 enemies: vec![default_enemy(), second_enemy()],
                 path: vec![hex_from_offset(0, -1)],
                 expected: Aoo::Near(9.5, 10.5),
@@ -733,7 +790,8 @@ mod tests {
             Row {
                 // Leaves → re-enters → leaves: one reaction per enemy, not three.
                 name: "one AoO per enemy even with multiple transitions",
-                actor_hp: 30, actor_armor: 0,
+                actor_hp: 30,
+                actor_armor: 0,
                 enemies: vec![default_enemy()],
                 path: vec![
                     hex_from_offset(-1, 0),
@@ -745,7 +803,8 @@ mod tests {
             Row {
                 // Armor 10 vs raw 5.0 — final_damage floors at 1.
                 name: "armor clamps expected damage at the 1-HP floor",
-                actor_hp: 20, actor_armor: 10,
+                actor_hp: 20,
+                actor_armor: 10,
                 enemies: vec![default_enemy()],
                 path: vec![hex_from_offset(-1, 0)],
                 expected: Aoo::Near(0.99, 1.01),
@@ -758,7 +817,8 @@ mod tests {
                 // but the helper itself must still report correctly so
                 // adaptation can act on it.
                 name: "expected-lethal AoO reaches actor HP threshold",
-                actor_hp: 3, actor_armor: 0,
+                actor_hp: 3,
+                actor_armor: 0,
                 enemies: vec![default_enemy()],
                 path: vec![hex_from_offset(-1, 0)],
                 expected: Aoo::AtLeastActorHp,
@@ -772,10 +832,11 @@ mod tests {
             all_units.push(actor.clone());
             let snap = snapshot_from(all_units, 1);
             let actor_view = snap.unit(actor.entity).unwrap();
-            let enemy_views: Vec<crate::combat::ai::world::snapshot::UnitView<'_>> =
-                row.enemies.iter()
-                    .filter_map(|e| snap.unit(e.entity))
-                    .collect();
+            let enemy_views: Vec<crate::combat::ai::world::snapshot::UnitView<'_>> = row
+                .enemies
+                .iter()
+                .filter_map(|e| snap.unit(e.entity))
+                .collect();
             let plan = move_plan(row.path.clone());
             let dmg = expected_aoo_damage(actor_view, &plan, &enemy_views);
             let name = row.name;
@@ -788,7 +849,8 @@ mod tests {
                 ),
                 Aoo::AtLeastActorHp => assert!(
                     dmg >= row.actor_hp as f32,
-                    "[{name}] expected ≥ hp({}), got {dmg}", row.actor_hp,
+                    "[{name}] expected ≥ hp({}), got {dmg}",
+                    row.actor_hp,
                 ),
             }
         }
@@ -802,9 +864,7 @@ mod tests {
     // caller) automatically picks up new `AoEShape` variants, so adding
     // e.g. Cone later will be covered without a code change here.
 
-    use crate::content::abilities::{
-        AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType,
-    };
+    use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
     use combat_engine::{AbilityId, DiceExpr};
 
     fn fireball_def(radius: u32) -> AbilityDef {
@@ -818,7 +878,9 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 5 },
-                effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
+                effect: EffectDef::SpellDamage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
                 costs: Vec::new(),
                 cost_ap: 1,
                 aoe: AoEShape::Circle { radius },
@@ -836,13 +898,18 @@ mod tests {
     #[test]
     fn plan_has_self_aoe_detects_friendly_fire_circle_on_caster() {
         use crate::combat::ai::world::reservations::Reservations;
-        
-        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
+
         use crate::combat::ai::test_helpers::snapshot_from;
+        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::content::abilities::CasterContext;
         let actor_pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, actor_pos, 20);
-        let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _caster = CasterContext {
+            str_mod: 0,
+            int_mod: 0,
+            spell_power: 0,
+            weapon_dice: None,
+        };
         let _abilities = crate::game::components::Abilities(Vec::new());
         let mut content = empty_content();
         let def = fireball_def(1);
@@ -889,9 +956,11 @@ mod tests {
     #[test]
     fn sanity_only_fires_residual_rules() {
         use crate::combat::ai::world::reservations::Reservations;
-        
-        use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx};
+
         use crate::combat::ai::test_helpers::snapshot_from;
+        use crate::combat::ai::test_helpers::{
+            empty_content, empty_maps, make_scoring_ctx, make_test_ctx,
+        };
 
         let actor_pos = hex_from_offset(3, 0);
         let actor = unit(1, Team::Enemy, actor_pos, 5); // low HP (was survival trigger)
@@ -932,8 +1001,14 @@ mod tests {
         for hits in &breakdown {
             for h in hits {
                 assert!(
-                    matches!(h.rule, SanityRule::HealerExposure | SanityRule::RetreatTrap | SanityRule::SynergyBonus),
-                    "unexpected rule in sanity breakdown: {:?}", h.rule,
+                    matches!(
+                        h.rule,
+                        SanityRule::HealerExposure
+                            | SanityRule::RetreatTrap
+                            | SanityRule::SynergyBonus
+                    ),
+                    "unexpected rule in sanity breakdown: {:?}",
+                    h.rule,
                 );
             }
         }

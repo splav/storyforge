@@ -33,7 +33,9 @@ fn make_def(skips_turn: bool) -> StatusDef {
     }
 }
 
-fn uid(n: u64) -> UnitId { UnitId(n) }
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
 
 /// hp varies by alive, speed=3, Mp=3 — end_turn defaults.
 fn make_unit(id: u64, alive: bool) -> Unit {
@@ -142,7 +144,9 @@ fn dead_skip_in_middle_of_round() {
     assert_eq!(events.len(), 5, "got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
     assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(1)));
-    assert!(matches!(&events[2], Event::TurnSkipped { actor, reason: TurnSkipReason::Dead } if *actor == uid(2)));
+    assert!(
+        matches!(&events[2], Event::TurnSkipped { actor, reason: TurnSkipReason::Dead } if *actor == uid(2))
+    );
     assert!(matches!(&events[3], Event::TurnStarted { actor } if *actor == uid(3)));
     assert!(matches!(&events[4], Event::ActionFinished { .. }));
 
@@ -158,11 +162,7 @@ fn stunned_skip_via_direct_status_wraps_to_next_round() {
     let mut b = make_unit(2, true);
     b.statuses.push(status("stun", 2, 0, uid(99)));
 
-    let mut state = make_state(
-        vec![make_unit(1, true), b],
-        vec![uid(1), uid(2)],
-        0,
-    );
+    let mut state = make_state(vec![make_unit(1, true), b], vec![uid(1), uid(2)], 0);
     let content = StubContent::new().with_status(stun_id, make_def(true));
 
     let (events, _ctx) = step(
@@ -176,7 +176,9 @@ fn stunned_skip_via_direct_status_wraps_to_next_round() {
     assert_eq!(events.len(), 6, "got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
     assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(1)));
-    assert!(matches!(&events[2], Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(2)));
+    assert!(
+        matches!(&events[2], Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(2))
+    );
     assert!(matches!(&events[3], Event::RoundStarted { round: 2 }));
     assert!(matches!(&events[4], Event::TurnStarted { actor } if *actor == uid(1)));
     assert!(matches!(&events[5], Event::ActionFinished { .. }));
@@ -210,7 +212,9 @@ fn round_wrap_skips_first_actor_if_stunned() {
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
     assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(3)));
     assert!(matches!(&events[2], Event::RoundStarted { round: 2 }));
-    assert!(matches!(&events[3], Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(1)));
+    assert!(
+        matches!(&events[3], Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(1))
+    );
     assert!(matches!(&events[4], Event::TurnStarted { actor } if *actor == uid(2)));
     assert!(matches!(&events[5], Event::ActionFinished { .. }));
 }
@@ -255,9 +259,9 @@ fn sirota_dot_propagates_when_dead_unit_skipped() {
     }).expect("TurnSkipped{B} must appear");
 
     // DotDamaged (DoT tick) must appear before TurnSkipped{B} if it fires.
-    let dot_pos = events.iter().position(|e| {
-        matches!(e, Event::DotDamaged { target, .. } if *target == uid(3))
-    });
+    let dot_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::DotDamaged { target, .. } if *target == uid(3)));
     if let Some(pos) = dot_pos {
         assert!(pos < skip_pos, "DotDamaged must precede TurnSkipped");
     }
@@ -295,11 +299,7 @@ fn all_stunned_budget_breaks_loop() {
     let mut b = make_unit(2, true);
     b.statuses.push(status("stun", 2, 0, uid(99)));
 
-    let mut state = make_state(
-        vec![a, b],
-        vec![uid(1), uid(2)],
-        0,
-    );
+    let mut state = make_state(vec![a, b], vec![uid(1), uid(2)], 0);
     let content = StubContent::new().with_status(stun_id, make_def(true));
 
     let result = step(
@@ -309,11 +309,18 @@ fn all_stunned_budget_breaks_loop() {
         &content,
     );
 
-    assert!(result.is_ok(), "budget guard must prevent infinite loop and return Ok");
+    assert!(
+        result.is_ok(),
+        "budget guard must prevent infinite loop and return Ok"
+    );
     let (events, _ctx) = result.unwrap();
     // ActionStarted must be first; total events should be reasonable.
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(events.len() < 50, "too many events — possible loop: {} events", events.len());
+    assert!(
+        events.len() < 50,
+        "too many events — possible loop: {} events",
+        events.len()
+    );
 }
 
 // ── settle_round_start tests ─────────────────────────────────────────────────
@@ -332,12 +339,27 @@ fn settle_round_start_no_stun_lands_on_first_actor() {
     let events = state.settle_round_start(&StubContent::new());
 
     // Must emit RoundStarted{1}, then TurnStarted{A} (plus start_actor_turn events).
-    assert!(events.iter().any(|e| matches!(e, Event::RoundStarted { round: 1 })),
-        "must emit RoundStarted{{1}}; got: {:?}", events);
-    assert!(events.iter().any(|e| matches!(e, Event::TurnStarted { actor } if *actor == uid(1))),
-        "must emit TurnStarted{{A}}; got: {:?}", events);
-    assert!(!events.iter().any(|e| matches!(e, Event::TurnSkipped { .. })),
-        "no TurnSkipped expected; got: {:?}", events);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::RoundStarted { round: 1 })),
+        "must emit RoundStarted{{1}}; got: {:?}",
+        events
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::TurnStarted { actor } if *actor == uid(1))),
+        "must emit TurnStarted{{A}}; got: {:?}",
+        events
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::TurnSkipped { .. })),
+        "no TurnSkipped expected; got: {:?}",
+        events
+    );
     // round must not have been incremented
     assert_eq!(state.round, 1);
     // cursor stays on 0
@@ -354,24 +376,23 @@ fn settle_round_start_skips_stunned_first_actor() {
     // (tick_actor_statuses looks for statuses where applier == actor)
     a.statuses.push(status("stun", 2, 0, uid(1)));
 
-    let mut state = make_state(
-        vec![a, make_unit(2, true)],
-        vec![uid(1), uid(2)],
-        0,
-    );
+    let mut state = make_state(vec![a, make_unit(2, true)], vec![uid(1), uid(2)], 0);
     let content = StubContent::new().with_status(stun_id, make_def(true));
 
     let events = state.settle_round_start(&content);
 
     // Must contain: RoundStarted, TurnSkipped{A,Stunned}, TurnStarted{B} — in that order.
-    let rs_pos = events.iter().position(|e| matches!(e, Event::RoundStarted { .. }))
+    let rs_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::RoundStarted { .. }))
         .expect("RoundStarted must appear");
     let skip_pos = events.iter().position(|e| {
         matches!(e, Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(1))
     }).expect("TurnSkipped{A,Stunned} must appear");
-    let ts_pos = events.iter().position(|e| {
-        matches!(e, Event::TurnStarted { actor } if *actor == uid(2))
-    }).expect("TurnStarted{B} must appear");
+    let ts_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::TurnStarted { actor } if *actor == uid(2)))
+        .expect("TurnStarted{B} must appear");
 
     assert!(rs_pos < skip_pos, "RoundStarted must precede TurnSkipped");
     assert!(skip_pos < ts_pos, "TurnSkipped must precede TurnStarted");
@@ -390,11 +411,7 @@ fn one_turn_stun_expires_after_skip() {
     // Self-applied 1-round stun: actor is both bearer and applier.
     a.statuses.push(status("stun", 1, 0, uid(1)));
 
-    let mut state = make_state(
-        vec![a, make_unit(2, true)],
-        vec![uid(1), uid(2)],
-        0,
-    );
+    let mut state = make_state(vec![a, make_unit(2, true)], vec![uid(1), uid(2)], 0);
     let content = StubContent::new().with_status(stun_id.clone(), make_def(true));
 
     // Run settle — this should skip A (stunned) and tick the 1-round stun.
@@ -408,8 +425,11 @@ fn one_turn_stun_expires_after_skip() {
     // After the tick, A's stun should be gone (rounds_remaining decremented from 1 → 0 → removed).
     let a_unit = state.unit(uid(1)).expect("A must still exist");
     let still_stunned = a_unit.statuses.iter().any(|s| s.id == stun_id);
-    assert!(!still_stunned,
-        "stun must have expired after 1-round tick; statuses: {:?}", a_unit.statuses);
+    assert!(
+        !still_stunned,
+        "stun must have expired after 1-round tick; statuses: {:?}",
+        a_unit.statuses
+    );
 }
 
 /// A DoT (poison) on a stunned unit ticks (deals damage) when the unit is
@@ -431,11 +451,7 @@ fn stunned_skip_ticks_dot_on_victim() {
         applier: combat_engine::state::EffectSource::Unit(uid(1)), // applied BY A
     });
 
-    let mut state = make_state(
-        vec![a, b],
-        vec![uid(1), uid(2)],
-        0,
-    );
+    let mut state = make_state(vec![a, b], vec![uid(1), uid(2)], 0);
     let content = StubContent::new()
         .with_status(stun_id, make_def(true))
         .with_status(poison_id, make_def(false));
@@ -448,12 +464,14 @@ fn stunned_skip_ticks_dot_on_victim() {
     }), "A must be TurnSkipped{{Stunned}}");
 
     // DoT damage on B must appear BEFORE TurnSkipped{A}.
-    let skip_pos = events.iter().position(|e| {
-        matches!(e, Event::TurnSkipped { actor, .. } if *actor == uid(1))
-    }).unwrap();
-    let dot_pos = events.iter().position(|e| {
-        matches!(e, Event::DotDamaged { target, .. } if *target == uid(2))
-    }).expect("DotDamaged on B must appear");
+    let skip_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::TurnSkipped { actor, .. } if *actor == uid(1)))
+        .unwrap();
+    let dot_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::DotDamaged { target, .. } if *target == uid(2)))
+        .expect("DotDamaged on B must appear");
     assert!(dot_pos < skip_pos, "DotDamaged must precede TurnSkipped");
 }
 
@@ -467,21 +485,30 @@ fn settle_round_start_all_stunned_terminates() {
     let mut b = make_unit(2, true);
     b.statuses.push(status("stun", 2, 0, uid(99)));
 
-    let mut state = make_state(
-        vec![a, b],
-        vec![uid(1), uid(2)],
-        0,
-    );
+    let mut state = make_state(vec![a, b], vec![uid(1), uid(2)], 0);
     let content = StubContent::new().with_status(stun_id, make_def(true));
 
     let events = state.settle_round_start(&content);
 
     // Must not panic and must emit a bounded number of events.
-    assert!(events.len() < 50, "budget guard must bound events; got {}", events.len());
+    assert!(
+        events.len() < 50,
+        "budget guard must bound events; got {}",
+        events.len()
+    );
     // RoundStarted must appear.
-    assert!(events.iter().any(|e| matches!(e, Event::RoundStarted { .. })),
-        "RoundStarted must appear; got: {:?}", events);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::RoundStarted { .. })),
+        "RoundStarted must appear; got: {:?}",
+        events
+    );
     // No TurnStarted — no valid actor found.
-    assert!(!events.iter().any(|e| matches!(e, Event::TurnStarted { .. })),
-        "TurnStarted must not appear for all-stunned roster");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::TurnStarted { .. })),
+        "TurnStarted must not appear for all-stunned roster"
+    );
 }

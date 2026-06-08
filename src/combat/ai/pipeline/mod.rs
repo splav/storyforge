@@ -15,13 +15,13 @@ pub mod score_trace;
 pub mod spec;
 pub mod stages;
 
-use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::intent::agenda::Agenda;
+use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::orchestration::ScoringCtx;
-use combat_engine::DiceRng;
 use crate::game::hex::Hex;
+use combat_engine::DiceRng;
 
 // ── StageCtx ────────────────────────────────────────────────────────────────
 
@@ -112,9 +112,7 @@ impl ScoredPool {
     }
 
     /// Iterate plans together with their annotation and score.
-    pub fn iter_with_annotation(
-        &self,
-    ) -> impl Iterator<Item = (&TurnPlan, &PlanAnnotation, f32)> {
+    pub fn iter_with_annotation(&self) -> impl Iterator<Item = (&TurnPlan, &PlanAnnotation, f32)> {
         self.plans
             .iter()
             .zip(self.annotations.iter())
@@ -183,17 +181,16 @@ mod tests {
     fn pipeline_runs_modifiers_after_repair_before_pick() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-        use crate::combat::ai::pipeline::stages::modifiers::PLAN_MODIFIERS;
         use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
+        use crate::combat::ai::pipeline::stages::modifiers::PLAN_MODIFIERS;
         use crate::combat::ai::world::reservations::Reservations;
-        
+
         use crate::combat::ai::test_helpers::{
-            empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-            snapshot_from,
+            empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
         };
-        use combat_engine::DiceRng;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
+        use combat_engine::DiceRng;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let snap = snapshot_from(vec![actor.clone()], 1);
@@ -255,14 +252,13 @@ mod tests {
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};
         use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
         use crate::combat::ai::world::reservations::Reservations;
-        
+
         use crate::combat::ai::test_helpers::{
-            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-            snapshot_from,
+            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
         };
-        use combat_engine::DiceRng;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
+        use combat_engine::DiceRng;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let snap = snapshot_from(vec![actor.clone()], 1);
@@ -302,5 +298,4 @@ mod tests {
             }
         }
     }
-
 }

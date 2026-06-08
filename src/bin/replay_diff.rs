@@ -17,7 +17,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use combat_engine::trace::{InitLine, StepLine, SCHEMA_VERSION, parse_init, parse_step};
+use combat_engine::trace::{parse_init, parse_step, InitLine, StepLine, SCHEMA_VERSION};
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -88,7 +88,11 @@ pub enum DiffResult {
     /// A specific step diverges; context printed as a multi-line string.
     StepDiverged { step_idx: usize, detail: String },
     /// One file has more steps than the other after all common steps matched.
-    LengthMismatch { common_steps: usize, extra_in: &'static str, extra_count: usize },
+    LengthMismatch {
+        common_steps: usize,
+        extra_in: &'static str,
+        extra_count: usize,
+    },
 }
 
 // ── Core diff logic (extracted for testability) ───────────────────────────────
@@ -142,7 +146,12 @@ pub fn diff(lines_a: &[String], lines_b: &[String]) -> DiffResult {
             .unwrap();
         }
         if init_a.rng_seed != init_b.rng_seed {
-            writeln!(detail, "  rng_seed: A={} B={}", init_a.rng_seed, init_b.rng_seed).unwrap();
+            writeln!(
+                detail,
+                "  rng_seed: A={} B={}",
+                init_a.rng_seed, init_b.rng_seed
+            )
+            .unwrap();
         }
         if init_a.session_id != init_b.session_id {
             writeln!(
@@ -198,7 +207,10 @@ pub fn diff(lines_a: &[String], lines_b: &[String]) -> DiffResult {
 
         // Build a detailed divergence report.
         let detail = format_step_divergence(idx, &step_a, &step_b);
-        return DiffResult::StepDiverged { step_idx: idx, detail };
+        return DiffResult::StepDiverged {
+            step_idx: idx,
+            detail,
+        };
     }
 
     // ── 5. Length check ────────────────────────────────────────────────────
@@ -208,7 +220,11 @@ pub fn diff(lines_a: &[String], lines_b: &[String]) -> DiffResult {
         } else {
             ("B", steps_b.len() - steps_a.len())
         };
-        return DiffResult::LengthMismatch { common_steps: common, extra_in, extra_count };
+        return DiffResult::LengthMismatch {
+            common_steps: common,
+            extra_in,
+            extra_count,
+        };
     }
 
     DiffResult::Identical { steps: common }
@@ -228,8 +244,13 @@ fn format_step_divergence(_idx: usize, a: &StepLine, b: &StepLine) -> String {
 
     // Events
     if a.events != b.events {
-        writeln!(out, "  Events: {} vs {} (count may differ)", a.events.len(), b.events.len())
-            .unwrap();
+        writeln!(
+            out,
+            "  Events: {} vs {} (count may differ)",
+            a.events.len(),
+            b.events.len()
+        )
+        .unwrap();
         let first_diff = a
             .events
             .iter()
@@ -241,8 +262,16 @@ fn format_step_divergence(_idx: usize, a: &StepLine, b: &StepLine) -> String {
             let context_end = (diff_idx + 2).min(a.events.len().max(b.events.len()));
             writeln!(out, "  First differing event at index {diff_idx}:").unwrap();
             for ci in context_start..context_end {
-                let ea = a.events.get(ci).map(|e| format!("{e:?}")).unwrap_or_else(|| "<none>".to_string());
-                let eb = b.events.get(ci).map(|e| format!("{e:?}")).unwrap_or_else(|| "<none>".to_string());
+                let ea = a
+                    .events
+                    .get(ci)
+                    .map(|e| format!("{e:?}"))
+                    .unwrap_or_else(|| "<none>".to_string());
+                let eb = b
+                    .events
+                    .get(ci)
+                    .map(|e| format!("{e:?}"))
+                    .unwrap_or_else(|| "<none>".to_string());
                 let marker = if ci == diff_idx { ">>>" } else { "   " };
                 writeln!(out, "  {marker} [{ci}] A: {ea}").unwrap();
                 writeln!(out, "  {marker} [{ci}] B: {eb}").unwrap();
@@ -255,8 +284,11 @@ fn format_step_divergence(_idx: usize, a: &StepLine, b: &StepLine) -> String {
             }
         } else if a.events.len() != b.events.len() {
             // All shared events match; one has extras
-            let (longer, longer_name) =
-                if a.events.len() > b.events.len() { (&a.events, "A") } else { (&b.events, "B") };
+            let (longer, longer_name) = if a.events.len() > b.events.len() {
+                (&a.events, "A")
+            } else {
+                (&b.events, "B")
+            };
             let shorter_len = a.events.len().min(b.events.len());
             writeln!(
                 out,
@@ -288,7 +320,11 @@ fn format_step_divergence(_idx: usize, a: &StepLine, b: &StepLine) -> String {
 
 // ── Output rendering ──────────────────────────────────────────────────────────
 
-fn print_and_exit(result: DiffResult, _init_a: Option<&InitLine>, step_summaries: &[(usize, &StepLine)]) {
+fn print_and_exit(
+    result: DiffResult,
+    _init_a: Option<&InitLine>,
+    step_summaries: &[(usize, &StepLine)],
+) {
     // This function is called from main after streaming output; result carries
     // the final verdict.  We only use init_a / step_summaries for the header.
     match result {
@@ -322,7 +358,11 @@ fn print_and_exit(result: DiffResult, _init_a: Option<&InitLine>, step_summaries
             print!("{detail}");
             std::process::exit(2);
         }
-        DiffResult::LengthMismatch { common_steps, extra_in, extra_count } => {
+        DiffResult::LengthMismatch {
+            common_steps,
+            extra_in,
+            extra_count,
+        } => {
             println!("Steps 0..{}: identical", common_steps - 1);
             let truncated = if extra_in == "A" { "B" } else { "A" };
             println!(
@@ -438,7 +478,10 @@ mod tests {
         let init = make_init_line(1, "s1");
         let step = make_step_line(0, "deadbeef", 0);
         let lines = vec![init, step];
-        assert_eq!(diff(&lines, &lines.clone()), DiffResult::Identical { steps: 1 });
+        assert_eq!(
+            diff(&lines, &lines.clone()),
+            DiffResult::Identical { steps: 1 }
+        );
     }
 
     #[test]
@@ -450,7 +493,10 @@ mod tests {
         let lines_b = vec![init_b];
         assert_eq!(
             diff(&lines_a, &lines_b),
-            DiffResult::SchemaMismatch { schema_a: 42, schema_b: 41 }
+            DiffResult::SchemaMismatch {
+                schema_a: 42,
+                schema_b: 41
+            }
         );
     }
 
@@ -493,7 +539,11 @@ mod tests {
         let lines_b = vec![init, step];
         assert_eq!(
             diff(&lines_a, &lines_b),
-            DiffResult::LengthMismatch { common_steps: 1, extra_in: "A", extra_count: 1 }
+            DiffResult::LengthMismatch {
+                common_steps: 1,
+                extra_in: "A",
+                extra_count: 1
+            }
         );
     }
 

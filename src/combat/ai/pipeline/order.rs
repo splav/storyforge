@@ -124,24 +124,60 @@ fn apply_pick_best(pool: &mut ScoredPool, ctx: &mut StageCtx) {
 /// effects. `pick_action` snapshots `pool.annotations[*].score` here as
 /// `base_scored` before proceeding to the post-mask half.
 pub const PRODUCTION_PIPELINE_PRE_MASK: &[StageEntry] = &[
-    StageEntry { id: StageId::Viability,    apply: apply_viability },
-    StageEntry { id: StageId::ItemScoring,  apply: apply_item_scoring },
-    StageEntry { id: StageId::ModeSelection, apply: apply_mode_selection },
-    StageEntry { id: StageId::Finalize,     apply: apply_finalize },
-    StageEntry { id: StageId::Sanity,       apply: apply_sanity },
-    StageEntry { id: StageId::Critics,      apply: apply_critics },
+    StageEntry {
+        id: StageId::Viability,
+        apply: apply_viability,
+    },
+    StageEntry {
+        id: StageId::ItemScoring,
+        apply: apply_item_scoring,
+    },
+    StageEntry {
+        id: StageId::ModeSelection,
+        apply: apply_mode_selection,
+    },
+    StageEntry {
+        id: StageId::Finalize,
+        apply: apply_finalize,
+    },
+    StageEntry {
+        id: StageId::Sanity,
+        apply: apply_sanity,
+    },
+    StageEntry {
+        id: StageId::Critics,
+        apply: apply_critics,
+    },
 ];
 
 /// Post-mask half: masks, gates, additive modifiers, and final pick.
 ///
 /// Runs after the `base_scored` snapshot is taken.
 pub const PRODUCTION_PIPELINE_POST_MASK: &[StageEntry] = &[
-    StageEntry { id: StageId::ProtectSelfMask,       apply: apply_protect_self_mask },
-    StageEntry { id: StageId::KillableGate,          apply: apply_killable_gate },
-    StageEntry { id: StageId::RepairAffinity,        apply: apply_repair_affinity },
-    StageEntry { id: StageId::OverlayConsiderations, apply: apply_overlay_considerations },
-    StageEntry { id: StageId::PlanModifiers,         apply: apply_plan_modifiers },
-    StageEntry { id: StageId::PickBest,              apply: apply_pick_best },
+    StageEntry {
+        id: StageId::ProtectSelfMask,
+        apply: apply_protect_self_mask,
+    },
+    StageEntry {
+        id: StageId::KillableGate,
+        apply: apply_killable_gate,
+    },
+    StageEntry {
+        id: StageId::RepairAffinity,
+        apply: apply_repair_affinity,
+    },
+    StageEntry {
+        id: StageId::OverlayConsiderations,
+        apply: apply_overlay_considerations,
+    },
+    StageEntry {
+        id: StageId::PlanModifiers,
+        apply: apply_plan_modifiers,
+    },
+    StageEntry {
+        id: StageId::PickBest,
+        apply: apply_pick_best,
+    },
 ];
 
 /// Full production pipeline — both halves concatenated, for tests that do not
@@ -150,18 +186,54 @@ pub const PRODUCTION_PIPELINE_POST_MASK: &[StageEntry] = &[
 /// `pick_action` itself uses the split constants directly.  This constant is
 /// the single literal name that test assertions require (DoD).
 pub const PRODUCTION_PIPELINE: &[StageEntry] = &[
-    StageEntry { id: StageId::Viability,             apply: apply_viability },
-    StageEntry { id: StageId::ItemScoring,           apply: apply_item_scoring },
-    StageEntry { id: StageId::ModeSelection,         apply: apply_mode_selection },
-    StageEntry { id: StageId::Finalize,              apply: apply_finalize },
-    StageEntry { id: StageId::Sanity,                apply: apply_sanity },
-    StageEntry { id: StageId::Critics,               apply: apply_critics },
-    StageEntry { id: StageId::ProtectSelfMask,       apply: apply_protect_self_mask },
-    StageEntry { id: StageId::KillableGate,          apply: apply_killable_gate },
-    StageEntry { id: StageId::RepairAffinity,        apply: apply_repair_affinity },
-    StageEntry { id: StageId::OverlayConsiderations, apply: apply_overlay_considerations },
-    StageEntry { id: StageId::PlanModifiers,         apply: apply_plan_modifiers },
-    StageEntry { id: StageId::PickBest,              apply: apply_pick_best },
+    StageEntry {
+        id: StageId::Viability,
+        apply: apply_viability,
+    },
+    StageEntry {
+        id: StageId::ItemScoring,
+        apply: apply_item_scoring,
+    },
+    StageEntry {
+        id: StageId::ModeSelection,
+        apply: apply_mode_selection,
+    },
+    StageEntry {
+        id: StageId::Finalize,
+        apply: apply_finalize,
+    },
+    StageEntry {
+        id: StageId::Sanity,
+        apply: apply_sanity,
+    },
+    StageEntry {
+        id: StageId::Critics,
+        apply: apply_critics,
+    },
+    StageEntry {
+        id: StageId::ProtectSelfMask,
+        apply: apply_protect_self_mask,
+    },
+    StageEntry {
+        id: StageId::KillableGate,
+        apply: apply_killable_gate,
+    },
+    StageEntry {
+        id: StageId::RepairAffinity,
+        apply: apply_repair_affinity,
+    },
+    StageEntry {
+        id: StageId::OverlayConsiderations,
+        apply: apply_overlay_considerations,
+    },
+    StageEntry {
+        id: StageId::PlanModifiers,
+        apply: apply_plan_modifiers,
+    },
+    StageEntry {
+        id: StageId::PickBest,
+        apply: apply_pick_best,
+    },
 ];
 
 // ── Runner ────────────────────────────────────────────────────────────────────

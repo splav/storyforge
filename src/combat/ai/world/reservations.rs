@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use crate::combat::ai::log::ReservationsSnapshot;
 use crate::game::hex::Hex;
+use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 /// Shared mutable state within a single enemy phase (one round).

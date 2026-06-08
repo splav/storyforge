@@ -1,20 +1,20 @@
 pub mod action_state;
-pub mod world;
-pub mod config;
-pub mod log;
 pub mod adapt;
-pub mod pipeline;
 pub mod appraisal;
-pub mod repair;
+pub mod config;
+pub mod intent;
+pub mod log;
 pub mod memory;
+pub mod orchestration;
 pub mod outcome;
+pub mod pipeline;
 pub mod plan;
+pub mod repair;
+pub mod replay;
 pub mod scoring;
 pub mod sim;
-pub mod replay;
 pub mod system;
-pub mod intent;
-pub mod orchestration;
+pub mod world;
 
 pub use outcome::{ActionOutcomeEstimate, PlanAnnotation};
 pub use pipeline::stages::sanity::{SanityHit, SanityRule};

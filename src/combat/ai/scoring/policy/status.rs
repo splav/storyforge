@@ -190,6 +190,9 @@ mod tests {
         }
         // Ensure we actually tested something — if the content has no status
         // abilities this test would pass vacuously.
-        assert!(tested > 0, "no status-applying abilities found in content; test is vacuous");
+        assert!(
+            tested > 0,
+            "no status-applying abilities found in content; test is vacuous"
+        );
     }
 }

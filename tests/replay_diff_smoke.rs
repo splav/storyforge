@@ -13,12 +13,13 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use storyforge::combat_engine::{
-    DiceRng,
     action::Action,
     state::{CombatState, RoundPhase, UnitId},
     step::step,
-    trace::{SCHEMA_VERSION, InitLine, StepLine, post_state_hash_hex, serialize_init, serialize_step},
-    TomlContentView,
+    trace::{
+        post_state_hash_hex, serialize_init, serialize_step, InitLine, StepLine, SCHEMA_VERSION,
+    },
+    DiceRng, TomlContentView,
 };
 
 use crate::common::engine_unit::EngineUnitBuilder;
@@ -107,7 +108,11 @@ fn smoke_identical_traces_exit_0() {
     let out = run_binary(&path_a, &path_b);
     let stdout = String::from_utf8_lossy(&out.stdout);
 
-    assert_eq!(out.status.code(), Some(0), "expected exit 0\nstdout: {stdout}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "expected exit 0\nstdout: {stdout}"
+    );
     assert!(
         stdout.contains("no divergence"),
         "expected 'no divergence' in output\nstdout: {stdout}"
@@ -156,7 +161,11 @@ fn smoke_different_seeds_exit_2() {
     let out = run_binary(&path_a, &path_b);
     let stdout = String::from_utf8_lossy(&out.stdout);
 
-    assert_eq!(out.status.code(), Some(2), "expected exit 2\nstdout: {stdout}");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2\nstdout: {stdout}"
+    );
     assert!(
         stdout.contains("DIVERGED") || stdout.contains("rng_seed"),
         "expected divergence report\nstdout: {stdout}"

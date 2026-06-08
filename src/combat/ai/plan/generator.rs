@@ -9,25 +9,25 @@
 //! No persistent state: every tick starts fresh. Revalidation of a committed
 //! plan lives in Phase 4.
 
-use combat_engine::legality::{check_legality, ProposedAction};
 use crate::combat::ai::action_state::SnapshotActionState;
-use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits};
-use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::plan::sim::SimState;
-use crate::combat::engine_bridge::entity_to_uid;
-use crate::combat::ai::outcome::builder as outcome_builder;
-use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::orchestration::AiWorld;
-use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
+use crate::combat::ai::outcome::builder as outcome_builder;
+use crate::combat::ai::plan::sim::SimState;
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+use crate::combat::ai::scoring::applies_cc;
+use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits};
+use crate::combat::ai::world::influence::InfluenceMaps;
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
+use crate::combat::engine_bridge::entity_to_uid;
 #[cfg(test)]
 use crate::content::abilities::EffectCalcExt;
-use combat_engine::AbilityId;
+use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::game::hex::Hex;
 use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::Entity;
+use combat_engine::legality::{check_legality, ProposedAction};
+use combat_engine::AbilityId;
 use std::collections::{HashMap, HashSet};
 
 // Per-step target + move-tile budgets. Composition matters more than the
@@ -61,8 +61,12 @@ pub fn generate_plans(
     let seed = TurnPlan {
         steps: Vec::new(),
         final_pos: actor_u.pos,
-        residual_ap: actor_u.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
-        residual_mp: actor_u.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0),
+        residual_ap: actor_u.pools[combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        residual_mp: actor_u.pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
         outcomes: Vec::new(),
         partial_score: seed_partial_score(actor_u, maps),
         sim_snapshots: Vec::new(),
@@ -85,9 +89,18 @@ pub fn generate_plans(
                 .cloned()
                 .unwrap_or_else(|| snap.clone());
             let base_sim = SimState::from_snapshot(&base_snapshot, actor, ctx.status_tags);
-            let Some(sa) = base_sim.actor_unit() else { continue };
-            if sa.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) <= 0
-                && sa.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0) <= 0 {
+            let Some(sa) = base_sim.actor_unit() else {
+                continue;
+            };
+            if sa.pools[combat_engine::PoolKind::Ap]
+                .map(|(c, _)| c)
+                .unwrap_or(0)
+                <= 0
+                && sa.pools[combat_engine::PoolKind::Mp]
+                    .map(|(c, _)| c)
+                    .unwrap_or(0)
+                    <= 0
+            {
                 continue;
             }
             // Grab the actor's caster snapshot once — str/int/spell-power come
@@ -128,12 +141,14 @@ pub fn generate_plans(
                             let pending = plan
                                 .steps
                                 .iter()
-                                .filter(|s| matches!(s,
-                                    PlanStep::Cast { ability: a, .. }
-                                        if ctx.content.abilities.get(a)
-                                            .is_some_and(|d| matches!(d.effect,
-                                                EffectDef::Summon { .. }))
-                                ))
+                                .filter(|s| {
+                                    matches!(s,
+                                        PlanStep::Cast { ability: a, .. }
+                                            if ctx.content.abilities.get(a)
+                                                .is_some_and(|d| matches!(d.effect,
+                                                    EffectDef::Summon { .. }))
+                                    )
+                                })
                                 .count() as u32;
                             if live + pending >= cap {
                                 continue;
@@ -142,9 +157,14 @@ pub fn generate_plans(
                     }
                 }
                 // Apply this step on a cloned sim to measure outcome + state.
-                let mut ext_sim = SimState::from_snapshot(&base_sim.snapshot, actor, ctx.status_tags);
+                let mut ext_sim =
+                    SimState::from_snapshot(&base_sim.snapshot, actor, ctx.status_tags);
                 let disadvantage = match &step {
-                    PlanStep::Cast { ability, target, target_pos } => {
+                    PlanStep::Cast {
+                        ability,
+                        target,
+                        target_pos,
+                    } => {
                         let proposal = ProposedAction {
                             actor,
                             ability,
@@ -172,15 +192,18 @@ pub fn generate_plans(
                 // existing depth-loop guard (`actor_unit()` returns None for
                 // dead actors) ensures the plan won't be extended in subsequent
                 // depth iterations either.
-                let actor_is_dead = ext_sim
-                    .actor_unit()
-                    .map(|a| a.hp() <= 0)
-                    .unwrap_or(true);
+                let actor_is_dead = ext_sim.actor_unit().map(|a| a.hp() <= 0).unwrap_or(true);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
-                    Some(u) => (u.pos,
-                               u.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
-                               u.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0)),
+                    Some(u) => (
+                        u.pos,
+                        u.pools[combat_engine::PoolKind::Ap]
+                            .map(|(c, _)| c)
+                            .unwrap_or(0),
+                        u.pools[combat_engine::PoolKind::Mp]
+                            .map(|(c, _)| c)
+                            .unwrap_or(0),
+                    ),
                     None => (plan.final_pos, 0, 0),
                 };
 
@@ -277,7 +300,9 @@ fn dedup_by_logical_key(plans: Vec<TurnPlan>, actor_start: Hex) -> Vec<TurnPlan>
 /// computed by walking the preceding steps.
 #[derive(Hash, Eq, PartialEq, Clone)]
 enum StepKey {
-    Move { dest: Hex },
+    Move {
+        dest: Hex,
+    },
     Cast {
         ability: AbilityId,
         target: Entity,
@@ -292,7 +317,11 @@ fn logical_key(plan: &TurnPlan, actor_start: Hex) -> Vec<StepKey> {
             PlanStep::Move { path } => StepKey::Move {
                 dest: path.last().copied().unwrap_or(caster_pos),
             },
-            PlanStep::Cast { ability, target, target_pos } => StepKey::Cast {
+            PlanStep::Cast {
+                ability,
+                target,
+                target_pos,
+            } => StepKey::Cast {
                 ability: ability.clone(),
                 target: *target,
                 target_pos: *target_pos,
@@ -326,11 +355,7 @@ fn total_mp_cost(plan: &TurnPlan) -> i32 {
 /// 2. **AI policy** — `ai_policy_ok` is the heuristic layer that rejects
 ///    legal-but-suboptimal casts (overheal, wasted CC, bad AoE FF ratio).
 ///    Player is free to do any of these; AI doesn't plan through them.
-fn enumerate_next_steps(
-    sim: &SimState,
-    ctx: &AiWorld,
-    maps: &InfluenceMaps,
-) -> Vec<PlanStep> {
+fn enumerate_next_steps(sim: &SimState, ctx: &AiWorld, maps: &InfluenceMaps) -> Vec<PlanStep> {
     let Some(actor) = sim.actor_unit() else {
         return Vec::new();
     };
@@ -357,8 +382,15 @@ fn enumerate_next_steps(
     // candidates through `check_legality`, so this loop only needs the
     // AI-policy gate on top.
     for ability_id in &actor.cache.abilities {
-        let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
-        if fleeing && matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground | TargetType::Environment) {
+        let Some(def) = ctx.content.abilities.get(ability_id) else {
+            continue;
+        };
+        if fleeing
+            && matches!(
+                def.target_type,
+                TargetType::SingleEnemy | TargetType::Ground | TargetType::Environment
+            )
+        {
             continue;
         }
         let targets = rank_targets(def, actor, sim, &state);
@@ -375,7 +407,11 @@ fn enumerate_next_steps(
     }
 
     // Move steps (if MP > 0). Skipped if actor is grounded.
-    if actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0) > 0 {
+    if actor.pools[combat_engine::PoolKind::Mp]
+        .map(|(c, _)| c)
+        .unwrap_or(0)
+        > 0
+    {
         let reach = super::reach_from(&sim.snapshot, actor);
         let top_tiles = pick_top_move_tiles(&reach, sim, maps, actor.pos);
         for tile in top_tiles {
@@ -678,28 +714,23 @@ fn seed_partial_score(actor: UnitView<'_>, maps: &InfluenceMaps) -> f32 {
 /// Calibration: 1 kill ≈ 10 HP damage ≈ 2× the pos_value spread. Heal weighted
 /// like damage (symmetric support/offensive potential).
 fn partial_score(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
-    let (damage, heal, kills, stuns) = plan.outcomes.iter().fold(
-        (0.0f32, 0.0f32, 0usize, 0usize),
-        |(d, h, k, s), o| {
-            (
-                d + o.damage,
-                h + o.heal,
-                k + o.killed.len(),
-                s + o.stunned.len(),
-            )
-        },
-    );
+    let (damage, heal, kills, stuns) =
+        plan.outcomes
+            .iter()
+            .fold((0.0f32, 0.0f32, 0usize, 0usize), |(d, h, k, s), o| {
+                (
+                    d + o.damage,
+                    h + o.heal,
+                    k + o.killed.len(),
+                    s + o.stunned.len(),
+                )
+            });
     let pos_value = 1.0 - maps.danger.get(plan.final_pos);
 
-    damage * 0.1
-        + heal * 0.1
-        + (kills as f32) * 1.0
-        + (stuns as f32) * 0.5
-        + pos_value * 0.5
+    damage * 0.1 + heal * 0.1 + (kills as f32) * 1.0 + (stuns as f32) * 0.5 + pos_value * 0.5
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
-
 
 #[cfg(test)]
 #[path = "generator_tests.rs"]

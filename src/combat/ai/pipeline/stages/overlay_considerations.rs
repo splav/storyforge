@@ -26,16 +26,16 @@
 
 use bevy::prelude::Entity;
 
-use crate::combat::ai::scoring::factors::{
-    FactorTerminalScore, PlanFactor, PlanFactorValues, TerminalFactor,
-};
-use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::agenda::AgendaItem;
 use crate::combat::ai::intent::considerations::IntentConsiderations;
 use crate::combat::ai::intent::IntentKind;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+use crate::combat::ai::scoring::factors::{
+    FactorTerminalScore, PlanFactor, PlanFactorValues, TerminalFactor,
+};
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::game::hex::Hex;
 
@@ -98,8 +98,7 @@ impl PlanStage for OverlayConsiderationsStage {
                 0.0
             } else {
                 let margin = ctx.scoring.world.tuning.intent.feasibility_margin;
-                ((ann.viability.adjusted_score - VIABILITY_THRESHOLD) / margin)
-                    .clamp(0.0, 1.0)
+                ((ann.viability.adjusted_score - VIABILITY_THRESHOLD) / margin).clamp(0.0, 1.0)
             };
 
             // safety: 1.0 - max(self_damage_ratio, exposure_at_end).
@@ -120,17 +119,16 @@ impl PlanStage for OverlayConsiderationsStage {
             } else {
                 0.0
             };
-            let exposure = ann.terminal.get(TerminalFactor::ExposureAtEnd).clamp(0.0, 1.0);
+            let exposure = ann
+                .terminal
+                .get(TerminalFactor::ExposureAtEnd)
+                .clamp(0.0, 1.0);
             let safety = 1.0 - self_damage_ratio.max(exposure);
 
             // continuation_value: recompute with plan-level repair_affinity.
             // Formula: 0.5 × continue_commitment + 0.5 × repair_severity_factor
             let repair_affinity = &ann.repair_affinity;
-            let commitment = ctx
-                .scoring
-                .need_signals
-                .continue_commitment
-                .clamp(0.0, 1.0);
+            let commitment = ctx.scoring.need_signals.continue_commitment.clamp(0.0, 1.0);
             let repair_score = repair_affinity.severity_factor.clamp(0.0, 1.0);
             let continuation_value = if ctx.scoring.last_goal.is_some() {
                 (0.5 * commitment + 0.5 * repair_score).clamp(0.0, 1.0)
@@ -186,11 +184,11 @@ impl PlanStage for OverlayConsiderationsStage {
                 pool.annotations[plan_idx].per_item[item_idx].considerations =
                     IntentConsiderations {
                         urgency: base.urgency,             // item-level
-                        feasibility,                        // plan-level
-                        leverage,                           // plan-level, per-item-kind
-                        safety,                             // plan-level
-                        role_affinity: base.role_affinity,  // item-level
-                        continuation_value,                 // plan-level
+                        feasibility,                       // plan-level
+                        leverage,                          // plan-level, per-item-kind
+                        safety,                            // plan-level
+                        role_affinity: base.role_affinity, // item-level
+                        continuation_value,                // plan-level
                     };
             }
         }
@@ -275,7 +273,9 @@ fn compute_leverage(
         }
         IntentKind::Reposition | IntentKind::SetupAOE => {
             // Positional gain: terminal LineActionability + cluster score.
-            let line = terminal.get(TerminalFactor::LineActionability).clamp(0.0, 1.0);
+            let line = terminal
+                .get(TerminalFactor::LineActionability)
+                .clamp(0.0, 1.0);
             let cluster = terminal
                 .get(TerminalFactor::PressureSpacingZone)
                 .clamp(0.0, 1.0);
@@ -289,8 +289,8 @@ fn compute_leverage(
             // global trade value, not per-agenda-target leverage. Intentional asymmetry
             // with FocusTarget/ApplyCC.
             let kill = terminal.get(TerminalFactor::SecureKill).clamp(0.0, 1.0);
-            let damage_norm = (sum_enemy_damage(outcomes) / LAST_STAND_DAMAGE_REFERENCE)
-                .clamp(0.0, 1.0);
+            let damage_norm =
+                (sum_enemy_damage(outcomes) / LAST_STAND_DAMAGE_REFERENCE).clamp(0.0, 1.0);
             LAST_STAND_KILL_WEIGHT * kill + LAST_STAND_DAMAGE_WEIGHT * damage_norm
         }
     }
@@ -363,9 +363,7 @@ fn cc_turns_applied_to_target(
         .iter()
         .zip(outcomes.iter())
         .filter_map(|(step, outcome)| match step {
-            PlanStep::Cast {
-                target: t, ..
-            } if *t == target => Some(outcome.cc_turns_applied),
+            PlanStep::Cast { target: t, .. } if *t == target => Some(outcome.cc_turns_applied),
             _ => None,
         })
         .sum()

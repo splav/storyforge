@@ -12,16 +12,16 @@ use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 
 use storyforge::app_state::{AppState, CombatPhase};
+use storyforge::combat::ai::world::tags::AbilityTagCache;
+use storyforge::combat::DiceRngRes;
 use storyforge::combat::{
     ai::world::reservations::Reservations,
     engine_bridge::{
-        apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
-        bootstrap_combat_state,
-        BridgeQueues, process_action_system, project_state_to_ecs, CombatStateRes, UnitIdMap,
+        apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
+        bootstrap_combat_state, process_action_system, project_state_to_ecs, BridgeQueues,
+        CombatStateRes, UnitIdMap,
     },
 };
-use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::combat::DiceRngRes;
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::settings::GameSettings;
 use storyforge::game::combat_log::CombatLog;
@@ -52,7 +52,9 @@ pub fn movement_app() -> App {
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
-        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
+        .insert_resource(ActiveContent(
+            storyforge::content::content_view::ContentView::load_global_for_tests(),
+        ))
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()

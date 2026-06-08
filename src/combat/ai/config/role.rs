@@ -1,10 +1,10 @@
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::repair::affinity::RepairWeights;
 use crate::combat::ai::world::tags::{AbilityTag, AbilityTagCache, AbilityTagSet};
-use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::abilities::{AoEShape, EffectDef};
 use crate::content::content_view::ContentView;
-use combat_engine::AbilityId;
 use bevy::prelude::*;
+use combat_engine::AbilityId;
 
 // ── AxisProfile: vector-role across 5 archetypal axes ──────────────────────
 //
@@ -22,7 +22,9 @@ use bevy::prelude::*;
 
 /// Axis weights for the composition. All non-negative; not normalised —
 /// normalisation happens inside `biased_normalized`.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Component, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct AxisProfile {
     pub tank: f32,
     pub melee: f32,
@@ -36,7 +38,6 @@ pub struct AxisProfile {
 /// readable while pure roles converge to enum-like behaviour.
 pub const COMPOSITION_EXPONENT: f32 = 1.5;
 
-
 /// How much each axis contributes to a target's priority-value (used in
 /// `target_priority`). Support > Control > Ranged > Melee > Tank — killing
 /// a support / controller is strategically bigger than killing a front-liner.
@@ -46,7 +47,13 @@ const AXIS_NAMES: [&str; 5] = ["Tank", "Melee", "Ranged", "Control", "Support"];
 
 impl AxisProfile {
     pub fn as_array(&self) -> [f32; 5] {
-        [self.tank, self.melee, self.ranged, self.control, self.support]
+        [
+            self.tank,
+            self.melee,
+            self.ranged,
+            self.control,
+            self.support,
+        ]
     }
 
     /// Raise each axis to `COMPOSITION_EXPONENT`, then normalise so the sum is 1.
@@ -168,7 +175,11 @@ impl AxisProfile {
                 w[j] += mix[axis] * table[axis][j];
             }
         }
-        RepairWeights { goal_w: w[0], region_w: w[1], method_w: w[2] }
+        RepairWeights {
+            goal_w: w[0],
+            region_w: w[1],
+            method_w: w[2],
+        }
     }
 
     /// Composite "how valuable is this target to eliminate" scalar in 0..1.
@@ -214,14 +225,16 @@ pub fn infer_profile(
     let mut p = AxisProfile::default();
 
     for id in abilities {
-        let Some(def) = content.abilities.get(id) else { continue };
+        let Some(def) = content.abilities.get(id) else {
+            continue;
+        };
         let cost: f32 = def.costs.iter().map(|c| c.amount as f32).sum();
         let weight = 1.0 + cost;
         let tags = tag_cache.effective(id);
         let v = tag_axis_vote(tags, def, weight);
-        p.tank    += v[0];
-        p.melee   += v[1];
-        p.ranged  += v[2];
+        p.tank += v[0];
+        p.melee += v[1];
+        p.ranged += v[2];
         p.control += v[3];
         p.support += v[4];
     }
@@ -278,8 +291,14 @@ fn tag_axis_vote(
         let is_ranged = matches!(def.effect, EffectDef::SpellDamage { .. })
             || def.aoe != AoEShape::None
             || def.range.min >= 2;
-        if is_ranged { v[2] += weight } else { v[1] += weight };
-        if tags.contains_tag(AbilityTag::ApplyCC) { v[3] += weight * 0.4; }
+        if is_ranged {
+            v[2] += weight
+        } else {
+            v[1] += weight
+        };
+        if tags.contains_tag(AbilityTag::ApplyCC) {
+            v[3] += weight * 0.4;
+        }
         return v;
     }
     if tags.contains_tag(AbilityTag::ApplyCC) {
@@ -329,9 +348,16 @@ mod tests {
 
     #[test]
     fn pure_axis_stays_pure_after_bias() {
-        let p = AxisProfile { support: 1.0, ..Default::default() };
+        let p = AxisProfile {
+            support: 1.0,
+            ..Default::default()
+        };
         let mix = p.biased_normalized();
-        assert!((mix[4] - 1.0).abs() < 1e-5, "pure support should stay 1.0, got {}", mix[4]);
+        assert!(
+            (mix[4] - 1.0).abs() < 1e-5,
+            "pure support should stay 1.0, got {}",
+            mix[4]
+        );
         for &other in &mix[..4] {
             assert!(other.abs() < 1e-5);
         }
@@ -340,38 +366,75 @@ mod tests {
     #[test]
     fn bias_amplifies_dominant_axis() {
         // Linear 70/30 → biased should skew further toward 70.
-        let p = AxisProfile { ranged: 0.7, support: 0.3, ..Default::default() };
+        let p = AxisProfile {
+            ranged: 0.7,
+            support: 0.3,
+            ..Default::default()
+        };
         let mix = p.biased_normalized();
         // 0.7^1.5 = 0.585, 0.3^1.5 = 0.164 → norm 0.78 / 0.22
-        assert!(mix[2] > 0.75, "ranged should be >0.75 after bias, got {}", mix[2]);
-        assert!(mix[4] < 0.25, "support should be <0.25 after bias, got {}", mix[4]);
+        assert!(
+            mix[2] > 0.75,
+            "ranged should be >0.75 after bias, got {}",
+            mix[2]
+        );
+        assert!(
+            mix[4] < 0.25,
+            "support should be <0.25 after bias, got {}",
+            mix[4]
+        );
     }
 
     #[test]
     fn factor_weights_mix_correctly() {
         // 50/50 Tank + Melee: heal (index 4) should be near zero (both axes have heal≈0.1 average).
         let tuning = AiTuning::default();
-        let p = AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() };
+        let p = AxisProfile {
+            tank: 0.5,
+            melee: 0.5,
+            ..Default::default()
+        };
         let w = p.factor_weights(&tuning);
-        assert!(w[HEAL_IDX] < 0.15, "heal weight should be small for tank/melee hybrid, got {}", w[HEAL_IDX]);
+        assert!(
+            w[HEAL_IDX] < 0.15,
+            "heal weight should be small for tank/melee hybrid, got {}",
+            w[HEAL_IDX]
+        );
         // Damage should be meaningful (melee contributes 1.3).
-        assert!(w[DAMAGE_IDX] > 0.6, "damage weight should be substantial, got {}", w[DAMAGE_IDX]);
+        assert!(
+            w[DAMAGE_IDX] > 0.6,
+            "damage weight should be substantial, got {}",
+            w[DAMAGE_IDX]
+        );
     }
 
     #[test]
     fn pure_support_heal_weight_near_axis_value() {
         // After bias, pure support normalizes to 1.0; heal = 1.0 × 2.0 = 2.0.
         let tuning = AiTuning::default();
-        let p = AxisProfile { support: 1.0, ..Default::default() };
+        let p = AxisProfile {
+            support: 1.0,
+            ..Default::default()
+        };
         let w = p.factor_weights(&tuning);
-        assert!((w[HEAL_IDX] - 2.0).abs() < 0.01, "pure support heal weight = 2.0, got {}", w[HEAL_IDX]);
+        assert!(
+            (w[HEAL_IDX] - 2.0).abs() < 0.01,
+            "pure support heal weight = 2.0, got {}",
+            w[HEAL_IDX]
+        );
     }
 
     #[test]
     fn role_value_scales_with_support() {
         // Pure support is highest-priority target (1.0). Pure tank lowest (0.3).
-        let support = AxisProfile { support: 1.0, ..Default::default() };
-        let tank = AxisProfile { tank: 1.0, ..Default::default() };
+        let support = AxisProfile {
+            support: 1.0,
+            ..Default::default()
+        };
+        let tank = AxisProfile {
+            tank: 1.0,
+            ..Default::default()
+        };
         assert!(support.role_value() > tank.role_value());
         assert!((support.role_value() - 1.0).abs() < 0.01);
         assert!((tank.role_value() - 0.3).abs() < 0.01);
@@ -379,7 +442,10 @@ mod tests {
 
     #[test]
     fn dominant_label_shows_primary() {
-        let p = AxisProfile { ranged: 1.0, ..Default::default() };
+        let p = AxisProfile {
+            ranged: 1.0,
+            ..Default::default()
+        };
         let label = p.dominant_label();
         assert!(label.starts_with("Ranged"), "got {}", label);
     }
@@ -387,10 +453,19 @@ mod tests {
     #[test]
     fn dominant_label_shows_hybrid() {
         // Buryevestnik-like: Ranged + Support hybrid after bias should show both.
-        let p = AxisProfile { ranged: 6.0, support: 3.0, melee: 1.0, ..Default::default() };
+        let p = AxisProfile {
+            ranged: 6.0,
+            support: 3.0,
+            melee: 1.0,
+            ..Default::default()
+        };
         let label = p.dominant_label();
         assert!(label.contains("Ranged"), "got {}", label);
-        assert!(label.contains("Support"), "should show secondary support: {}", label);
+        assert!(
+            label.contains("Support"),
+            "should show secondary support: {}",
+            label
+        );
     }
 
     // ── infer_profile on real units ─────────────────────────────────────
@@ -399,7 +474,9 @@ mod tests {
     fn dominant(p: &AxisProfile) -> &'static str {
         let mix = p.biased_normalized();
         let names = ["Tank", "Melee", "Ranged", "Control", "Support"];
-        let (idx, _) = mix.iter().enumerate()
+        let (idx, _) = mix
+            .iter()
+            .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap();
         names[idx]
@@ -411,8 +488,17 @@ mod tests {
         // Expected: Ranged dominant, small Support and Control secondary.
         let (db, ac) = db_with_cache();
         let p = infer_profile(
-            &ids(&["melee_attack", "bow_shot", "paralyzing_shot", "field_medic", "poison_shot"]),
-            18, 2, &db, &ac,
+            &ids(&[
+                "melee_attack",
+                "bow_shot",
+                "paralyzing_shot",
+                "field_medic",
+                "poison_shot",
+            ]),
+            18,
+            2,
+            &db,
+            &ac,
         );
         assert_eq!(dominant(&p), "Ranged", "profile: {:?}", p);
         assert!(p.ranged > p.support);
@@ -427,11 +513,17 @@ mod tests {
         let (db, ac) = db_with_cache();
         let p = infer_profile(
             &ids(&["melee_attack", "flash", "burn", "fireball", "heal"]),
-            10, 0, &db, &ac,
+            10,
+            0,
+            &db,
+            &ac,
         );
         assert_eq!(dominant(&p), "Ranged", "profile: {:?}", p);
         assert!(p.support > 0.0, "heal should contribute to Support");
-        assert_eq!(p.control, 0.0, "burn applies DOT (not CC) → no Control contribution");
+        assert_eq!(
+            p.control, 0.0,
+            "burn applies DOT (not CC) → no Control contribution"
+        );
     }
 
     #[test]
@@ -449,13 +541,22 @@ mod tests {
         let (db, ac) = db_with_cache();
         let p = infer_profile(
             &ids(&["melee_attack", "taunt", "stun", "rush"]),
-            20, 5, &db, &ac,
+            20,
+            5,
+            &db,
+            &ac,
         );
         assert!(
             dominant(&p) == "Tank" || dominant(&p) == "Control",
-            "expected Tank or Control, got {} with profile {:?}", dominant(&p), p
+            "expected Tank or Control, got {} with profile {:?}",
+            dominant(&p),
+            p
         );
-        assert!(p.tank > 2.0, "heavy armor + taunt/rush should yield high Tank: {:?}", p);
+        assert!(
+            p.tank > 2.0,
+            "heavy armor + taunt/rush should yield high Tank: {:?}",
+            p
+        );
         assert!(p.control > 2.0, "stun should give Control: {:?}", p);
     }
 
@@ -468,7 +569,11 @@ mod tests {
         assert_eq!(dominant(&p), "Melee", "profile: {:?}", p);
         let mix = p.biased_normalized();
         assert!(mix[1] > 0.6, "melee should dominate: {:?}", mix);
-        assert!(mix[0] < 0.25, "tank should be low (glass cannon): {:?}", mix);
+        assert!(
+            mix[0] < 0.25,
+            "tank should be low (glass cannon): {:?}",
+            mix
+        );
     }
 
     #[test]
@@ -476,11 +581,21 @@ mod tests {
         // Буревестник: melee + thunderstrike (5 mana AoE) + heal (2 mana).
         // Expected: Ranged dominant (thunderstrike weight 6), Support secondary.
         let (db, ac) = db_with_cache();
-        let p = infer_profile(&ids(&["melee_attack", "thunderstrike", "heal"]), 14, 1, &db, &ac);
+        let p = infer_profile(
+            &ids(&["melee_attack", "thunderstrike", "heal"]),
+            14,
+            1,
+            &db,
+            &ac,
+        );
         assert_eq!(dominant(&p), "Ranged", "profile: {:?}", p);
         assert!(p.support > 0.0, "heal should contribute: {:?}", p);
         let mix = p.biased_normalized();
-        assert!(mix[4] > 0.10, "support should be present at ~10-25% after bias: {:?}", mix);
+        assert!(
+            mix[4] > 0.10,
+            "support should be present at ~10-25% after bias: {:?}",
+            mix
+        );
     }
 
     #[test]
@@ -488,13 +603,21 @@ mod tests {
         // Старшина: melee + heal + burn + spark. hp 22, armor 3.
         // Expected: Support dominant (heal weight 3 + tank stat bonus not enough to overtake).
         let (db, ac) = db_with_cache();
-        let p = infer_profile(&ids(&["melee_attack", "heal", "burn", "spark"]), 22, 3, &db, &ac);
+        let p = infer_profile(
+            &ids(&["melee_attack", "heal", "burn", "spark"]),
+            22,
+            3,
+            &db,
+            &ac,
+        );
         assert!(p.support > 0.0);
         // Support might lose to Tank due to stat bonus. Check it's either top or close.
         let dom = dominant(&p);
         assert!(
             dom == "Support" || dom == "Tank",
-            "expected Support or Tank-hybrid, got {} with profile {:?}", dom, p
+            "expected Support or Tank-hybrid, got {} with profile {:?}",
+            dom,
+            p
         );
     }
 
@@ -509,7 +632,8 @@ mod tests {
         let dom = dominant(&p);
         assert!(
             dom == "Tank" || dom == "Melee",
-            "expected Tank or Melee, got {}", dom
+            "expected Tank or Melee, got {}",
+            dom
         );
     }
 
@@ -531,8 +655,16 @@ mod tests {
         let tags = ac.effective(&id);
         let w = ability_weight(def);
         let v = tag_axis_vote(tags, def, w);
-        assert!((v[4] - w).abs() < 1e-5, "Support should equal weight {w}, got {}", v[4]);
-        assert_eq!([v[0], v[1], v[2], v[3]], [0.0, 0.0, 0.0, 0.0], "non-Support axes must be zero");
+        assert!(
+            (v[4] - w).abs() < 1e-5,
+            "Support should equal weight {w}, got {}",
+            v[4]
+        );
+        assert_eq!(
+            [v[0], v[1], v[2], v[3]],
+            [0.0, 0.0, 0.0, 0.0],
+            "non-Support axes must be zero"
+        );
     }
 
     /// `backstab` is OFFENSIVE melee; its status (poisoned) is DOT not CC →
@@ -546,8 +678,15 @@ mod tests {
         let tags = ac.effective(&id);
         let w = ability_weight(def);
         let v = tag_axis_vote(tags, def, w);
-        assert_eq!(v[3], 0.0, "Control axis must be 0 for DOT-only status (DOT ≠ CC)");
-        assert!(v[1] > 0.0, "Melee axis should be positive for melee damage, got {}", v[1]);
+        assert_eq!(
+            v[3], 0.0,
+            "Control axis must be 0 for DOT-only status (DOT ≠ CC)"
+        );
+        assert!(
+            v[1] > 0.0,
+            "Melee axis should be positive for melee damage, got {}",
+            v[1]
+        );
     }
 
     /// `taunt` has DEFENSIVE+PEEL tags → Peel branch: Tank=0.7*weight, Support=0.3*weight.
@@ -560,9 +699,23 @@ mod tests {
         let tags = ac.effective(&id);
         let w = ability_weight(def);
         let v = tag_axis_vote(tags, def, w);
-        assert!((v[0] - 0.7 * w).abs() < 1e-5, "Tank should be 0.7*weight={}, got {}", 0.7 * w, v[0]);
-        assert!((v[4] - 0.3 * w).abs() < 1e-5, "Support should be 0.3*weight={}, got {}", 0.3 * w, v[4]);
-        assert_eq!([v[1], v[2], v[3]], [0.0, 0.0, 0.0], "Melee/Ranged/Control must be zero");
+        assert!(
+            (v[0] - 0.7 * w).abs() < 1e-5,
+            "Tank should be 0.7*weight={}, got {}",
+            0.7 * w,
+            v[0]
+        );
+        assert!(
+            (v[4] - 0.3 * w).abs() < 1e-5,
+            "Support should be 0.3*weight={}, got {}",
+            0.3 * w,
+            v[4]
+        );
+        assert_eq!(
+            [v[1], v[2], v[3]],
+            [0.0, 0.0, 0.0],
+            "Melee/Ranged/Control must be zero"
+        );
     }
 
     /// `summon_storm_spirit` has Summon tag → Support=0.7*weight, Ranged=0.3*weight.
@@ -575,9 +728,23 @@ mod tests {
         let tags = ac.effective(&id);
         let w = ability_weight(def);
         let v = tag_axis_vote(tags, def, w);
-        assert!((v[4] - 0.7 * w).abs() < 1e-5, "Support should be 0.7*weight={}, got {}", 0.7 * w, v[4]);
-        assert!((v[2] - 0.3 * w).abs() < 1e-5, "Ranged should be 0.3*weight={}, got {}", 0.3 * w, v[2]);
-        assert_eq!([v[0], v[1], v[3]], [0.0, 0.0, 0.0], "Tank/Melee/Control must be zero");
+        assert!(
+            (v[4] - 0.7 * w).abs() < 1e-5,
+            "Support should be 0.7*weight={}, got {}",
+            0.7 * w,
+            v[4]
+        );
+        assert!(
+            (v[2] - 0.3 * w).abs() < 1e-5,
+            "Ranged should be 0.3*weight={}, got {}",
+            0.3 * w,
+            v[2]
+        );
+        assert_eq!(
+            [v[0], v[1], v[3]],
+            [0.0, 0.0, 0.0],
+            "Tank/Melee/Control must be zero"
+        );
     }
 
     /// Actor with ability `melee_attack` overridden to `[support]`
@@ -600,7 +767,8 @@ mod tests {
         assert_eq!(
             dominant(&p),
             "Support",
-            "override to rescue should make Support dominant: {:?}", p
+            "override to rescue should make Support dominant: {:?}",
+            p
         );
     }
 }

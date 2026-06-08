@@ -19,7 +19,6 @@ mod ai_scenarios;
 #[path = "combat/aoo.rs"]
 mod aoo;
 
-
 #[path = "combat/handoff.rs"]
 mod handoff;
 
@@ -34,4 +33,3 @@ mod replay_assert;
 
 #[path = "combat/ai_snapshot.rs"]
 mod ai_snapshot;
-

@@ -29,7 +29,13 @@ pub fn queue_enemy_popup(
     let mut i = 0;
     while i < events.len() {
         // Phase transitions: one self-contained popup per event.
-        if let CombatEvent::PhaseEntered { actor: _, prev_name, next_name, flavor } = &events[i] {
+        if let CombatEvent::PhaseEntered {
+            actor: _,
+            prev_name,
+            next_name,
+            flavor,
+        } = &events[i]
+        {
             let mut lines = vec![
                 prev_name.clone(),
                 "───────────────".into(),
@@ -60,16 +66,13 @@ pub fn queue_enemy_popup(
         };
 
         // Only show popup for enemy actions.
-        let is_enemy = factions
-            .get(*actor)
-            .is_ok_and(|f| f.0 == Team::Enemy);
+        let is_enemy = factions.get(*actor).is_ok_and(|f| f.0 == Team::Enemy);
         if !is_enemy {
             i += 1;
             continue;
         }
 
-        let name =
-            |e: Entity| names.get(e).map(|n| n.as_str()).unwrap_or("?").to_string();
+        let name = |e: Entity| names.get(e).map(|n| n.as_str()).unwrap_or("?").to_string();
 
         let mut lines = Vec::new();
         lines.push(name(*actor));

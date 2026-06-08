@@ -13,9 +13,9 @@ use crate::combat::ai::scoring::policy;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef};
 use crate::content::content_view::ContentView;
-use combat_engine::DiceExpr;
 use crate::game::components::Team;
 use crate::game::hex::hex_from_offset;
+use combat_engine::DiceExpr;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,7 +44,13 @@ fn via_policy(
         }
         let effective = expected.min(missing);
         let horizon_sum: f32 = target.damage_horizon.iter().sum::<f32>().max(target.threat);
-        policy::heal::value(effective, target.max_hp, target.hp, danger_at_target, horizon_sum)
+        policy::heal::value(
+            effective,
+            target.max_hp,
+            target.hp,
+            danger_at_target,
+            horizon_sum,
+        )
     } else {
         let mitigation = if calc.pierces_armor {
             0.0
@@ -86,9 +92,18 @@ fn extract_cast_triples_from_line(
     let mut triples = Vec::new();
     for plan in &event.plans {
         for step in &plan.steps {
-            let PlanStep::Cast { ability, target, .. } = step else { continue };
-            let Some(def) = content.abilities.get(ability).cloned() else { continue };
-            let Some(target_view) = event.snapshot.unit(*target) else { continue };
+            let PlanStep::Cast {
+                ability, target, ..
+            } = step
+            else {
+                continue;
+            };
+            let Some(def) = content.abilities.get(ability).cloned() else {
+                continue;
+            };
+            let Some(target_view) = event.snapshot.unit(*target) else {
+                continue;
+            };
             triples.push((def, unit_view_to_snapshot(target_view), caster_ctx.clone()));
         }
     }
@@ -97,25 +112,39 @@ fn extract_cast_triples_from_line(
 
 /// Parse all JSONL files from `tests/ai_scenarios/snapshots/` and collect
 /// `(ability_def, target_snapshot, caster_ctx)` triples.
-fn collect_scenario_triples(content: &ContentView) -> Vec<(AbilityDef, UnitSnapshot, CasterContext)> {
+fn collect_scenario_triples(
+    content: &ContentView,
+) -> Vec<(AbilityDef, UnitSnapshot, CasterContext)> {
     use std::io::BufRead;
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let snapshots_dir = manifest.join("tests/ai_scenarios/snapshots");
 
     let mut all_triples = Vec::new();
 
-    let Ok(groups) = std::fs::read_dir(&snapshots_dir) else { return all_triples; };
+    let Ok(groups) = std::fs::read_dir(&snapshots_dir) else {
+        return all_triples;
+    };
     for entry in groups.flatten() {
         let group_dir = entry.path();
-        if !group_dir.is_dir() { continue; }
-        let Ok(files) = std::fs::read_dir(&group_dir) else { continue; };
+        if !group_dir.is_dir() {
+            continue;
+        }
+        let Ok(files) = std::fs::read_dir(&group_dir) else {
+            continue;
+        };
         for f in files.flatten() {
             let p = f.path();
-            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") { continue; }
-            let Ok(file) = std::fs::File::open(&p) else { continue; };
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Ok(file) = std::fs::File::open(&p) else {
+                continue;
+            };
             let reader = std::io::BufReader::new(file);
             for line in reader.lines().map_while(Result::ok) {
-                if line.trim().is_empty() { continue; }
+                if line.trim().is_empty() {
+                    continue;
+                }
                 let triples = extract_cast_triples_from_line(&line, content);
                 all_triples.extend(triples);
             }
@@ -132,7 +161,10 @@ fn policy_non_negative_for_all_scenario_fixtures() {
     let triples = collect_scenario_triples(&content);
 
     let n = triples.len();
-    assert!(n > 0, "no Cast triples found in ai_scenarios fixtures — check fixture paths");
+    assert!(
+        n > 0,
+        "no Cast triples found in ai_scenarios fixtures — check fixture paths"
+    );
 
     for (def, target, ctx) in &triples {
         let score = via_policy(def, target, ctx, &content, 0.0);
@@ -150,7 +182,10 @@ fn policy_non_negative_for_all_scenario_fixtures() {
 struct Lcg(u64);
 impl Lcg {
     fn next_u32(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((self.0 >> 33) ^ (self.0 >> 17)) as u32
     }
     fn next_f32(&mut self) -> f32 {
@@ -168,12 +203,18 @@ fn random_target(rng: &mut Lcg) -> UnitSnapshot {
     let max_hp = hp + rng.next_range(0, 50);
     let threat = rng.next_range(1, 20) as f32;
     let horizon_len = rng.next_range(0, 5) as usize;
-    let damage_horizon = (0..horizon_len).map(|_| rng.next_range(1, 15) as f32).collect();
+    let damage_horizon = (0..horizon_len)
+        .map(|_| rng.next_range(1, 15) as f32)
+        .collect();
     // Entity::from_raw_u32(0) is invalid; fall back to 1 if rng yields 0.
     let entity_id = rng.next_u32().max(1);
     UnitBuilder::new(
         entity_id,
-        if rng.next_u32().is_multiple_of(2) { Team::Player } else { Team::Enemy },
+        if rng.next_u32().is_multiple_of(2) {
+            Team::Player
+        } else {
+            Team::Enemy
+        },
         hex_from_offset(rng.next_range(0, 5), rng.next_range(0, 5)),
     )
     .hp(hp)
@@ -181,7 +222,11 @@ fn random_target(rng: &mut Lcg) -> UnitSnapshot {
     .armor(rng.next_range(0, 5))
     .armor_bonus(rng.next_range(-2, 2))
     .damage_taken_bonus(rng.next_range(-2, 4))
-    .role(AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() })
+    .role(AxisProfile {
+        tank: 0.5,
+        melee: 0.5,
+        ..Default::default()
+    })
     .threat(threat)
     .damage_horizon(damage_horizon)
     .build()
@@ -217,7 +262,10 @@ fn policy_non_negative_for_random_inputs() {
         .filter(|def| !matches!(def.effect, EffectDef::GrantMovement { .. }))
         .collect();
 
-    assert!(!abilities.is_empty(), "no abilities found — check ContentView::load_global_for_tests");
+    assert!(
+        !abilities.is_empty(),
+        "no abilities found — check ContentView::load_global_for_tests"
+    );
 
     let mut rng = Lcg(42);
     let n = 1000usize;
@@ -247,7 +295,10 @@ fn damage_value_monotone_in_raw() {
     for &raw in &raws {
         let progress = (raw / target_hp.max(1) as f32).min(1.0);
         let v = policy::damage::value(raw, progress);
-        assert!(v >= prev, "damage::value not monotone at raw={raw}: {v} < {prev}");
+        assert!(
+            v >= prev,
+            "damage::value not monotone at raw={raw}: {v} < {prev}"
+        );
         prev = v;
     }
 }
@@ -255,10 +306,15 @@ fn damage_value_monotone_in_raw() {
 /// `damage::value` is non-negative for any non-negative raw / progress.
 #[test]
 fn damage_value_non_negative() {
-    let cases = [(0.0f32, 0.0f32), (0.0, 1.0), (10.0, 0.0), (10.0, 0.5), (10.0, 1.0)];
+    let cases = [
+        (0.0f32, 0.0f32),
+        (0.0, 1.0),
+        (10.0, 0.0),
+        (10.0, 0.5),
+        (10.0, 1.0),
+    ];
     for (raw, progress) in cases {
         let v = policy::damage::value(raw, progress);
         assert!(v >= 0.0, "damage::value({raw}, {progress}) = {v} < 0");
     }
 }
-

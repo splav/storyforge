@@ -48,13 +48,30 @@ pub struct AssertOutcome {
 /// verdicts (carried in [`AssertOutcome::result`]).
 #[derive(Debug)]
 pub enum AssertError {
-    Io { path: PathBuf, source: std::io::Error },
-    OverlayParse { path: PathBuf, source: toml::de::Error },
-    EntryParse { path: PathBuf, source: serde_json::Error },
-    Schema { path: PathBuf, message: String },
-    NoMatchingEntry { path: PathBuf, plan_id: Option<u64> },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    OverlayParse {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+    EntryParse {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    Schema {
+        path: PathBuf,
+        message: String,
+    },
+    NoMatchingEntry {
+        path: PathBuf,
+        plan_id: Option<u64>,
+    },
     InvalidActorId(u64),
-    ActorNotFound { actor_id: u64 },
+    ActorNotFound {
+        actor_id: u64,
+    },
 }
 
 impl std::fmt::Display for AssertError {
@@ -154,11 +171,11 @@ pub fn assert_v28_log_file(
     content: &ContentView,
     inf_cfg: &InfluenceConfig,
 ) -> Result<AssertOutcome, AssertError> {
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::log::{parse_actor_tick, ActorTickEvent, LoggedDecision};
     use crate::combat::ai::orchestration::pick_action;
-    use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::orchestration::AiWorld;
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
+    use crate::combat::ai::world::reservations::Reservations;
 
     let overlay = load_overlay(overlay_path)?;
     // In v28 we reinterpret plan_id as actor_id for entry selection.
@@ -176,7 +193,9 @@ pub fn assert_v28_log_file(
             path: jsonl_path.to_path_buf(),
             source,
         })?;
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
 
         // Skip non-actor_tick lines.
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
@@ -202,8 +221,14 @@ pub fn assert_v28_log_file(
         }
 
         match target_actor_id {
-            Some(id) if event.actor_id == id => { selected = Some(event); break; }
-            None => { selected = Some(event); break; }
+            Some(id) if event.actor_id == id => {
+                selected = Some(event);
+                break;
+            }
+            None => {
+                selected = Some(event);
+                break;
+            }
             _ => {}
         }
     }
@@ -213,11 +238,14 @@ pub fn assert_v28_log_file(
         plan_id: target_actor_id,
     })?;
 
-    let actor = Entity::try_from_bits(event.actor_id)
-        .ok_or(AssertError::InvalidActorId(event.actor_id))?;
-    let active = event.snapshot.unit(actor).ok_or(AssertError::ActorNotFound {
-        actor_id: event.actor_id,
-    })?;
+    let actor =
+        Entity::try_from_bits(event.actor_id).ok_or(AssertError::InvalidActorId(event.actor_id))?;
+    let active = event
+        .snapshot
+        .unit(actor)
+        .ok_or(AssertError::ActorNotFound {
+            actor_id: event.actor_id,
+        })?;
 
     let maps = build_influence_maps(&event.snapshot, actor, active.team, inf_cfg);
     let difficulty = DifficultyProfile::normal();
@@ -237,8 +265,16 @@ pub fn assert_v28_log_file(
     let mut rng = DiceRng::with_seed(0);
 
     let result = pick_action(
-        actor, active.pos, &world, &event.snapshot, &maps,
-        &mut rng, &memory, &reservations, false, &Default::default(),
+        actor,
+        active.pos,
+        &world,
+        &event.snapshot,
+        &maps,
+        &mut rng,
+        &memory,
+        &reservations,
+        false,
+        &Default::default(),
     );
 
     let chosen_idx = result.best_idx;
@@ -289,7 +325,9 @@ pub fn assert_v28_log_file(
 /// hashes) must be specified as decimal or hex (`"0x..."`) strings. Returns 0
 /// when the field is absent.
 fn parse_u64_field(value: Option<&str>, field_name: &'static str) -> u64 {
-    let Some(s) = value else { return 0; };
+    let Some(s) = value else {
+        return 0;
+    };
     let s = s.trim();
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         u64::from_str_radix(hex, 16)
@@ -319,7 +357,10 @@ fn build_memory_from_overlay(overlay: &Overlay) -> crate::combat::ai::intent::Ai
 
     let target_bits = mem_overlay.last_goal_target;
     let region_anchor_raw = mem_overlay.last_goal_region_anchor.unwrap_or([0, 0]);
-    let region_anchor = Hex { x: region_anchor_raw[0], y: region_anchor_raw[1] };
+    let region_anchor = Hex {
+        x: region_anchor_raw[0],
+        y: region_anchor_raw[1],
+    };
 
     let kind = match kind_str.as_str() {
         "Finish" => {
@@ -348,11 +389,18 @@ fn build_memory_from_overlay(overlay: &Overlay) -> crate::combat::ai::intent::Ai
         }
         "Retreat" => GoalKind::Retreat { region_anchor },
         "SetupAOE" => {
-            let ability = mem_overlay.last_goal_planned_ability.clone()
+            let ability = mem_overlay
+                .last_goal_planned_ability
+                .clone()
                 .expect("SetupAOE goal requires last_goal_planned_ability");
-            GoalKind::SetupAOE { region_center: region_anchor, planned_ability: ability.into() }
+            GoalKind::SetupAOE {
+                region_center: region_anchor,
+                planned_ability: ability.into(),
+            }
         }
-        "Reposition" => GoalKind::Reposition { region_center: region_anchor },
+        "Reposition" => GoalKind::Reposition {
+            region_center: region_anchor,
+        },
         other => panic!("unknown last_goal_kind in overlay: {other:?}"),
     };
 
@@ -360,25 +408,34 @@ fn build_memory_from_overlay(overlay: &Overlay) -> crate::combat::ai::intent::Ai
     let target_pos_raw = mem_overlay.last_goal_target_pos_at_store.unwrap_or([0, 0]);
 
     let actor_status_hash = parse_u64_field(
-        mem_overlay.last_goal_actor_status_hash.as_deref(), "last_goal_actor_status_hash",
+        mem_overlay.last_goal_actor_status_hash.as_deref(),
+        "last_goal_actor_status_hash",
     );
 
     let stored = StoredGoalContext {
         kind,
         region_anchor,
         region_radius: mem_overlay.last_goal_region_radius.unwrap_or(2),
-        planned_ability: mem_overlay.last_goal_planned_ability.as_ref()
+        planned_ability: mem_overlay
+            .last_goal_planned_ability
+            .as_ref()
             .map(|s| s.clone().into()),
         ttl: mem_overlay.last_goal_ttl.unwrap_or(2),
         confidence: mem_overlay.last_goal_confidence.unwrap_or(1.0),
         created_round: mem_overlay.last_goal_created_round.unwrap_or(0),
-        expected_actor_pos: Hex { x: expected_pos_raw[0], y: expected_pos_raw[1] },
+        expected_actor_pos: Hex {
+            x: expected_pos_raw[0],
+            y: expected_pos_raw[1],
+        },
         actor_hp_at_store: mem_overlay.last_goal_actor_hp_at_store.unwrap_or(0),
         actor_rage_at_store: mem_overlay.last_goal_actor_rage_at_store.unwrap_or(0),
         actor_status_hash,
         actor_statuses_at_store: vec![], // replay overlays don't supply status lists
         target_hp_at_store: mem_overlay.last_goal_target_hp_at_store.unwrap_or(0),
-        target_pos_at_store: Hex { x: target_pos_raw[0], y: target_pos_raw[1] },
+        target_pos_at_store: Hex {
+            x: target_pos_raw[0],
+            y: target_pos_raw[1],
+        },
     };
 
     AiMemory {

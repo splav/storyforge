@@ -1,8 +1,8 @@
 use crate::content::unit_templates::{
     EquipmentRecord, ResourcesBlock, ResourcesRecord, StatsRecord, UnitTemplateDef,
 };
-use combat_engine::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
+use combat_engine::{AbilityId, ArmorId, WeaponId};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -38,8 +38,6 @@ pub struct EncounterDef {
     pub objectives: Vec<ObjectiveDef>,
 }
 
-
-
 #[derive(Debug, Clone, Default)]
 pub enum VictoryCondition {
     /// Default — combat ends when no enemy is alive.
@@ -69,18 +67,19 @@ impl VictoryCondition {
     pub fn objective_text(&self) -> String {
         match self {
             VictoryCondition::AllEnemiesDead => "Победить всех врагов".into(),
-            VictoryCondition::KillTarget { description: Some(d), .. } => d.clone(),
+            VictoryCondition::KillTarget {
+                description: Some(d),
+                ..
+            } => d.clone(),
             VictoryCondition::KillTarget { enemy_name, .. } => format!("убить {enemy_name}"),
             VictoryCondition::KeepAlive { target_name, .. } => {
                 format!("сохранить жизнь {target_name}")
             }
-            VictoryCondition::AllOf(conditions) => {
-                conditions
-                    .iter()
-                    .map(|c| c.objective_text())
-                    .collect::<Vec<_>>()
-                    .join(" и ")
-            }
+            VictoryCondition::AllOf(conditions) => conditions
+                .iter()
+                .map(|c| c.objective_text())
+                .collect::<Vec<_>>()
+                .join(" и "),
         }
     }
 }
@@ -372,7 +371,9 @@ fn convert_aura(path: &str, enc_id: &str, a: AuraRecord) -> AuraDef {
         status: combat_engine::StatusId::from(a.status.as_str()),
         radius: a.radius,
         affects,
-        affects_tags: a.affects_tags.iter()
+        affects_tags: a
+            .affects_tags
+            .iter()
             .map(|s| combat_engine::TagId::from(s.as_str()))
             .collect(),
     }
@@ -412,7 +413,11 @@ fn resolve_phase(
         victory_override: p.victory_override.map(|v| resolve_victory(path, enc_id, v)),
         turn_limit: p.turn_limit,
         ai_behavior: p.ai_behavior,
-        tags: p.tags.map(|v| v.into_iter().map(|s| combat_engine::TagId::from(s.as_str())).collect()),
+        tags: p.tags.map(|v| {
+            v.into_iter()
+                .map(|s| combat_engine::TagId::from(s.as_str()))
+                .collect()
+        }),
     }
 }
 
@@ -437,9 +442,12 @@ fn resolve_enemy(
 
     let name = require("name", rec.name, base.map(|t| t.name.clone()));
     let race = require("race", rec.race, base.map(|t| t.race.clone()));
-    let speed = rec.speed.or_else(|| base.map(|t| t.speed)).unwrap_or_else(|| {
-        panic!("{path}: encounter '{enc_id}' enemy '{name}' is missing `speed`",)
-    });
+    let speed = rec
+        .speed
+        .or_else(|| base.map(|t| t.speed))
+        .unwrap_or_else(|| {
+            panic!("{path}: encounter '{enc_id}' enemy '{name}' is missing `speed`",)
+        });
 
     // Faction/path: explicit override OR template; no way to unset from template (acceptable).
     let faction = rec.faction.or_else(|| base.and_then(|t| t.faction.clone()));
@@ -451,18 +459,14 @@ fn resolve_enemy(
         .map(Into::into)
         .or_else(|| base.map(|t| t.stats.clone()))
         .unwrap_or_else(|| {
-            panic!(
-                "{path}: encounter '{enc_id}' enemy '{name}' is missing `stats` block",
-            )
+            panic!("{path}: encounter '{enc_id}' enemy '{name}' is missing `stats` block",)
         });
     let equipment = rec
         .equipment
         .map(Into::into)
         .or_else(|| base.map(|t| t.equipment.clone()))
         .unwrap_or_else(|| {
-            panic!(
-                "{path}: encounter '{enc_id}' enemy '{name}' is missing `equipment` block",
-            )
+            panic!("{path}: encounter '{enc_id}' enemy '{name}' is missing `equipment` block",)
         });
     let resources: ResourcesBlock = rec
         .resources
@@ -475,9 +479,7 @@ fn resolve_enemy(
         .map(|v| v.into_iter().map(|s| AbilityId::from(s.as_str())).collect())
         .or_else(|| base.map(|t| t.ability_ids.clone()))
         .unwrap_or_else(|| {
-            panic!(
-                "{path}: encounter '{enc_id}' enemy '{name}' is missing `ability_ids`",
-            )
+            panic!("{path}: encounter '{enc_id}' enemy '{name}' is missing `ability_ids`",)
         });
 
     EnemyDef {
@@ -503,13 +505,13 @@ fn resolve_enemy(
             .map(|p| resolve_phase(path, enc_id, p, templates))
             .collect(),
         aura: rec.aura.map(|a| convert_aura(path, enc_id, a)),
-        tags: rec.tags.iter()
+        tags: rec
+            .tags
+            .iter()
             .map(|s| combat_engine::TagId::from(s.as_str()))
             .collect(),
     }
 }
-
-
 
 /// Recursively resolve a `VictoryRecord` into a `VictoryCondition`.
 fn resolve_victory(path: &str, enc_id: &str, v: VictoryRecord) -> VictoryCondition {
@@ -517,18 +519,14 @@ fn resolve_victory(path: &str, enc_id: &str, v: VictoryRecord) -> VictoryConditi
         "all_enemies_dead" => VictoryCondition::AllEnemiesDead,
         "kill_target" => VictoryCondition::KillTarget {
             enemy_name: v.enemy_name.unwrap_or_else(|| {
-                panic!(
-                    "{path}: encounter '{enc_id}' victory=kill_target missing enemy_name",
-                )
+                panic!("{path}: encounter '{enc_id}' victory=kill_target missing enemy_name",)
             }),
             marker_color: v.marker_color.unwrap_or(DEFAULT_TARGET_MARKER),
             description: v.description,
         },
         "keep_alive" => VictoryCondition::KeepAlive {
             target_name: v.target_name.unwrap_or_else(|| {
-                panic!(
-                    "{path}: encounter '{enc_id}' victory=keep_alive missing target_name",
-                )
+                panic!("{path}: encounter '{enc_id}' victory=keep_alive missing target_name",)
             }),
             marker_color: v.marker_color.unwrap_or(DEFAULT_TARGET_MARKER),
         },
@@ -540,9 +538,7 @@ fn resolve_victory(path: &str, enc_id: &str, v: VictoryRecord) -> VictoryConditi
                     .collect(),
             )
         }
-        other => panic!(
-            "{path}: encounter '{enc_id}' has unknown victory type '{other}'",
-        ),
+        other => panic!("{path}: encounter '{enc_id}' has unknown victory type '{other}'",),
     }
 }
 
@@ -600,9 +596,9 @@ pub fn load_encounters_from_str(
                     .into_iter()
                     .map(|e| {
                         let owner = match e.owner.as_deref() {
-                            None            => None,
-                            Some("player")  => Some(combat_engine::state::Team::Player),
-                            Some("enemy")   => Some(combat_engine::state::Team::Enemy),
+                            None => None,
+                            Some("player") => Some(combat_engine::state::Team::Player),
+                            Some("enemy") => Some(combat_engine::state::Team::Enemy),
                             Some(other) => panic!(
                                 "{path}: encounter '{}' has unknown env owner '{other}' \
                                  (must be \"player\", \"enemy\", or absent)",
@@ -641,13 +637,15 @@ turn_limit = 3
 type = "kill_target"
 enemy_name = "Phase Two"
 "#;
-        let record: PhaseRecord = toml::from_str(toml_src)
-            .expect("PhaseRecord must deserialize from TOML");
+        let record: PhaseRecord =
+            toml::from_str(toml_src).expect("PhaseRecord must deserialize from TOML");
 
         let phase = resolve_phase("test", "enc1", record, &Default::default());
 
         assert_eq!(phase.turn_limit, Some(3));
-        let ov = phase.victory_override.expect("victory_override must be Some");
+        let ov = phase
+            .victory_override
+            .expect("victory_override must be Some");
         match ov {
             VictoryCondition::KillTarget { enemy_name, .. } => {
                 assert_eq!(enemy_name, "Phase Two");
@@ -663,8 +661,8 @@ enemy_name = "Phase Two"
 hp_below_pct = 75
 heal_to_full = false
 "#;
-        let record: PhaseRecord = toml::from_str(toml_src)
-            .expect("PhaseRecord must deserialize from TOML");
+        let record: PhaseRecord =
+            toml::from_str(toml_src).expect("PhaseRecord must deserialize from TOML");
         let phase = resolve_phase("test", "enc1", record, &Default::default());
         assert!(phase.victory_override.is_none());
         assert!(phase.turn_limit.is_none());
@@ -678,8 +676,8 @@ hp_below_pct = 50
 heal_to_full = false
 ai_behavior = "flee"
 "#;
-        let record: PhaseRecord = toml::from_str(toml_src)
-            .expect("PhaseRecord must deserialize from TOML");
+        let record: PhaseRecord =
+            toml::from_str(toml_src).expect("PhaseRecord must deserialize from TOML");
         let phase = resolve_phase("test", "enc1", record, &Default::default());
         assert_eq!(phase.ai_behavior, Some(AiBehaviorKind::Flee));
     }
@@ -691,8 +689,8 @@ ai_behavior = "flee"
 hp_below_pct = 75
 heal_to_full = false
 "#;
-        let record: PhaseRecord = toml::from_str(toml_src)
-            .expect("PhaseRecord must deserialize from TOML");
+        let record: PhaseRecord =
+            toml::from_str(toml_src).expect("PhaseRecord must deserialize from TOML");
         let phase = resolve_phase("test", "enc1", record, &Default::default());
         assert!(phase.ai_behavior.is_none());
     }
@@ -706,8 +704,8 @@ hp_below_pct = 50
 heal_to_full = false
 tags = ["aberration", "incorporeal"]
 "#;
-        let record: PhaseRecord = toml::from_str(toml_src)
-            .expect("PhaseRecord must deserialize from TOML");
+        let record: PhaseRecord =
+            toml::from_str(toml_src).expect("PhaseRecord must deserialize from TOML");
         let phase = resolve_phase("test", "enc1", record, &Default::default());
         let tags = phase.tags.expect("tags must be Some when declared in TOML");
         assert_eq!(tags.len(), 2);
@@ -723,10 +721,13 @@ tags = ["aberration", "incorporeal"]
 hp_below_pct = 75
 heal_to_full = false
 "#;
-        let record: PhaseRecord = toml::from_str(toml_src)
-            .expect("PhaseRecord must deserialize from TOML");
+        let record: PhaseRecord =
+            toml::from_str(toml_src).expect("PhaseRecord must deserialize from TOML");
         let phase = resolve_phase("test", "enc1", record, &Default::default());
-        assert!(phase.tags.is_none(), "absent tags field must resolve to None");
+        assert!(
+            phase.tags.is_none(),
+            "absent tags field must resolve to None"
+        );
     }
 
     // ── T5: EnvObjectDef.owner from TOML ─────────────────────────────────────
@@ -770,7 +771,13 @@ feet = "cloth"
 
     fn load_env(toml_src: &str) -> EnvObjectDef {
         let encs = load_encounters_from_str("test_id", "test.toml", toml_src, &Default::default());
-        encs.into_iter().next().unwrap().environment.into_iter().next().unwrap()
+        encs.into_iter()
+            .next()
+            .unwrap()
+            .environment
+            .into_iter()
+            .next()
+            .unwrap()
     }
 
     #[test]

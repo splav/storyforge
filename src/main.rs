@@ -2,14 +2,17 @@ use bevy::prelude::*;
 
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat;
+use storyforge::combat::ai::config::tuning::AiTuning;
 use storyforge::combat::pipeline::CombatPipelinePlugin;
 use storyforge::combat::CombatStep;
-use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
 use storyforge::combat::DiceRngRes;
-use storyforge::game::messages::{ActionInput, RestartCombat, StartCombat};
 use storyforge::game::combat_log::CombatLog;
-use storyforge::game::resources::{CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
-use storyforge::combat::ai::config::tuning::AiTuning;
+use storyforge::game::messages::{ActionInput, RestartCombat, StartCombat};
+use storyforge::game::resources::{
+    CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, GameDb, HexCorpses,
+    HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty,
+};
+use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
 use storyforge::scenario;
 use storyforge::ui;
 use storyforge::ui::animation::AnimationQueue;
@@ -27,7 +30,9 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(PersistencePlugin { paths: paths.clone() })
+        .add_plugins(PersistencePlugin {
+            paths: paths.clone(),
+        })
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
@@ -78,7 +83,10 @@ fn main() {
         // ── Shared button hover effect (runs in all states) ──────────────
         .add_systems(Update, ui::button::button_hover_system)
         // ── Main menu ────────────────────────────────────────────────────
-        .add_systems(OnEnter(AppState::MainMenu), ui::main_menu_ui::setup_main_menu)
+        .add_systems(
+            OnEnter(AppState::MainMenu),
+            ui::main_menu_ui::setup_main_menu,
+        )
         .add_systems(
             Update,
             (
@@ -88,7 +96,10 @@ fn main() {
             )
                 .run_if(in_state(AppState::MainMenu)),
         )
-        .add_systems(OnExit(AppState::MainMenu), ui::main_menu_ui::cleanup_main_menu)
+        .add_systems(
+            OnExit(AppState::MainMenu),
+            ui::main_menu_ui::cleanup_main_menu,
+        )
         // ── Settings ────────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::Settings), ui::settings_ui::setup_settings)
         .add_systems(
@@ -101,13 +112,22 @@ fn main() {
             )
                 .run_if(in_state(AppState::Settings)),
         )
-        .add_systems(OnExit(AppState::Settings), ui::settings_ui::cleanup_settings)
+        .add_systems(
+            OnExit(AppState::Settings),
+            ui::settings_ui::cleanup_settings,
+        )
         // ── Modal (runs in all states) ──────────────────────────────────
-        .add_systems(Update, (ui::modal::sync_modal, ui::modal::handle_modal_input))
+        .add_systems(
+            Update,
+            (ui::modal::sync_modal, ui::modal::handle_modal_input),
+        )
         // ── Story ────────────────────────────────────────────────────────
         .add_systems(
             OnEnter(AppState::Story),
-            (ui::story_ui::setup_story_screen, ui::story_ui::setup_choice_screen),
+            (
+                ui::story_ui::setup_story_screen,
+                ui::story_ui::setup_choice_screen,
+            ),
         )
         .add_systems(
             Update,
@@ -117,10 +137,7 @@ fn main() {
             )
                 .run_if(in_state(AppState::Story)),
         )
-        .add_systems(
-            OnExit(AppState::Story),
-            ui::story_ui::cleanup_story_screen,
-        )
+        .add_systems(OnExit(AppState::Story), ui::story_ui::cleanup_story_screen)
         // ── Combat enter / exit ──────────────────────────────────────────
         .add_systems(
             OnEnter(AppState::Combat),
@@ -183,8 +200,7 @@ fn main() {
             Update,
             (
                 combat::ai::log::debug::toggle_debug_system,
-                combat::ai::log::debug::print_ai_debug_system
-                    .after(CombatStep::Command),
+                combat::ai::log::debug::print_ai_debug_system.after(CombatStep::Command),
                 combat::ai::log::debug::debug_overlay_system
                     .after(ui::hex_grid::update_hex_visuals),
             )
@@ -205,7 +221,10 @@ fn main() {
         // (and before autosave fires in advance_scenario_system).
         .add_systems(
             OnEnter(CombatPhase::Victory),
-            (scenario::write_victory_flags, scenario::write_objective_flags),
+            (
+                scenario::write_victory_flags,
+                scenario::write_objective_flags,
+            ),
         )
         .add_systems(
             Update,
@@ -213,9 +232,15 @@ fn main() {
         )
         .add_systems(
             OnEnter(CombatPhase::Defeat),
-            (ui::combat_ui::setup_defeat_overlay, scenario::write_objective_flags),
+            (
+                ui::combat_ui::setup_defeat_overlay,
+                scenario::write_objective_flags,
+            ),
         )
-        .add_systems(OnExit(CombatPhase::Defeat), ui::combat_ui::cleanup_defeat_overlay)
+        .add_systems(
+            OnExit(CombatPhase::Defeat),
+            ui::combat_ui::cleanup_defeat_overlay,
+        )
         .add_systems(
             Update,
             (

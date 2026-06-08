@@ -48,16 +48,16 @@
 use std::collections::HashSet;
 
 use crate::combat::ai::adapt::EvaluationMode;
+use crate::combat::ai::intent::bands::PriorityBand;
+use crate::combat::ai::intent::IntentKind;
+use crate::combat::ai::outcome::{PerItemEval, RejectReason};
+use crate::combat::ai::pipeline::stages::killable_gate::plan_is_offensive_vs;
+use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
+use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
 use crate::combat::ai::scoring::factors::compute_plan_tempo_gain;
 use crate::combat::ai::scoring::factors::PlanFactor;
-use crate::combat::ai::intent::IntentKind;
-use crate::combat::ai::intent::bands::PriorityBand;
-use crate::combat::ai::outcome::{PerItemEval, RejectReason};
-use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
-use crate::combat::ai::pipeline::stages::killable_gate::plan_is_offensive_vs;
-use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
-use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::game::hex::Hex;
 
 pub struct ItemScoringStage;
@@ -73,7 +73,10 @@ pub struct ItemScoringStage;
 /// that ends geometrically closer but on the other side of an obstacle still
 /// counts as approach.  Path-distance refinement is deferred to backlog.
 fn approaches_target(plan: &TurnPlan, actor_start_pos: Hex, target_pos: Hex) -> bool {
-    let has_move = plan.steps.iter().any(|s| matches!(s, PlanStep::Move { .. }));
+    let has_move = plan
+        .steps
+        .iter()
+        .any(|s| matches!(s, PlanStep::Move { .. }));
     if !has_move {
         return false;
     }
@@ -93,12 +96,7 @@ impl PlanStage for ItemScoringStage {
             return;
         }
 
-        let epsilon = ctx
-            .scoring
-            .world
-            .tuning
-            .thresholds
-            .self_survival_epsilon;
+        let epsilon = ctx.scoring.world.tuning.thresholds.self_survival_epsilon;
 
         let n_plans = pool.plans.len();
         let n_items = agenda.items.len();
@@ -123,7 +121,11 @@ impl PlanStage for ItemScoringStage {
             .filter(|(_, ann, _)| ann.viability.passed)
             .flat_map(|(plan, _, _)| {
                 plan.steps.iter().filter_map(|step| {
-                    if let PlanStep::Cast { target, .. } = step { Some(*target) } else { None }
+                    if let PlanStep::Cast { target, .. } = step {
+                        Some(*target)
+                    } else {
+                        None
+                    }
                 })
             })
             .collect();
@@ -248,24 +250,23 @@ mod tests {
     #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::intent::agenda::{Agenda, AgendaItem};
     use crate::combat::ai::intent::bands::PriorityBand;
     use crate::combat::ai::intent::considerations::IntentConsiderations;
     use crate::combat::ai::intent::IntentKind;
+    use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::outcome::{PlanAnnotation, ViabilityResult};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::TurnPlan;
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, snapshot_from,
+        PoolBuilder, StageTestHarness, UnitBuilder,
+    };
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, PoolBuilder,
-        StageTestHarness, UnitBuilder,
-        snapshot_from,
-    };
-    use combat_engine::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::DiceRng;
 
     /// A plan that moves toward `to`; final_pos = to.
     fn move_plan_to(to: Hex) -> TurnPlan {
@@ -352,7 +353,10 @@ mod tests {
         let mut pool = PoolBuilder::new(plans)
             .customize(|anns| {
                 for ann in anns.iter_mut().take(n) {
-                    ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+                    ann.viability = ViabilityResult {
+                        passed: true,
+                        adjusted_score: 1.0,
+                    };
                 }
             })
             .build();
@@ -515,7 +519,10 @@ mod tests {
 
         let plans = vec![empty_plan()];
         let mut annotation = PlanAnnotation::default();
-        annotation.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+        annotation.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 1.0,
+        };
 
         // run_stage_with_snap drives ItemScoringStage; it must complete without
         // panic and produce per_item for both agenda items.
@@ -546,20 +553,20 @@ mod tests {
         // One move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
         let mut ann = PlanAnnotation::default();
-        ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+        ann.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 1.0,
+        };
 
         let agenda = agenda_with_items(
             PriorityBand::ForcedTargeting,
-            vec![agenda_item_with_target(IntentKind::FocusTarget, taunter_ent)],
+            vec![agenda_item_with_target(
+                IntentKind::FocusTarget,
+                taunter_ent,
+            )],
         );
 
-        let pool = run_stage_with_snap(
-            vec![move_plan],
-            vec![ann],
-            &agenda,
-            actor,
-            snap,
-        );
+        let pool = run_stage_with_snap(vec![move_plan], vec![ann], &agenda, actor, snap);
 
         assert!(
             pool.annotations[0].per_item[0].eligible,
@@ -585,13 +592,22 @@ mod tests {
         let move_plan = move_plan_to(closer_pos);
 
         let mut ann_cast = PlanAnnotation::default();
-        ann_cast.viability = ViabilityResult { passed: true, adjusted_score: 1.5 };
+        ann_cast.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 1.5,
+        };
         let mut ann_move = PlanAnnotation::default();
-        ann_move.viability = ViabilityResult { passed: true, adjusted_score: 0.8 };
+        ann_move.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 0.8,
+        };
 
         let agenda = agenda_with_items(
             PriorityBand::ForcedTargeting,
-            vec![agenda_item_with_target(IntentKind::FocusTarget, taunter_ent)],
+            vec![agenda_item_with_target(
+                IntentKind::FocusTarget,
+                taunter_ent,
+            )],
         );
 
         let pool = run_stage_with_snap(
@@ -629,28 +645,24 @@ mod tests {
         // Move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
         let mut ann = PlanAnnotation::default();
-        ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+        ann.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 1.0,
+        };
 
         let agenda = agenda_with_items(
             PriorityBand::NormalTactical,
             vec![agenda_item_with_target(IntentKind::FocusTarget, target_ent)],
         );
 
-        let pool = run_stage_with_snap(
-            vec![move_plan],
-            vec![ann],
-            &agenda,
-            actor,
-            snap,
-        );
+        let pool = run_stage_with_snap(vec![move_plan], vec![ann], &agenda, actor, snap);
 
         assert!(
             pool.annotations[0].per_item[0].eligible,
             "approach-only plan in NormalTactical (no offensive in pool) must be eligible via ApproachTarget fallback"
         );
         assert_eq!(
-            pool.annotations[0].per_item[0].reject_reason,
-            None,
+            pool.annotations[0].per_item[0].reject_reason, None,
             "eligible plan must have no reject reason"
         );
     }
@@ -674,21 +686,21 @@ mod tests {
         // Move-only plan that moves AWAY from taunter (no approach).
         let move_away = move_plan_to(farther_pos);
         let mut ann = PlanAnnotation::default();
-        ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+        ann.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 1.0,
+        };
 
         // ForcedTargeting, no offensive plan in pool → approach gate active.
         let agenda = agenda_with_items(
             PriorityBand::ForcedTargeting,
-            vec![agenda_item_with_target(IntentKind::FocusTarget, taunter_ent)],
+            vec![agenda_item_with_target(
+                IntentKind::FocusTarget,
+                taunter_ent,
+            )],
         );
 
-        let pool = run_stage_with_snap(
-            vec![move_away],
-            vec![ann],
-            &agenda,
-            actor,
-            snap,
-        );
+        let pool = run_stage_with_snap(vec![move_away], vec![ann], &agenda, actor, snap);
 
         let per_item = &pool.annotations[0].per_item[0];
         assert!(
@@ -721,9 +733,15 @@ mod tests {
         let move_plan = move_plan_to(closer_pos);
 
         let mut ann_cast = PlanAnnotation::default();
-        ann_cast.viability = ViabilityResult { passed: true, adjusted_score: 1.5 };
+        ann_cast.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 1.5,
+        };
         let mut ann_move = PlanAnnotation::default();
-        ann_move.viability = ViabilityResult { passed: true, adjusted_score: 0.8 };
+        ann_move.viability = ViabilityResult {
+            passed: true,
+            adjusted_score: 0.8,
+        };
 
         let agenda = agenda_with_items(
             PriorityBand::NormalTactical,

@@ -37,8 +37,7 @@ use common::fixtures::{base_stats, test_enemy, test_hero};
 // ── fixture loading ───────────────────────────────────────────────────────────
 
 fn campaign_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("assets/data/campaigns/bell_under_veil")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/data/campaigns/bell_under_veil")
 }
 
 fn scenario_dir() -> std::path::PathBuf {
@@ -77,7 +76,9 @@ fn spawn_hero(app: &mut App, hex: hexx::Hex) -> Entity {
         .world_mut()
         .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
-    app.world_mut().resource_mut::<HexPositions>().insert(e, hex);
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(e, hex);
     e
 }
 
@@ -86,7 +87,9 @@ fn spawn_enemy_at(app: &mut App, hex: hexx::Hex) -> Entity {
         .world_mut()
         .spawn((Name::new("Enemy"), test_enemy(base_stats())))
         .id();
-    app.world_mut().resource_mut::<HexPositions>().insert(e, hex);
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(e, hex);
     e
 }
 
@@ -100,17 +103,33 @@ fn spawn_enemy_at(app: &mut App, hex: hexx::Hex) -> Entity {
 /// keep-alive target survives a single hit). This helper fabricates `Vital`
 /// directly rather than loading the template.
 fn spawn_magister(app: &mut App, hex: hexx::Hex) -> Entity {
-    let entity = app.world_mut().spawn((
-        Name::new("Магистр"),
-        Combatant,
-        Faction(Team::Player),
-        Vital { hp: 4, max_hp: 8, armor: 0 },
-        Speed(0),
-        ActionPoints { action_points: 1, max_ap: 1, movement_points: 0 },
-        Reactions { remaining: 1, max: 1 },
-        TemplateRef("wounded_magister".to_string()),
-    )).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(entity, hex);
+    let entity = app
+        .world_mut()
+        .spawn((
+            Name::new("Магистр"),
+            Combatant,
+            Faction(Team::Player),
+            Vital {
+                hp: 4,
+                max_hp: 8,
+                armor: 0,
+            },
+            Speed(0),
+            ActionPoints {
+                action_points: 1,
+                max_ap: 1,
+                movement_points: 0,
+            },
+            Reactions {
+                remaining: 1,
+                max: 1,
+            },
+            TemplateRef("wounded_magister".to_string()),
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(entity, hex);
     entity
 }
 
@@ -120,7 +139,11 @@ fn spawn_magister(app: &mut App, hex: hexx::Hex) -> Entity {
 #[test]
 fn scenario_parses_correctly() {
     let scen = load_ch2_scenario();
-    assert_eq!(scen.scenes.len(), 3, "expected 3 scenes: story + combat + story");
+    assert_eq!(
+        scen.scenes.len(),
+        3,
+        "expected 3 scenes: story + combat + story"
+    );
 }
 
 /// After scene 0 (story with party_add), Магистр is in the active party.
@@ -157,7 +180,9 @@ fn party_add_has_template_field() {
     let SceneDef::Story { party_add, .. } = &scen.scenes[0] else {
         panic!("scene 0 must be Story");
     };
-    let magister = party_add.iter().find(|m| m.name == "Магистр")
+    let magister = party_add
+        .iter()
+        .find(|m| m.name == "Магистр")
         .expect("party_add must contain Магистр");
     assert_eq!(
         magister.template.as_deref(),
@@ -205,12 +230,21 @@ fn magister_enters_combat_with_initial_hp_from_template() {
     init_engine_state(&mut app);
 
     let id_map = app.world().resource::<UnitIdMap>();
-    let magister_uid = id_map.get_id(magister_entity)
+    let magister_uid = id_map
+        .get_id(magister_entity)
         .expect("Магистр must be in UnitIdMap");
     let state = app.world().resource::<CombatStateRes>();
     let unit = state.0.unit(magister_uid).expect("Магистр in engine state");
-    assert_eq!(unit.hp(),     4, "wounded magister must enter combat with hp=4 (initial_pools)");
-    assert_eq!(unit.max_hp(), 8, "wounded magister must have max_hp=8 from template stats");
+    assert_eq!(
+        unit.hp(),
+        4,
+        "wounded magister must enter combat with hp=4 (initial_pools)"
+    );
+    assert_eq!(
+        unit.max_hp(),
+        8,
+        "wounded magister must have max_hp=8 from template stats"
+    );
 }
 
 /// At combat start, Магистр has `stunned` status with `PERMANENT_DURATION` in engine.
@@ -241,11 +275,14 @@ fn magister_is_stunned_at_combat_start() {
     // Engine: CombatState must have stunned with PERMANENT_DURATION applied
     // by apply_initial_statuses (engine-side, from the template).
     let id_map = app.world().resource::<UnitIdMap>();
-    let magister_uid = id_map.get_id(magister_entity)
+    let magister_uid = id_map
+        .get_id(magister_entity)
         .expect("Магистр must be in UnitIdMap");
     let state = app.world().resource::<CombatStateRes>();
     let unit = state.0.unit(magister_uid).expect("Магистр in engine state");
-    let eng_stunned = unit.statuses.iter()
+    let eng_stunned = unit
+        .statuses
+        .iter()
         .find(|s| s.id == StatusId::from("stunned"))
         .expect("engine unit must have stunned applied from initial_statuses");
     assert_eq!(
@@ -262,7 +299,9 @@ fn magister_skips_turns() {
         content::StatusDef,
         dice::DiceRng,
         event::{Event, TurnSkipReason},
-        state::{ActiveStatus as EngineStatus, CombatState, RoundPhase, Team as EngineTeam, Unit, UnitId},
+        state::{
+            ActiveStatus as EngineStatus, CombatState, RoundPhase, Team as EngineTeam, Unit, UnitId,
+        },
         step::step,
         StatusId as EngineStatusId,
     };
@@ -292,11 +331,21 @@ fn magister_skips_turns() {
 
     let mut state = CombatState::new(vec![hero, magister], 1, RoundPhase::ActorTurn, 0);
     state.set_turn_queue(vec![hero_id, magister_id], 0);
-    let content = crate::common::engine_unit::StubContent::new()
-        .with_status(EngineStatusId::from("stunned"), StatusDef { skips_turn: true, ..Default::default() });
+    let content = crate::common::engine_unit::StubContent::new().with_status(
+        EngineStatusId::from("stunned"),
+        StatusDef {
+            skips_turn: true,
+            ..Default::default()
+        },
+    );
 
     let mut rng = DiceRng::with_seed(42);
-    let result = step(&mut state, Action::EndTurn { actor: hero_id }, &mut rng, &content);
+    let result = step(
+        &mut state,
+        Action::EndTurn { actor: hero_id },
+        &mut rng,
+        &content,
+    );
     let (events, _ctx) = result.expect("EndTurn must succeed");
 
     let skipped_magister = events.iter().any(|e| {
@@ -310,7 +359,10 @@ fn magister_skips_turns() {
 
     // Permanent duration must NOT be decremented.
     let mag = state.unit(magister_id).expect("magister in state");
-    let stunned = mag.statuses.iter().find(|s| s.id.0.as_str() == "stunned")
+    let stunned = mag
+        .statuses
+        .iter()
+        .find(|s| s.id.0.as_str() == "stunned")
         .expect("stunned must still be present");
     assert_eq!(
         stunned.rounds_remaining, PERMANENT_DURATION,
@@ -334,23 +386,36 @@ fn engine_sees_magister_as_ally_of_hero() {
     let id_map = app.world().resource::<UnitIdMap>();
     let hero_uid = id_map.get_id(hero_entity).expect("hero in id_map");
     let state = app.world().resource::<CombatStateRes>();
-    let hero_team = state.0.unit(hero_uid).map(|u| u.team).expect("hero in state");
+    let hero_team = state
+        .0
+        .unit(hero_uid)
+        .map(|u| u.team)
+        .expect("hero in state");
 
-    let allies: Vec<_> = state.0.units().iter()
+    let allies: Vec<_> = state
+        .0
+        .units()
+        .iter()
         .filter(|u| u.team == hero_team && u.is_alive())
         .collect();
     assert_eq!(
-        allies.len(), 2,
-        "engine must see 2 Player-team units (hero + magister); got {}", allies.len()
+        allies.len(),
+        2,
+        "engine must see 2 Player-team units (hero + magister); got {}",
+        allies.len()
     );
 
     // Verify Магистр is specifically among allies via id_map reverse lookup.
     let has_magister = allies.iter().any(|u| {
-        id_map.get_entity(u.id)
+        id_map
+            .get_entity(u.id)
             .and_then(|e| app.world().get::<Name>(e))
             .is_some_and(|n| n.as_str() == "Магистр")
     });
-    assert!(has_magister, "engine must see Магистр as Player-team ally of hero");
+    assert!(
+        has_magister,
+        "engine must see Магистр as Player-team ally of hero"
+    );
 }
 
 /// Engine-level test: `apply_initial_statuses` applies template statuses engine-side.
@@ -381,15 +446,28 @@ fn apply_initial_statuses_engine_side() {
 
     // Stub ContentView: test_template has initial_statuses = ["stunned"].
     struct StubWithTemplate;
-    static STUNNED_DEF: std::sync::LazyLock<StatusDef> =
-        std::sync::LazyLock::new(|| StatusDef { skips_turn: true, ..Default::default() });
+    static STUNNED_DEF: std::sync::LazyLock<StatusDef> = std::sync::LazyLock::new(|| StatusDef {
+        skips_turn: true,
+        ..Default::default()
+    });
 
     impl EngineContentView for StubWithTemplate {
-        fn status_bonuses(&self, _: &EngineStatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn status_def(&self, id: &EngineStatusId) -> Option<&StatusDef> {
-            if id.0.as_str() == "stunned" { Some(&STUNNED_DEF) } else { None }
+        fn status_bonuses(&self, _: &EngineStatusId) -> StatusBonuses {
+            StatusBonuses::default()
         }
-        fn ability_def(&self, _: &AbilityId) -> Option<&storyforge::combat_engine::content::AbilityDef> { None }
+        fn status_def(&self, id: &EngineStatusId) -> Option<&StatusDef> {
+            if id.0.as_str() == "stunned" {
+                Some(&STUNNED_DEF)
+            } else {
+                None
+            }
+        }
+        fn ability_def(
+            &self,
+            _: &AbilityId,
+        ) -> Option<&storyforge::combat_engine::content::AbilityDef> {
+            None
+        }
         fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
             if id == "test_template" {
                 Some(UnitTemplate {
@@ -432,22 +510,33 @@ fn apply_initial_statuses_engine_side() {
     state.apply_initial_statuses(&StubWithTemplate);
 
     let unit = state.unit(unit_id).expect("unit must be in state");
-    let stunned = unit.statuses.iter()
+    let stunned = unit
+        .statuses
+        .iter()
         .find(|s| s.id == EngineStatusId::from("stunned"))
         .expect("apply_initial_statuses must add stunned status");
     assert_eq!(
         stunned.rounds_remaining, PERMANENT_DURATION,
         "initial status must have PERMANENT_DURATION"
     );
-    assert_eq!(stunned.applier, combat_engine::state::EffectSource::Unit(unit_id), "unit is its own applier for initial statuses");
+    assert_eq!(
+        stunned.applier,
+        combat_engine::state::EffectSource::Unit(unit_id),
+        "unit is its own applier for initial statuses"
+    );
 
     // Idempotency: call again — stunned must not be duplicated.
     state.apply_initial_statuses(&StubWithTemplate);
     let unit = state.unit(unit_id).expect("unit must still be in state");
-    let stunned_count = unit.statuses.iter()
+    let stunned_count = unit
+        .statuses
+        .iter()
         .filter(|s| s.id == EngineStatusId::from("stunned"))
         .count();
-    assert_eq!(stunned_count, 1, "apply_initial_statuses must be idempotent — no duplicate statuses");
+    assert_eq!(
+        stunned_count, 1,
+        "apply_initial_statuses must be idempotent — no duplicate statuses"
+    );
 }
 
 // ── victory condition tests ───────────────────────────────────────────────────
@@ -456,7 +545,9 @@ fn apply_initial_statuses_engine_side() {
 #[test]
 fn keep_alive_magister_victory_on_kill_all() {
     let scen = load_ch2_scenario();
-    let enc = scen.encounters.get("ch2_shrine")
+    let enc = scen
+        .encounters
+        .get("ch2_shrine")
         .expect("ch2_shrine encounter must exist");
 
     let mut app = movement_app();
@@ -467,7 +558,9 @@ fn keep_alive_magister_victory_on_kill_all() {
 
     for (i, enemy_def) in enc.enemies.iter().enumerate() {
         let e = spawn_enemy_at(&mut app, enemy_def.hex_pos);
-        app.world_mut().entity_mut(e).insert((Name::new(format!("Enemy{i}")), Dead));
+        app.world_mut()
+            .entity_mut(e)
+            .insert((Name::new(format!("Enemy{i}")), Dead));
         app.world_mut().get_mut::<Vital>(e).unwrap().hp = 0;
     }
 
@@ -478,7 +571,8 @@ fn keep_alive_magister_victory_on_kill_all() {
 
     let phase = app.world().resource::<State<CombatPhase>>().get().clone();
     assert_eq!(
-        phase, CombatPhase::Victory,
+        phase,
+        CombatPhase::Victory,
         "all enemies dead + Магистр alive must yield Victory"
     );
 }
@@ -487,7 +581,9 @@ fn keep_alive_magister_victory_on_kill_all() {
 #[test]
 fn keep_alive_magister_defeat_on_npc_death() {
     let scen = load_ch2_scenario();
-    let enc = scen.encounters.get("ch2_shrine")
+    let enc = scen
+        .encounters
+        .get("ch2_shrine")
         .expect("ch2_shrine encounter must exist");
 
     let mut app = movement_app();
@@ -509,7 +605,8 @@ fn keep_alive_magister_defeat_on_npc_death() {
 
     let phase = app.world().resource::<State<CombatPhase>>().get().clone();
     assert_eq!(
-        phase, CombatPhase::Defeat,
+        phase,
+        CombatPhase::Defeat,
         "Магистр dead while enemies alive must yield Defeat"
     );
 }

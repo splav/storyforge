@@ -19,8 +19,8 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use storyforge::combat::ai::world::influence::InfluenceConfig;
 use storyforge::combat::ai::replay::{assert_v28_log_file, AssertResult};
+use storyforge::combat::ai::world::influence::InfluenceConfig;
 use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 use storyforge::content::content_view::ContentView;
 
@@ -74,14 +74,10 @@ fn discover_pairs(dir: &Path) -> Vec<(PathBuf, PathBuf, String)> {
             }
         }
 
-        let jsonl = jsonl.unwrap_or_else(|| {
-            panic!("group {} has no *.jsonl source log", group_dir.display())
-        });
+        let jsonl = jsonl
+            .unwrap_or_else(|| panic!("group {} has no *.jsonl source log", group_dir.display()));
         if overlays.is_empty() {
-            panic!(
-                "group {} has no *.expected.toml cases",
-                group_dir.display()
-            );
+            panic!("group {} has no *.expected.toml cases", group_dir.display());
         }
 
         let group_name = group_dir
@@ -231,14 +227,12 @@ fn enrich_jsonl_file(path: &Path) {
             if let Some(snap_val) = obj.get("snapshot").cloned() {
                 // Deserialize triggers rebuild_index, back-filling `state` and
                 // `cache` from `units` when those fields are absent (old schema).
-                let snap: BattleSnapshot = serde_json::from_value(snap_val)
-                    .unwrap_or_else(|e| {
-                        panic!("snapshot deserialize failed in {}: {e}", path.display())
-                    });
-                let enriched_snap = serde_json::to_value(&snap)
-                    .unwrap_or_else(|e| {
-                        panic!("snapshot serialize failed in {}: {e}", path.display())
-                    });
+                let snap: BattleSnapshot = serde_json::from_value(snap_val).unwrap_or_else(|e| {
+                    panic!("snapshot deserialize failed in {}: {e}", path.display())
+                });
+                let enriched_snap = serde_json::to_value(&snap).unwrap_or_else(|e| {
+                    panic!("snapshot serialize failed in {}: {e}", path.display())
+                });
                 obj.as_object_mut()
                     .expect("log line must be a JSON object")
                     .insert("snapshot".to_string(), enriched_snap);
@@ -254,6 +248,5 @@ fn enrich_jsonl_file(path: &Path) {
     if content.ends_with('\n') {
         out.push('\n');
     }
-    std::fs::write(path, &out)
-        .unwrap_or_else(|e| panic!("cannot write {}: {e}", path.display()));
+    std::fs::write(path, &out).unwrap_or_else(|e| panic!("cannot write {}: {e}", path.display()));
 }

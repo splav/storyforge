@@ -9,14 +9,16 @@
 //! as `mod tests` inside sim.rs).
 
 use super::*;
+use crate::combat::ai::test_helpers::{
+    empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder,
+};
 use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
-use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
 use crate::content::abilities::{
     AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
 };
-use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
 use crate::game::components::Team;
 use crate::game::hex::hex_from_offset;
+use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
 
 /// Sim-suite defaults: mana 5/10 (enough for simple casts), armor as
 /// override. `hp` also explicit because armor+hp tests are the whole
@@ -34,15 +36,15 @@ fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
 }
 
 fn ctx(str_mod: i32, int_mod: i32) -> CasterContext {
-    CasterContext { str_mod, int_mod, spell_power: 0, weapon_dice: None }
+    CasterContext {
+        str_mod,
+        int_mod,
+        spell_power: 0,
+        weapon_dice: None,
+    }
 }
 
-fn ability(
-    id: &str,
-    effect: EffectDef,
-    target_type: TargetType,
-    range: u32,
-) -> AbilityDef {
+fn ability(id: &str, effect: EffectDef, target_type: TargetType, range: u32) -> AbilityDef {
     AbilityDef {
         id: AbilityId::from(id),
         name: id.to_string(),
@@ -62,8 +64,8 @@ fn ability(
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     }
 }
@@ -74,7 +76,9 @@ fn ability(
 fn damage_subtracts_armor_and_decrements_hp() {
     // Engine reads caster_ctx from the unit snapshot; set str_mod=4 there.
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
-        .hp(20).armor(0).mana(5, 10)
+        .hp(20)
+        .armor(0)
+        .mana(5, 10)
         .caster_ctx(ctx(4, 0))
         .build();
     let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 2);
@@ -86,13 +90,19 @@ fn damage_subtracts_armor_and_decrements_hp() {
     // armor 2 → dealt 6.
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
     content.abilities.insert(def.id.clone(), def.clone());
 
-    let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
+    let mut sim = SimState::from_snapshot(
+        &snap(vec![actor, target]),
+        actor_id,
+        empty_status_tag_cache(),
+    );
     let step = PlanStep::Cast {
         ability: def.id.clone(),
         target: target_id,
@@ -102,7 +112,11 @@ fn damage_subtracts_armor_and_decrements_hp() {
 
     let t = sim.unit(target_id).unwrap();
     assert_eq!(t.hp(), 14, "20 - 6 dealt = 14, got hp={}", t.hp());
-    assert!((outcome.damage - 6.0).abs() < 0.01, "raw damage {}", outcome.damage);
+    assert!(
+        (outcome.damage - 6.0).abs() < 0.01,
+        "raw damage {}",
+        outcome.damage
+    );
     assert_eq!(outcome.hits, 1);
     assert!(outcome.killed.is_empty());
 }
@@ -122,13 +136,19 @@ fn damage_respects_min_one_floor_against_heavy_armor() {
     // floor → 1.0.
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
     content.abilities.insert(def.id.clone(), def.clone());
 
-    let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
+    let mut sim = SimState::from_snapshot(
+        &snap(vec![actor, target]),
+        actor_id,
+        empty_status_tag_cache(),
+    );
     let step = PlanStep::Cast {
         ability: def.id.clone(),
         target: target_id,
@@ -137,7 +157,12 @@ fn damage_respects_min_one_floor_against_heavy_armor() {
     let outcome = sim.apply_step(&step, &ctx(0, 0), &content, false);
 
     let t = sim.unit(target_id).unwrap();
-    assert_eq!(t.hp(), 19, "expected 1-damage floor to land, got hp={}", t.hp());
+    assert_eq!(
+        t.hp(),
+        19,
+        "expected 1-damage floor to land, got hp={}",
+        t.hp()
+    );
     assert!(
         (outcome.damage - 1.0).abs() < 0.01,
         "expected damage floor 1.0, got {}",
@@ -148,7 +173,9 @@ fn damage_respects_min_one_floor_against_heavy_armor() {
 #[test]
 fn lethal_damage_removes_unit_and_records_kill() {
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
-        .hp(20).armor(0).mana(5, 10)
+        .hp(20)
+        .armor(0)
+        .mana(5, 10)
         .caster_ctx(ctx(4, 0))
         .build();
     let target = unit(2, Team::Player, hex_from_offset(1, 0), 3, 0);
@@ -159,13 +186,19 @@ fn lethal_damage_removes_unit_and_records_kill() {
     // 1d6 + str_mod(4) = 8 raw vs 3 hp → lethal.
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
     content.abilities.insert(def.id.clone(), def.clone());
 
-    let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
+    let mut sim = SimState::from_snapshot(
+        &snap(vec![actor, target]),
+        actor_id,
+        empty_status_tag_cache(),
+    );
     let step = PlanStep::Cast {
         ability: def.id.clone(),
         target: target_id,
@@ -182,7 +215,8 @@ fn lethal_damage_removes_unit_and_records_kill() {
     assert_eq!(corpse.hp(), 0);
     assert!(!corpse.is_alive());
     assert_eq!(
-        sim.enemies_of(Team::Enemy).count(), 0,
+        sim.enemies_of(Team::Enemy).count(),
+        0,
         "default enemies_of hides the corpse",
     );
 }
@@ -200,13 +234,16 @@ fn heal_caps_at_missing_hp() {
     // Heal 3d6 (expected 10.5) but target is missing only 5.
     let def = ability(
         "cure",
-        EffectDef::Heal { dice: DiceExpr::new(3, 6, 0) },
+        EffectDef::Heal {
+            dice: DiceExpr::new(3, 6, 0),
+        },
         TargetType::SingleAlly,
         2,
     );
     content.abilities.insert(def.id.clone(), def.clone());
 
-    let mut sim = SimState::from_snapshot(&snap(vec![actor, ally]), actor_id, empty_status_tag_cache());
+    let mut sim =
+        SimState::from_snapshot(&snap(vec![actor, ally]), actor_id, empty_status_tag_cache());
     let step = PlanStep::Cast {
         ability: def.id.clone(),
         target: ally_id,
@@ -216,7 +253,11 @@ fn heal_caps_at_missing_hp() {
 
     let a = sim.unit(ally_id).unwrap();
     assert_eq!(a.hp(), 20, "heal must clamp to max_hp");
-    assert!((outcome.heal - 5.0).abs() < 0.01, "effective heal {}", outcome.heal);
+    assert!(
+        (outcome.heal - 5.0).abs() < 0.01,
+        "effective heal {}",
+        outcome.heal
+    );
 }
 
 // ── resource / AP / MP accounting ───────────────────────────────────────
@@ -233,7 +274,9 @@ fn cast_decrements_ap_and_pays_mana() {
     let mut content = empty_content();
     let mut def = ability(
         "bolt",
-        EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+        EffectDef::SpellDamage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         TargetType::SingleEnemy,
         3,
     );
@@ -244,7 +287,11 @@ fn cast_decrements_ap_and_pays_mana() {
     }];
     content.abilities.insert(def.id.clone(), def.clone());
 
-    let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
+    let mut sim = SimState::from_snapshot(
+        &snap(vec![actor, target]),
+        actor_id,
+        empty_status_tag_cache(),
+    );
     sim.apply_step(
         &PlanStep::Cast {
             ability: def.id.clone(),
@@ -257,8 +304,18 @@ fn cast_decrements_ap_and_pays_mana() {
     );
 
     let a = sim.unit(actor_id).unwrap();
-    assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP drops from 2 to 1");
-    assert_eq!(a.pools[combat_engine::PoolKind::Mana], Some((2, 10)), "mana 5 - 3 = 2");
+    assert_eq!(
+        a.pools[combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        1,
+        "AP drops from 2 to 1"
+    );
+    assert_eq!(
+        a.pools[combat_engine::PoolKind::Mana],
+        Some((2, 10)),
+        "mana 5 - 3 = 2"
+    );
 }
 
 #[test]
@@ -270,7 +327,9 @@ fn move_step_updates_pos_and_drains_mp() {
     let content = empty_content();
     let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
     let outcome = sim.apply_step(
-        &PlanStep::Move { path: vec![hex_from_offset(1, 0), target] },
+        &PlanStep::Move {
+            path: vec![hex_from_offset(1, 0), target],
+        },
         &ctx(0, 0),
         &content,
         false,
@@ -279,7 +338,13 @@ fn move_step_updates_pos_and_drains_mp() {
     assert!(outcome.moved);
     let a = sim.unit(actor_id).unwrap();
     assert_eq!(a.pos, target);
-    assert_eq!(a.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 1, "speed 3 - path 2 = 1");
+    assert_eq!(
+        a.pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        1,
+        "speed 3 - path 2 = 1"
+    );
 }
 
 // ── stun status ─────────────────────────────────────────────────────────
@@ -312,12 +377,7 @@ fn stun_status_is_recorded_in_outcome_and_tags() {
     };
     content.statuses.insert(StatusId::from("stunned"), stun_def);
 
-    let mut def = ability(
-        "shock",
-        EffectDef::None,
-        TargetType::SingleEnemy,
-        2,
-    );
+    let mut def = ability("shock", EffectDef::None, TargetType::SingleEnemy, 2);
     def.statuses = vec![StatusApplication {
         status: StatusId::from("stunned"),
         duration_rounds: 1,
@@ -353,7 +413,9 @@ fn stun_status_is_recorded_in_outcome_and_tags() {
 fn heal_cleanses_dot_before_restoring_hp() {
     // Engine reads caster_ctx from the unit snapshot; set int_mod=2 there.
     let healer = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
-        .hp(20).armor(0).mana(5, 10)
+        .hp(20)
+        .armor(0)
+        .mana(5, 10)
         .caster_ctx(ctx(0, 2))
         .build();
     let mut ally = unit(2, Team::Player, hex_from_offset(1, 0), 10, 0);
@@ -389,7 +451,9 @@ fn heal_cleanses_dot_before_restoring_hp() {
     // Heal: 1d4 (EV 2.5 → 3) + int_mod(2) = 5 raw.
     let def = ability(
         "cure",
-        EffectDef::Heal { dice: DiceExpr::new(1, 4, 0) },
+        EffectDef::Heal {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         TargetType::SingleAlly,
         2,
     );
@@ -411,7 +475,12 @@ fn heal_cleanses_dot_before_restoring_hp() {
 
     let t = sim.unit(ally_id).unwrap();
     // Heal 5: cleanse spends 3 on poison (status removed), 2 remain → HP 10+2=12.
-    assert_eq!(t.hp(), 12, "cleanse consumes 3, then +2 HP → 12, got {}", t.hp());
+    assert_eq!(
+        t.hp(),
+        12,
+        "cleanse consumes 3, then +2 HP → 12, got {}",
+        t.hp()
+    );
     assert!(
         t.statuses.iter().all(|s| s.id.0 != "poison"),
         "poison should be cleansed"
@@ -429,7 +498,9 @@ fn heal_cleanses_dot_before_restoring_hp() {
 fn status_applied_this_step_armor_affects_next_step() {
     // Attacker uses str_mod=4 in step 2; set it on the snapshot so the engine sees it.
     let attacker = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
-        .hp(20).armor(0).mana(5, 10)
+        .hp(20)
+        .armor(0)
+        .mana(5, 10)
         .caster_ctx(ctx(4, 0))
         .build();
     let buffer = unit(2, Team::Enemy, hex_from_offset(1, 0), 20, 0);
@@ -453,7 +524,11 @@ fn status_applied_this_step_armor_affects_next_step() {
             ai_controlled: false,
             buff_class: None,
             engine: combat_engine::StatusDef {
-                bonuses: combat_engine::StatusBonuses { armor_bonus: 5, damage_taken_bonus: 0, speed_bonus: 0 },
+                bonuses: combat_engine::StatusBonuses {
+                    armor_bonus: 5,
+                    damage_taken_bonus: 0,
+                    speed_bonus: 0,
+                },
                 skips_turn: false,
                 forces_targeting: false,
                 blocks_mana_abilities: false,
@@ -477,16 +552,22 @@ fn status_applied_this_step_armor_affects_next_step() {
         duration_rounds: 3,
         on: StatusOn::Target,
     }];
-    content.abilities.insert(buff_def.id.clone(), buff_def.clone());
+    content
+        .abilities
+        .insert(buff_def.id.clone(), buff_def.clone());
 
     // Damage: 1d6 (EV 4) + str_mod(4) = 8 raw.
     let atk_def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         3,
     );
-    content.abilities.insert(atk_def.id.clone(), atk_def.clone());
+    content
+        .abilities
+        .insert(atk_def.id.clone(), atk_def.clone());
 
     // Build a real status tag cache so refresh_aggregates picks up
     // stone_skin's armor_bonus=5 (the whole point of this test).
@@ -532,7 +613,12 @@ fn status_applied_this_step_armor_affects_next_step() {
 
     let t_after = sim.unit(target_id).unwrap();
     // raw 8 − armor_bonus 5 = 3 dealt. HP: 20 − 3 = 17.
-    assert_eq!(t_after.hp(), 17, "armor should reduce damage from 8 to 3, got hp={}", t_after.hp());
+    assert_eq!(
+        t_after.hp(),
+        17,
+        "armor should reduce damage from 8 to 3, got hp={}",
+        t_after.hp()
+    );
     assert!(
         (atk_outcome.damage - 3.0).abs() < 0.01,
         "reported damage after mitigation {}",
@@ -554,7 +640,9 @@ fn aoe_circle_hits_all_enemies_in_radius() {
     let mut content = empty_content();
     let mut def = ability(
         "blast",
-        EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+        EffectDef::SpellDamage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         TargetType::SingleEnemy,
         5,
     );
@@ -577,7 +665,10 @@ fn aoe_circle_hits_all_enemies_in_radius() {
         false,
     );
 
-    assert_eq!(outcome.hits, 2, "radius-1 centered at (3,0) covers both (3,0) and (4,0)");
+    assert_eq!(
+        outcome.hits, 2,
+        "radius-1 centered at (3,0) covers both (3,0) and (4,0)"
+    );
     assert!(sim.unit(t1_id).unwrap().hp() < 20);
     assert!(sim.unit(t2_id).unwrap().hp() < 20);
 }
@@ -615,8 +706,20 @@ fn grant_movement_pays_ap_engine_defers_mp() {
     let a = sim.unit(actor_id).unwrap();
     // Engine pays AP (cost_ap=1), but GrantMovement effect fanout is Phase 3 —
     // MP stays at the initial value (3) since no GrantMovement Effect is emitted.
-    assert_eq!(a.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 3, "engine defers GrantMovement to Phase 3; MP unchanged");
-    assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP cost still paid by engine");
+    assert_eq!(
+        a.pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        3,
+        "engine defers GrantMovement to Phase 3; MP unchanged"
+    );
+    assert_eq!(
+        a.pools[combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        0,
+        "AP cost still paid by engine"
+    );
 }
 
 // ── AoO propagation (step 12.2) ─────────────────────────────────────────
@@ -647,8 +750,16 @@ fn apply_move_records_aoo_self_damage() {
     let actor_pos = hex_from_offset(3, 3);
     let enemy_pos = hex_from_offset(4, 3);
     let away = hex_from_offset(2, 3);
-    assert_eq!(actor_pos.unsigned_distance_to(enemy_pos), 1, "actor adj to enemy");
-    assert_eq!(away.unsigned_distance_to(enemy_pos), 2, "away not adj to enemy");
+    assert_eq!(
+        actor_pos.unsigned_distance_to(enemy_pos),
+        1,
+        "actor adj to enemy"
+    );
+    assert_eq!(
+        away.unsigned_distance_to(enemy_pos),
+        2,
+        "away not adj to enemy"
+    );
 
     let mut sim = SimState::from_snapshot(
         &snap(vec![actor, enemy]),
@@ -664,8 +775,12 @@ fn apply_move_records_aoo_self_damage() {
 /// After a provoked AoO, the triggering enemy's reactions_left is decremented.
 #[test]
 fn apply_move_decrements_enemy_reactions() {
-    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3)).hp(20).build();
-    let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3)).aoo(5.0, 1).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+        .hp(20)
+        .build();
+    let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+        .aoo(5.0, 1)
+        .build();
     let enemy_id = enemy.entity;
     let actor_id = actor.entity;
 
@@ -686,9 +801,13 @@ fn apply_move_decrements_enemy_reactions() {
 /// Enemy with reactions_left = 0 does not trigger AoO even when adjacency is left.
 #[test]
 fn apply_move_no_aoo_when_already_used_reaction() {
-    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3)).hp(20).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+        .hp(20)
+        .build();
     // reactions_left = 0 — reaction already spent this round.
-    let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3)).aoo(5.0, 0).build();
+    let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+        .aoo(5.0, 0)
+        .build();
     let actor_id = actor.entity;
 
     let mut sim = SimState::from_snapshot(
@@ -730,8 +849,10 @@ fn apply_move_kills_actor_with_lethal_aoo() {
     let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
 
     // Engine path: self_damage = HP delta (1 hp lost, not 10 raw dealt).
-    assert_eq!(outcome.self_damage, 1.0,
-        "engine shim: self_damage is HP delta (1 hp lost), not raw dealt damage (10)");
+    assert_eq!(
+        outcome.self_damage, 1.0,
+        "engine shim: self_damage is HP delta (1 hp lost), not raw dealt damage (10)"
+    );
     assert!(
         sim.actor_unit().is_none(),
         "actor hp=0 → is_alive()=false → actor_unit() returns None",
@@ -747,7 +868,9 @@ fn apply_move_kills_actor_with_lethal_aoo() {
 fn apply_move_no_aoo_when_path_stays_adjacent() {
     // Actor at (3,3), enemy at (4,3). Move to (3,4) which is adjacent to
     // both (verified: (3,4) is distance 1 from (3,3) per aoo.rs layout).
-    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3)).hp(20).build();
+    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+        .hp(20)
+        .build();
     let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
         .aoo(5.0, 1)
         .build();
@@ -793,8 +916,16 @@ fn apply_move_aoo_only_once_per_enemy_per_step() {
 
     let enemy_pos = hex_from_offset(4, 3);
     // Verify: (2,3) is NOT adjacent to enemy; (3,4) IS adjacent to enemy.
-    assert_eq!(hex_from_offset(2, 3).unsigned_distance_to(enemy_pos), 2, "(2,3) not adj");
-    assert_eq!(hex_from_offset(3, 4).unsigned_distance_to(enemy_pos), 1, "(3,4) adj");
+    assert_eq!(
+        hex_from_offset(2, 3).unsigned_distance_to(enemy_pos),
+        2,
+        "(2,3) not adj"
+    );
+    assert_eq!(
+        hex_from_offset(3, 4).unsigned_distance_to(enemy_pos),
+        1,
+        "(3,4) adj"
+    );
 
     let mut sim = SimState::from_snapshot(
         &snap(vec![actor, enemy]),
@@ -804,7 +935,10 @@ fn apply_move_aoo_only_once_per_enemy_per_step() {
     // Path: leave adjacency at step (3,3→2,3), then re-enter at (3,4).
     let outcome = sim.apply_move(&[hex_from_offset(2, 3), hex_from_offset(3, 4)]);
 
-    assert_eq!(outcome.self_damage, 5.0, "exactly one AoO per step per enemy");
+    assert_eq!(
+        outcome.self_damage, 5.0,
+        "exactly one AoO per step per enemy"
+    );
     assert_eq!(
         sim.unit(enemy_id).unwrap().reactions_left,
         1,
@@ -834,7 +968,10 @@ fn apply_move_aoo_mitigated_by_armor_bonus() {
 
     let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
 
-    assert_eq!(outcome.self_damage, 3.0, "armor_bonus 5 reduces raw 8 AoO to 3");
+    assert_eq!(
+        outcome.self_damage, 3.0,
+        "armor_bonus 5 reduces raw 8 AoO to 3"
+    );
     assert_eq!(sim.actor_unit().unwrap().hp(), 17, "hp 20 − 3 = 17");
 }
 
@@ -847,15 +984,16 @@ fn apply_damage_grants_rage_to_attacker_per_hit() {
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
         .rage(5, 10)
         .build();
-    let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-        .build(); // no rage
+    let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build(); // no rage
     let actor_id = actor.entity;
     let target_id = target.entity;
 
     let mut content = empty_content();
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
@@ -867,22 +1005,33 @@ fn apply_damage_grants_rage_to_attacker_per_hit() {
         empty_status_tag_cache(),
     );
     sim.apply_step(
-        &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+        &PlanStep::Cast {
+            ability: def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
         &ctx(0, 0),
         &content,
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((6, 10)), "attacker rage (5/10) → (6/10)");
-    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], None, "defender has no rage component");
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((6, 10)),
+        "attacker rage (5/10) → (6/10)"
+    );
+    assert_eq!(
+        sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        None,
+        "defender has no rage component"
+    );
 }
 
 /// Single-target hit: defender has rage, attacker does not.
 /// Defender rage increments by 1; attacker rage stays None.
 #[test]
 fn apply_damage_grants_rage_to_defender_per_hit() {
-    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
-        .build(); // no rage
+    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build(); // no rage
     let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
         .rage(3, 10)
         .build();
@@ -892,7 +1041,9 @@ fn apply_damage_grants_rage_to_defender_per_hit() {
     let mut content = empty_content();
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
@@ -904,14 +1055,26 @@ fn apply_damage_grants_rage_to_defender_per_hit() {
         empty_status_tag_cache(),
     );
     sim.apply_step(
-        &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+        &PlanStep::Cast {
+            ability: def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
         &ctx(0, 0),
         &content,
         false,
     );
 
-    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((4, 10)), "defender rage (3/10) → (4/10)");
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], None, "attacker has no rage component");
+    assert_eq!(
+        sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((4, 10)),
+        "defender rage (3/10) → (4/10)"
+    );
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        None,
+        "attacker has no rage component"
+    );
 }
 
 /// Single-target hit: both sides have rage. Each gains exactly +1.
@@ -929,7 +1092,9 @@ fn apply_damage_grants_rage_to_both_attacker_and_defender() {
     let mut content = empty_content();
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
@@ -941,14 +1106,26 @@ fn apply_damage_grants_rage_to_both_attacker_and_defender() {
         empty_status_tag_cache(),
     );
     sim.apply_step(
-        &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+        &PlanStep::Cast {
+            ability: def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
         &ctx(0, 0),
         &content,
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((3, 10)), "attacker (2/10) → (3/10)");
-    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((8, 10)), "defender (7/10) → (8/10)");
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((3, 10)),
+        "attacker (2/10) → (3/10)"
+    );
+    assert_eq!(
+        sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((8, 10)),
+        "defender (7/10) → (8/10)"
+    );
 }
 
 /// AoE hitting 3 enemies: attacker rage gets +1 per target hit (total +3).
@@ -959,9 +1136,15 @@ fn aoe_damage_grants_rage_per_target_to_attacker() {
         .rage(5, 10)
         .build();
     // Three enemies clustered at (3,0), (4,0), (3,1) — within radius 1 of (3,0).
-    let t1 = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).rage(0, 10).build();
-    let t2 = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 0)).rage(0, 10).build();
-    let t3 = UnitBuilder::new(4, Team::Player, hex_from_offset(3, 1)).rage(0, 10).build();
+    let t1 = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
+        .rage(0, 10)
+        .build();
+    let t2 = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 0))
+        .rage(0, 10)
+        .build();
+    let t3 = UnitBuilder::new(4, Team::Player, hex_from_offset(3, 1))
+        .rage(0, 10)
+        .build();
     let actor_id = actor.entity;
     let t1_id = t1.entity;
     let t2_id = t2.entity;
@@ -970,7 +1153,9 @@ fn aoe_damage_grants_rage_per_target_to_attacker() {
     let mut content = empty_content();
     let mut def = ability(
         "blast",
-        EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+        EffectDef::SpellDamage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         TargetType::SingleEnemy,
         5,
     );
@@ -983,17 +1168,37 @@ fn aoe_damage_grants_rage_per_target_to_attacker() {
         empty_status_tag_cache(),
     );
     let outcome = sim.apply_step(
-        &PlanStep::Cast { ability: def.id.clone(), target: t1_id, target_pos: hex_from_offset(3, 0) },
+        &PlanStep::Cast {
+            ability: def.id.clone(),
+            target: t1_id,
+            target_pos: hex_from_offset(3, 0),
+        },
         &ctx(0, 0),
         &content,
         false,
     );
 
     assert_eq!(outcome.hits, 3, "AoE should hit all 3 enemies");
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((8, 10)), "attacker (5/10) + 3 hits = (8/10)");
-    assert_eq!(sim.unit(t1_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "t1 (0/10) → (1/10)");
-    assert_eq!(sim.unit(t2_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "t2 (0/10) → (1/10)");
-    assert_eq!(sim.unit(t3_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "t3 (0/10) → (1/10)");
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((8, 10)),
+        "attacker (5/10) + 3 hits = (8/10)"
+    );
+    assert_eq!(
+        sim.unit(t1_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((1, 10)),
+        "t1 (0/10) → (1/10)"
+    );
+    assert_eq!(
+        sim.unit(t2_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((1, 10)),
+        "t2 (0/10) → (1/10)"
+    );
+    assert_eq!(
+        sim.unit(t3_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((1, 10)),
+        "t3 (0/10) → (1/10)"
+    );
 }
 
 /// Rage clamps at max: attacker at max rage stays there after a hit.
@@ -1009,7 +1214,9 @@ fn rage_caps_at_max_for_attacker() {
     let mut content = empty_content();
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
@@ -1021,13 +1228,21 @@ fn rage_caps_at_max_for_attacker() {
         empty_status_tag_cache(),
     );
     sim.apply_step(
-        &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+        &PlanStep::Cast {
+            ability: def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
         &ctx(0, 0),
         &content,
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)), "attacker rage capped at max 10");
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((10, 10)),
+        "attacker rage capped at max 10"
+    );
 }
 
 /// Rage clamps at max: defender at max rage stays there after taking a hit.
@@ -1043,7 +1258,9 @@ fn rage_caps_at_max_for_defender() {
     let mut content = empty_content();
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
@@ -1055,13 +1272,21 @@ fn rage_caps_at_max_for_defender() {
         empty_status_tag_cache(),
     );
     sim.apply_step(
-        &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+        &PlanStep::Cast {
+            ability: def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
         &ctx(0, 0),
         &content,
         false,
     );
 
-    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)), "defender rage capped at max 10");
+    assert_eq!(
+        sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((10, 10)),
+        "defender rage capped at max 10"
+    );
 }
 
 /// Units with no rage component (rage: None) are silently unaffected.
@@ -1076,7 +1301,9 @@ fn units_without_rage_component_are_unaffected() {
     let mut content = empty_content();
     let def = ability(
         "strike",
-        EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         TargetType::SingleEnemy,
         1,
     );
@@ -1088,14 +1315,26 @@ fn units_without_rage_component_are_unaffected() {
         empty_status_tag_cache(),
     );
     sim.apply_step(
-        &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+        &PlanStep::Cast {
+            ability: def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
         &ctx(0, 0),
         &content,
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], None, "attacker has no rage component, stays None");
-    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], None, "defender has no rage component, stays None");
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        None,
+        "attacker has no rage component, stays None"
+    );
+    assert_eq!(
+        sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        None,
+        "defender has no rage component, stays None"
+    );
 }
 
 // ── AoO rage (drift #3, AoO branch) ─────────────────────────────────────
@@ -1122,7 +1361,11 @@ fn apply_move_aoo_grants_rage_to_both_sides() {
     );
     sim.apply_move(&[hex_from_offset(2, 3)]);
 
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "victim +1 rage");
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((1, 10)),
+        "victim +1 rage"
+    );
     assert_eq!(
         sim.unit(enemy_id).unwrap().pools[combat_engine::PoolKind::Rage],
         Some((1, 10)),
@@ -1151,8 +1394,14 @@ fn apply_move_aoo_rage_caps_at_max() {
     );
     sim.apply_move(&[hex_from_offset(2, 3)]);
 
-    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)));
-    assert_eq!(sim.unit(enemy_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)));
+    assert_eq!(
+        sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((10, 10))
+    );
+    assert_eq!(
+        sim.unit(enemy_id).unwrap().pools[combat_engine::PoolKind::Rage],
+        Some((10, 10))
+    );
 }
 
 // TODO(12.3): `self_damage_grants_two_rage_for_self_aoe` — actor is both

@@ -9,4 +9,3 @@ pub fn victory_input_system(
         writer.write(AdvanceScenario);
     }
 }
-

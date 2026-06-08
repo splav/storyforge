@@ -12,23 +12,33 @@ use std::collections::HashMap;
 pub enum PartyStatusOp {
     /// Apply `status_id` to `unit_name` (`unit_name` must match a `PartyMemberDef::name`;
     /// `status_id` must exist in `content.statuses`).
-    Add { unit_name: String, status_id: String },
+    Add {
+        unit_name: String,
+        status_id: String,
+    },
     /// Remove `status_id` from `unit_name` (no-op if the unit does not currently carry it).
-    Remove { unit_name: String, status_id: String },
+    Remove {
+        unit_name: String,
+        status_id: String,
+    },
 }
 
 impl PartyStatusOp {
     /// Affected party member's name, regardless of op kind.
     pub fn unit_name(&self) -> &str {
         match self {
-            PartyStatusOp::Add { unit_name, .. } | PartyStatusOp::Remove { unit_name, .. } => unit_name,
+            PartyStatusOp::Add { unit_name, .. } | PartyStatusOp::Remove { unit_name, .. } => {
+                unit_name
+            }
         }
     }
 
     /// Status id involved, regardless of op kind.
     pub fn status_id(&self) -> &str {
         match self {
-            PartyStatusOp::Add { status_id, .. } | PartyStatusOp::Remove { status_id, .. } => status_id,
+            PartyStatusOp::Add { status_id, .. } | PartyStatusOp::Remove { status_id, .. } => {
+                status_id
+            }
         }
     }
 }
@@ -144,15 +154,25 @@ pub struct DialogueLine {
 /// - `requires_flag` is `None` **or** the flag is present in `flags`, **and**
 /// - `excludes_flag` is `None` **or** the flag is absent from `flags`.
 pub fn line_visible(line: &DialogueLine, flags: &std::collections::BTreeSet<String>) -> bool {
-    line.requires_flag.as_ref().is_none_or(|f| flags.contains(f))
-        && line.excludes_flag.as_ref().is_none_or(|f| !flags.contains(f))
+    line.requires_flag
+        .as_ref()
+        .is_none_or(|f| flags.contains(f))
+        && line
+            .excludes_flag
+            .as_ref()
+            .is_none_or(|f| !flags.contains(f))
 }
 
 /// Party active when entering scene at `up_to` (i.e. after effects of all prior scenes).
 pub fn active_party(scen: &ScenarioDef, up_to: usize) -> Vec<PartyMemberDef> {
     let mut party = scen.party.clone();
     for scene in scen.scenes.iter().take(up_to) {
-        if let SceneDef::Story { party_add, party_remove, .. } = scene {
+        if let SceneDef::Story {
+            party_add,
+            party_remove,
+            ..
+        } = scene
+        {
             if !party_remove.is_empty() {
                 party.retain(|m| !party_remove.iter().any(|n| n == &m.name));
             }
@@ -172,23 +192,26 @@ pub fn active_party(scen: &ScenarioDef, up_to: usize) -> Vec<PartyMemberDef> {
 /// order-significant (`add X … remove X … add Y` composes exactly as written).
 /// Returns `unit_name → Vec<status_id>`; empty entries are dropped so callers can
 /// cheaply check `.contains_key`.
-pub fn active_party_statuses(
-    scen: &ScenarioDef,
-    up_to: usize,
-) -> HashMap<String, Vec<String>> {
+pub fn active_party_statuses(scen: &ScenarioDef, up_to: usize) -> HashMap<String, Vec<String>> {
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
 
     for scene in scen.scenes.iter().take(up_to) {
         if let SceneDef::Story { status_ops, .. } = scene {
             for op in status_ops {
                 match op {
-                    PartyStatusOp::Add { unit_name, status_id } => {
+                    PartyStatusOp::Add {
+                        unit_name,
+                        status_id,
+                    } => {
                         let list = map.entry(unit_name.clone()).or_default();
                         if !list.contains(status_id) {
                             list.push(status_id.clone());
                         }
                     }
-                    PartyStatusOp::Remove { unit_name, status_id } => {
+                    PartyStatusOp::Remove {
+                        unit_name,
+                        status_id,
+                    } => {
                         if let Some(list) = map.get_mut(unit_name) {
                             list.retain(|s| s != status_id);
                         }
@@ -202,8 +225,6 @@ pub fn active_party_statuses(
     map
 }
 
-
-
 // ── TOML loading ──────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -212,7 +233,6 @@ struct ScenarioRecord {
     party: Vec<PartyRecord>,
     scenes: Vec<SceneRecord>,
 }
-
 
 #[derive(Deserialize)]
 struct PartyRecord {
@@ -415,9 +435,18 @@ mod tests {
                     party_remove: vec![],
                     // Ordered: add injured to Alice and Bob, then remove it from Bob.
                     status_ops: vec![
-                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
-                        PartyStatusOp::Add { unit_name: "Bob".into(),   status_id: "injured".into() },
-                        PartyStatusOp::Remove { unit_name: "Bob".into(), status_id: "injured".into() },
+                        PartyStatusOp::Add {
+                            unit_name: "Alice".into(),
+                            status_id: "injured".into(),
+                        },
+                        PartyStatusOp::Add {
+                            unit_name: "Bob".into(),
+                            status_id: "injured".into(),
+                        },
+                        PartyStatusOp::Remove {
+                            unit_name: "Bob".into(),
+                            status_id: "injured".into(),
+                        },
                     ],
                     requires_flag: None,
                 },
@@ -425,9 +454,10 @@ mod tests {
                     lines: vec![],
                     party_add: vec![],
                     party_remove: vec![],
-                    status_ops: vec![
-                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "exhaustion".into() },
-                    ],
+                    status_ops: vec![PartyStatusOp::Add {
+                        unit_name: "Alice".into(),
+                        status_id: "exhaustion".into(),
+                    }],
                     requires_flag: None,
                 },
             ],
@@ -462,7 +492,10 @@ mod tests {
         let scen = make_scenario_with_statuses();
         let map = active_party_statuses(&scen, 2);
         let alice = map.get("Alice").expect("Alice should have statuses");
-        assert_eq!(alice, &vec!["injured".to_string(), "exhaustion".to_string()]);
+        assert_eq!(
+            alice,
+            &vec!["injured".to_string(), "exhaustion".to_string()]
+        );
     }
 
     /// Idempotency: adding the same status twice results in it appearing only once.
@@ -485,9 +518,10 @@ mod tests {
                     lines: vec![],
                     party_add: vec![],
                     party_remove: vec![],
-                    status_ops: vec![
-                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
-                    ],
+                    status_ops: vec![PartyStatusOp::Add {
+                        unit_name: "Alice".into(),
+                        status_id: "injured".into(),
+                    }],
                     requires_flag: None,
                 },
                 SceneDef::Story {
@@ -495,9 +529,10 @@ mod tests {
                     party_add: vec![],
                     party_remove: vec![],
                     // Add injured again — should be deduplicated.
-                    status_ops: vec![
-                        PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
-                    ],
+                    status_ops: vec![PartyStatusOp::Add {
+                        unit_name: "Alice".into(),
+                        status_id: "injured".into(),
+                    }],
                     requires_flag: None,
                 },
             ],
@@ -506,7 +541,11 @@ mod tests {
         };
         let map = active_party_statuses(&scen, 2);
         let alice = map.get("Alice").expect("Alice should have statuses");
-        assert_eq!(alice.len(), 1, "injured must appear only once after two adds");
+        assert_eq!(
+            alice.len(),
+            1,
+            "injured must appear only once after two adds"
+        );
     }
 
     /// Remove of a status that was never added is a no-op (no panic, no phantom entry).
@@ -520,16 +559,20 @@ mod tests {
                 lines: vec![],
                 party_add: vec![],
                 party_remove: vec![],
-                status_ops: vec![
-                    PartyStatusOp::Remove { unit_name: "Ghost".into(), status_id: "injured".into() },
-                ],
+                status_ops: vec![PartyStatusOp::Remove {
+                    unit_name: "Ghost".into(),
+                    status_id: "injured".into(),
+                }],
                 requires_flag: None,
             }],
             content: ContentView::default(),
             encounters: HashMap::new(),
         };
         let map = active_party_statuses(&scen, 1);
-        assert!(map.is_empty(), "removing a never-added status leaves empty map");
+        assert!(
+            map.is_empty(),
+            "removing a never-added status leaves empty map"
+        );
     }
 
     // ── Parsing tests ────────────────────────────────────────────────────────────
@@ -627,7 +670,10 @@ set_flag = "ignored"
 "#;
         let scen = parse_scenario_body("s1", "test.toml", toml);
         assert_eq!(scen.scenes.len(), 1);
-        let SceneDef::Choice { prompt, options, .. } = &scen.scenes[0] else {
+        let SceneDef::Choice {
+            prompt, options, ..
+        } = &scen.scenes[0]
+        else {
             panic!("expected Choice variant");
         };
         assert_eq!(prompt.len(), 1);
@@ -656,10 +702,16 @@ label = "Go"
 set_flag = "went"
 "#;
         let scen = parse_scenario_body("s1", "test.toml", toml);
-        let SceneDef::Choice { prompt, options, .. } = &scen.scenes[0] else {
+        let SceneDef::Choice {
+            prompt, options, ..
+        } = &scen.scenes[0]
+        else {
             panic!("expected Choice variant");
         };
-        assert!(prompt.is_empty(), "prompt should be empty when lines omitted");
+        assert!(
+            prompt.is_empty(),
+            "prompt should be empty when lines omitted"
+        );
         assert_eq!(options.len(), 1);
         assert_eq!(options[0].set_flag, "went");
     }
@@ -690,9 +742,18 @@ set_flag = "went"
     #[test]
     fn line_visible_excludes_flag() {
         let line = make_line(None, Some("seen_intro"));
-        assert!(!line_visible(&line, &flags(&["seen_intro"])), "should be hidden when excluded flag present");
-        assert!(line_visible(&line, &flags(&[])), "should be shown when excluded flag absent");
-        assert!(line_visible(&line, &flags(&["other"])), "unrelated flag does not hide line");
+        assert!(
+            !line_visible(&line, &flags(&["seen_intro"])),
+            "should be hidden when excluded flag present"
+        );
+        assert!(
+            line_visible(&line, &flags(&[])),
+            "should be shown when excluded flag absent"
+        );
+        assert!(
+            line_visible(&line, &flags(&["other"])),
+            "unrelated flag does not hide line"
+        );
     }
 
     /// Four-corner truth table for requires+excludes on the same line.
@@ -713,12 +774,21 @@ set_flag = "went"
     /// `excludes_flag = None` has no effect — existing requires-only behaviour unchanged.
     #[test]
     fn line_visible_excludes_none_is_neutral() {
-        let line_gated   = make_line(Some("flag"), None);
+        let line_gated = make_line(Some("flag"), None);
         let line_ungated = make_line(None, None);
 
-        assert!(!line_visible(&line_gated,   &flags(&[])),     "requires gate respected");
-        assert!(line_visible(&line_gated,    &flags(&["flag"])), "shown when required flag present");
-        assert!(line_visible(&line_ungated,  &flags(&[])),      "no gates → always shown");
+        assert!(
+            !line_visible(&line_gated, &flags(&[])),
+            "requires gate respected"
+        );
+        assert!(
+            line_visible(&line_gated, &flags(&["flag"])),
+            "shown when required flag present"
+        );
+        assert!(
+            line_visible(&line_ungated, &flags(&[])),
+            "no gates → always shown"
+        );
     }
 
     /// TOML round-trip: `excludes_flag` is parsed from TOML and threaded into the
@@ -738,7 +808,9 @@ text = "only before"
 excludes_flag = "seen_intro"
 "#;
         let scen = parse_scenario_body("s1", "test.toml", toml);
-        let SceneDef::Story { lines, .. } = &scen.scenes[0] else { panic!("expected Story"); };
+        let SceneDef::Story { lines, .. } = &scen.scenes[0] else {
+            panic!("expected Story");
+        };
         assert_eq!(lines[0].excludes_flag.as_deref(), Some("seen_intro"));
         assert_eq!(lines[0].requires_flag, None);
     }

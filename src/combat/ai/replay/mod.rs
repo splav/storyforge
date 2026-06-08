@@ -205,19 +205,16 @@ fn decision_kind_from_steps(steps: &[PlanStep]) -> &'static str {
 ///
 /// Looks up the ability in `content`. Returns `None` if no Cast step exists
 /// or the ability is not found in content.
-pub fn primary_effect_from_steps(
-    steps: &[PlanStep],
-    content: &ContentView,
-) -> Option<String> {
+pub fn primary_effect_from_steps(steps: &[PlanStep], content: &ContentView) -> Option<String> {
     let ability_id = steps.iter().find_map(|s| match s {
         PlanStep::Cast { ability, .. } => Some(ability.clone()),
         _ => None,
     })?;
     let def = content.abilities.get(&ability_id)?;
     let label = match &def.effect {
-        EffectDef::Damage { .. }
-        | EffectDef::SpellDamage { .. }
-        | EffectDef::WeaponAttack => "Damage",
+        EffectDef::Damage { .. } | EffectDef::SpellDamage { .. } | EffectDef::WeaponAttack => {
+            "Damage"
+        }
         EffectDef::Heal { .. } => "Heal",
         EffectDef::GrantMovement { .. } => "GrantMovement",
         EffectDef::RestoreResources => "RestoreResources",
@@ -266,7 +263,9 @@ fn match_variant(actual: &ActualDecision, exp: &Expectation, idx: usize) -> Vari
     let mut failures: Vec<(String, String)> = Vec::new();
 
     // decision_kind
-    if !exp.decision_kind.is_empty() && !exp.decision_kind.iter().any(|k| k == &actual.decision_kind) {
+    if !exp.decision_kind.is_empty()
+        && !exp.decision_kind.iter().any(|k| k == &actual.decision_kind)
+    {
         failures.push((
             "decision_kind".to_string(),
             format!(
@@ -376,7 +375,10 @@ fn match_variant(actual: &ActualDecision, exp: &Expectation, idx: usize) -> Vari
         ));
     }
 
-    VariantMatchResult { variant_idx: idx, failures }
+    VariantMatchResult {
+        variant_idx: idx,
+        failures,
+    }
 }
 
 // ── Public assertion API ─────────────────────────────────────────────────────
@@ -423,7 +425,11 @@ pub fn print_assertion_failure(actual: &ActualDecision, results: &[VariantMatchR
     eprintln!("    primary_effect = {:?}", actual.primary_effect);
     eprintln!("  variants:");
     for r in results {
-        eprintln!("    variant [{}]: {} field(s) failed", r.variant_idx + 1, r.failures.len());
+        eprintln!(
+            "    variant [{}]: {} field(s) failed",
+            r.variant_idx + 1,
+            r.failures.len()
+        );
         for (field, desc) in &r.failures {
             eprintln!("      {field}: {desc}");
         }
@@ -490,7 +496,14 @@ mod tests {
     }
 
     fn cast_actual() -> ActualDecision {
-        actual("CastInPlace", "FocusTarget", Some("fireball"), Some(42), [3, 4], Some("Damage"))
+        actual(
+            "CastInPlace",
+            "FocusTarget",
+            Some("fireball"),
+            Some(42),
+            [3, 4],
+            Some("Damage"),
+        )
     }
 
     fn move_actual() -> ActualDecision {
@@ -505,14 +518,20 @@ mod tests {
     #[test]
     fn empty_overlay_passes() {
         let overlay = parse_overlay("");
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Pass));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Pass
+        ));
     }
 
     // Also pass when expectations key exists but is empty
     #[test]
     fn empty_expectations_passes() {
         let overlay = parse_overlay("[scope]\nplan_id = 1\n");
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Pass));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Pass
+        ));
     }
 
     // (ii) Single variant, exact match → pass
@@ -527,7 +546,10 @@ cast_ability  = ["fireball"]
 primary_effect = ["Damage"]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Pass));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Pass
+        ));
     }
 
     // (iii) Single variant, any-of match → pass
@@ -540,7 +562,10 @@ decision_kind  = ["CastInPlace", "MoveAndCast"]
 intent_kind    = ["FocusTarget", "ApplyCC"]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Pass));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Pass
+        ));
     }
 
     // (iv) not_target: excluded target → fail; not-in-list → pass
@@ -552,7 +577,10 @@ intent_kind    = ["FocusTarget", "ApplyCC"]
 not_target = [42]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Fail(_)));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Fail(_)
+        ));
     }
 
     #[test]
@@ -563,7 +591,10 @@ not_target = [42]
 not_target = [99]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Pass));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Pass
+        ));
     }
 
     // (v) Two variants, first fails, second passes → pass (OR logic)
@@ -578,7 +609,10 @@ decision_kind = ["EndTurn"]
 decision_kind = ["CastInPlace", "MoveAndCast"]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Pass));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Pass
+        ));
     }
 
     // (vi) Two variants, both fail → Fail, diff mentions both
@@ -613,7 +647,10 @@ primary_effect = ["Damage"]
 "#,
         );
         // move_actual has primary_effect = None
-        assert!(matches!(run_assertion(&move_actual(), &overlay), AssertResult::Fail(_)));
+        assert!(matches!(
+            run_assertion(&move_actual(), &overlay),
+            AssertResult::Fail(_)
+        ));
     }
 
     // decision_kind mismatch → fail
@@ -625,7 +662,10 @@ primary_effect = ["Damage"]
 decision_kind = ["Move"]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Fail(_)));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Fail(_)
+        ));
     }
 
     // not_end_position: actual in list → fail
@@ -637,7 +677,10 @@ decision_kind = ["Move"]
 not_end_position = [[3, 4]]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Fail(_)));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Fail(_)
+        ));
     }
 
     // not_end_position: actual not in list → pass
@@ -649,6 +692,9 @@ not_end_position = [[3, 4]]
 not_end_position = [[9, 9]]
 "#,
         );
-        assert!(matches!(run_assertion(&cast_actual(), &overlay), AssertResult::Pass));
+        assert!(matches!(
+            run_assertion(&cast_actual(), &overlay),
+            AssertResult::Pass
+        ));
     }
 }

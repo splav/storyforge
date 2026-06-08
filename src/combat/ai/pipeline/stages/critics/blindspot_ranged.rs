@@ -11,10 +11,10 @@
 //! Multiplier: **0.3** (identical to the original sanity rule).
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::tags::AiTags;
-use crate::combat::ai::orchestration::ScoringCtx;
 use crate::game::hex::{has_los, in_bounds};
 use hexx::Hex;
 use std::collections::HashSet;
@@ -115,11 +115,12 @@ impl PlanCritic for BlindspotRanged {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::world::tags::AiTags;
-    use crate::combat::ai::test_helpers::{StageTestHarness, UnitBuilder,
-        assert_stage_critic_fires, assert_stage_critic_passes};
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::test_helpers::{
+        assert_stage_critic_fires, assert_stage_critic_passes, StageTestHarness, UnitBuilder,
+    };
+    use crate::combat::ai::world::tags::AiTags;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -139,19 +140,24 @@ mod tests {
         // RANGED actor ends at (0,0). Enemy at (4,0), blocked by an ally at (2,0).
         // The ally occupies the line between actor and enemy — no LoS.
         let actor_pos = hex_from_offset(0, 0);
-        let ally_pos  = hex_from_offset(2, 0);
+        let ally_pos = hex_from_offset(2, 0);
         let enemy_pos = hex_from_offset(4, 0);
 
-        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).tags(AiTags::RANGED).build();
-        let ally  = UnitBuilder::new(2, Team::Enemy, ally_pos).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .tags(AiTags::RANGED)
+            .build();
+        let ally = UnitBuilder::new(2, Team::Enemy, ally_pos).build();
         let enemy = UnitBuilder::new(3, Team::Player, enemy_pos).build();
 
         let mut h = StageTestHarness::new(actor);
         h.extra_units = vec![ally, enemy];
 
         assert_stage_critic_fires(
-            &h, vec![move_plan(actor_pos)], BlindspotRanged,
-            CriticKind::BlindspotRanged, BLINDSPOT_MULTIPLIER,
+            &h,
+            vec![move_plan(actor_pos)],
+            BlindspotRanged,
+            CriticKind::BlindspotRanged,
+            BLINDSPOT_MULTIPLIER,
             |reason| {
                 let CriticReason::BlindspotRanged { enemies_visible } = reason else {
                     panic!("expected BlindspotRanged reason, got {reason:?}");
@@ -169,7 +175,9 @@ mod tests {
         let actor_pos = hex_from_offset(0, 0);
         let enemy_pos = hex_from_offset(3, 0);
 
-        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).tags(AiTags::RANGED).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .tags(AiTags::RANGED)
+            .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
 
         let mut h = StageTestHarness::new(actor);
@@ -184,29 +192,28 @@ mod tests {
     fn blindspot_severity_scales_with_input() {
         // 1) Non-RANGED actor without LoS → no hit (gate: RANGED tag required).
         // 2) RANGED actor with no enemies → no hit (gate: enemies required).
-        let actor_pos        = hex_from_offset(0, 0);
+        let actor_pos = hex_from_offset(0, 0);
         let ally_blocker_pos = hex_from_offset(2, 0);
-        let enemy_pos        = hex_from_offset(4, 0);
-        let plan             = vec![move_plan(actor_pos)];
+        let enemy_pos = hex_from_offset(4, 0);
+        let plan = vec![move_plan(actor_pos)];
 
         // Case 1: melee actor, enemy blocked → no hit.
         let melee_actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
-        let ally        = UnitBuilder::new(2, Team::Enemy, ally_blocker_pos).build();
-        let enemy       = UnitBuilder::new(3, Team::Player, enemy_pos).build();
+        let ally = UnitBuilder::new(2, Team::Enemy, ally_blocker_pos).build();
+        let enemy = UnitBuilder::new(3, Team::Player, enemy_pos).build();
         let mut h1 = StageTestHarness::new(melee_actor);
         h1.extra_units = vec![ally, enemy];
         assert_stage_critic_passes(&h1, plan.clone(), BlindspotRanged);
 
         // Case 2: RANGED actor, no enemies → no hit.
-        let ranged_actor = UnitBuilder::new(1, Team::Enemy, actor_pos).tags(AiTags::RANGED).build();
+        let ranged_actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .tags(AiTags::RANGED)
+            .build();
         let h2 = StageTestHarness::new(ranged_actor);
         assert_stage_critic_passes(&h2, plan, BlindspotRanged);
     }
 
-
     // ── 1-step lookahead: kite-yard prevents the critic from firing ───────────
-
-    
 
     #[test]
     fn name_is_stable() {

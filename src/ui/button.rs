@@ -88,10 +88,7 @@ pub fn spawn_standard_button<'a>(
 
 /// Updates border color when hover state changes on any standard button.
 pub fn button_hover_system(
-    mut buttons: Query<
-        (&Interaction, &ButtonColors, &mut BorderColor),
-        Changed<Interaction>,
-    >,
+    mut buttons: Query<(&Interaction, &ButtonColors, &mut BorderColor), Changed<Interaction>>,
 ) {
     for (interaction, colors, mut border) in &mut buttons {
         let color = match *interaction {

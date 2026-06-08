@@ -1,6 +1,6 @@
+use super::AppraisalCtx;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AbilityTag;
-use super::AppraisalCtx;
 
 pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
     // Gate: actor has any ability with Rescue tag in effective kit.
@@ -8,7 +8,10 @@ pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
     // a known content entry; tag lookup is cache-only (no def access needed).
     let has_rescue_kit = ctx.active.cache.abilities.iter().any(|id| {
         ctx.content.abilities.contains_key(id)
-            && ctx.ability_tags.effective(id).contains_tag(AbilityTag::Rescue)
+            && ctx
+                .ability_tags
+                .effective(id)
+                .contains_tag(AbilityTag::Rescue)
     });
     if !has_rescue_kit {
         return 0.0;
@@ -17,7 +20,9 @@ pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
     let actor_entity = ctx.active.entity();
     // Find most-endangered ally within reach budget.
     let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.cache.max_attack_range);
-    let best_danger: f32 = ctx.snap.allies_of(ctx.active.team)
+    let best_danger: f32 = ctx
+        .snap
+        .allies_of(ctx.active.team)
         .filter(|a| a.entity() != actor_entity)
         .filter(|a| ctx.active.pos.unsigned_distance_to(a.pos) <= reach)
         .map(|a| {
@@ -45,22 +50,29 @@ pub(crate) fn ally_threat_proxy(ally: UnitView<'_>, snap: &BattleSnapshot) -> f3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
+    use crate::combat::ai::appraisal::tests::{
+        content_with_rescue_ability, minimal_ability_def_with_override,
+    };
+    use crate::combat::ai::appraisal::tests::{default_memory, make_ctx, snap};
     use crate::combat::ai::config::tuning::AiTuning;
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::combat::ai::appraisal::tests::{default_memory, snap, make_ctx};
-    use crate::combat::ai::appraisal::tests::{content_with_rescue_ability, minimal_ability_def_with_override};
 
     #[test]
     fn rescue_ally_zero_when_no_rescue_kit() {
         // Actor has no abilities → no Rescue tag → signal = 0.
         let actor_pos = hex_from_offset(3, 3);
-        let active = UnitBuilder::new(1, Team::Enemy, actor_pos).full_hp(20).build();
+        let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .full_hp(20)
+            .build();
         let ally = UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3))
-            .hp(4).max_hp(20).build(); // 20% HP — in danger
+            .hp(4)
+            .max_hp(20)
+            .build(); // 20% HP — in danger
         let enemy = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 3))
-            .threat(8.0).build();
+            .threat(8.0)
+            .build();
         let memory = default_memory();
         let tuning = AiTuning::default();
         let s = snap(vec![active.clone(), ally, enemy]);
@@ -68,7 +80,11 @@ mod tests {
         let content = empty_content();
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
-        assert_eq!(compute_rescue_ally(&ctx), 0.0, "no Rescue kit → signal must be 0");
+        assert_eq!(
+            compute_rescue_ally(&ctx),
+            0.0,
+            "no Rescue kit → signal must be 0"
+        );
     }
 
     #[test]
@@ -80,7 +96,8 @@ mod tests {
             .ability_names(&["heal"])
             .build();
         let ally = UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3))
-            .full_hp(20).build(); // full HP — not in danger
+            .full_hp(20)
+            .build(); // full HP — not in danger
         let memory = default_memory();
         let tuning = AiTuning::default();
         let s = snap(vec![active.clone(), ally]);
@@ -104,8 +121,10 @@ mod tests {
             .speed(3)
             .build();
         let ally = UnitBuilder::new(2, Team::Enemy, ally_pos)
-            .hp(4).max_hp(20).build(); // 20% HP
-        // Enemy adjacent to ally with high DPR.
+            .hp(4)
+            .max_hp(20)
+            .build(); // 20% HP
+                      // Enemy adjacent to ally with high DPR.
         let enemy = UnitBuilder::new(3, Team::Player, enemy_pos)
             .threat(8.0)
             .damage_horizon(vec![8.0])
@@ -118,7 +137,10 @@ mod tests {
         let (content, at, st) = content_with_rescue_ability();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         let signal = compute_rescue_ally(&ctx);
-        assert!(signal > 0.6, "low HP ally + high-DPR adjacent enemy → signal > 0.6, got {signal}");
+        assert!(
+            signal > 0.6,
+            "low HP ally + high-DPR adjacent enemy → signal > 0.6, got {signal}"
+        );
     }
 
     #[test]
@@ -135,9 +157,14 @@ mod tests {
             .build();
         // Ally at low HP so signal is non-zero when gate passes.
         let ally = UnitBuilder::new(2, Team::Enemy, ally_pos)
-            .hp(4).max_hp(20).build();
+            .hp(4)
+            .max_hp(20)
+            .build();
         let enemy = UnitBuilder::new(3, Team::Player, ally_pos)
-            .threat(8.0).damage_horizon(vec![8.0]).max_attack_range(1).build();
+            .threat(8.0)
+            .damage_horizon(vec![8.0])
+            .max_attack_range(1)
+            .build();
         let memory = default_memory();
         let tuning = AiTuning::default();
         let s = snap(vec![active.clone(), ally, enemy]);
@@ -146,7 +173,10 @@ mod tests {
         let (content, at, st) = content_with_rescue_ability();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         let signal = compute_rescue_ally(&ctx);
-        assert!(signal > 0.0, "override rescue tag → gate passes, signal > 0, got {signal}");
+        assert!(
+            signal > 0.0,
+            "override rescue tag → gate passes, signal > 0, got {signal}"
+        );
     }
 
     #[test]
@@ -162,9 +192,14 @@ mod tests {
             .max_attack_range(3)
             .build();
         let ally = UnitBuilder::new(2, Team::Enemy, ally_pos)
-            .hp(4).max_hp(20).build();
+            .hp(4)
+            .max_hp(20)
+            .build();
         let enemy = UnitBuilder::new(3, Team::Player, ally_pos)
-            .threat(8.0).damage_horizon(vec![8.0]).max_attack_range(1).build();
+            .threat(8.0)
+            .damage_horizon(vec![8.0])
+            .max_attack_range(1)
+            .build();
         let memory = default_memory();
         let tuning = AiTuning::default();
         let s = snap(vec![active.clone(), ally, enemy]);
@@ -177,7 +212,11 @@ mod tests {
         content.abilities.insert("heal".into(), def);
         let (st, at) = build_caches(&content);
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
-        assert_eq!(compute_rescue_ally(&ctx), 0.0, "empty override → gate fails → signal = 0");
+        assert_eq!(
+            compute_rescue_ally(&ctx),
+            0.0,
+            "empty override → gate fails → signal = 0"
+        );
     }
 
     #[test]
@@ -195,7 +234,11 @@ mod tests {
             .build();
         // Живой высокоDPR-враг рядом, чтобы было бы что считать через ally_threat_proxy.
         let enemy = UnitBuilder::new(4, Team::Player, hex_from_offset(4, 3))
-            .full_hp(20).threat(8.0).damage_horizon(vec![8.0]).max_attack_range(1).build();
+            .full_hp(20)
+            .threat(8.0)
+            .damage_horizon(vec![8.0])
+            .max_attack_range(1)
+            .build();
         let memory = default_memory();
         let tuning = AiTuning::default();
         let (content, at, st) = content_with_rescue_ability();
@@ -203,21 +246,45 @@ mod tests {
 
         // baseline: нет союзников вообще
         let s_no_allies = snap(vec![active.clone(), enemy.clone()]);
-        let ctx_no_allies = make_ctx(&active, &s_no_allies, &memory, &tuning, &maps, &content, &at, &st);
+        let ctx_no_allies = make_ctx(
+            &active,
+            &s_no_allies,
+            &memory,
+            &tuning,
+            &maps,
+            &content,
+            &at,
+            &st,
+        );
         let baseline = compute_rescue_ally(&ctx_no_allies);
 
         // test: два мёртвых союзника в reach — не должны поднять сигнал выше baseline
         let dead_ally_a = UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3))
-            .hp(0).max_hp(20).build();
+            .hp(0)
+            .max_hp(20)
+            .build();
         let dead_ally_b = UnitBuilder::new(3, Team::Enemy, hex_from_offset(2, 3))
-            .hp(0).max_hp(20).build();
+            .hp(0)
+            .max_hp(20)
+            .build();
         let s_with_dead = snap(vec![active.clone(), dead_ally_a, dead_ally_b, enemy]);
-        let ctx_with_dead = make_ctx(&active, &s_with_dead, &memory, &tuning, &maps, &content, &at, &st);
+        let ctx_with_dead = make_ctx(
+            &active,
+            &s_with_dead,
+            &memory,
+            &tuning,
+            &maps,
+            &content,
+            &at,
+            &st,
+        );
         let signal = compute_rescue_ally(&ctx_with_dead);
 
-        assert_eq!(signal, baseline,
+        assert_eq!(
+            signal, baseline,
             "мёртвые ally в reach = отсутствие живых ally (нет вклада в best_danger); \
-             baseline={baseline}, with_dead={signal}");
+             baseline={baseline}, with_dead={signal}"
+        );
     }
 
     #[test]
@@ -236,7 +303,9 @@ mod tests {
             .build();
         // Живой союзник на низком HP → есть кого спасать.
         let ally = UnitBuilder::new(2, Team::Enemy, ally_pos)
-            .hp(4).max_hp(20).build();
+            .hp(4)
+            .max_hp(20)
+            .build();
         let memory = default_memory();
         let tuning = AiTuning::default();
         let (content, at, st) = content_with_rescue_ability();
@@ -244,18 +313,43 @@ mod tests {
 
         // baseline: живой ally, НЕТ врагов → threat_to_ally = 0
         let s_no_enemies = snap(vec![active.clone(), ally.clone()]);
-        let ctx_no_enemies = make_ctx(&active, &s_no_enemies, &memory, &tuning, &maps, &content, &at, &st);
+        let ctx_no_enemies = make_ctx(
+            &active,
+            &s_no_enemies,
+            &memory,
+            &tuning,
+            &maps,
+            &content,
+            &at,
+            &st,
+        );
         let baseline = compute_rescue_ally(&ctx_no_enemies);
 
         // test: тот же ally + один мёртвый враг рядом → threat не должен вырасти
         let dead_enemy = UnitBuilder::new(3, Team::Player, ally_pos)
-            .hp(0).max_hp(20).threat(8.0).damage_horizon(vec![8.0]).max_attack_range(1).build();
+            .hp(0)
+            .max_hp(20)
+            .threat(8.0)
+            .damage_horizon(vec![8.0])
+            .max_attack_range(1)
+            .build();
         let s_with_dead = snap(vec![active.clone(), ally, dead_enemy]);
-        let ctx_with_dead = make_ctx(&active, &s_with_dead, &memory, &tuning, &maps, &content, &at, &st);
+        let ctx_with_dead = make_ctx(
+            &active,
+            &s_with_dead,
+            &memory,
+            &tuning,
+            &maps,
+            &content,
+            &at,
+            &st,
+        );
         let signal = compute_rescue_ally(&ctx_with_dead);
 
-        assert_eq!(signal, baseline,
+        assert_eq!(
+            signal, baseline,
             "live low-HP ally + мёртвый враг рядом = live low-HP ally + нет врагов \
-             (мёртвый не добавляет threat); baseline={baseline}, with_dead={signal}");
+             (мёртвый не добавляет threat); baseline={baseline}, with_dead={signal}"
+        );
     }
 }

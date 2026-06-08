@@ -34,8 +34,8 @@
 //!   stun" proxy — coarse but actor-agnostic. A dynamic per-snapshot
 //!   average would couple `unit_value` to battle state.
 
-use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::plan::TurnPlan;
+use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::content::abilities::{EffectCalcExt, StatusOn, TargetType};
@@ -87,8 +87,7 @@ pub fn unit_value(u: UnitView<'_>, content: &ContentView) -> f32 {
         return 0.0;
     }
     let life = lifetime_rounds(u);
-    let contrib =
-        offense_projection(u) + heal_projection(u, content) + cc_projection(u, content);
+    let contrib = offense_projection(u) + heal_projection(u, content) + cc_projection(u, content);
     let base = (life * contrib).max(0.0);
     let objective_bonus = if u.cache.tags.contains(AiTags::OPPONENT_OBJECTIVE) {
         content.ai_tuning.thresholds.objective_value_bonus
@@ -125,7 +124,8 @@ fn offense_projection(u: UnitView<'_>) -> f32 {
 /// trades beyond their actual in-game leverage. Returns `0.0` when the
 /// unit has no heal kit.
 fn heal_projection(u: UnitView<'_>, content: &ContentView) -> f32 {
-    u.cache.abilities
+    u.cache
+        .abilities
         .iter()
         .filter_map(|id| content.abilities.get(id))
         .filter(|def| matches!(def.target_type, TargetType::SingleAlly))
@@ -158,7 +158,8 @@ fn cc_projection(u: UnitView<'_>, content: &ContentView) -> f32 {
     if peer_dpr <= 0.0 {
         return 0.0;
     }
-    u.cache.abilities
+    u.cache
+        .abilities
         .iter()
         .filter_map(|id| content.abilities.get(id))
         .map(|def| {
@@ -331,15 +332,15 @@ pub fn trade_score(br: &TradeBreakdown, actor_value: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::config::role::AxisProfile;
-    use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, StatusApplication,
     };
     use crate::content::statuses::StatusDef;
-    use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
     use std::collections::HashMap;
 
     // ── Fixtures ────────────────────────────────────────────────────────────
@@ -401,15 +402,18 @@ mod tests {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 1 },
                 effect: EffectDef::None,
-                costs: vec![ResourceCost { resource: ResourceKind::Rage, amount: 0 }],
+                costs: vec![ResourceCost {
+                    resource: ResourceKind::Rage,
+                    amount: 0,
+                }],
                 cost_ap,
                 aoe: AoEShape::None,
                 friendly_fire: false,
                 statuses: vec![StatusApplication {
-                status: StatusId::from(status_id),
-                duration_rounds: duration,
-                on: StatusOn::Target,
-            }],
+                    status: StatusId::from(status_id),
+                    duration_rounds: duration,
+                    on: StatusOn::Target,
+                }],
                 key: None,
                 requires_los: false,
                 passive: vec![],
@@ -477,13 +481,20 @@ mod tests {
         c.abilities.insert(heal.id.clone(), heal.clone());
 
         let bruiser = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
-            .role(AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() })
+            .role(AxisProfile {
+                tank: 0.5,
+                melee: 0.5,
+                ..Default::default()
+            })
             .threat(5.0)
             .ap(2)
             .build();
 
         let healer = UnitBuilder::new(2, Team::Enemy, hex_from_offset(0, 0))
-            .role(AxisProfile { support: 1.0, ..Default::default() })
+            .role(AxisProfile {
+                support: 1.0,
+                ..Default::default()
+            })
             .threat(5.0)
             .ap(2)
             .abilities(vec![heal.id.clone()])
@@ -516,7 +527,8 @@ mod tests {
 
         let s = snapshot_from(vec![sustained.clone(), burst.clone()], 1);
         assert!(
-            unit_value(s.unit(sustained.entity).unwrap(), &c) > unit_value(s.unit(burst.entity).unwrap(), &c),
+            unit_value(s.unit(sustained.entity).unwrap(), &c)
+                > unit_value(s.unit(burst.entity).unwrap(), &c),
             "sustained fighter must out-price burst caster with same peak",
         );
     }
@@ -528,7 +540,8 @@ mod tests {
     fn cc_kit_adds_value() {
         let mut c = content();
         let stun_id = "stunned";
-        c.statuses.insert(StatusId::from(stun_id), stun_status(stun_id));
+        c.statuses
+            .insert(StatusId::from(stun_id), stun_status(stun_id));
         let ab = stun_ability("hammer", 1, 2, stun_id);
         c.abilities.insert(ab.id.clone(), ab.clone());
 
@@ -544,7 +557,8 @@ mod tests {
 
         let s = snapshot_from(vec![with_cc.clone(), no_cc.clone()], 1);
         assert!(
-            unit_value(s.unit(with_cc.entity).unwrap(), &c) > unit_value(s.unit(no_cc.entity).unwrap(), &c),
+            unit_value(s.unit(with_cc.entity).unwrap(), &c)
+                > unit_value(s.unit(no_cc.entity).unwrap(), &c),
             "CC-capable unit should out-price a peer without CC",
         );
     }
@@ -556,7 +570,8 @@ mod tests {
     fn self_buff_status_does_not_count_as_cc() {
         let mut c = content();
         let buff_id = "focused";
-        c.statuses.insert(StatusId::from(buff_id), stun_status(buff_id));
+        c.statuses
+            .insert(StatusId::from(buff_id), stun_status(buff_id));
         // Same shape as stun_ability but on=MySelf.
         let mut ab = stun_ability("meditate", 1, 2, buff_id);
         ab.statuses[0].on = StatusOn::MySelf;
@@ -586,7 +601,8 @@ mod tests {
     fn zero_threat_zeroes_cc_channel() {
         let mut c = content();
         let stun_id = "stunned";
-        c.statuses.insert(StatusId::from(stun_id), stun_status(stun_id));
+        c.statuses
+            .insert(StatusId::from(stun_id), stun_status(stun_id));
         let ab = stun_ability("hammer", 1, 2, stun_id);
         c.abilities.insert(ab.id.clone(), ab.clone());
 
@@ -612,10 +628,7 @@ mod tests {
 
     /// Plan with a single `Move` step and a prescribed `killed` outcome.
     /// AoO-relevant: the Move step is what `expected_aoo_damage` scans.
-    fn move_plan_killing(
-        path: Vec<crate::game::hex::Hex>,
-        killed: Vec<Entity>,
-    ) -> TurnPlan {
+    fn move_plan_killing(path: Vec<crate::game::hex::Hex>, killed: Vec<Entity>) -> TurnPlan {
         TurnPlan {
             steps: vec![PlanStep::Move { path: path.clone() }],
             final_pos: *path.last().unwrap(),
@@ -663,7 +676,10 @@ mod tests {
             .threat(5.0)
             .build();
         let victim = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .role(AxisProfile { support: 1.0, ..Default::default() })
+            .role(AxisProfile {
+                support: 1.0,
+                ..Default::default()
+            })
             .threat(4.0)
             .build();
         let snap = snapshot_from(vec![actor.clone(), victim.clone()], 1);
@@ -692,13 +708,14 @@ mod tests {
             .threat(1.0)
             .build();
         let ally_controller = UnitBuilder::new(3, Team::Enemy, hex_from_offset(1, 0))
-            .role(AxisProfile { ranged: 0.7, control: 0.3, ..Default::default() })
+            .role(AxisProfile {
+                ranged: 0.7,
+                control: 0.3,
+                ..Default::default()
+            })
             .threat(8.0)
             .build();
-        let snap = snapshot_from(
-            vec![actor.clone(), rat.clone(), ally_controller.clone()],
-            1,
-        );
+        let snap = snapshot_from(vec![actor.clone(), rat.clone(), ally_controller.clone()], 1);
         let plan = static_kill_plan(actor.pos, vec![rat.entity, ally_controller.entity]);
         let c = content();
 
@@ -752,10 +769,7 @@ mod tests {
         // Plan moves away (triggers AoO by the provoker above) AND the sim
         // outcome declares the actor dead. Under double-counting we'd lose
         // 2×unit_value(actor); the guard caps it at 1×.
-        let plan = move_plan_killing(
-            vec![hex_from_offset(-1, 0)],
-            vec![actor.entity],
-        );
+        let plan = move_plan_killing(vec![hex_from_offset(-1, 0)], vec![actor.entity]);
         let c = content();
 
         let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
@@ -818,7 +832,10 @@ mod tests {
             .threat(5.0)
             .build();
         let tail_victim = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
-            .role(AxisProfile { support: 1.0, ..Default::default() })
+            .role(AxisProfile {
+                support: 1.0,
+                ..Default::default()
+            })
             .build();
         let snap = snapshot_from(vec![actor.clone(), tail_victim.clone()], 1);
 
@@ -867,14 +884,19 @@ mod tests {
             .threat(5.0)
             .build();
         let victim = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
-            .role(AxisProfile { support: 1.0, ..Default::default() })
+            .role(AxisProfile {
+                support: 1.0,
+                ..Default::default()
+            })
             .threat(4.0)
             .build();
         let snap = snapshot_from(vec![actor.clone(), victim.clone()], 1);
 
         let plan = TurnPlan {
             steps: vec![
-                PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
+                PlanStep::Move {
+                    path: vec![hex_from_offset(1, 0)],
+                },
                 PlanStep::Cast {
                     ability: AbilityId::from("_cast"),
                     target: victim.entity,
@@ -898,7 +920,10 @@ mod tests {
         let c = content();
 
         let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
-        assert_eq!(br.killed_value, unit_value(snap.unit(victim.entity).unwrap(), &c));
+        assert_eq!(
+            br.killed_value,
+            unit_value(snap.unit(victim.entity).unwrap(), &c)
+        );
         assert!(!br.self_lethal);
     }
 

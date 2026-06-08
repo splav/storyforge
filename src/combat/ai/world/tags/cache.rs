@@ -89,11 +89,14 @@ pub fn build_caches(content: &ContentView) -> (StatusTagCache, AbilityTagCache) 
     let mut bonuses_map: HashMap<StatusId, StatusBonuses> = HashMap::new();
     for (id, def) in &content.statuses {
         status_map.insert(id.clone(), derive_status_tags(def));
-        bonuses_map.insert(id.clone(), StatusBonuses {
-            speed_bonus: def.bonuses.speed_bonus,
-            armor_bonus: def.bonuses.armor_bonus,
-            damage_taken_bonus: def.bonuses.damage_taken_bonus,
-        });
+        bonuses_map.insert(
+            id.clone(),
+            StatusBonuses {
+                speed_bonus: def.bonuses.speed_bonus,
+                armor_bonus: def.bonuses.armor_bonus,
+                damage_taken_bonus: def.bonuses.damage_taken_bonus,
+            },
+        );
     }
 
     // Pass 2: classify all abilities using the status map just built.
@@ -113,8 +116,14 @@ pub fn build_caches(content: &ContentView) -> (StatusTagCache, AbilityTagCache) 
     }
 
     (
-        StatusTagCache { map: status_map, bonuses: bonuses_map },
-        AbilityTagCache { map: ability_map, override_map },
+        StatusTagCache {
+            map: status_map,
+            bonuses: bonuses_map,
+        },
+        AbilityTagCache {
+            map: ability_map,
+            override_map,
+        },
     )
 }
 
@@ -192,7 +201,10 @@ mod tests {
         let (sc2, ac2) = build_caches(&content);
         assert_eq!(sc1.map, sc2.map, "status cache must be idempotent");
         assert_eq!(ac1.map, ac2.map, "ability cache must be idempotent");
-        assert_eq!(ac1.override_map, ac2.override_map, "override_map must be idempotent");
+        assert_eq!(
+            ac1.override_map, ac2.override_map,
+            "override_map must be idempotent"
+        );
     }
 
     // ── Commit 3 tests ────────────────────────────────────────────────────────
@@ -209,8 +221,15 @@ mod tests {
         }
         let (_, ac) = build_caches(&content);
         let effective = ac.effective(&ability_id);
-        assert_eq!(effective, AbilityTagSet::DEFENSIVE, "override must replace, not append");
-        assert!(!effective.contains(AbilityTagSet::OFFENSIVE), "OFFENSIVE must be absent");
+        assert_eq!(
+            effective,
+            AbilityTagSet::DEFENSIVE,
+            "override must replace, not append"
+        );
+        assert!(
+            !effective.contains(AbilityTagSet::OFFENSIVE),
+            "OFFENSIVE must be absent"
+        );
     }
 
     #[test]

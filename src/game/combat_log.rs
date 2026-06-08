@@ -2,9 +2,9 @@ use crate::content::content_view::ContentView;
 use bevy::prelude::*;
 
 use combat_engine::{
-    event::{TurnSkipReason, TurnEndCause},
-    effect::SpawnBlockedReason,
     content::CritFailOutcome,
+    effect::SpawnBlockedReason,
+    event::{TurnEndCause, TurnSkipReason},
     StatusId,
 };
 
@@ -112,9 +112,7 @@ pub enum CombatEvent {
     /// *ECS-only* — emitted once when a combat scenario starts.
     CombatStarted,
     /// *engine mirror* — `Event::RoundStarted`.
-    RoundStarted {
-        round: u32,
-    },
+    RoundStarted { round: u32 },
     /// *ECS-only* — emitted by `turn_order.rs` after initiative rolls.
     InitiativeRolled {
         actor: Entity,
@@ -123,9 +121,7 @@ pub enum CombatEvent {
         total: i32,
     },
     /// *engine mirror* — `Event::TurnStarted`.
-    TurnStarted {
-        actor: Entity,
-    },
+    TurnStarted { actor: Entity },
     /// *ECS-only* — ability-use summary emitted by bridge before damage/heal events.
     AbilityUsed {
         actor: Entity,
@@ -143,20 +139,11 @@ pub enum CombatEvent {
         final_damage: i32,
     },
     /// *engine mirror* — `Event::UnitHealed`.
-    HealResult {
-        target: Entity,
-        amount: i32,
-    },
+    HealResult { target: Entity, amount: i32 },
     /// *engine mirror* — `Event::StatusApplied`.
-    StatusApplied {
-        target: Entity,
-        status: StatusId,
-    },
+    StatusApplied { target: Entity, status: StatusId },
     /// *engine mirror* — `Event::StatusRemoved`.
-    StatusExpired {
-        target: Entity,
-        status: StatusId,
-    },
+    StatusExpired { target: Entity, status: StatusId },
     /// *engine mirror* — `Event::TurnSkipped`. Carries reason so formatter can
     /// suppress `Dead` turns (D1).
     TurnSkipped {
@@ -200,22 +187,16 @@ pub enum CombatEvent {
         amount: i32,
     },
     /// *ECS-only* — emitted once when combat ends.
-    CombatEnded {
-        victory: bool,
-    },
+    CombatEnded { victory: bool },
     /// *engine mirror* — `Event::CritFailed { outcome: Miss }`.
-    CriticalMiss {
-        actor: Entity,
-    },
+    CriticalMiss { actor: Entity },
     /// *engine mirror* — `Event::CritFailed { outcome: DoubleCost | SelfDamage | ApplyStatus }`.
     CritFailSideEffect {
         actor: Entity,
         outcome: CritFailOutcomeEcs,
     },
     /// *engine mirror* — `Event::UnitDied`.
-    UnitDied {
-        entity: Entity,
-    },
+    UnitDied { entity: Entity },
     /// *ECS-only* — boss phase transition data built by bridge from `Event::PhaseEntered`.
     PhaseEntered {
         actor: Entity,
@@ -268,13 +249,21 @@ impl CombatEvent {
         let line = match self {
             CombatEvent::CombatStarted => "=== Бой начался ===".into(),
             CombatEvent::RoundStarted { round } => format!("--- Раунд {round} ---"),
-            CombatEvent::InitiativeRolled { actor, dex_mod, roll, total } => {
+            CombatEvent::InitiativeRolled {
+                actor,
+                dex_mod,
+                roll,
+                total,
+            } => {
                 let mod_str = if *dex_mod >= 0 {
                     format!("+{dex_mod}")
                 } else {
                     format!("{dex_mod}")
                 };
-                format!("  инициатива {}: d20({roll}) {mod_str} = {total}", name(*actor))
+                format!(
+                    "  инициатива {}: d20({roll}) {mod_str} = {total}",
+                    name(*actor)
+                )
             }
             CombatEvent::TurnStarted { actor } => format!("  ▶ Ход: {}", name(*actor)),
             CombatEvent::TurnSkipped { actor, reason } => match reason {
@@ -285,7 +274,12 @@ impl CombatEvent {
                 }
             },
             CombatEvent::TurnEnded { actor, .. } => format!("  ○ {} завершил ход", name(*actor)),
-            CombatEvent::OpportunityAttack { attacker, target, damage, killed } => {
+            CombatEvent::OpportunityAttack {
+                attacker,
+                target,
+                damage,
+                killed,
+            } => {
                 let tail = if *killed { " ✗" } else { "" };
                 format!(
                     "  ⚔ AoO: {} → {} (-{} HP){}",
@@ -307,21 +301,29 @@ impl CombatEvent {
                     tr
                 )
             }
-            CombatEvent::PoolChanged { actor, pool, current, max, cause } => {
-                use combat_engine::{PoolKind, PoolChangeCause};
+            CombatEvent::PoolChanged {
+                actor,
+                pool,
+                current,
+                max,
+                cause,
+            } => {
+                use combat_engine::{PoolChangeCause, PoolKind};
                 let pool_name = match pool {
                     // Hp pool changes are not shown in the combat log; HP
                     // events surface via UnitDamaged/UnitHealed entries.
-                    PoolKind::Hp     => return None,
-                    PoolKind::Mana   => "мана",
-                    PoolKind::Rage   => "ярость",
+                    PoolKind::Hp => return None,
+                    PoolKind::Mana => "мана",
+                    PoolKind::Rage => "ярость",
                     PoolKind::Energy => "энергия",
-                    PoolKind::Ap     => return None, // AP/MP changes are silent
-                    PoolKind::Mp     => return None,
+                    PoolKind::Ap => return None, // AP/MP changes are silent
+                    PoolKind::Mp => return None,
                 };
                 let icon = match cause {
-                    PoolChangeCause::Regen | PoolChangeCause::Refill | PoolChangeCause::Gained => "⚡",
-                    PoolChangeCause::Spent   => "✦",
+                    PoolChangeCause::Regen | PoolChangeCause::Refill | PoolChangeCause::Gained => {
+                        "⚡"
+                    }
+                    PoolChangeCause::Spent => "✦",
                     PoolChangeCause::MaxChanged => "✦",
                 };
                 format!("  {icon} {}: {pool_name} {current}/{max}", name(*actor))
@@ -353,7 +355,12 @@ impl CombatEvent {
                     costs,
                 )
             }
-            CombatEvent::DamageResult { target, raw, armor_reduced, final_damage } => {
+            CombatEvent::DamageResult {
+                target,
+                raw,
+                armor_reduced,
+                final_damage,
+            } => {
                 let armor_part = if *armor_reduced > 0 {
                     format!(", броня -{armor_reduced}")
                 } else {
@@ -381,19 +388,38 @@ impl CombatEvent {
                     .map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    статус «{}» спал с {}", sname, name(*target))
             }
-            CombatEvent::DotDamaged { target, source_status, amount, .. } => {
+            CombatEvent::DotDamaged {
+                target,
+                source_status,
+                amount,
+                ..
+            } => {
                 let sname = content
                     .statuses
                     .get(source_status)
                     .map_or(source_status.0.as_str(), |s| s.name.as_str());
-                format!("    «{}» наносит {} урона ({})", sname, amount, name(*target))
+                format!(
+                    "    «{}» наносит {} урона ({})",
+                    sname,
+                    amount,
+                    name(*target)
+                )
             }
-            CombatEvent::HotHealed { target, source_status, amount } => {
+            CombatEvent::HotHealed {
+                target,
+                source_status,
+                amount,
+            } => {
                 let sname = content
                     .statuses
                     .get(source_status)
                     .map_or(source_status.0.as_str(), |s| s.name.as_str());
-                format!("    «{}» восстанавливает {} HP ({})", sname, amount, name(*target))
+                format!(
+                    "    «{}» восстанавливает {} HP ({})",
+                    sname,
+                    amount,
+                    name(*target)
+                )
             }
             CombatEvent::CriticalMiss { actor } => {
                 format!(
@@ -417,14 +443,22 @@ impl CombatEvent {
                 format!("  ⚠ {}: {}", name(*actor), desc)
             }
             CombatEvent::UnitDied { entity } => format!("  ✗ {} погиб", name(*entity)),
-            CombatEvent::PhaseEntered { prev_name, next_name, flavor, .. } => {
+            CombatEvent::PhaseEntered {
+                prev_name,
+                next_name,
+                flavor,
+                ..
+            } => {
                 let head = format!("  ✦ {prev_name} → {next_name}");
                 match flavor {
                     Some(f) if !f.is_empty() => format!("{head}\n    {f}"),
                     _ => head,
                 }
             }
-            CombatEvent::Summoned { summoner, summon_name } => {
+            CombatEvent::Summoned {
+                summoner,
+                summon_name,
+            } => {
                 format!("  ✧ {} призывает {}", name(*summoner), summon_name)
             }
             CombatEvent::SummonBlocked { summoner, reason } => {

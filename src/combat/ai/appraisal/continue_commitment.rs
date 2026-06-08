@@ -1,5 +1,5 @@
-use crate::combat::ai::intent::IntentKind;
 use super::AppraisalCtx;
+use crate::combat::ai::intent::IntentKind;
 
 pub(super) fn compute_continue_commitment(ctx: &AppraisalCtx<'_>) -> f32 {
     let active = ctx.active;
@@ -23,8 +23,8 @@ pub(super) fn compute_continue_commitment(ctx: &AppraisalCtx<'_>) -> f32 {
         }
 
         // Reachability check: can we reach the target within speed + attack range?
-        let reach_budget = (active.speed.max(0) as u32)
-            .saturating_add(active.cache.max_attack_range);
+        let reach_budget =
+            (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
         let dist = active.pos.unsigned_distance_to(last_target.pos);
         if dist > reach_budget {
             return None;
@@ -39,12 +39,12 @@ pub(super) fn compute_continue_commitment(ctx: &AppraisalCtx<'_>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::appraisal::tests::{default_memory, make_ctx, snap};
+    use crate::combat::ai::config::tuning::AiTuning;
     use crate::combat::ai::memory::AiMemory;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, ent, UnitBuilder};
-    use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::combat::ai::appraisal::tests::{default_memory, snap, make_ctx};
 
     #[test]
     fn continue_commitment_zero_when_no_last_intent() {
@@ -99,7 +99,11 @@ mod tests {
         let content = empty_content();
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
-        assert_eq!(compute_continue_commitment(&ctx), 0.0, "finisher zone should return 0");
+        assert_eq!(
+            compute_continue_commitment(&ctx),
+            0.0,
+            "finisher zone should return 0"
+        );
     }
 
     #[test]
@@ -125,7 +129,11 @@ mod tests {
         let content = empty_content();
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
-        assert_eq!(compute_continue_commitment(&ctx), 0.0, "unreachable target should return 0");
+        assert_eq!(
+            compute_continue_commitment(&ctx),
+            0.0,
+            "unreachable target should return 0"
+        );
     }
 
     #[test]
@@ -155,6 +163,9 @@ mod tests {
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         let signal = compute_continue_commitment(&ctx);
-        assert!(signal > 0.6, "should be > 0.6 for reachable 50% HP target, got {signal}");
+        assert!(
+            signal > 0.6,
+            "should be > 0.6 for reachable 50% HP target, got {signal}"
+        );
     }
 }

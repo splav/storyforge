@@ -8,18 +8,15 @@ use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
 use crate::combat::engine_bridge::{
-    self as engine_bridge,
-    BridgeQueues, CombatStateRes, UnitIdMap, bootstrap_combat_state,
-    apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
-    process_action_system, project_state_to_ecs,
-    reset_engine_mirrors_on_exit_combat, reset_engine_mirrors_on_restart,
+    self as engine_bridge, apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
+    bootstrap_combat_state, process_action_system, project_state_to_ecs,
+    reset_engine_mirrors_on_exit_combat, reset_engine_mirrors_on_restart, BridgeQueues,
+    CombatStateRes, UnitIdMap,
 };
 use crate::ui;
 
 use super::{
-    advance_turn, command_input, enemy_popup,
-    start_combat_system, turn_order,
-    CombatStep,
+    advance_turn, command_input, enemy_popup, start_combat_system, turn_order, CombatStep,
 };
 
 pub struct CombatPipelinePlugin;
@@ -37,8 +34,11 @@ impl Plugin for CombatPipelinePlugin {
         // - RestartCombat reader covers in-combat restart (which doesn't exit
         //   AppState::Combat). Bevy permits independent readers, so this
         //   coexists with restart_combat_system.
-        app.add_systems(OnExit(AppState::Combat), reset_engine_mirrors_on_exit_combat)
-            .add_systems(Update, reset_engine_mirrors_on_restart);
+        app.add_systems(
+            OnExit(AppState::Combat),
+            reset_engine_mirrors_on_exit_combat,
+        )
+        .add_systems(Update, reset_engine_mirrors_on_restart);
 
         app.add_systems(
             Update,

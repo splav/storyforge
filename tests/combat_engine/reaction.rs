@@ -32,7 +32,7 @@ fn state_with(units: Vec<Unit>) -> CombatState {
 fn aoo_triggers_on_disengage() {
     let mover_pos = hex_from_offset(0, 0);
     let enemy_pos = hex_from_offset(1, 0); // adjacent to mover
-    let dest_pos  = hex_from_offset(0, 2); // not adjacent to enemy
+    let dest_pos = hex_from_offset(0, 2); // not adjacent to enemy
 
     let mut mover = make_unit(1, Team::Player, 1);
     mover.pos = mover_pos;
@@ -74,7 +74,10 @@ fn aoo_does_not_fire_when_still_adjacent() {
         .unwrap();
     let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_still_adj, &content);
 
-    assert!(reactions.is_empty(), "no AoO when mover stays adjacent to enemy");
+    assert!(
+        reactions.is_empty(),
+        "no AoO when mover stays adjacent to enemy"
+    );
 }
 
 /// Enemy has reactions_left == 0 → no AoO.
@@ -82,7 +85,7 @@ fn aoo_does_not_fire_when_still_adjacent() {
 fn aoo_does_not_fire_when_no_reactions() {
     let mover_pos = hex_from_offset(0, 0);
     let enemy_pos = hex_from_offset(1, 0);
-    let dest_pos  = hex_from_offset(0, 5); // far away
+    let dest_pos = hex_from_offset(0, 5); // far away
 
     let mut mover = make_unit(1, Team::Player, 1);
     mover.pos = mover_pos;
@@ -93,7 +96,10 @@ fn aoo_does_not_fire_when_no_reactions() {
     let content = StubContent::new();
 
     let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_pos, &content);
-    assert!(reactions.is_empty(), "no AoO when enemy has no reactions left");
+    assert!(
+        reactions.is_empty(),
+        "no AoO when enemy has no reactions left"
+    );
 }
 
 /// Enemy has no weapon → no AoO.
@@ -101,7 +107,7 @@ fn aoo_does_not_fire_when_no_reactions() {
 fn aoo_does_not_fire_when_enemy_has_no_weapon() {
     let mover_pos = hex_from_offset(0, 0);
     let enemy_pos = hex_from_offset(1, 0);
-    let dest_pos  = hex_from_offset(0, 5);
+    let dest_pos = hex_from_offset(0, 5);
 
     let mut mover = make_unit(1, Team::Player, 1);
     mover.pos = mover_pos;
@@ -120,7 +126,7 @@ fn aoo_does_not_fire_when_enemy_has_no_weapon() {
 fn aoo_does_not_fire_from_dead_enemy() {
     let mover_pos = hex_from_offset(0, 0);
     let enemy_pos = hex_from_offset(1, 0);
-    let dest_pos  = hex_from_offset(0, 5);
+    let dest_pos = hex_from_offset(0, 5);
 
     let mut mover = make_unit(1, Team::Player, 1);
     mover.pos = mover_pos;
@@ -143,7 +149,10 @@ fn expand_reaction_emits_decrement_then_damage() {
     use storyforge::combat_engine::effect::Effect;
     use storyforge::combat_engine::CasterContext;
 
-    let reaction = Reaction::OpportunityAttack { from: UnitId(2), victim: UnitId(1) };
+    let reaction = Reaction::OpportunityAttack {
+        from: UnitId(2),
+        victim: UnitId(1),
+    };
     let dice = DiceExpr::new(1, 6, 0);
     let content = StubContent::new();
     let mut rng = ExpectedValue;
@@ -151,7 +160,10 @@ fn expand_reaction_emits_decrement_then_damage() {
     // Attacker (UnitId(2)) needs aoo_dice for expand_reaction's eligibility check.
     let mut attacker = make_unit(2, Team::Enemy, 1);
     attacker.aoo_dice = Some(dice);
-    attacker.caster_context = CasterContext { weapon_dice: Some(dice), ..Default::default() };
+    attacker.caster_context = CasterContext {
+        weapon_dice: Some(dice),
+        ..Default::default()
+    };
     let victim = make_unit(1, Team::Player, 0);
     let state = state_with(vec![attacker, victim]);
 
@@ -172,11 +184,11 @@ fn expand_reaction_emits_decrement_then_damage() {
 /// disengages from an adjacent armed player unit triggers the same AoO.
 #[test]
 fn aoo_triggers_when_enemy_disengages_from_player() {
-    let mover_pos  = hex_from_offset(0, 0);
+    let mover_pos = hex_from_offset(0, 0);
     let attacker_pos = hex_from_offset(1, 0); // adjacent to mover
-    let dest_pos   = hex_from_offset(0, 5);   // not adjacent to attacker
+    let dest_pos = hex_from_offset(0, 5); // not adjacent to attacker
 
-    let mut mover = make_unit(1, Team::Enemy, 4);  // enemy moves
+    let mut mover = make_unit(1, Team::Enemy, 4); // enemy moves
     mover.pos = mover_pos;
     let mut attacker = make_unit(2, Team::Player, 1); // player reacts
     attacker.pos = attacker_pos;
@@ -198,7 +210,10 @@ fn aoo_triggers_when_enemy_disengages_from_player() {
 /// No weapon → expand_reaction returns empty.
 #[test]
 fn expand_reaction_returns_empty_when_no_weapon() {
-    let reaction = Reaction::OpportunityAttack { from: UnitId(2), victim: UnitId(1) };
+    let reaction = Reaction::OpportunityAttack {
+        from: UnitId(2),
+        victim: UnitId(1),
+    };
     let content = StubContent::new();
     let mut rng = ExpectedValue;
 

@@ -63,9 +63,16 @@ pub fn setup_main_menu(
 
             root.spawn((
                 Text::new(format!("Слот: {}", settings.current_slot)),
-                TextFont { font: font.clone(), font_size: 16.0, ..default() },
+                TextFont {
+                    font: font.clone(),
+                    font_size: 16.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.60, 0.60, 0.65)),
-                Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },
+                Node {
+                    margin: UiRect::bottom(Val::Px(8.0)),
+                    ..default()
+                },
             ));
 
             if let Some((id, _)) = &resume_campaign {
@@ -86,7 +93,9 @@ pub fn setup_main_menu(
             }
 
             for id in &db.campaign_order {
-                let Some(camp) = db.campaigns.get(id) else { continue };
+                let Some(camp) = db.campaigns.get(id) else {
+                    continue;
+                };
                 spawn_standard_button(
                     root,
                     font.clone(),
@@ -170,8 +179,12 @@ pub fn continue_button_system(
         let Some(profile) = save_repo::load(&p.0, settings.current_slot) else {
             return;
         };
-        let Some(last_id) = profile.last_campaign else { return };
-        let Some(progress) = profile.campaigns.get(&last_id) else { return };
+        let Some(last_id) = profile.last_campaign else {
+            return;
+        };
+        let Some(progress) = profile.campaigns.get(&last_id) else {
+            return;
+        };
 
         if !validate_and_resume(&mut commands, &db, &mut next_state, &last_id, progress) {
             warn!("continue: stale progress, discarded");
@@ -221,7 +234,13 @@ pub fn start_campaign_fresh(
     };
     commands.insert_resource(campaign_state.clone());
     // Fresh campaign has no flags yet; pass empty set so flag-gated scenes at index 0 skip.
-    enter_scenario(commands, db, next_state, &first_scenario, Some(&campaign_state.flags));
+    enter_scenario(
+        commands,
+        db,
+        next_state,
+        &first_scenario,
+        Some(&campaign_state.flags),
+    );
     if let Some(p) = paths {
         if let Err(e) = save_repo::record_progress(&p.0, slot, &campaign_state, &first_scenario, 0)
         {
@@ -238,16 +257,19 @@ pub fn validate_and_resume(
     campaign_id: &str,
     progress: &CampaignProgress,
 ) -> bool {
-    let Some(camp) = db.campaigns.get(campaign_id) else { return false };
+    let Some(camp) = db.campaigns.get(campaign_id) else {
+        return false;
+    };
     if progress.scenario_index >= camp.scenario_ids.len() {
         return false;
     }
-    let Some(scen) = db.scenarios.get(&progress.scenario_id) else { return false };
+    let Some(scen) = db.scenarios.get(&progress.scenario_id) else {
+        return false;
+    };
     if progress.scene_index >= scen.scenes.len() {
         return false;
     }
-    let flags: std::collections::BTreeSet<String> =
-        progress.flags.iter().cloned().collect();
+    let flags: std::collections::BTreeSet<String> = progress.flags.iter().cloned().collect();
     commands.insert_resource(CampaignState {
         campaign_id: campaign_id.to_string(),
         scenario_index: progress.scenario_index,

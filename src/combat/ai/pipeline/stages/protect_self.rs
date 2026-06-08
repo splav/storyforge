@@ -16,8 +16,8 @@ use crate::combat::ai::pipeline::effects::{
 };
 use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
-use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
+use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
 
 /// Mask non-defensive plans to `-∞` under `ProtectSelf` intent — contract
@@ -130,9 +130,9 @@ impl PlanStage for ProtectSelfMaskStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::plan::types::TurnPlan;
+    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -148,7 +148,10 @@ mod tests {
     #[test]
     fn protect_self_mask_skips_when_intent_not_protect_self() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![TurnPlan::default()];
 
         // ── 2. Harness ──
@@ -167,8 +170,14 @@ mod tests {
         h.run(|ctx| ProtectSelfMaskStage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
-        assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-ProtectSelf intent");
-        assert!(pool.annotations[0].score_trace.masks.is_empty(), "no mask expected for non-ProtectSelf intent");
+        assert_eq!(
+            pool.annotations[0].score, 0.5,
+            "score should be untouched for non-ProtectSelf intent"
+        );
+        assert!(
+            pool.annotations[0].score_trace.masks.is_empty(),
+            "no mask expected for non-ProtectSelf intent"
+        );
     }
 
     // ── mask writes contract annotation ───────────────────────────────────────
@@ -176,7 +185,10 @@ mod tests {
     #[test]
     fn protect_self_mask_writes_contract_when_non_defensive() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         // Two plans: one defensive (self_survival ≥ epsilon=0.01), one not.
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
 
@@ -196,25 +208,45 @@ mod tests {
 
         // ── 5. Assert ──
         // plan 0: defensive → score unchanged, no mask in trace
-        assert!(pool.annotations[0].score.is_finite(), "defensive plan should not be masked");
-        assert!(pool.annotations[0].score_trace.masks.is_empty(), "no mask hit for defensive plan");
+        assert!(
+            pool.annotations[0].score.is_finite(),
+            "defensive plan should not be masked"
+        );
+        assert!(
+            pool.annotations[0].score_trace.masks.is_empty(),
+            "no mask hit for defensive plan"
+        );
 
         // plan 1: non-defensive → masked in trace
-        assert!(!pool.annotations[1].is_selectable(), "non-defensive plan should be masked");
         assert!(
-            pool.annotations[1].score_trace.masks.iter().any(|m| m.source == "protect_self"),
+            !pool.annotations[1].is_selectable(),
+            "non-defensive plan should be masked"
+        );
+        assert!(
+            pool.annotations[1]
+                .score_trace
+                .masks
+                .iter()
+                .any(|m| m.source == "protect_self"),
             "expected protect_self MaskHit in score_trace for non-defensive plan"
         );
         // original_score carried via MaskHit.original_score (TLE-1 enrichment)
-        let mask_hit = pool.annotations[1].score_trace.masks.iter()
-            .find(|m| m.source == "protect_self").unwrap();
+        let mask_hit = pool.annotations[1]
+            .score_trace
+            .masks
+            .iter()
+            .find(|m| m.source == "protect_self")
+            .unwrap();
         assert_eq!(mask_hit.original_score, Some(0.7_f32));
     }
 
     #[test]
     fn protect_self_mask_no_annotation_when_all_defensive() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
 
         // ── 2. Harness ──
@@ -233,7 +265,10 @@ mod tests {
 
         // ── 5. Assert ──
         for ann in &pool.annotations {
-            assert!(ann.score_trace.masks.is_empty(), "no mask hits when all plans are defensive");
+            assert!(
+                ann.score_trace.masks.is_empty(),
+                "no mask hits when all plans are defensive"
+            );
         }
     }
 
@@ -242,7 +277,10 @@ mod tests {
     #[test]
     fn p3a_protect_self_mask_emits_mask_hit() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![TurnPlan::default()];
 
         // ── 2. Harness ──
@@ -262,15 +300,24 @@ mod tests {
         // ── 5. Assert ──
         let trace = &pool.annotations[0].score_trace;
         assert_eq!(trace.masks.len(), 1, "exactly one MaskHit expected");
-        assert_eq!(trace.masks[0].kind, crate::combat::ai::pipeline::score_trace::MaskKind::Poison);
+        assert_eq!(
+            trace.masks[0].kind,
+            crate::combat::ai::pipeline::score_trace::MaskKind::Poison
+        );
         assert_eq!(trace.masks[0].source, "protect_self");
-        assert!(trace.gates.is_empty(), "no GateHit expected for ProtectSelf mask");
+        assert!(
+            trace.gates.is_empty(),
+            "no GateHit expected for ProtectSelf mask"
+        );
     }
 
     #[test]
     fn p3a_protect_self_mask_no_hit_when_defensive() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![TurnPlan::default()];
 
         // ── 2. Harness ──
@@ -289,15 +336,24 @@ mod tests {
 
         // ── 5. Assert ──
         let ann = &pool.annotations[0];
-        assert!(ann.score.is_finite() && (ann.score - 0.5).abs() < 1e-6,
-            "defensive plan score should be unchanged: got {}", ann.score);
-        assert!(ann.score_trace.masks.is_empty(), "no MaskHit expected for defensive plan");
+        assert!(
+            ann.score.is_finite() && (ann.score - 0.5).abs() < 1e-6,
+            "defensive plan score should be unchanged: got {}",
+            ann.score
+        );
+        assert!(
+            ann.score_trace.masks.is_empty(),
+            "no MaskHit expected for defensive plan"
+        );
     }
 
     #[test]
     fn p3a_protect_self_mask_invariant() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![TurnPlan::default()];
 
         // ── 2. Harness ──
@@ -316,9 +372,15 @@ mod tests {
 
         // ── 5. Assert ──
         let ann = &pool.annotations[0];
-        assert!(ann.score_trace.is_masked(), "mask must be recorded in trace");
+        assert!(
+            ann.score_trace.is_masked(),
+            "mask must be recorded in trace"
+        );
         assert!(!ann.is_selectable(), "masked plan must not be selectable");
         // score is finite after Step 3 cutover (compute() ignores masks)
-        assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
+        assert!(
+            ann.score.is_finite(),
+            "score is finite after Step 3 cutover"
+        );
     }
 }

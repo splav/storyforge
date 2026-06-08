@@ -13,8 +13,14 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
-    ActionStarted { action: Action },
-    UnitMoved { actor: UnitId, from: Hex, to: Hex },
+    ActionStarted {
+        action: Action,
+    },
+    UnitMoved {
+        actor: UnitId,
+        from: Hex,
+        to: Hex,
+    },
     UnitDamaged {
         target: UnitId,
         source: crate::state::EffectSource,
@@ -23,13 +29,26 @@ pub enum Event {
         pierces: bool,
         amount: i32,
     },
-    UnitHealed { target: UnitId, amount: i32 },
-    StatusApplied { target: UnitId, status: StatusId },
-    StatusRemoved { target: UnitId, status: StatusId },
+    UnitHealed {
+        target: UnitId,
+        amount: i32,
+    },
+    StatusApplied {
+        target: UnitId,
+        status: StatusId,
+    },
+    StatusRemoved {
+        target: UnitId,
+        status: StatusId,
+    },
     /// One DoT tick was applied to `target` from `status` originally cast by `source`.
     /// Emitted by `effect_to_event(TickDot)` when `dot_per_tick == 0` AND
     /// `hp_percent_dot == 0` (buff-only status tick with no damage component).
-    StatusTicked { target: UnitId, status: StatusId, source: crate::state::EffectSource },
+    StatusTicked {
+        target: UnitId,
+        status: StatusId,
+        source: crate::state::EffectSource,
+    },
     /// Fused event emitted when a DoT tick deals damage.  Replaces the previous
     /// `StatusTicked + UnitDamaged` pair with a single atomic event so consumers
     /// never need to correlate two events.
@@ -55,15 +74,26 @@ pub enum Event {
         source_status: StatusId,
         amount: i32,
     },
-    ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
-    UnitDied { unit: UnitId },
+    ReactionFired {
+        actor: UnitId,
+        kind: ReactionKind,
+        against: UnitId,
+    },
+    UnitDied {
+        unit: UnitId,
+    },
     /// Cast crit-failed.  Fired by `step()`'s `Action::Cast` arm immediately
     /// after the d20 roll lands on 1.  Subsequent aux effects (SelfDamage,
     /// ApplyStatus to caster) emit their own events; this one carries the
     /// *reason* (which `CritFailOutcome` fired) so the bridge can render
     /// the appropriate log line (`CriticalMiss` vs `CritFailSideEffect`).
-    CritFailed { actor: UnitId, outcome: crate::content::CritFailOutcome },
-    ActionFinished { action: Action },
+    CritFailed {
+        actor: UnitId,
+        outcome: crate::content::CritFailOutcome,
+    },
+    ActionFinished {
+        action: Action,
+    },
     UnitSpawned {
         uid: UnitId,
         summoner: UnitId,
@@ -84,24 +114,42 @@ pub enum Event {
     /// Always emitted BEFORE the `Effect::AdvanceTurn` cascade runs, so the
     /// stream reads naturally: outgoing actor's turn ends → queue advances →
     /// skips/round wrap → next actor's turn starts.
-    TurnEnded { actor: UnitId, cause: TurnEndCause },
+    TurnEnded {
+        actor: UnitId,
+        cause: TurnEndCause,
+    },
     /// The next actor's turn began.  Emitted immediately after `TurnEnded` (or
     /// after `RoundStarted` when the round wrapped).
-    TurnStarted { actor: UnitId },
+    TurnStarted {
+        actor: UnitId,
+    },
     /// A unit's turn was skipped (dead or stunned).  Emitted from within the
     /// `Effect::AdvanceTurn` cascade, before `TurnEnded`/`TurnStarted`.
-    TurnSkipped { actor: UnitId, reason: TurnSkipReason },
+    TurnSkipped {
+        actor: UnitId,
+        reason: TurnSkipReason,
+    },
     /// The round counter incremented and per-round resets fired.
-    RoundStarted { round: u32 },
+    RoundStarted {
+        round: u32,
+    },
     /// A unit entered an aura's radius (or the aura source moved into range),
     /// causing `status_id` to become active on `target` from `source`.
     ///
     /// Emitted by `step()` as a diff between before/after `aura_membership_set`
     /// snapshots around `Effect::MovePosition` and `Effect::Death`.
-    AuraStatusGained { target: UnitId, source: UnitId, status_id: StatusId },
+    AuraStatusGained {
+        target: UnitId,
+        source: UnitId,
+        status_id: StatusId,
+    },
     /// A unit left an aura's radius (or the source moved away / died),
     /// causing `status_id` to no longer be active on `target` from `source`.
-    AuraStatusLost { target: UnitId, source: UnitId, status_id: StatusId },
+    AuraStatusLost {
+        target: UnitId,
+        source: UnitId,
+        status_id: StatusId,
+    },
     /// A boss entered a new phase.  Emitted by `apply_effect(EnterPhase)`
     /// after the cascade (SetMaxHp, SetArmor, SetBaseSpeed, Heal,
     /// RefreshAggregates) is derived.
@@ -120,14 +168,19 @@ pub enum Event {
     /// Emitted BEFORE the damage/status events that flow from the trap's
     /// `AbilityDef` fanout, so the event stream reads:
     ///   HazardTriggered → (optional EnvRevealed) → UnitDamaged / StatusApplied …
-    HazardTriggered { env_id: crate::state::EnvId, victim: crate::state::UnitId },
+    HazardTriggered {
+        env_id: crate::state::EnvId,
+        victim: crate::state::UnitId,
+    },
 
     /// An environment object became visible (either by triggering or by
     /// other means).  Emitted alongside `HazardTriggered` when the object
     /// was not yet revealed before the trigger.
     ///
     /// Commit C will use this to render the trap tile in the UI.
-    EnvRevealed { env_id: crate::state::EnvId },
+    EnvRevealed {
+        env_id: crate::state::EnvId,
+    },
 
     /// Unified pool-change event. Fires for every mutation of a unit's
     /// resource pool (regen, refill, spend, gain, max-shift). Sole canonical
@@ -196,17 +249,18 @@ pub fn effect_to_event(
     ctx: &ApplyCtx,
 ) -> Option<Event> {
     match effect {
-        Effect::MovePosition { actor, to } => {
-            Some(Event::UnitMoved {
-                actor: *actor,
-                from: prev_pos.unwrap_or(*to),
-                to: *to,
-            })
-        }
+        Effect::MovePosition { actor, to } => Some(Event::UnitMoved {
+            actor: *actor,
+            from: prev_pos.unwrap_or(*to),
+            to: *to,
+        }),
         Effect::DecrementMP { .. } => None,
         Effect::DecrementAP { .. } => None,
         Effect::Damage { target, source, .. } => {
-            let d = ctx.damage.as_ref().expect("Damage effect must populate ApplyCtx.damage");
+            let d = ctx
+                .damage
+                .as_ref()
+                .expect("Damage effect must populate ApplyCtx.damage");
             Some(Event::UnitDamaged {
                 target: *target,
                 source: *source,
@@ -216,28 +270,22 @@ pub fn effect_to_event(
                 amount: d.final_amount,
             })
         }
-        Effect::Heal { target, .. } => {
-            Some(Event::UnitHealed {
-                target: *target,
-                amount: ctx.heal_amount.unwrap_or(0),
-            })
-        }
+        Effect::Heal { target, .. } => Some(Event::UnitHealed {
+            target: *target,
+            amount: ctx.heal_amount.unwrap_or(0),
+        }),
         Effect::PayCost { .. } => {
             // Pool events are emitted via ctx.pool_events, not effect_to_event.
             None
         }
-        Effect::ApplyStatus { target, status, .. } => {
-            Some(Event::StatusApplied {
-                target: *target,
-                status: status.clone(),
-            })
-        }
-        Effect::RemoveStatus { target, status } => {
-            Some(Event::StatusRemoved {
-                target: *target,
-                status: status.clone(),
-            })
-        }
+        Effect::ApplyStatus { target, status, .. } => Some(Event::StatusApplied {
+            target: *target,
+            status: status.clone(),
+        }),
+        Effect::RemoveStatus { target, status } => Some(Event::StatusRemoved {
+            target: *target,
+            status: status.clone(),
+        }),
         Effect::GainRage { .. } => {
             // Pool events are emitted via ctx.pool_events, not effect_to_event.
             None
@@ -294,7 +342,11 @@ pub fn effect_to_event(
             }
         }
         Effect::ExpireStatus { .. } => None,
-        Effect::Spawn { summoner, template_id, .. } => {
+        Effect::Spawn {
+            summoner,
+            template_id,
+            ..
+        } => {
             if let Some(reason) = ctx.spawn_blocked.clone() {
                 return Some(Event::SpawnBlocked {
                     summoner: *summoner,

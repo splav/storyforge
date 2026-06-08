@@ -29,16 +29,31 @@ use storyforge::game::hex::hex_from_offset;
 struct StubContent;
 
 impl StubContent {
-    fn no_weapon() -> Self { Self }
-    fn with_weapon(_d: DiceExpr) -> Self { Self }
+    fn no_weapon() -> Self {
+        Self
+    }
+    fn with_weapon(_d: DiceExpr) -> Self {
+        Self
+    }
 }
 
 impl ContentView for StubContent {
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &storyforge::combat_engine::StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    fn ability_def(
+        &self,
+        _: &storyforge::combat_engine::AbilityId,
+    ) -> Option<&storyforge::combat_engine::AbilityDef> {
+        None
+    }
+    fn status_def(
+        &self,
+        _: &storyforge::combat_engine::StatusId,
+    ) -> Option<&storyforge::combat_engine::StatusDef> {
+        None
+    }
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+        None
+    }
 }
-
 
 fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
     crate::common::engine_unit::EngineUnitBuilder::new(id)
@@ -60,27 +75,54 @@ fn step_move_no_enemies() {
     let actor = make_unit(1, Team::Player, 0, 0);
     let mut state = state_with(vec![actor]);
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
-    let action = Action::Move { actor: UnitId(1), path: path.clone() };
+    let action = Action::Move {
+        actor: UnitId(1),
+        path: path.clone(),
+    };
 
-    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
-        .expect("move should succeed");
+    let (events, _ctx) = step(
+        &mut state,
+        action,
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .expect("move should succeed");
 
     // Bookend events.
     assert!(matches!(events[0], Event::ActionStarted { .. }));
-    assert!(matches!(events[events.len()-1], Event::ActionFinished { .. }));
+    assert!(matches!(
+        events[events.len() - 1],
+        Event::ActionFinished { .. }
+    ));
 
     // Two UnitMoved events must be present (one per hex step).
-    let moved: Vec<_> = events.iter().filter(|e| matches!(e, Event::UnitMoved { actor, .. } if *actor == UnitId(1))).collect();
-    assert_eq!(moved.len(), 2, "expected 2 UnitMoved events for a 2-step path");
+    let moved: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, Event::UnitMoved { actor, .. } if *actor == UnitId(1)))
+        .collect();
+    assert_eq!(
+        moved.len(),
+        2,
+        "expected 2 UnitMoved events for a 2-step path"
+    );
 
     // C4: DecrementMP now emits PoolChanged{Spent,Mp}.
-    assert!(events.iter().any(|e| matches!(
-        e, Event::PoolChanged { pool: combat_engine::PoolKind::Mp,
-            cause: combat_engine::PoolChangeCause::Spent, .. }
-    )), "PoolChanged{{Spent,Mp}} must fire on Move");
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::PoolChanged {
+                pool: combat_engine::PoolKind::Mp,
+                cause: combat_engine::PoolChangeCause::Spent,
+                ..
+            }
+        )),
+        "PoolChanged{{Spent,Mp}} must fire on Move"
+    );
 
     // MP reduced: 6 - 2 = 4.
-    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+        .map(|(c, _)| c)
+        .unwrap_or(0);
     assert_eq!(mp, 4);
     // Final position.
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(2, 0));
@@ -96,14 +138,24 @@ fn step_returns_out_of_mp_error() {
     let mut state = state_with(vec![actor]);
     // path of 2 but only 1 MP
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
-    let action = Action::Move { actor: UnitId(1), path };
+    let action = Action::Move {
+        actor: UnitId(1),
+        path,
+    };
 
-    let err = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
-        .map(|(ev, _)| ev)
-        .expect_err("should fail with OutOfMP");
+    let err = step(
+        &mut state,
+        action,
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .map(|(ev, _)| ev)
+    .expect_err("should fail with OutOfMP");
     assert_eq!(err, ActionError::OutOfMP);
     // State unchanged (rollback): MP still 1.
-    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+        .map(|(c, _)| c)
+        .unwrap_or(0);
     assert_eq!(mp, 1);
 }
 
@@ -113,11 +165,19 @@ fn step_returns_out_of_mp_error() {
 fn step_returns_unknown_actor_error() {
     let actor = make_unit(1, Team::Player, 0, 0);
     let mut state = state_with(vec![actor]);
-    let action = Action::Move { actor: UnitId(999), path: vec![hex_from_offset(1, 0)] };
+    let action = Action::Move {
+        actor: UnitId(999),
+        path: vec![hex_from_offset(1, 0)],
+    };
 
-    let err = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
-        .map(|(ev, _)| ev)
-        .expect_err("should fail with UnknownActor");
+    let err = step(
+        &mut state,
+        action,
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .map(|(ev, _)| ev)
+    .expect_err("should fail with UnknownActor");
     assert_eq!(err, ActionError::UnknownActor);
 }
 
@@ -136,7 +196,7 @@ fn step_move_with_aoo_chain() {
     mover.pools[combat_engine::PoolKind::Mp] = Some((4, 6));
 
     let mover_start = hex_from_offset(1, 0);
-    let step1 = hex_from_offset(2, 0);   // moves away from enemy
+    let step1 = hex_from_offset(2, 0); // moves away from enemy
     let step2 = hex_from_offset(3, 0);
 
     // Enemy adjacent to mover's start position.
@@ -153,17 +213,25 @@ fn step_move_with_aoo_chain() {
     let path = vec![step1, step2];
     let (events, _ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &content,
-    ).expect("move should succeed");
+    )
+    .expect("move should succeed");
 
     // There should be at least one ReactionFired event.
     let reaction_events: Vec<_> = events
         .iter()
         .filter(|e| matches!(e, Event::ReactionFired { .. }))
         .collect();
-    assert_eq!(reaction_events.len(), 1, "one AoO from the single adjacent enemy");
+    assert_eq!(
+        reaction_events.len(),
+        1,
+        "one AoO from the single adjacent enemy"
+    );
 
     // UnitDamaged must appear after ReactionFired (AoO resolves in place).
     let reaction_idx = events
@@ -174,7 +242,10 @@ fn step_move_with_aoo_chain() {
         .iter()
         .position(|e| matches!(e, Event::UnitDamaged { .. }))
         .unwrap();
-    assert!(damage_idx > reaction_idx, "damage event follows reaction event");
+    assert!(
+        damage_idx > reaction_idx,
+        "damage event follows reaction event"
+    );
 }
 
 // ── step_actor_death_mid_path_truncates_remaining_aoos ────────────────────────
@@ -222,19 +293,17 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     enemy_b.reactions_left = 1;
     enemy_b.aoo_dice = Some(aoo);
 
-    let mut state = CombatState::new(
-        vec![mover, enemy_a, enemy_b],
-        1,
-        RoundPhase::ActorTurn,
-        0,
-    );
+    let mut state = CombatState::new(vec![mover, enemy_a, enemy_b], 1, RoundPhase::ActorTurn, 0);
 
     // 5 raw damage, no armor — kills the 1-hp mover on the first AoO.
     let content = StubContent::with_weapon(aoo);
 
     let result = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path: vec![step1, step2] },
+        Action::Move {
+            actor: UnitId(1),
+            path: vec![step1, step2],
+        },
         &mut ExpectedValue,
         &content,
     );
@@ -245,18 +314,30 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     // Mover must be dead at step1.
     let mover_after = state.unit(UnitId(1)).unwrap();
     assert_eq!(mover_after.hp(), 0, "mover should be dead after lethal AoO");
-    assert_eq!(mover_after.pos, step1, "mover should be at step1 (hit position)");
+    assert_eq!(
+        mover_after.pos, step1,
+        "mover should be at step1 (hit position)"
+    );
 
     // Exactly one ReactionFired.
-    let reaction_count = events.iter().filter(|e| matches!(e, Event::ReactionFired { .. })).count();
+    let reaction_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::ReactionFired { .. }))
+        .count();
     assert_eq!(reaction_count, 1, "only the first AoO should have fired");
 
     // Exactly one UnitDamaged.
-    let damage_count = events.iter().filter(|e| matches!(e, Event::UnitDamaged { .. })).count();
+    let damage_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::UnitDamaged { .. }))
+        .count();
     assert_eq!(damage_count, 1, "only one damage event expected");
 
     // One UnitDied for the mover.
-    let died_count = events.iter().filter(|e| matches!(e, Event::UnitDied { unit } if *unit == UnitId(1))).count();
+    let died_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::UnitDied { unit } if *unit == UnitId(1)))
+        .count();
     assert_eq!(died_count, 1, "exactly one UnitDied for the mover");
 
     // Determine which enemy fired and which did not; the non-firer still has
@@ -265,7 +346,8 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     let eb_reactions = state.unit(UnitId(3)).unwrap().reactions_left;
     // One used its reaction, the other did not.
     assert_eq!(
-        ea_reactions + eb_reactions, 1,
+        ea_reactions + eb_reactions,
+        1,
         "combined reactions_left across both enemies should be 1 (one fired, one did not)"
     );
 }
@@ -276,19 +358,27 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
 #[test]
 fn step_move_through_ally_succeeds() {
     let actor = make_unit(1, Team::Player, 0, 0);
-    let ally  = make_unit(2, Team::Player, 1, 0);
+    let ally = make_unit(2, Team::Player, 1, 0);
     let mut state = state_with(vec![actor, ally]);
 
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
     let result = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &StubContent::no_weapon(),
     );
     assert!(result.is_ok(), "passing through ally should succeed");
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(2, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 4);
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        4
+    );
 }
 
 /// Moving through an enemy hex is forbidden; state rolls back.
@@ -301,15 +391,28 @@ fn step_move_through_enemy_returns_path_blocked() {
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
     let err = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &StubContent::no_weapon(),
     )
     .expect_err("should fail with PathBlockedByEnemy");
 
-    assert_eq!(err, ActionError::PathBlockedByEnemy { hex: hex_from_offset(1, 0) });
+    assert_eq!(
+        err,
+        ActionError::PathBlockedByEnemy {
+            hex: hex_from_offset(1, 0)
+        }
+    );
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 6);
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        6
+    );
 }
 
 /// Destination occupied by a friendly unit is forbidden.
@@ -322,15 +425,28 @@ fn step_move_to_occupied_destination_friend() {
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
     let err = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &StubContent::no_weapon(),
     )
     .expect_err("should fail with DestinationOccupied");
 
-    assert_eq!(err, ActionError::DestinationOccupied { hex: hex_from_offset(2, 0) });
+    assert_eq!(
+        err,
+        ActionError::DestinationOccupied {
+            hex: hex_from_offset(2, 0)
+        }
+    );
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 6);
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        6
+    );
 }
 
 /// Destination occupied by an enemy unit is also forbidden.
@@ -343,15 +459,28 @@ fn step_move_to_occupied_destination_enemy() {
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
     let err = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &StubContent::no_weapon(),
     )
     .expect_err("should fail with DestinationOccupied");
 
-    assert_eq!(err, ActionError::DestinationOccupied { hex: hex_from_offset(2, 0) });
+    assert_eq!(
+        err,
+        ActionError::DestinationOccupied {
+            hex: hex_from_offset(2, 0)
+        }
+    );
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 6);
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        6
+    );
 }
 
 // ── step_two_flankers_only_first_fires_when_lethal ────────────────────────────
@@ -404,42 +533,64 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     enemy_b.aoo_dice = Some(aoo);
 
     // Verify both enemies disengage at the step to dest.
-    assert_eq!(start.unsigned_distance_to(enemy_a_pos), 1, "enemy A adjacent to start");
-    assert_ne!(dest.unsigned_distance_to(enemy_a_pos), 1, "enemy A not adjacent to dest");
-    assert_eq!(start.unsigned_distance_to(enemy_b_pos), 1, "enemy B adjacent to start");
-    assert_ne!(dest.unsigned_distance_to(enemy_b_pos), 1, "enemy B not adjacent to dest");
-
-    let mut state = CombatState::new(
-        vec![mover, enemy_a, enemy_b],
+    assert_eq!(
+        start.unsigned_distance_to(enemy_a_pos),
         1,
-        RoundPhase::ActorTurn,
-        0,
+        "enemy A adjacent to start"
     );
+    assert_ne!(
+        dest.unsigned_distance_to(enemy_a_pos),
+        1,
+        "enemy A not adjacent to dest"
+    );
+    assert_eq!(
+        start.unsigned_distance_to(enemy_b_pos),
+        1,
+        "enemy B adjacent to start"
+    );
+    assert_ne!(
+        dest.unsigned_distance_to(enemy_b_pos),
+        1,
+        "enemy B not adjacent to dest"
+    );
+
+    let mut state = CombatState::new(vec![mover, enemy_a, enemy_b], 1, RoundPhase::ActorTurn, 0);
 
     // Fixed +5 damage — kills the 1-hp mover on the first AoO.
     let content = StubContent::with_weapon(aoo);
 
     let (events, _ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path: vec![dest] },
+        Action::Move {
+            actor: UnitId(1),
+            path: vec![dest],
+        },
         &mut ExpectedValue,
         &content,
-    ).expect("truncation scenario must not return Err");
+    )
+    .expect("truncation scenario must not return Err");
 
     // Exactly one ReactionFired (first AoO only).
-    let reaction_count = events.iter().filter(|e| matches!(e, Event::ReactionFired { .. })).count();
+    let reaction_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::ReactionFired { .. }))
+        .count();
     assert_eq!(reaction_count, 1, "only the first AoO should fire");
 
     // Mover dead at destination.
     let mover_after = state.unit(UnitId(1)).unwrap();
     assert_eq!(mover_after.hp(), 0, "mover should be dead");
-    assert_eq!(mover_after.pos, dest, "mover at destination (MovePosition applied before AoO)");
+    assert_eq!(
+        mover_after.pos, dest,
+        "mover at destination (MovePosition applied before AoO)"
+    );
 
     // Second enemy's reaction is untouched.
     let ea_reactions = state.unit(UnitId(2)).unwrap().reactions_left;
     let eb_reactions = state.unit(UnitId(3)).unwrap().reactions_left;
     assert_eq!(
-        ea_reactions + eb_reactions, 1,
+        ea_reactions + eb_reactions,
+        1,
         "one enemy fired (reactions_left=0), other did not (reactions_left=1)"
     );
 }
@@ -460,11 +611,16 @@ fn deep_reaction_chain_all_resolve() {
     mover.pos = start;
     mover.pools[combat_engine::PoolKind::Mp] = Some((20, 20));
 
-    let neighbors: Vec<_> = start.all_neighbors().into_iter().enumerate().map(|(i, nb)| {
-        let mut e = make_unit(100 + i as u64, Team::Enemy, 0, 0);
-        e.pos = nb;
-        e
-    }).collect();
+    let neighbors: Vec<_> = start
+        .all_neighbors()
+        .into_iter()
+        .enumerate()
+        .map(|(i, nb)| {
+            let mut e = make_unit(100 + i as u64, Team::Enemy, 0, 0);
+            e.pos = nb;
+            e
+        })
+        .collect();
 
     let mut all_units = vec![mover];
     all_units.extend(neighbors);
@@ -475,11 +631,17 @@ fn deep_reaction_chain_all_resolve() {
     // 6 reactions from one step — under 100, should succeed (mover survives 6 × 1 = 6 damage, hp=14).
     let result = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &content,
     );
-    assert!(result.is_ok(), "6 simultaneous AoOs should not exceed the 100-reaction depth cap");
+    assert!(
+        result.is_ok(),
+        "6 simultaneous AoOs should not exceed the 100-reaction depth cap"
+    );
 }
 
 // ── Action::EndTurn ───────────────────────────────────────────────────────────
@@ -504,8 +666,17 @@ fn endturn_emits_turn_events_for_mid_round_handoff() {
     // ActionStarted, TurnEnded{1}, TurnStarted{2}, ActionFinished
     assert_eq!(events.len(), 4, "expected 4 events, got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(matches!(&events[1], Event::TurnEnded { actor: UnitId(1), .. }));
-    assert!(matches!(&events[2], Event::TurnStarted { actor: UnitId(2) }));
+    assert!(matches!(
+        &events[1],
+        Event::TurnEnded {
+            actor: UnitId(1),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &events[2],
+        Event::TurnStarted { actor: UnitId(2) }
+    ));
     assert!(matches!(&events[3], Event::ActionFinished { .. }));
     assert_eq!(state.turn_queue.index, 1);
 }
@@ -568,8 +739,8 @@ fn endturn_rejects_when_actor_not_current() {
 #[test]
 fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     let enemy_b_start = hex_from_offset(0, 0); // enemyB starts adjacent to heroA
-    let hero_a_pos    = hex_from_offset(1, 0); // heroA: adjacent to enemyB
-    let enemy_b_dest  = hex_from_offset(0, 2); // dest not adjacent to heroA → AoO fires
+    let hero_a_pos = hex_from_offset(1, 0); // heroA: adjacent to enemyB
+    let enemy_b_dest = hex_from_offset(0, 2); // dest not adjacent to heroA → AoO fires
 
     // heroA — Player, AoO attacker with a fixed 5-raw-damage die (no randomness).
     let mut hero_a = make_unit(1, Team::Player, 1, 0);
@@ -590,7 +761,10 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     // EnemyB moves away from heroA — leaves adjacency → AoO fires → lethal.
     let (events, _ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(2), path: vec![enemy_b_dest] },
+        Action::Move {
+            actor: UnitId(2),
+            path: vec![enemy_b_dest],
+        },
         &mut ExpectedValue,
         &StubContent::with_weapon(DiceExpr::new(0, 6, 5)),
     )
@@ -599,7 +773,11 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     // ── State assertions ──────────────────────────────────────────────────────
 
     // EnemyB must be dead.
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 0, "enemyB must be dead after lethal AoO");
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        0,
+        "enemyB must be dead after lethal AoO"
+    );
 
     // Queue must have advanced past the dead actor and settled on heroA.
     assert_eq!(
@@ -610,17 +788,41 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
 
     // ── Event sequence assertions ─────────────────────────────────────────────
 
-    let died    = events.iter().position(|e| matches!(e, Event::UnitDied    { unit:  UnitId(2) }));
-    let ended   = events.iter().position(|e| matches!(e, Event::TurnEnded   { actor: UnitId(2), .. }));
-    let started = events.iter().position(|e| matches!(e, Event::TurnStarted { actor: UnitId(1) }));
+    let died = events
+        .iter()
+        .position(|e| matches!(e, Event::UnitDied { unit: UnitId(2) }));
+    let ended = events.iter().position(|e| {
+        matches!(
+            e,
+            Event::TurnEnded {
+                actor: UnitId(2),
+                ..
+            }
+        )
+    });
+    let started = events
+        .iter()
+        .position(|e| matches!(e, Event::TurnStarted { actor: UnitId(1) }));
 
-    assert!(died.is_some(),    "UnitDied{{2}} must be in the event stream");
-    assert!(ended.is_some(),   "TurnEnded{{2}} must be in the event stream (B5 engine fix)");
-    assert!(started.is_some(), "TurnStarted{{1}} must be in the event stream (B5 engine fix)");
+    assert!(died.is_some(), "UnitDied{{2}} must be in the event stream");
+    assert!(
+        ended.is_some(),
+        "TurnEnded{{2}} must be in the event stream (B5 engine fix)"
+    );
+    assert!(
+        started.is_some(),
+        "TurnStarted{{1}} must be in the event stream (B5 engine fix)"
+    );
 
     // Ordering: died → ended → started.
-    assert!(died.unwrap()  < ended.unwrap(),   "UnitDied must precede TurnEnded");
-    assert!(ended.unwrap() < started.unwrap(), "TurnEnded must precede TurnStarted");
+    assert!(
+        died.unwrap() < ended.unwrap(),
+        "UnitDied must precede TurnEnded"
+    );
+    assert!(
+        ended.unwrap() < started.unwrap(),
+        "TurnEnded must precede TurnStarted"
+    );
 }
 
 // ── Wave-1 tests: per-step MP, interrupt flag, halt semantics ────────────────
@@ -637,18 +839,26 @@ fn per_step_mp_exact() {
     let path: Vec<_> = (1..=(n as i32)).map(|c| hex_from_offset(c, 0)).collect();
     let (events, ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut ExpectedValue,
         &StubContent::no_weapon(),
     )
     .expect("clean move must succeed");
 
     // N UnitMoved events (one per step).
-    let moved_count = events.iter().filter(|e| matches!(e, Event::UnitMoved { actor, .. } if *actor == UnitId(1))).count();
+    let moved_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::UnitMoved { actor, .. } if *actor == UnitId(1)))
+        .count();
     assert_eq!(moved_count, n, "expected {n} UnitMoved events");
 
     // MP decremented by exactly N (6 - 3 = 3).
-    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+        .map(|(c, _)| c)
+        .unwrap_or(0);
     assert_eq!(mp, 6 - n as i32, "MP decremented by exactly {n}");
 
     // Not interrupted.
@@ -663,16 +873,24 @@ fn per_step_mp_exact() {
 /// complete fully with `ctx.interrupted == false`.
 #[test]
 fn aoo_leaving_two_enemies_both_fire_then_halt() {
-    let start  = hex_from_offset(0, 0);
-    let step1  = hex_from_offset(5, 5); // far away — leaves BOTH enemies' reach
-    let step2  = hex_from_offset(6, 5); // second step (never reached)
+    let start = hex_from_offset(0, 0);
+    let step1 = hex_from_offset(5, 5); // far away — leaves BOTH enemies' reach
+    let step2 = hex_from_offset(6, 5); // second step (never reached)
 
     // Both enemies adjacent to start, not adjacent to step1.
     let neighbors = start.all_neighbors();
     let enemy_a_pos = neighbors[0];
     let enemy_b_pos = neighbors[1];
-    assert_ne!(step1.unsigned_distance_to(enemy_a_pos), 1, "step1 not adjacent to A");
-    assert_ne!(step1.unsigned_distance_to(enemy_b_pos), 1, "step1 not adjacent to B");
+    assert_ne!(
+        step1.unsigned_distance_to(enemy_a_pos),
+        1,
+        "step1 not adjacent to A"
+    );
+    assert_ne!(
+        step1.unsigned_distance_to(enemy_b_pos),
+        1,
+        "step1 not adjacent to B"
+    );
 
     let aoo_dice = DiceExpr::new(0, 6, 2); // 2 raw, non-lethal on 20hp
 
@@ -690,32 +908,42 @@ fn aoo_leaving_two_enemies_both_fire_then_halt() {
     enemy_b.reactions_left = 1;
     enemy_b.aoo_dice = Some(aoo_dice);
 
-    let mut state = CombatState::new(
-        vec![mover, enemy_a, enemy_b],
-        1,
-        RoundPhase::ActorTurn,
-        0,
-    );
+    let mut state = CombatState::new(vec![mover, enemy_a, enemy_b], 1, RoundPhase::ActorTurn, 0);
     let content = StubContent::with_weapon(aoo_dice);
 
     // First move: 2-hex path, AoO on step1 → halt, step2 never runs.
     let (events, ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path: vec![step1, step2] },
+        Action::Move {
+            actor: UnitId(1),
+            path: vec![step1, step2],
+        },
         &mut ExpectedValue,
         &content,
     )
     .expect("move with two AoOs must succeed");
 
     // Both enemies fired.
-    let reactions = events.iter().filter(|e| matches!(e, Event::ReactionFired { .. })).count();
-    assert_eq!(reactions, 2, "both enemies should fire in the same leaving-step");
+    let reactions = events
+        .iter()
+        .filter(|e| matches!(e, Event::ReactionFired { .. }))
+        .count();
+    assert_eq!(
+        reactions, 2,
+        "both enemies should fire in the same leaving-step"
+    );
 
     // Mover stopped at step1 (step2 truncated).
-    assert_eq!(state.unit(UnitId(1)).unwrap().pos, step1, "mover halted at step1");
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pos,
+        step1,
+        "mover halted at step1"
+    );
 
     // Only 1 MP spent (step2 was truncated: DecrementMP for step2 skipped).
-    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp]
+        .map(|(c, _)| c)
+        .unwrap_or(0);
     assert_eq!(mp, 9, "only 1 MP consumed (step1 only)");
 
     // Interrupted.
@@ -725,14 +953,24 @@ fn aoo_leaving_two_enemies_both_fire_then_halt() {
     let step3 = hex_from_offset(6, 5);
     let (_, ctx2) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path: vec![step3] },
+        Action::Move {
+            actor: UnitId(1),
+            path: vec![step3],
+        },
         &mut ExpectedValue,
         &content,
     )
     .expect("clean follow-up move must succeed");
 
-    assert!(!ctx2.interrupted, "clean follow-up move must not be interrupted");
-    assert_eq!(state.unit(UnitId(1)).unwrap().pos, step3, "mover reached step3");
+    assert!(
+        !ctx2.interrupted,
+        "clean follow-up move must not be interrupted"
+    );
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pos,
+        step3,
+        "mover reached step3"
+    );
 }
 
 // Note: trap_on_arrival_triggers_and_halts is in tests/combat_engine/trap.rs
@@ -743,10 +981,14 @@ fn aoo_leaving_two_enemies_both_fire_then_halt() {
 #[test]
 fn single_hex_move_into_aoo_completes() {
     let start = hex_from_offset(0, 0);
-    let dest  = hex_from_offset(3, 3); // far from enemy, but start IS adjacent to enemy
+    let dest = hex_from_offset(3, 3); // far from enemy, but start IS adjacent to enemy
 
     let enemy_pos = start.all_neighbors()[0];
-    assert_ne!(dest.unsigned_distance_to(enemy_pos), 1, "dest not adjacent to enemy");
+    assert_ne!(
+        dest.unsigned_distance_to(enemy_pos),
+        1,
+        "dest not adjacent to enemy"
+    );
 
     let aoo_dice = DiceExpr::new(0, 6, 2); // non-lethal
 
@@ -759,27 +1001,37 @@ fn single_hex_move_into_aoo_completes() {
     enemy.reactions_left = 1;
     enemy.aoo_dice = Some(aoo_dice);
 
-    let mut state = CombatState::new(
-        vec![mover, enemy],
-        1,
-        RoundPhase::ActorTurn,
-        0,
-    );
+    let mut state = CombatState::new(vec![mover, enemy], 1, RoundPhase::ActorTurn, 0);
 
     let (events, ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path: vec![dest] },
+        Action::Move {
+            actor: UnitId(1),
+            path: vec![dest],
+        },
         &mut ExpectedValue,
         &StubContent::with_weapon(aoo_dice),
     )
     .expect("1-hex move with AoO must succeed");
 
     // AoO fired.
-    assert!(events.iter().any(|e| matches!(e, Event::ReactionFired { .. })), "AoO must fire");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ReactionFired { .. })),
+        "AoO must fire"
+    );
 
     // Mover reached destination (1-hex path completed; halt only prevents REMAINING steps).
-    assert_eq!(state.unit(UnitId(1)).unwrap().pos, dest, "mover must reach dest (1-hex path)");
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pos,
+        dest,
+        "mover must reach dest (1-hex path)"
+    );
 
     // Interrupted even though no more steps existed.
-    assert!(ctx.interrupted, "AoO on single-hex move sets ctx.interrupted");
+    assert!(
+        ctx.interrupted,
+        "AoO on single-hex move sets ctx.interrupted"
+    );
 }

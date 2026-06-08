@@ -17,11 +17,11 @@ pub(super) fn compute_conserve_resource(ctx: &AppraisalCtx<'_>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
+    use crate::combat::ai::appraisal::tests::{default_memory, make_ctx, snap};
     use crate::combat::ai::config::tuning::AiTuning;
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::combat::ai::appraisal::tests::{default_memory, snap, make_ctx};
 
     #[test]
     fn conserve_resource_high_at_low_mana() {
@@ -67,6 +67,9 @@ mod tests {
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         let signal = compute_conserve_resource(&ctx);
-        assert!(signal < 0.1, "expected near 0 when no mana bar, got {signal}");
+        assert!(
+            signal < 0.1,
+            "expected near 0 when no mana bar, got {signal}"
+        );
     }
 }

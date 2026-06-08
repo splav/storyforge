@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use super::tuning::AiTuning;
+use bevy::prelude::*;
 
 /// Difficulty profile for enemy AI. Each field represents a "quality of decisions"
 /// knob rather than a stat multiplier — behaviour scales by changing how well the
@@ -148,7 +148,10 @@ impl DifficultyProfile {
     /// Minimum `pos_eval` improvement to keep a Reposition candidate.
     /// Used both by Reposition intent_score and compute_retreat.
     pub fn reposition_min_improvement(&self, tuning: &AiTuning) -> f32 {
-        tuning.difficulty.reposition_min_improvement_curve.eval(self.survival_instinct)
+        tuning
+            .difficulty
+            .reposition_min_improvement_curve
+            .eval(self.survival_instinct)
     }
 
     /// Margin in is_defensive: a tile is "safer" if danger(tile) + margin < current.
@@ -159,13 +162,19 @@ impl DifficultyProfile {
     /// HP% threshold for the hard-override "panic" gate in intent.rs.
     /// Low instinct → panics earlier (higher threshold).
     pub fn survival_hp_threshold(&self, tuning: &AiTuning) -> f32 {
-        tuning.difficulty.survival_hp_curve.eval(self.survival_instinct)
+        tuning
+            .difficulty
+            .survival_hp_curve
+            .eval(self.survival_instinct)
     }
 
     /// Danger threshold paired with the panic gate.
     /// Low awareness → needs more obvious danger to trigger.
     pub fn awareness_danger_threshold(&self, tuning: &AiTuning) -> f32 {
-        tuning.difficulty.awareness_danger_curve.eval(self.awareness)
+        tuning
+            .difficulty
+            .awareness_danger_curve
+            .eval(self.awareness)
     }
 
     /// `pos_eval` threshold below which Reposition is considered.
@@ -222,7 +231,7 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{DifficultyProfile, AiTuning};
+    use super::{AiTuning, DifficultyProfile};
 
     #[test]
     fn noise_is_only_on_easy() {
@@ -248,23 +257,59 @@ mod tests {
 
         // reposition_min_improvement: lerp(0.30, 0.12, survival_instinct)
         // easy=0.40 → 0.228, normal=0.55 → 0.201, hard=0.80 → 0.156, epic=1.00 → 0.12
-        assert_eq!(DifficultyProfile::easy().reposition_min_improvement(&t),   0.30_f32 + (0.12 - 0.30) * 0.40);
-        assert_eq!(DifficultyProfile::normal().reposition_min_improvement(&t), 0.30_f32 + (0.12 - 0.30) * 0.55);
-        assert_eq!(DifficultyProfile::hard().reposition_min_improvement(&t),   0.30_f32 + (0.12 - 0.30) * 0.80);
-        assert_eq!(DifficultyProfile::epic().reposition_min_improvement(&t),   0.30_f32 + (0.12 - 0.30) * 1.00);
+        assert_eq!(
+            DifficultyProfile::easy().reposition_min_improvement(&t),
+            0.30_f32 + (0.12 - 0.30) * 0.40
+        );
+        assert_eq!(
+            DifficultyProfile::normal().reposition_min_improvement(&t),
+            0.30_f32 + (0.12 - 0.30) * 0.55
+        );
+        assert_eq!(
+            DifficultyProfile::hard().reposition_min_improvement(&t),
+            0.30_f32 + (0.12 - 0.30) * 0.80
+        );
+        assert_eq!(
+            DifficultyProfile::epic().reposition_min_improvement(&t),
+            0.30_f32 + (0.12 - 0.30) * 1.00
+        );
 
         // survival_hp_threshold: lerp(0.35, 0.20, survival_instinct)
         // easy=0.40 → 0.29, normal=0.55 → 0.2675, hard=0.80 → 0.23, epic=1.00 → 0.20
-        assert_eq!(DifficultyProfile::easy().survival_hp_threshold(&t),   0.35_f32 + (0.20 - 0.35) * 0.40);
-        assert_eq!(DifficultyProfile::normal().survival_hp_threshold(&t), 0.35_f32 + (0.20 - 0.35) * 0.55);
-        assert_eq!(DifficultyProfile::hard().survival_hp_threshold(&t),   0.35_f32 + (0.20 - 0.35) * 0.80);
-        assert_eq!(DifficultyProfile::epic().survival_hp_threshold(&t),   0.35_f32 + (0.20 - 0.35) * 1.00);
+        assert_eq!(
+            DifficultyProfile::easy().survival_hp_threshold(&t),
+            0.35_f32 + (0.20 - 0.35) * 0.40
+        );
+        assert_eq!(
+            DifficultyProfile::normal().survival_hp_threshold(&t),
+            0.35_f32 + (0.20 - 0.35) * 0.55
+        );
+        assert_eq!(
+            DifficultyProfile::hard().survival_hp_threshold(&t),
+            0.35_f32 + (0.20 - 0.35) * 0.80
+        );
+        assert_eq!(
+            DifficultyProfile::epic().survival_hp_threshold(&t),
+            0.35_f32 + (0.20 - 0.35) * 1.00
+        );
 
         // awareness_danger_threshold: lerp(0.90, 0.60, awareness)
         // easy=0.35 → 0.795, normal=0.55 → 0.735, hard=0.80 → 0.66, epic=1.00 → 0.60
-        assert_eq!(DifficultyProfile::easy().awareness_danger_threshold(&t),   0.90_f32 + (0.60 - 0.90) * 0.35);
-        assert_eq!(DifficultyProfile::normal().awareness_danger_threshold(&t), 0.90_f32 + (0.60 - 0.90) * 0.55);
-        assert_eq!(DifficultyProfile::hard().awareness_danger_threshold(&t),   0.90_f32 + (0.60 - 0.90) * 0.80);
-        assert_eq!(DifficultyProfile::epic().awareness_danger_threshold(&t),   0.90_f32 + (0.60 - 0.90) * 1.00);
+        assert_eq!(
+            DifficultyProfile::easy().awareness_danger_threshold(&t),
+            0.90_f32 + (0.60 - 0.90) * 0.35
+        );
+        assert_eq!(
+            DifficultyProfile::normal().awareness_danger_threshold(&t),
+            0.90_f32 + (0.60 - 0.90) * 0.55
+        );
+        assert_eq!(
+            DifficultyProfile::hard().awareness_danger_threshold(&t),
+            0.90_f32 + (0.60 - 0.90) * 0.80
+        );
+        assert_eq!(
+            DifficultyProfile::epic().awareness_danger_threshold(&t),
+            0.90_f32 + (0.60 - 0.90) * 1.00
+        );
     }
 }

@@ -67,14 +67,22 @@ mod tests {
 
         let prev = queue.index;
         queue.advance();
-        if queue.wrapped_after(prev) { wrapped = true; }
+        if queue.wrapped_after(prev) {
+            wrapped = true;
+        }
 
         loop {
-            if is_alive(queue.index) { break; }
+            if is_alive(queue.index) {
+                break;
+            }
             let prev = queue.index;
             queue.advance();
-            if queue.wrapped_after(prev) { wrapped = true; }
-            if queue.index == start_idx { break; }
+            if queue.wrapped_after(prev) {
+                wrapped = true;
+            }
+            if queue.index == start_idx {
+                break;
+            }
         }
 
         (wrapped, queue.index)

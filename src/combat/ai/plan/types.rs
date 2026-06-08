@@ -3,9 +3,9 @@
 
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
-use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
+use combat_engine::AbilityId;
 use std::hash::{Hash, Hasher};
 
 /// One atomic action inside a turn plan.
@@ -152,21 +152,25 @@ impl TurnPlan {
     pub fn committed_prefix(&self) -> CommittedPrefix<'_> {
         match self.steps.as_slice() {
             [] => CommittedPrefix::EndTurn,
-            [PlanStep::Cast { ability, target, target_pos }, ..] => {
-                CommittedPrefix::Cast {
-                    ability,
-                    target: *target,
-                    target_pos: *target_pos,
-                }
-            }
-            [PlanStep::Move { path }, PlanStep::Cast { ability, target, target_pos }, ..] => {
-                CommittedPrefix::MoveThenCast {
-                    path,
-                    ability,
-                    target: *target,
-                    target_pos: *target_pos,
-                }
-            }
+            [PlanStep::Cast {
+                ability,
+                target,
+                target_pos,
+            }, ..] => CommittedPrefix::Cast {
+                ability,
+                target: *target,
+                target_pos: *target_pos,
+            },
+            [PlanStep::Move { path }, PlanStep::Cast {
+                ability,
+                target,
+                target_pos,
+            }, ..] => CommittedPrefix::MoveThenCast {
+                path,
+                ability,
+                target: *target,
+                target_pos: *target_pos,
+            },
             [PlanStep::Move { path }, ..] => CommittedPrefix::MoveOnly { path },
         }
     }
@@ -220,7 +224,11 @@ impl TurnPlan {
                     0u8.hash(hasher);
                     path.last().copied().unwrap_or(caster_pos).hash(hasher);
                 }
-                PlanStep::Cast { ability, target, target_pos } => {
+                PlanStep::Cast {
+                    ability,
+                    target,
+                    target_pos,
+                } => {
                     1u8.hash(hasher);
                     ability.hash(hasher);
                     target.hash(hasher);
@@ -246,15 +254,25 @@ mod prefix_tests {
         }
     }
     fn mov() -> PlanStep {
-        PlanStep::Move { path: vec![hex_from_offset(1, 0)] }
+        PlanStep::Move {
+            path: vec![hex_from_offset(1, 0)],
+        }
     }
     fn plan(steps: Vec<PlanStep>) -> TurnPlan {
-        TurnPlan { steps, ..Default::default() }
+        TurnPlan {
+            steps,
+            ..Default::default()
+        }
     }
 
     /// Classify a prefix by its discriminant — used only for assertion.
     #[derive(Debug, PartialEq, Eq)]
-    enum Kind { EndTurn, Cast, MoveThenCast, MoveOnly }
+    enum Kind {
+        EndTurn,
+        Cast,
+        MoveThenCast,
+        MoveOnly,
+    }
     impl From<&CommittedPrefix<'_>> for Kind {
         fn from(p: &CommittedPrefix<'_>) -> Kind {
             match p {
@@ -270,12 +288,22 @@ mod prefix_tests {
     fn committed_prefix_matches_plan_shape() {
         // (name, steps, expected variant, expected step count)
         let cases: Vec<(&str, Vec<PlanStep>, Kind, usize)> = vec![
-            ("empty",              vec![],                          Kind::EndTurn,      0),
-            ("solo cast",          vec![cast()],                    Kind::Cast,         1),
-            ("solo move",          vec![mov()],                     Kind::MoveOnly,     1),
-            ("move+cast bundle",   vec![mov(), cast()],             Kind::MoveThenCast, 2),
-            ("move+move no bundle",vec![mov(), mov()],              Kind::MoveOnly,     1),
-            ("cast+..tail ignored",vec![cast(), mov(), cast()],     Kind::Cast,         1),
+            ("empty", vec![], Kind::EndTurn, 0),
+            ("solo cast", vec![cast()], Kind::Cast, 1),
+            ("solo move", vec![mov()], Kind::MoveOnly, 1),
+            (
+                "move+cast bundle",
+                vec![mov(), cast()],
+                Kind::MoveThenCast,
+                2,
+            ),
+            ("move+move no bundle", vec![mov(), mov()], Kind::MoveOnly, 1),
+            (
+                "cast+..tail ignored",
+                vec![cast(), mov(), cast()],
+                Kind::Cast,
+                1,
+            ),
         ];
         for (name, steps, want_kind, want_count) in cases {
             let p = plan(steps);

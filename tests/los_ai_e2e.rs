@@ -12,10 +12,10 @@
 
 use std::collections::HashSet;
 
-use storyforge::combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
-use storyforge::combat_engine::AbilityId;
 use storyforge::combat::ai::action_state::SnapshotActionState;
 use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
+use storyforge::combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
+use storyforge::combat_engine::AbilityId;
 use storyforge::content::content_view::ContentView;
 use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
@@ -64,7 +64,10 @@ fn ai_archer_skips_target_behind_obstacle() {
     // Place obstacle on the direct line between archer and target.
     snap.state.blocked_hexes = obstacle_set(2, 0);
 
-    let state = SnapshotActionState { content: &content, snap: &snap };
+    let state = SnapshotActionState {
+        content: &content,
+        snap: &snap,
+    };
     let bow_id = AbilityId::from("bow_shot");
 
     let result = check_legality(
@@ -107,7 +110,10 @@ fn ai_archer_picks_alternative_target_without_los_constraint() {
     // Obstacle at (2,0) is NOT on the line to target at (4,2).
     snap.state.blocked_hexes = obstacle_set(2, 0);
 
-    let state = SnapshotActionState { content: &content, snap: &snap };
+    let state = SnapshotActionState {
+        content: &content,
+        snap: &snap,
+    };
     let bow_id = AbilityId::from("bow_shot");
 
     let result = check_legality(
@@ -149,7 +155,10 @@ fn player_target_selection_excludes_obstructed_enemies() {
     // Same obstacle blocking straight-line LOS.
     snap.state.blocked_hexes = obstacle_set(2, 0);
 
-    let state = SnapshotActionState { content: &content, snap: &snap };
+    let state = SnapshotActionState {
+        content: &content,
+        snap: &snap,
+    };
     let bow_id = AbilityId::from("bow_shot");
 
     let result = check_legality(
@@ -192,8 +201,16 @@ fn ch2_portside_fixture_parses() {
         &content.unit_templates,
     );
 
-    assert_eq!(encounters.len(), 1, "expected exactly 1 encounter in fixture");
+    assert_eq!(
+        encounters.len(),
+        1,
+        "expected exactly 1 encounter in fixture"
+    );
     let enc = &encounters[0];
-    assert_eq!(enc.obstacles.len(), 3, "expected 3 obstacles (the crate wall)");
+    assert_eq!(
+        enc.obstacles.len(),
+        3,
+        "expected 3 obstacles (the crate wall)"
+    );
     assert_eq!(enc.enemies.len(), 2, "expected 2 enemies (archer + thug)");
 }

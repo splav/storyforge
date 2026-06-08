@@ -14,7 +14,10 @@ use crate::AbilityId;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
-    Move { actor: UnitId, path: Vec<Hex> },
+    Move {
+        actor: UnitId,
+        path: Vec<Hex>,
+    },
     Cast {
         actor: UnitId,
         ability: AbilityId,
@@ -23,7 +26,9 @@ pub enum Action {
     },
     /// Signal that the actor is done with their turn.  Phase 3 arm is a no-op;
     /// Phase 4 will add queue advance + RoundPhase transitions.
-    EndTurn { actor: UnitId },
+    EndTurn {
+        actor: UnitId,
+    },
 }
 
 /// Engine-level error returned by `step()` on illegal or failed actions.

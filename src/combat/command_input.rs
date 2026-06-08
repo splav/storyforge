@@ -1,8 +1,10 @@
 #![allow(clippy::too_many_arguments)]
-use crate::content::content_view::ActiveContent;
 use crate::combat::ai::system::has_ai_control_status;
 use crate::content::abilities::TargetType;
-use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
+use crate::content::content_view::ActiveContent;
+use crate::game::components::{
+    ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team,
+};
 use crate::game::messages::ActionInput;
 use crate::game::resources::{HexPositions, SelectionState};
 use bevy::prelude::*;
@@ -10,18 +12,30 @@ use bevy::prelude::*;
 /// Map a single-char key string from TOML to a Bevy `KeyCode`.
 fn key_str_to_keycode(key: &str) -> Option<KeyCode> {
     match key {
-        "A" => Some(KeyCode::KeyA), "B" => Some(KeyCode::KeyB),
-        "C" => Some(KeyCode::KeyC), "D" => Some(KeyCode::KeyD),
-        "F" => Some(KeyCode::KeyF), "G" => Some(KeyCode::KeyG),
-        "H" => Some(KeyCode::KeyH), "I" => Some(KeyCode::KeyI),
-        "J" => Some(KeyCode::KeyJ), "K" => Some(KeyCode::KeyK),
-        "L" => Some(KeyCode::KeyL), "M" => Some(KeyCode::KeyM),
-        "N" => Some(KeyCode::KeyN), "O" => Some(KeyCode::KeyO),
-        "P" => Some(KeyCode::KeyP), "Q" => Some(KeyCode::KeyQ),
-        "R" => Some(KeyCode::KeyR), "S" => Some(KeyCode::KeyS),
-        "T" => Some(KeyCode::KeyT), "U" => Some(KeyCode::KeyU),
-        "V" => Some(KeyCode::KeyV), "W" => Some(KeyCode::KeyW),
-        "X" => Some(KeyCode::KeyX), "Y" => Some(KeyCode::KeyY),
+        "A" => Some(KeyCode::KeyA),
+        "B" => Some(KeyCode::KeyB),
+        "C" => Some(KeyCode::KeyC),
+        "D" => Some(KeyCode::KeyD),
+        "F" => Some(KeyCode::KeyF),
+        "G" => Some(KeyCode::KeyG),
+        "H" => Some(KeyCode::KeyH),
+        "I" => Some(KeyCode::KeyI),
+        "J" => Some(KeyCode::KeyJ),
+        "K" => Some(KeyCode::KeyK),
+        "L" => Some(KeyCode::KeyL),
+        "M" => Some(KeyCode::KeyM),
+        "N" => Some(KeyCode::KeyN),
+        "O" => Some(KeyCode::KeyO),
+        "P" => Some(KeyCode::KeyP),
+        "Q" => Some(KeyCode::KeyQ),
+        "R" => Some(KeyCode::KeyR),
+        "S" => Some(KeyCode::KeyS),
+        "T" => Some(KeyCode::KeyT),
+        "U" => Some(KeyCode::KeyU),
+        "V" => Some(KeyCode::KeyV),
+        "W" => Some(KeyCode::KeyW),
+        "X" => Some(KeyCode::KeyX),
+        "Y" => Some(KeyCode::KeyY),
         "Z" => Some(KeyCode::KeyZ),
         _ => None,
     }
@@ -81,9 +95,13 @@ pub fn player_command_system(
 
     // Custom-keyed abilities (universal: move, rest, etc.).
     for keyed_id in &content.keyed_abilities {
-        let Some(def) = content.abilities.get(keyed_id) else { continue };
+        let Some(def) = content.abilities.get(keyed_id) else {
+            continue;
+        };
         let Some(ref key_str) = def.key else { continue };
-        let Some(keycode) = key_str_to_keycode(key_str) else { continue };
+        let Some(keycode) = key_str_to_keycode(key_str) else {
+            continue;
+        };
         if !keyboard.just_pressed(keycode) {
             continue;
         }
@@ -96,7 +114,10 @@ pub fn player_command_system(
                     selection.selected_target = None;
                 }
             }
-        } else if def.is_actively_castable() && def.target_type == TargetType::Myself && c.ap.can_act_for(def.cost_ap) {
+        } else if def.is_actively_castable()
+            && def.target_type == TargetType::Myself
+            && c.ap.can_act_for(def.cost_ap)
+        {
             let target_pos = positions.get(&actor).unwrap_or(hexx::Hex::ZERO);
             action_input.write(ActionInput::Cast {
                 actor,
@@ -151,7 +172,10 @@ pub fn player_command_system(
             .and_then(|id| content.abilities.get(id.0.as_str()))
             .map(|def| def.target_type);
 
-        if matches!(target_type, Some(TargetType::Myself | TargetType::Ground | TargetType::Environment)) {
+        if matches!(
+            target_type,
+            Some(TargetType::Myself | TargetType::Ground | TargetType::Environment)
+        ) {
             // self-cast / ground-targeted / environment (passive): Tab does nothing (no entity to cycle).
         } else {
             let is_single_ally = target_type == Some(TargetType::SingleAlly);
@@ -165,7 +189,9 @@ pub fn player_command_system(
             } else {
                 combatants
                     .iter()
-                    .filter(|c| c.entity != actor && c.vital.is_alive() && c.faction.0 == Team::Enemy)
+                    .filter(|c| {
+                        c.entity != actor && c.vital.is_alive() && c.faction.0 == Team::Enemy
+                    })
                     .map(|c| c.entity)
                     .collect()
             };

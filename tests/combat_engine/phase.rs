@@ -18,7 +18,9 @@ use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn uid(n: u64) -> UnitId { UnitId(n) }
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
 
 /// Enemy unit, speed=3, Mp=3.
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
@@ -58,8 +60,12 @@ fn make_state(units: Vec<Unit>, order: Vec<UnitId>) -> CombatState {
 }
 
 // Phase data lives on Unit.enemy_phases; content stubs carry none.
-fn phase_content() -> StubContent { StubContent::new() }
-fn two_phase_content() -> StubContent { StubContent::new() }
+fn phase_content() -> StubContent {
+    StubContent::new()
+}
+fn two_phase_content() -> StubContent {
+    StubContent::new()
+}
 
 // Helper to apply raw damage to a unit via the effect system.
 // We use Effect::Damage directly via apply_effect to isolate phase checks.
@@ -75,7 +81,17 @@ fn phase_trigger_fires_at_threshold() {
     // Boss: 100 max_hp, starts at 60 hp. Damage=25 → hp becomes 35 → crosses 50%.
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false, tags: None }]),
+            make_boss(
+                1,
+                60,
+                100,
+                vec![PhaseEntry {
+                    pct: 50,
+                    new_max_hp: 120,
+                    heal_to_full: false,
+                    tags: None,
+                }],
+            ),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -85,16 +101,32 @@ fn phase_trigger_fires_at_threshold() {
     // Apply a Damage effect of 25 raw (armor=0 → final=25; hp 60→35).
     let (derived, _ctx) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 25.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 25.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
 
     // Should derive GainRage×2 then EnterPhase — NOT Death.
-    let has_enter_phase = derived.iter().any(|e| matches!(e, Effect::EnterPhase { unit, .. } if *unit == boss));
-    let has_death = derived.iter().any(|e| matches!(e, Effect::Death { unit } if *unit == boss));
-    assert!(has_enter_phase, "EnterPhase should be derived when threshold crossed; got {derived:?}");
+    let has_enter_phase = derived
+        .iter()
+        .any(|e| matches!(e, Effect::EnterPhase { unit, .. } if *unit == boss));
+    let has_death = derived
+        .iter()
+        .any(|e| matches!(e, Effect::Death { unit } if *unit == boss));
+    assert!(
+        has_enter_phase,
+        "EnterPhase should be derived when threshold crossed; got {derived:?}"
+    );
     assert!(!has_death, "Death must NOT be derived when phase fires");
-    assert_eq!(state.unit(boss).unwrap().hp(), 35, "hp should be 35 after 25 damage");
+    assert_eq!(
+        state.unit(boss).unwrap().hp(),
+        35,
+        "hp should be 35 after 25 damage"
+    );
 }
 
 /// Non-triggering damage (hp stays above threshold) does NOT produce EnterPhase.
@@ -105,7 +137,17 @@ fn non_triggering_damage_no_enter_phase() {
     // Boss at 90 hp (100 max). Damage=10 → hp=80 → still above 50%.
     let mut state = make_state(
         vec![
-            make_boss(1, 90, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false, tags: None }]),
+            make_boss(
+                1,
+                90,
+                100,
+                vec![PhaseEntry {
+                    pct: 50,
+                    new_max_hp: 120,
+                    heal_to_full: false,
+                    tags: None,
+                }],
+            ),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -114,13 +156,23 @@ fn non_triggering_damage_no_enter_phase() {
 
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 10.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 10.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
 
-    let has_enter_phase = derived.iter().any(|e| matches!(e, Effect::EnterPhase { .. }));
+    let has_enter_phase = derived
+        .iter()
+        .any(|e| matches!(e, Effect::EnterPhase { .. }));
     let has_death = derived.iter().any(|e| matches!(e, Effect::Death { .. }));
-    assert!(!has_enter_phase, "EnterPhase must not fire when hp stays above threshold");
+    assert!(
+        !has_enter_phase,
+        "EnterPhase must not fire when hp stays above threshold"
+    );
     assert!(!has_death, "Death must not fire either (hp=80 > 0)");
 }
 
@@ -134,7 +186,17 @@ fn preempt_death_phase_revives_unit() {
     // Phase fires at 50% with heal_to_full=true and new_max_hp=120.
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true, tags: None }]),
+            make_boss(
+                1,
+                60,
+                100,
+                vec![PhaseEntry {
+                    pct: 50,
+                    new_max_hp: 120,
+                    heal_to_full: true,
+                    tags: None,
+                }],
+            ),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -145,14 +207,26 @@ fn preempt_death_phase_revives_unit() {
     // actual engine code: hp = (60 - 70).max(0) = 0; 0 * 100 <= 100 * 50 → trigger.
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 70.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 70.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
 
     // Must derive EnterPhase, NOT Death.
-    let has_enter_phase = derived.iter().any(|e| matches!(e, Effect::EnterPhase { unit, .. } if *unit == boss));
-    let has_death = derived.iter().any(|e| matches!(e, Effect::Death { unit } if *unit == boss));
-    assert!(has_enter_phase, "EnterPhase should fire on lethal damage if threshold crossed");
+    let has_enter_phase = derived
+        .iter()
+        .any(|e| matches!(e, Effect::EnterPhase { unit, .. } if *unit == boss));
+    let has_death = derived
+        .iter()
+        .any(|e| matches!(e, Effect::Death { unit } if *unit == boss));
+    assert!(
+        has_enter_phase,
+        "EnterPhase should fire on lethal damage if threshold crossed"
+    );
     assert!(!has_death, "Death must NOT fire — phase preempts it");
 
     // Now apply EnterPhase and its cascade to confirm revival.
@@ -166,9 +240,16 @@ fn preempt_death_phase_revives_unit() {
     }
 
     let boss_unit = state.unit(boss).unwrap();
-    assert!(boss_unit.is_alive(), "boss must be alive after phase revival");
+    assert!(
+        boss_unit.is_alive(),
+        "boss must be alive after phase revival"
+    );
     assert_eq!(boss_unit.max_hp(), 120, "max_hp should be updated to 120");
-    assert_eq!(boss_unit.hp(), 120, "hp should equal new max_hp after heal_to_full");
+    assert_eq!(
+        boss_unit.hp(),
+        120,
+        "hp should equal new max_hp after heal_to_full"
+    );
 }
 
 /// Phase cascade sets max_hp, and heal_to_full restores hp to new max.
@@ -182,7 +263,17 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
     // Boss at 60 hp (100 max). Phase at 50%; new_max_hp=150, heal_to_full=false.
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 150, heal_to_full: false, tags: None }]),
+            make_boss(
+                1,
+                60,
+                100,
+                vec![PhaseEntry {
+                    pct: 50,
+                    new_max_hp: 150,
+                    heal_to_full: false,
+                    tags: None,
+                }],
+            ),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -192,11 +283,18 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
     // Trigger with 20 raw damage (hp 60→40, crosses 50%).
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 20.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 20.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
 
-    let enter_phase_effect = derived.iter().find(|e| matches!(e, Effect::EnterPhase { .. }))
+    let enter_phase_effect = derived
+        .iter()
+        .find(|e| matches!(e, Effect::EnterPhase { .. }))
         .expect("EnterPhase must be derived");
 
     // Apply EnterPhase and capture its ctx and sub-effects.
@@ -205,20 +303,36 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
     // The ctx must carry prev_max_hp=100, new_max_hp=150.
     let (prev_max_hp, new_max_hp) = ctx.phase_entered.expect("phase_entered ctx must be set");
     assert_eq!(prev_max_hp, 100, "prev_max_hp should be original max_hp");
-    assert_eq!(new_max_hp, 150, "new_max_hp should match PhaseTransition.new_max_hp");
+    assert_eq!(
+        new_max_hp, 150,
+        "new_max_hp should match PhaseTransition.new_max_hp"
+    );
 
     // Apply cascade: SetMaxHp, RefreshAggregates (no Heal since heal_to_full=false).
     for sub in &cascade {
         apply_effect(&mut state, sub, &content);
     }
-    assert_eq!(state.unit(boss).unwrap().max_hp(), 150, "max_hp should be 150 after cascade");
+    assert_eq!(
+        state.unit(boss).unwrap().max_hp(),
+        150,
+        "max_hp should be 150 after cascade"
+    );
     // hp stays at 40 (no heal_to_full).
-    assert_eq!(state.unit(boss).unwrap().hp(), 40, "hp stays at 40 (no heal_to_full)");
+    assert_eq!(
+        state.unit(boss).unwrap().hp(),
+        40,
+        "hp stays at 40 (no heal_to_full)"
+    );
 
     // effect_to_event should produce PhaseEntered.
     let event = effect_to_event(enter_phase_effect, &state, None, &ctx);
     match event {
-        Some(Event::PhaseEntered { unit, phase_idx, prev_max_hp: pmh, new_max_hp: nmh }) => {
+        Some(Event::PhaseEntered {
+            unit,
+            phase_idx,
+            prev_max_hp: pmh,
+            new_max_hp: nmh,
+        }) => {
             assert_eq!(unit, boss);
             assert_eq!(phase_idx, 0);
             assert_eq!(pmh, 100);
@@ -247,10 +361,25 @@ fn multi_threshold_each_damage_fires_own_phase() {
     // We use TwoPhaseContent for this.
     let mut state = make_state(
         vec![
-            make_boss(1, 100, 100, vec![
-                PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false, tags: None },
-                PhaseEntry { pct: 25, new_max_hp: 120, heal_to_full: false, tags: None },
-            ]),
+            make_boss(
+                1,
+                100,
+                100,
+                vec![
+                    PhaseEntry {
+                        pct: 50,
+                        new_max_hp: 120,
+                        heal_to_full: false,
+                        tags: None,
+                    },
+                    PhaseEntry {
+                        pct: 25,
+                        new_max_hp: 120,
+                        heal_to_full: false,
+                        tags: None,
+                    },
+                ],
+            ),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -260,10 +389,17 @@ fn multi_threshold_each_damage_fires_own_phase() {
     // First Damage (55 raw, no armor → final=55, hp 100→45, crosses 50%).
     let (derived1, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 55.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 55.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
-    let has_phase0 = derived1.iter().any(|e| matches!(e, Effect::EnterPhase { unit, phase_idx } if *unit == boss && *phase_idx == 0));
+    let has_phase0 = derived1.iter().any(
+        |e| matches!(e, Effect::EnterPhase { unit, phase_idx } if *unit == boss && *phase_idx == 0),
+    );
     let has_death1 = derived1.iter().any(|e| matches!(e, Effect::Death { .. }));
     assert!(has_phase0, "Phase 0 should fire after first Damage");
     assert!(!has_death1, "No Death for phase 0 trigger");
@@ -288,15 +424,25 @@ fn multi_threshold_each_damage_fires_own_phase() {
     // The new max_hp is 120 now; threshold is 25% of 120 = 30; hp=25 <= 30 → fires.
     let (derived2, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 20.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 20.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
     // After enemy_phases.remove(0), the next pending phase is at local index 0.
     // Engine peeks `enemy_phases[0]` and always emits phase_idx=0; the bridge
     // resolves to the absolute phase via `EnemyPhases.pending[0]` (also index 0).
-    let has_phase1 = derived2.iter().any(|e| matches!(e, Effect::EnterPhase { unit, phase_idx } if *unit == boss && *phase_idx == 0));
+    let has_phase1 = derived2.iter().any(
+        |e| matches!(e, Effect::EnterPhase { unit, phase_idx } if *unit == boss && *phase_idx == 0),
+    );
     let has_death2 = derived2.iter().any(|e| matches!(e, Effect::Death { .. }));
-    assert!(has_phase1, "Phase 1 (now at enemy_phases[0]) should fire after second Damage crosses 25% of 120");
+    assert!(
+        has_phase1,
+        "Phase 1 (now at enemy_phases[0]) should fire after second Damage crosses 25% of 120"
+    );
     assert!(!has_death2, "No Death for phase 1 trigger");
 }
 
@@ -309,7 +455,17 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
     // Only the boss (uid=1) has enemy_phases; "other" has none → dies normally.
     let mut state = make_state(
         vec![
-            make_boss(1, 100, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true, tags: None }]),
+            make_boss(
+                1,
+                100,
+                100,
+                vec![PhaseEntry {
+                    pct: 50,
+                    new_max_hp: 120,
+                    heal_to_full: true,
+                    tags: None,
+                }],
+            ),
             make_attacker(2),
             make_unit(3, 10, 10), // no enemy_phases → dies normally
         ],
@@ -320,13 +476,25 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
     // Damage "other" to 0 (lethal).
     let (derived, _) = apply_effect(
         &mut state,
-        &Effect::Damage { target: other, raw: 15.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: other,
+            raw: 15.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
 
-    let has_enter_phase = derived.iter().any(|e| matches!(e, Effect::EnterPhase { .. }));
-    let has_death = derived.iter().any(|e| matches!(e, Effect::Death { unit } if *unit == other));
-    assert!(!has_enter_phase, "EnterPhase must not fire for non-boss unit");
+    let has_enter_phase = derived
+        .iter()
+        .any(|e| matches!(e, Effect::EnterPhase { .. }));
+    let has_death = derived
+        .iter()
+        .any(|e| matches!(e, Effect::Death { unit } if *unit == other));
+    assert!(
+        !has_enter_phase,
+        "EnterPhase must not fire for non-boss unit"
+    );
     assert!(has_death, "Death must fire for the non-boss unit at 0 hp");
 }
 
@@ -345,7 +513,17 @@ fn preempt_death_no_died_event_in_stream() {
     // Phase at 50%, heal_to_full=true, new_max_hp=100 (same as original).
     let mut state = make_state(
         vec![
-            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 100, heal_to_full: true, tags: None }]),
+            make_boss(
+                1,
+                60,
+                100,
+                vec![PhaseEntry {
+                    pct: 50,
+                    new_max_hp: 100,
+                    heal_to_full: true,
+                    tags: None,
+                }],
+            ),
             make_attacker(2),
         ],
         vec![attacker, boss],
@@ -354,14 +532,24 @@ fn preempt_death_no_died_event_in_stream() {
 
     let (derived, ctx_damage) = apply_effect(
         &mut state,
-        &Effect::Damage { target: boss, raw: 100.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 100.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &content,
     );
 
     // Simulate the effect pump: collect all events including cascade.
     let mut events: Vec<Event> = vec![];
     if let Some(ev) = effect_to_event(
-        &Effect::Damage { target: boss, raw: 100.0, source: EffectSource::Unit(attacker), pierces: false },
+        &Effect::Damage {
+            target: boss,
+            raw: 100.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+        },
         &state,
         None,
         &ctx_damage,
@@ -383,11 +571,21 @@ fn preempt_death_no_died_event_in_stream() {
     }
 
     // Must have PhaseEntered in stream.
-    let has_phase_entered = events.iter().any(|e| matches!(e, Event::PhaseEntered { unit, .. } if *unit == boss));
+    let has_phase_entered = events
+        .iter()
+        .any(|e| matches!(e, Event::PhaseEntered { unit, .. } if *unit == boss));
     // Must NOT have UnitDied.
-    let has_unit_died = events.iter().any(|e| matches!(e, Event::UnitDied { unit } if *unit == boss));
+    let has_unit_died = events
+        .iter()
+        .any(|e| matches!(e, Event::UnitDied { unit } if *unit == boss));
 
     assert!(has_phase_entered, "PhaseEntered must be in event stream");
-    assert!(!has_unit_died, "UnitDied must NOT appear — phase preempts death");
-    assert!(state.unit(boss).unwrap().is_alive(), "boss must be alive after revival");
+    assert!(
+        !has_unit_died,
+        "UnitDied must NOT appear — phase preempts death"
+    );
+    assert!(
+        state.unit(boss).unwrap().is_alive(),
+        "boss must be alive after revival"
+    );
 }

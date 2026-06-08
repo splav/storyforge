@@ -12,29 +12,24 @@ mod fallback;
 
 pub use crate::combat::ai::pipeline::stages::pick_best::PickMechanics;
 
-use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-use crate::content::content_view::ContentView;
-use crate::combat::ai::log::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::config::tuning::AiTuning;
-use crate::combat::ai::intent::{
-    assign_band, AiMemory, IntentReason, TacticalIntent,
-};
 use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
+use crate::combat::ai::intent::{assign_band, AiMemory, IntentReason, TacticalIntent};
+use crate::combat::ai::log::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::pipeline::stages::pick_best::commit_plan;
-use crate::combat::ai::plan::{
-    generate_plans, TurnPlan,
-};
+use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
+use crate::combat::ai::plan::{generate_plans, TurnPlan};
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
-use combat_engine::{AbilityId, DiceRng};
+use crate::content::content_view::ContentView;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
+use combat_engine::{AbilityId, DiceRng};
 use std::collections::HashMap;
-
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -106,7 +101,10 @@ pub struct PickResult {
     /// pre/post-adaptation deltas. Same length as `pool`.
     pub base_scored: Vec<f32>,
     /// Step 11.6: priority band and reason assigned this tick.
-    pub band: (crate::combat::ai::intent::bands::PriorityBand, crate::combat::ai::intent::bands::BandReason),
+    pub band: (
+        crate::combat::ai::intent::bands::PriorityBand,
+        crate::combat::ai::intent::bands::BandReason,
+    ),
     /// Step 11.6: agenda built this tick (items in raw_score-desc order).
     pub agenda: crate::combat::ai::intent::agenda::Agenda,
 }
@@ -236,10 +234,12 @@ pub fn pick_action(
             evaluation_mode_reason: None,
             base_scored: vec![],
             band: (PriorityBand::NormalTactical, BandReason::Normal),
-            agenda: Agenda { band: PriorityBand::NormalTactical, items: vec![] },
+            agenda: Agenda {
+                band: PriorityBand::NormalTactical,
+                items: vec![],
+            },
         };
     };
-
 
     // Apply per-actor AiTuning override if present.
     let per_actor_tuning = active
@@ -249,7 +249,10 @@ pub fn pick_action(
         .map(|ov| world.tuning.apply_override(ov));
     let per_actor_world;
     let world: &AiWorld = if let Some(ref t) = per_actor_tuning {
-        per_actor_world = AiWorld { tuning: t, ..*world };
+        per_actor_world = AiWorld {
+            tuning: t,
+            ..*world
+        };
         &per_actor_world
     } else {
         world
@@ -271,7 +274,15 @@ pub fn pick_action(
     // ── Step 11.1: band assignment (computed for telemetry plumbing only) ──
     // Band is NOT used for routing here — routing lands in 11.4.
     // Explicit discard so reviewers can see the intent without compiler noise.
-    let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning, world.status_tags);
+    let (band, band_reason) = assign_band(
+        active,
+        snap,
+        maps,
+        &need_signals,
+        world.difficulty,
+        world.tuning,
+        world.status_tags,
+    );
 
     // ── Step 11.2 / 11.4 / 11.5: agenda construction ─────────────────────
     // In 11.4, agenda is passed into StageCtx so ItemScoringStage and
@@ -319,10 +330,20 @@ pub fn pick_action(
         let decision = fallback::fallback_move(active, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
-                active, actor_pos, &choice.intent, &choice.reason, &decision,
-                "no plans generated", snap, world.tuning, maps, debug_names,
+                active,
+                actor_pos,
+                &choice.intent,
+                &choice.reason,
+                &decision,
+                "no plans generated",
+                snap,
+                world.tuning,
+                maps,
+                debug_names,
             ))
-        } else { None };
+        } else {
+            None
+        };
         return PickResult {
             decision,
             best_idx: 0,
@@ -349,13 +370,14 @@ pub fn pick_action(
     };
 
     // ── Phase pipeline ─────────────────────────────────────────────────
-    let (initial_scored, initial_raw) = {
-        crate::combat::ai::plan::score_plans_with_raw(
-            &mut plans, &choice.intent, &scoring_ctx,
-        )
-    };
+    let (initial_scored, initial_raw) =
+        { crate::combat::ai::plan::score_plans_with_raw(&mut plans, &choice.intent, &scoring_ctx) };
     let mut pool = ScoredPool::new(plans);
-    for (ann, (score, raw)) in pool.annotations.iter_mut().zip(initial_scored.into_iter().zip(initial_raw.into_iter())) {
+    for (ann, (score, raw)) in pool
+        .annotations
+        .iter_mut()
+        .zip(initial_scored.into_iter().zip(initial_raw.into_iter()))
+    {
         ann.set_score(score);
         ann.score_initial = score; // Step 11.4: snapshot pre-pipeline score for multiplier_ratio.
         ann.factors = raw;
@@ -377,13 +399,7 @@ pub fn pick_action(
             .collect();
     }
 
-    let mut stage_ctx = StageCtx::new(
-        &scoring_ctx,
-        choice.intent,
-        choice.reason,
-        actor_pos,
-        rng,
-    );
+    let mut stage_ctx = StageCtx::new(&scoring_ctx, choice.intent, choice.reason, actor_pos, rng);
 
     // Step 11.4: attach agenda to stage context for per-item composition.
     if !agenda.items.is_empty() {
@@ -424,17 +440,29 @@ pub fn pick_action(
     // Build debug snapshot (reads scores/raw_factors from annotations).
     let scored: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
     let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
-    let pick_mech = debug.then(|| {
-        pool.annotations[best_idx]
-            .pick
-            .as_ref()
-            .map(|p| p.mechanics.clone())
-    }).flatten();
+    let pick_mech = debug
+        .then(|| {
+            pool.annotations[best_idx]
+                .pick
+                .as_ref()
+                .map(|p| p.mechanics.clone())
+        })
+        .flatten();
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
-            active, actor_pos, &final_intent, &final_reason, &pool.plans,
-            &scored, &raw_factors, &decision, snap, world.tuning, maps,
-            debug_names, pick_mech.as_ref(),
+            active,
+            actor_pos,
+            &final_intent,
+            &final_reason,
+            &pool.plans,
+            &scored,
+            &raw_factors,
+            &decision,
+            snap,
+            world.tuning,
+            maps,
+            debug_names,
+            pick_mech.as_ref(),
         ))
     } else {
         None
@@ -479,7 +507,8 @@ pub fn write_decision_log_from_result(
     let plans = &pool.plans;
     let best_idx = result.best_idx;
 
-    let active_view = snap.unit(active.entity)
+    let active_view = snap
+        .unit(active.entity)
         .expect("active unit must be in snapshot for log");
     let actor_value = crate::combat::ai::scoring::trade::unit_value(active_view, content);
 
@@ -512,7 +541,10 @@ pub fn write_decision_log_from_result(
         .map(|(rank, &(idx, score))| {
             let ann = &pool.annotations[idx];
             let br = crate::combat::ai::scoring::trade::trade_delta(
-                &plans[idx], active_view, snap, content,
+                &plans[idx],
+                active_view,
+                snap,
+                content,
             );
             let trade = TradeBlock {
                 delta: br.delta,
@@ -527,7 +559,9 @@ pub fn write_decision_log_from_result(
             // Derive sanity hits from score_trace (TLE-3a: legacy ann.sanity removed).
             let sanity_breakdown: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit> = {
                 use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
-                ann.score_trace.multipliers.iter()
+                ann.score_trace
+                    .multipliers
+                    .iter()
                     .filter(|m| matches!(m.kind, MultiplierKind::Sanity))
                     .filter_map(|m| {
                         if let Some(MultiplierDetail::Sanity { rule }) = &m.detail {
@@ -573,16 +607,34 @@ pub fn write_decision_log_from_result(
     // gate_stats: KillableGateStage emits GateHit(source="killable_gate") into score_trace.
     // Derive applied/pruned_count from score_trace.gates (TLE-3a: legacy contract field removed).
     let gate_applied = pool.annotations.iter().any(|a| {
-        a.score_trace.gates.iter().any(|g| g.source == "killable_gate")
+        a.score_trace
+            .gates
+            .iter()
+            .any(|g| g.source == "killable_gate")
     });
-    let gate_pruned_count = pool.annotations.iter().filter(|a| {
-        a.score_trace.gates.iter().any(|g| g.source == "killable_gate")
-    }).count();
+    let gate_pruned_count = pool
+        .annotations
+        .iter()
+        .filter(|a| {
+            a.score_trace
+                .gates
+                .iter()
+                .any(|g| g.source == "killable_gate")
+        })
+        .count();
 
     let entry = log::build_entry(
         "", // session_id — this function is superseded by write_actor_tick_log; pass empty
-        plan_id, decision_time_ms, active, actor_name, snap, intent_block,
-        plans.len(), shown, plan_entries, &result.decision,
+        plan_id,
+        decision_time_ms,
+        active,
+        actor_name,
+        snap,
+        intent_block,
+        plans.len(),
+        shown,
+        plan_entries,
+        &result.decision,
         gate_applied,
         gate_pruned_count,
         difficulty,
@@ -599,13 +651,13 @@ pub fn write_decision_log_from_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::world::tags::AbilityTag;
-    use crate::combat::ai::world::tags::cache::build_caches;
-    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
+    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::world::reservations::Reservations;
-    
+    use crate::combat::ai::world::tags::cache::build_caches;
+    use crate::combat::ai::world::tags::AbilityTag;
+
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::DiceRng;
@@ -640,17 +692,31 @@ mod tests {
             difficulty: &difficulty,
             tuning: &content.ai_tuning,
             crit_fail_chance: 0.0,
-            ability_tags: if use_content_cache { &ability_tag_cache }
-                          else { crate::combat::ai::test_helpers::empty_ability_tag_cache() },
-            status_tags: if use_content_cache { &status_tag_cache }
-                         else { crate::combat::ai::test_helpers::empty_status_tag_cache() },
+            ability_tags: if use_content_cache {
+                &ability_tag_cache
+            } else {
+                crate::combat::ai::test_helpers::empty_ability_tag_cache()
+            },
+            status_tags: if use_content_cache {
+                &status_tag_cache
+            } else {
+                crate::combat::ai::test_helpers::empty_status_tag_cache()
+            },
         };
         let memory = crate::combat::ai::intent::AiMemory::default();
         let mut rng = DiceRng::with_seed(0);
 
         let result = pick_action(
-            actor_entity, actor_pos, &world, &snap, &maps, &mut rng,
-            &memory, &reservations, false, &HashMap::new(),
+            actor_entity,
+            actor_pos,
+            &world,
+            &snap,
+            &maps,
+            &mut rng,
+            &memory,
+            &reservations,
+            false,
+            &HashMap::new(),
         );
         result.pool.annotations
     }
@@ -694,7 +760,8 @@ mod tests {
                 assert!(
                     tag_set.is_empty(),
                     "Plans with only 'move' ability must have all-empty AbilityTagSet entries, \
-                     got {:?}", tag_set
+                     got {:?}",
+                    tag_set
                 );
             }
         }
@@ -713,8 +780,8 @@ mod tests {
         //   enemy at (0,0),  actor at (1,0),  open retreat space at (2,0)..(5,0)
         // The actor's start is 1 hex from the enemy.  Speed = 4 so it can reach
         // (5,0) in one turn.  We assert final_pos distance > 1 AND >= 1+2 = 3.
-        let enemy_pos  = hex_from_offset(0, 0);
-        let actor_pos  = hex_from_offset(1, 0);
+        let enemy_pos = hex_from_offset(0, 0);
+        let actor_pos = hex_from_offset(1, 0);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let (status_tag_cache, ability_tag_cache) =
@@ -746,8 +813,16 @@ mod tests {
         };
 
         let result = pick_action(
-            actor.entity, actor_pos, &world, &snap, &maps, &mut rng,
-            &memory, &reservations, false, &HashMap::new(),
+            actor.entity,
+            actor_pos,
+            &world,
+            &snap,
+            &maps,
+            &mut rng,
+            &memory,
+            &reservations,
+            false,
+            &HashMap::new(),
         );
 
         let best_plan = &result.pool.plans[result.best_idx];
@@ -758,13 +833,19 @@ mod tests {
             final_dist > start_dist,
             "Flee actor must move AWAY from enemy: \
              final_pos={:?} (dist={}) should be > start dist={} (enemy at {:?})",
-            best_plan.final_pos, final_dist, start_dist, enemy_pos,
+            best_plan.final_pos,
+            final_dist,
+            start_dist,
+            enemy_pos,
         );
         assert!(
             final_dist >= start_dist + 2,
             "Flee actor must retreat by at least 2 hexes (speed=4 allows it): \
              final_pos={:?} dist={}, start_dist={}, enemy={:?}",
-            best_plan.final_pos, final_dist, start_dist, enemy_pos,
+            best_plan.final_pos,
+            final_dist,
+            start_dist,
+            enemy_pos,
         );
     }
 
@@ -804,8 +885,16 @@ mod tests {
             status_tags: &status_tag_cache,
         };
         let result = pick_action(
-            actor.entity, actor_pos, &world, &snap, &maps, &mut rng,
-            &memory, &reservations, false, &HashMap::new(),
+            actor.entity,
+            actor_pos,
+            &world,
+            &snap,
+            &maps,
+            &mut rng,
+            &memory,
+            &reservations,
+            false,
+            &HashMap::new(),
         );
 
         for ann in &result.pool.annotations {
@@ -842,7 +931,11 @@ mod tests {
     /// the 70% HP threshold (`select_intent`: threshold = 0.5 + support*0.2).
     fn shepherd_role() -> crate::combat::ai::config::role::AxisProfile {
         crate::combat::ai::config::role::AxisProfile {
-            tank: 0.0, melee: 0.3, ranged: 0.0, control: 0.0, support: 1.0,
+            tank: 0.0,
+            melee: 0.3,
+            ranged: 0.0,
+            control: 0.0,
+            support: 1.0,
         }
     }
 
@@ -892,12 +985,7 @@ mod tests {
         let (mut sym_unit, sym_cache) = symbiote;
         sym_unit.tags = std::iter::once(TagId::from("symbiote")).collect();
 
-        let pairs = vec![
-            shepherd,
-            (sym_unit, sym_cache),
-            plain,
-            enemy,
-        ];
+        let pairs = vec![shepherd, (sym_unit, sym_cache), plain, enemy];
 
         let snap = snapshot_from_pairs(pairs, 1);
         (
@@ -926,8 +1014,16 @@ mod tests {
         };
         let actor_pos = snap.unit(actor).unwrap().pos;
         pick_action(
-            actor, actor_pos, &world, snap, &maps, &mut rng,
-            &memory, &reservations, false, &HashMap::new(),
+            actor,
+            actor_pos,
+            &world,
+            snap,
+            &maps,
+            &mut rng,
+            &memory,
+            &reservations,
+            false,
+            &HashMap::new(),
         )
     }
 
@@ -937,9 +1033,9 @@ mod tests {
             .steps
             .iter()
             .find_map(|s| match s {
-                PlanStep::Cast { ability, target, .. } => {
-                    Some((ability.to_string(), *target))
-                }
+                PlanStep::Cast {
+                    ability, target, ..
+                } => Some((ability.to_string(), *target)),
                 _ => None,
             })
     }
@@ -955,7 +1051,10 @@ mod tests {
 
         let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8);
         let content = ContentView::load_global_for_tests();
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
         let ab = combat_engine::AbilityId::from("shepherd_heal");
 
         let symbiote_pos = snap.unit(symbiote).unwrap().pos;
@@ -963,14 +1062,25 @@ mod tests {
 
         assert!(
             check_legality(
-                ProposedAction { actor: shepherd, ability: &ab, target: symbiote, target_pos: symbiote_pos },
+                ProposedAction {
+                    actor: shepherd,
+                    ability: &ab,
+                    target: symbiote,
+                    target_pos: symbiote_pos
+                },
                 &state,
-            ).is_ok(),
+            )
+            .is_ok(),
             "shepherd_heal must be LEGAL on a symbiote ally",
         );
         assert_eq!(
             check_legality(
-                ProposedAction { actor: shepherd, ability: &ab, target: plain, target_pos: plain_pos },
+                ProposedAction {
+                    actor: shepherd,
+                    ability: &ab,
+                    target: plain,
+                    target_pos: plain_pos
+                },
                 &state,
             ),
             Err(IllegalReason::WrongTargetTags),
@@ -986,8 +1096,8 @@ mod tests {
         let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8); // 8/20 = 40%
         let result = run_shepherd_pick(&snap, shepherd);
 
-        let (ability, target) = chosen_cast(&result)
-            .expect("winning plan must contain a Cast step");
+        let (ability, target) =
+            chosen_cast(&result).expect("winning plan must contain a Cast step");
         assert_eq!(
             ability, "shepherd_heal",
             "AI must cast shepherd_heal on a wounded symbiote ally, chose {ability}",

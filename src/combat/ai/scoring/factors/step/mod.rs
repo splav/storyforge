@@ -14,10 +14,10 @@ pub mod saturation;
 pub mod scarcity;
 
 use crate::combat::ai::appraisal::NeedSignals;
+use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats};
 use crate::combat::ai::scoring::factors::ScoredStep;
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::orchestration::ScoringCtx;
 
 crate::factor_kind! {
     name: StepFactor,
@@ -36,13 +36,13 @@ impl StepFactor {
     /// String name used in serde named maps and `from_name`.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Damage       => "damage",
-            Self::KillNow      => "kill_now",
+            Self::Damage => "damage",
+            Self::KillNow => "kill_now",
             Self::KillPromised => "kill_promised",
-            Self::Cc           => "cc",
-            Self::Heal         => "heal",
-            Self::Scarcity     => "scarcity",
-            Self::Saturation   => "saturation",
+            Self::Cc => "cc",
+            Self::Heal => "heal",
+            Self::Scarcity => "scarcity",
+            Self::Saturation => "saturation",
         }
     }
 
@@ -57,7 +57,9 @@ impl StepFactor {
     }
 
     /// Variant count (same as `COUNT`).
-    pub fn count() -> usize { COUNT }
+    pub fn count() -> usize {
+        COUNT
+    }
 
     /// Iterator over all variants in declaration order.
     pub fn iter() -> impl Iterator<Item = Self> {
@@ -76,13 +78,13 @@ impl StepFactor {
     /// Look up a variant by its string name. Returns `None` for unknown names.
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
-            "damage"        => Some(Self::Damage),
-            "kill_now"      => Some(Self::KillNow),
+            "damage" => Some(Self::Damage),
+            "kill_now" => Some(Self::KillNow),
             "kill_promised" => Some(Self::KillPromised),
-            "cc"            => Some(Self::Cc),
-            "heal"          => Some(Self::Heal),
-            "scarcity"      => Some(Self::Scarcity),
-            "saturation"    => Some(Self::Saturation),
+            "cc" => Some(Self::Cc),
+            "heal" => Some(Self::Heal),
+            "scarcity" => Some(Self::Scarcity),
+            "saturation" => Some(Self::Saturation),
             _ => None,
         }
     }
@@ -101,13 +103,13 @@ impl StepFactor {
         needs: &NeedSignals,
     ) -> f32 {
         match self {
-            Self::Damage       => damage::compute(ctx, step, outcome, needs),
-            Self::KillNow      => kill_now::compute(ctx, step, outcome, needs),
+            Self::Damage => damage::compute(ctx, step, outcome, needs),
+            Self::KillNow => kill_now::compute(ctx, step, outcome, needs),
             Self::KillPromised => kill_promised::compute(ctx, step, outcome, needs),
-            Self::Cc           => cc::compute(ctx, step, outcome, needs),
-            Self::Heal         => heal::compute(ctx, step, outcome, needs),
-            Self::Scarcity     => scarcity::compute(ctx, step, outcome, needs),
-            Self::Saturation   => saturation::compute(ctx, step, outcome, needs),
+            Self::Cc => cc::compute(ctx, step, outcome, needs),
+            Self::Heal => heal::compute(ctx, step, outcome, needs),
+            Self::Scarcity => scarcity::compute(ctx, step, outcome, needs),
+            Self::Saturation => saturation::compute(ctx, step, outcome, needs),
         }
     }
 }
@@ -118,13 +120,15 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::scoring::factors::compute_offensive_for_step;
     use crate::combat::ai::world::reservations::Reservations;
-    
-    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::content::content_view::ContentView;
-    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::AbilityId;
 
     /// Routing pin: each `StepFactor` variant must read its **own** column from
     /// `OffensiveFactors`. Catches wiring bugs (e.g. `Damage.compute` accidentally
@@ -145,7 +149,9 @@ mod tests {
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(1, 0);
 
-        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos)
+            .full_hp(100)
+            .build();
         let target = UnitBuilder::new(2, Team::Player, target_pos)
             .hp(50)
             .max_hp(100)
@@ -179,18 +185,42 @@ mod tests {
         let off = compute_offensive_for_step(&ctx, &step, &outcome);
 
         // Each leaf must return its own column — and only its own.
-        assert_eq!(StepFactor::Damage.compute(&ctx, &step, &outcome, &needs), off.damage);
-        assert_eq!(StepFactor::KillNow.compute(&ctx, &step, &outcome, &needs), off.kill_now);
-        assert_eq!(StepFactor::KillPromised.compute(&ctx, &step, &outcome, &needs), off.kill_promised);
-        assert_eq!(StepFactor::Cc.compute(&ctx, &step, &outcome, &needs), off.cc);
-        assert_eq!(StepFactor::Heal.compute(&ctx, &step, &outcome, &needs), off.heal);
+        assert_eq!(
+            StepFactor::Damage.compute(&ctx, &step, &outcome, &needs),
+            off.damage
+        );
+        assert_eq!(
+            StepFactor::KillNow.compute(&ctx, &step, &outcome, &needs),
+            off.kill_now
+        );
+        assert_eq!(
+            StepFactor::KillPromised.compute(&ctx, &step, &outcome, &needs),
+            off.kill_promised
+        );
+        assert_eq!(
+            StepFactor::Cc.compute(&ctx, &step, &outcome, &needs),
+            off.cc
+        );
+        assert_eq!(
+            StepFactor::Heal.compute(&ctx, &step, &outcome, &needs),
+            off.heal
+        );
 
         // Discrimination check: at least three columns must differ between this
         // outcome (a damage+kill+heal+cc fixture). If they all coincide, the test
         // would silently mask wiring bugs — pin the divergence.
-        let cols = [off.damage, off.kill_now, off.kill_promised, off.cc, off.heal];
+        let cols = [
+            off.damage,
+            off.kill_now,
+            off.kill_promised,
+            off.cc,
+            off.heal,
+        ];
         let unique: std::collections::HashSet<u32> = cols.iter().map(|v| v.to_bits()).collect();
-        assert!(unique.len() >= 3, "fixture too symmetric to detect mis-routing: {cols:?}");
+        assert!(
+            unique.len() >= 3,
+            "fixture too symmetric to detect mis-routing: {cols:?}"
+        );
     }
 
     /// `Move` steps yield zero across every offensive variant — single
@@ -213,8 +243,10 @@ mod tests {
 
         for f in StepFactor::iter() {
             assert_eq!(
-                f.compute(&ctx, &step, &outcome, &needs), 0.0,
-                "Move step must yield 0 for {}", f.name(),
+                f.compute(&ctx, &step, &outcome, &needs),
+                0.0,
+                "Move step must yield 0 for {}",
+                f.name(),
             );
         }
     }

@@ -7,8 +7,8 @@
 //! The bonus application itself (`finalize_scores`) is unchanged — this stage
 //! only populates the annotation field that `finalize_scores` already reads.
 
-use crate::combat::ai::repair::compute_repair_affinity;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::repair::compute_repair_affinity;
 
 pub struct RepairAffinityStage;
 
@@ -18,10 +18,15 @@ impl PlanStage for RepairAffinityStage {
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        let Some(stored_goal) = ctx.scoring.last_goal else { return };
+        let Some(stored_goal) = ctx.scoring.last_goal else {
+            return;
+        };
 
         let severity = {
-            let actor_view = ctx.scoring.snap.unit(ctx.scoring.active.entity())
+            let actor_view = ctx
+                .scoring
+                .snap
+                .unit(ctx.scoring.active.entity())
                 .expect("actor must be present in snapshot");
             let target_view = stored_goal
                 .target_entity()
@@ -53,15 +58,15 @@ mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+    use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, ent, make_scoring_ctx, make_test_ctx, snapshot_from,
+        PoolBuilder, UnitBuilder,
+    };
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder, UnitBuilder, ent,
-        snapshot_from,
-    };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::DiceRng;
@@ -126,19 +131,16 @@ mod tests {
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
 
         // ── 2–4. Act (helper handles setup) ──
-        let pool = run_stage_with_goal(
-            plans,
-            TacticalIntent::Reposition,
-            &snap,
-            &actor,
-            None,
-        );
+        let pool = run_stage_with_goal(plans, TacticalIntent::Reposition, &snap, &actor, None);
 
         // ── 5. Assert ──
         // No stored goal → annotations stay at default (all-zero).
         for ann in &pool.annotations {
             let aff = &ann.repair_affinity;
-            assert_eq!(aff.goal_alignment, 0.0, "no stored goal → goal_alignment = 0");
+            assert_eq!(
+                aff.goal_alignment, 0.0,
+                "no stored goal → goal_alignment = 0"
+            );
             assert_eq!(aff.confidence, 0.0, "no stored goal → confidence = 0");
         }
     }
@@ -177,7 +179,13 @@ mod tests {
 
         // ── 5. Assert ──
         let aff = &pool.annotations[0].repair_affinity;
-        assert!(aff.goal_alignment > 0.0, "same-target FocusTarget plan must have goal_alignment > 0");
-        assert!(aff.confidence > 0.0, "confidence must be copied from stored goal");
+        assert!(
+            aff.goal_alignment > 0.0,
+            "same-target FocusTarget plan must have goal_alignment > 0"
+        );
+        assert!(
+            aff.confidence > 0.0,
+            "confidence must be copied from stored goal"
+        );
     }
 }

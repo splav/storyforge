@@ -18,25 +18,25 @@
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
-use storyforge::combat::engine_bridge::{
-    bootstrap_combat_state, entity_to_uid, CombatStateRes,
-};
+use combat_engine::AbilityId;
+use storyforge::combat::engine_bridge::{bootstrap_combat_state, entity_to_uid, CombatStateRes};
 use storyforge::combat::legality_adapter::BevyActions;
-use storyforge::combat_engine::{
-    check_legality, AbilityDef, AbilityRange, AoEShape, DiceExpr, EffectDef,
-    EngineCheckState, IllegalReason, LegalAction, ProposedAction, ResourceKind,
-    StatusBonuses, StatusDef as EngineStatusDef, UnitTemplate,
+use storyforge::combat_engine::content::{
+    ContentView as EngineContentView, Cost, TargetType as EngineTargetType,
 };
-use storyforge::combat_engine::content::{ContentView as EngineContentView, Cost, TargetType as EngineTargetType};
 use storyforge::combat_engine::state::UnitId;
+use storyforge::combat_engine::{
+    check_legality, AbilityDef, AbilityRange, AoEShape, DiceExpr, EffectDef, EngineCheckState,
+    IllegalReason, LegalAction, ProposedAction, ResourceKind, StatusBonuses,
+    StatusDef as EngineStatusDef, UnitTemplate,
+};
 use storyforge::content::abilities::AbilityDef as BevyAbilityDef;
 use storyforge::content::content_view::{ActiveContent, ContentView as BevyContentView};
 use storyforge::content::statuses::StatusDef as BevyStatusDef;
-use combat_engine::AbilityId;
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::{
-    ActionPoints, ActiveStatus as EcsActiveStatus, CombatStats, Equipment, Mana,
-    StatusEffects, Team, ValidationActorQ, ValidationTargetQ,
+    ActionPoints, ActiveStatus as EcsActiveStatus, CombatStats, Equipment, Mana, StatusEffects,
+    Team, ValidationActorQ, ValidationTargetQ,
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::resources::{HexCorpses, HexPositions};
@@ -118,12 +118,14 @@ fn insert_attack(app: &mut App) {
             target_type: EngineTargetType::SingleEnemy,
             aoe: AoEShape::None,
             friendly_fire: false,
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            effect: EffectDef::Damage {
+                dice: DiceExpr::new(1, 6, 0),
+            },
             statuses: vec![],
             requires_los: false,
             passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
     app.world_mut()
@@ -149,12 +151,14 @@ fn insert_heal(app: &mut App) {
             target_type: EngineTargetType::SingleAlly,
             aoe: AoEShape::None,
             friendly_fire: false,
-            effect: EffectDef::Heal { dice: DiceExpr::new(1, 4, 0) },
+            effect: EffectDef::Heal {
+                dice: DiceExpr::new(1, 4, 0),
+            },
             statuses: vec![],
             requires_los: false,
             passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
     app.world_mut()
@@ -175,17 +179,22 @@ fn insert_mana_spell(app: &mut App) {
         engine: AbilityDef {
             key: None,
             cost_ap: 1,
-            costs: vec![Cost { resource: ResourceKind::Mana, amount: 2 }],
+            costs: vec![Cost {
+                resource: ResourceKind::Mana,
+                amount: 2,
+            }],
             range: AbilityRange { min: 0, max: 5 },
             target_type: EngineTargetType::SingleEnemy,
             aoe: AoEShape::None,
             friendly_fire: false,
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            effect: EffectDef::Damage {
+                dice: DiceExpr::new(1, 6, 0),
+            },
             statuses: vec![],
             requires_los: false,
             passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
     app.world_mut()
@@ -297,24 +306,47 @@ fn legality_parity_bevy_vs_engine() {
             no_equip(),
         ))
         .id();
-    app.world_mut().entity_mut(actor).insert(Mana { current: 3, max: 5 });
+    app.world_mut()
+        .entity_mut(actor)
+        .insert(Mana { current: 3, max: 5 });
 
     // enemy: Enemy, alive.
     let enemy = app
         .world_mut()
-        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .spawn(CombatantBundle::new(
+            Team::Enemy,
+            base_stats(),
+            0,
+            6,
+            vec![],
+            no_equip(),
+        ))
         .id();
 
     // ally: Player, alive.
     let ally = app
         .world_mut()
-        .spawn(CombatantBundle::new(Team::Player, base_stats(), 0, 6, vec![], no_equip()))
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            base_stats(),
+            0,
+            6,
+            vec![],
+            no_equip(),
+        ))
         .id();
 
     // taunter: Enemy alive with taunt status.
     let taunter = app
         .world_mut()
-        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .spawn(CombatantBundle::new(
+            Team::Enemy,
+            base_stats(),
+            0,
+            6,
+            vec![],
+            no_equip(),
+        ))
         .id();
     app.world_mut()
         .entity_mut(taunter)
@@ -359,7 +391,9 @@ fn legality_parity_bevy_vs_engine() {
         .get_mut::<ActionPoints>()
         .unwrap()
         .action_points = 0;
-    app.world_mut().entity_mut(actor_no_ap).insert(Mana { current: 5, max: 5 });
+    app.world_mut()
+        .entity_mut(actor_no_ap)
+        .insert(Mana { current: 5, max: 5 });
 
     // actor_no_mana: Player, mana=0/5.
     let actor_no_mana = app
@@ -373,7 +407,9 @@ fn legality_parity_bevy_vs_engine() {
             no_equip(),
         ))
         .id();
-    app.world_mut().entity_mut(actor_no_mana).insert(Mana { current: 0, max: 5 });
+    app.world_mut()
+        .entity_mut(actor_no_mana)
+        .insert(Mana { current: 0, max: 5 });
 
     // actor_mana_blocked: Player, mana=5, carries mana_block status.
     let actor_mana_blocked = app
@@ -387,7 +423,9 @@ fn legality_parity_bevy_vs_engine() {
             no_equip(),
         ))
         .id();
-    app.world_mut().entity_mut(actor_mana_blocked).insert(Mana { current: 5, max: 5 });
+    app.world_mut()
+        .entity_mut(actor_mana_blocked)
+        .insert(Mana { current: 5, max: 5 });
     app.world_mut()
         .entity_mut(actor_mana_blocked)
         .get_mut::<StatusEffects>()
@@ -440,13 +478,12 @@ fn legality_parity_bevy_vs_engine() {
     let results: Vec<CaseResult> = app
         .world_mut()
         .run_system_once(
-            move |
-                content: Res<ActiveContent>,
-                positions: Res<HexPositions>,
-                actor_q: Query<ValidationActorQ>,
-                target_q: Query<ValidationTargetQ>,
-                combat_state: Res<CombatStateRes>,
-            | -> Vec<CaseResult> {
+            move |content: Res<ActiveContent>,
+                  positions: Res<HexPositions>,
+                  actor_q: Query<ValidationActorQ>,
+                  target_q: Query<ValidationTargetQ>,
+                  combat_state: Res<CombatStateRes>|
+                  -> Vec<CaseResult> {
                 let bevy_adapter = BevyActions {
                     content: &content,
                     positions: &positions,
@@ -467,104 +504,232 @@ fn legality_parity_bevy_vs_engine() {
 
                 // Each case: (name, bevy result, engine result).
                 // Cases 11-12 use taunter scenario — taunter is alive with forces_targeting.
-                let run = |b: ProposedAction<Entity>, e: ProposedAction<UnitId>| -> (Result<LegalAction, IllegalReason>, Result<LegalAction, IllegalReason>) {
-                    (check_legality(b, &bevy_adapter), check_legality(e, &engine_adapter))
+                let run = |b: ProposedAction<Entity>,
+                           e: ProposedAction<UnitId>|
+                 -> (
+                    Result<LegalAction, IllegalReason>,
+                    Result<LegalAction, IllegalReason>,
+                ) {
+                    (
+                        check_legality(b, &bevy_adapter),
+                        check_legality(e, &engine_adapter),
+                    )
                 };
 
                 vec![
                     // 1. Happy-path SingleEnemy in range — Ok.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: enemy, target_pos: enemy_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: enemy_uid, target_pos: enemy_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: enemy,
+                                target_pos: enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: enemy_uid,
+                                target_pos: enemy_pos,
+                            },
                         );
                         ("attack_in_range", br, er)
                     },
                     // 2. Out of range — OutOfRange.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: enemy, target_pos: far_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: enemy_uid, target_pos: far_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: enemy,
+                                target_pos: far_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: enemy_uid,
+                                target_pos: far_pos,
+                            },
                         );
                         ("attack_out_of_range", br, er)
                     },
                     // 3. Dead target — TargetDead.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: dead_enemy, target_pos: dead_enemy_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: dead_enemy_uid, target_pos: dead_enemy_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: dead_enemy,
+                                target_pos: dead_enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: dead_enemy_uid,
+                                target_pos: dead_enemy_pos,
+                            },
                         );
                         ("attack_dead_target", br, er)
                     },
                     // 4. SingleEnemy at own-team ally — WrongTargetTeam.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: ally, target_pos: ally_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: ally_uid, target_pos: ally_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: ally,
+                                target_pos: ally_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: ally_uid,
+                                target_pos: ally_pos,
+                            },
                         );
                         ("attack_wrong_team", br, er)
                     },
                     // 5. AP=0 — NotEnoughAp.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor: actor_no_ap, ability: &attack_id, target: enemy, target_pos: enemy_pos },
-                            ProposedAction { actor: actor_no_ap_uid, ability: &attack_id, target: enemy_uid, target_pos: enemy_pos },
+                            ProposedAction {
+                                actor: actor_no_ap,
+                                ability: &attack_id,
+                                target: enemy,
+                                target_pos: enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_no_ap_uid,
+                                ability: &attack_id,
+                                target: enemy_uid,
+                                target_pos: enemy_pos,
+                            },
                         );
                         ("attack_no_ap", br, er)
                     },
                     // 6. Mana spell with sufficient mana (3 >= cost 2) — Ok.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &mana_id, target: enemy, target_pos: enemy_pos },
-                            ProposedAction { actor: actor_uid, ability: &mana_id, target: enemy_uid, target_pos: enemy_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &mana_id,
+                                target: enemy,
+                                target_pos: enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &mana_id,
+                                target: enemy_uid,
+                                target_pos: enemy_pos,
+                            },
                         );
                         ("mana_spell_sufficient_mana", br, er)
                     },
                     // 7. Mana spell with mana=0 — InsufficientResource(Mana).
                     {
                         let (br, er) = run(
-                            ProposedAction { actor: actor_no_mana, ability: &mana_id, target: enemy, target_pos: enemy_pos },
-                            ProposedAction { actor: actor_no_mana_uid, ability: &mana_id, target: enemy_uid, target_pos: enemy_pos },
+                            ProposedAction {
+                                actor: actor_no_mana,
+                                ability: &mana_id,
+                                target: enemy,
+                                target_pos: enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_no_mana_uid,
+                                ability: &mana_id,
+                                target: enemy_uid,
+                                target_pos: enemy_pos,
+                            },
                         );
                         ("mana_spell_no_mana", br, er)
                     },
                     // 8. Mana spell with mana_block status — BlockedByStatus.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor: actor_mana_blocked, ability: &mana_id, target: enemy, target_pos: enemy_pos },
-                            ProposedAction { actor: actor_mana_blocked_uid, ability: &mana_id, target: enemy_uid, target_pos: enemy_pos },
+                            ProposedAction {
+                                actor: actor_mana_blocked,
+                                ability: &mana_id,
+                                target: enemy,
+                                target_pos: enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_mana_blocked_uid,
+                                ability: &mana_id,
+                                target: enemy_uid,
+                                target_pos: enemy_pos,
+                            },
                         );
                         ("mana_spell_blocked_by_status", br, er)
                     },
                     // 9. SingleAlly heal on teammate — Ok.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &heal_id, target: ally, target_pos: ally_pos },
-                            ProposedAction { actor: actor_uid, ability: &heal_id, target: ally_uid, target_pos: ally_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &heal_id,
+                                target: ally,
+                                target_pos: ally_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &heal_id,
+                                target: ally_uid,
+                                target_pos: ally_pos,
+                            },
                         );
                         ("heal_on_ally_legal", br, er)
                     },
                     // 10. SingleAlly heal on enemy — WrongTargetTeam.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &heal_id, target: enemy, target_pos: enemy_pos },
-                            ProposedAction { actor: actor_uid, ability: &heal_id, target: enemy_uid, target_pos: enemy_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &heal_id,
+                                target: enemy,
+                                target_pos: enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &heal_id,
+                                target: enemy_uid,
+                                target_pos: enemy_pos,
+                            },
                         );
                         ("heal_on_enemy_wrong_team", br, er)
                     },
                     // 11. Taunter alive: attack non-taunter enemy — TauntForcesTarget.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: enemy, target_pos: enemy_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: enemy_uid, target_pos: enemy_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: enemy,
+                                target_pos: enemy_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: enemy_uid,
+                                target_pos: enemy_pos,
+                            },
                         );
                         ("taunt_forces_non_taunter_target", br, er)
                     },
                     // 12. Taunter alive: attack the taunter — Ok (constraint satisfied).
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: taunter, target_pos: taunter_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: taunter_uid, target_pos: taunter_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: taunter,
+                                target_pos: taunter_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: taunter_uid,
+                                target_pos: taunter_pos,
+                            },
                         );
                         ("taunt_attack_taunter_legal", br, er)
                     },
@@ -601,7 +766,7 @@ fn multi_taunter_both_are_legal_targets() {
     insert_attack(&mut app);
     insert_taunt_status(&mut app);
 
-    let actor_pos   = hex_from_offset(0, 0);
+    let actor_pos = hex_from_offset(0, 0);
     let taunter1_pos = hex_from_offset(1, 0);
     let taunter2_pos = hex_from_offset(2, 0);
     let bystander_pos = hex_from_offset(3, 0);
@@ -622,7 +787,14 @@ fn multi_taunter_both_are_legal_targets() {
     // taunter1: Enemy with taunt status.
     let taunter1 = app
         .world_mut()
-        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .spawn(CombatantBundle::new(
+            Team::Enemy,
+            base_stats(),
+            0,
+            6,
+            vec![],
+            no_equip(),
+        ))
         .id();
     app.world_mut()
         .entity_mut(taunter1)
@@ -639,7 +811,14 @@ fn multi_taunter_both_are_legal_targets() {
     // taunter2: Enemy with taunt status.
     let taunter2 = app
         .world_mut()
-        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .spawn(CombatantBundle::new(
+            Team::Enemy,
+            base_stats(),
+            0,
+            6,
+            vec![],
+            no_equip(),
+        ))
         .id();
     app.world_mut()
         .entity_mut(taunter2)
@@ -656,12 +835,19 @@ fn multi_taunter_both_are_legal_targets() {
     // bystander: Enemy, no taunt status.
     let bystander = app
         .world_mut()
-        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .spawn(CombatantBundle::new(
+            Team::Enemy,
+            base_stats(),
+            0,
+            6,
+            vec![],
+            no_equip(),
+        ))
         .id();
 
     {
         let mut pos = app.world_mut().resource_mut::<HexPositions>();
-        pos.insert(actor,    actor_pos);
+        pos.insert(actor, actor_pos);
         pos.insert(taunter1, taunter1_pos);
         pos.insert(taunter2, taunter2_pos);
         pos.insert(bystander, bystander_pos);
@@ -669,7 +855,7 @@ fn multi_taunter_both_are_legal_targets() {
 
     init_bridge_engine_state(&mut app);
 
-    let actor_uid    = entity_to_uid(actor);
+    let actor_uid = entity_to_uid(actor);
     let taunter1_uid = entity_to_uid(taunter1);
     let taunter2_uid = entity_to_uid(taunter2);
     let bystander_uid = entity_to_uid(bystander);
@@ -677,13 +863,12 @@ fn multi_taunter_both_are_legal_targets() {
     let results: Vec<CaseResult> = app
         .world_mut()
         .run_system_once(
-            move |
-                content: Res<ActiveContent>,
-                positions: Res<HexPositions>,
-                actor_q: Query<ValidationActorQ>,
-                target_q: Query<ValidationTargetQ>,
-                combat_state: Res<CombatStateRes>,
-            | -> Vec<CaseResult> {
+            move |content: Res<ActiveContent>,
+                  positions: Res<HexPositions>,
+                  actor_q: Query<ValidationActorQ>,
+                  target_q: Query<ValidationTargetQ>,
+                  combat_state: Res<CombatStateRes>|
+                  -> Vec<CaseResult> {
                 let bevy_adapter = BevyActions {
                     content: &content,
                     positions: &positions,
@@ -700,31 +885,64 @@ fn multi_taunter_both_are_legal_targets() {
                 let attack_id: AbilityId = ATTACK_ID.into();
 
                 let run = |b: ProposedAction<Entity>, e: ProposedAction<UnitId>| {
-                    (check_legality(b, &bevy_adapter), check_legality(e, &engine_adapter))
+                    (
+                        check_legality(b, &bevy_adapter),
+                        check_legality(e, &engine_adapter),
+                    )
                 };
 
                 vec![
                     // Attacking the first taunter must be legal.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: taunter1, target_pos: taunter1_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: taunter1_uid, target_pos: taunter1_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: taunter1,
+                                target_pos: taunter1_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: taunter1_uid,
+                                target_pos: taunter1_pos,
+                            },
                         );
                         ("multi_taunt_attack_taunter1", br, er)
                     },
                     // Attacking the second taunter must also be legal.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: taunter2, target_pos: taunter2_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: taunter2_uid, target_pos: taunter2_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: taunter2,
+                                target_pos: taunter2_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: taunter2_uid,
+                                target_pos: taunter2_pos,
+                            },
                         );
                         ("multi_taunt_attack_taunter2", br, er)
                     },
                     // Attacking the non-taunter bystander must be illegal.
                     {
                         let (br, er) = run(
-                            ProposedAction { actor, ability: &attack_id, target: bystander, target_pos: bystander_pos },
-                            ProposedAction { actor: actor_uid, ability: &attack_id, target: bystander_uid, target_pos: bystander_pos },
+                            ProposedAction {
+                                actor,
+                                ability: &attack_id,
+                                target: bystander,
+                                target_pos: bystander_pos,
+                            },
+                            ProposedAction {
+                                actor: actor_uid,
+                                ability: &attack_id,
+                                target: bystander_uid,
+                                target_pos: bystander_pos,
+                            },
                         );
                         ("multi_taunt_attack_bystander_blocked", br, er)
                     },
@@ -749,19 +967,31 @@ fn multi_taunter_both_are_legal_targets() {
     );
 
     // Correctness: assert expected outcomes for each case.
-    let by_name = |name: &str| {
-        results.iter().find(|(n, _, _)| *n == name).unwrap()
-    };
+    let by_name = |name: &str| results.iter().find(|(n, _, _)| *n == name).unwrap();
 
     let (_, bt1, et1) = by_name("multi_taunt_attack_taunter1");
     assert!(bt1.is_ok(), "taunter1 should be a legal target: {bt1:?}");
-    assert!(et1.is_ok(), "taunter1 should be a legal target (engine): {et1:?}");
+    assert!(
+        et1.is_ok(),
+        "taunter1 should be a legal target (engine): {et1:?}"
+    );
 
     let (_, bt2, et2) = by_name("multi_taunt_attack_taunter2");
     assert!(bt2.is_ok(), "taunter2 should be a legal target: {bt2:?}");
-    assert!(et2.is_ok(), "taunter2 should be a legal target (engine): {et2:?}");
+    assert!(
+        et2.is_ok(),
+        "taunter2 should be a legal target (engine): {et2:?}"
+    );
 
     let (_, bb, eb) = by_name("multi_taunt_attack_bystander_blocked");
-    assert_eq!(*bb, Err(IllegalReason::TauntForcesTarget), "bystander should be blocked by taunt: {bb:?}");
-    assert_eq!(*eb, Err(IllegalReason::TauntForcesTarget), "bystander should be blocked by taunt (engine): {eb:?}");
+    assert_eq!(
+        *bb,
+        Err(IllegalReason::TauntForcesTarget),
+        "bystander should be blocked by taunt: {bb:?}"
+    );
+    assert_eq!(
+        *eb,
+        Err(IllegalReason::TauntForcesTarget),
+        "bystander should be blocked by taunt (engine): {eb:?}"
+    );
 }

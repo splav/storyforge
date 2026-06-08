@@ -9,8 +9,19 @@
 //! Сериализация transparent — поверх `u64`. Это критично для wire-compat
 //! с JSONL-логами AI (текущие логи хранят actor/target как `u64 bits`).
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[serde(transparent)]
 pub struct EntityId(pub u64);
 
@@ -49,5 +60,4 @@ mod tests {
         let back: EntityId = serde_json::from_str(&s).unwrap();
         assert_eq!(back, id);
     }
-
 }

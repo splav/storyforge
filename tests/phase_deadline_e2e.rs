@@ -11,9 +11,11 @@ use bevy::prelude::*;
 
 use storyforge::app_state::CombatPhase;
 use storyforge::combat::advance_turn::check_phase_deadline_system;
-use storyforge::combat::engine_bridge::{apply_phase_overrides_system, BridgeQueues, PhaseOverrideIntent};
+use storyforge::combat::engine_bridge::{
+    apply_phase_overrides_system, BridgeQueues, PhaseOverrideIntent,
+};
 use storyforge::content::encounters::VictoryCondition;
-use storyforge::game::components::{Combatant, Dead, Faction, Team, Vital, VictoryTarget};
+use storyforge::game::components::{Combatant, Dead, Faction, Team, VictoryTarget, Vital};
 use storyforge::game::resources::{
     CombatContext, CombatObjective, PhaseDeadline, PhaseDeadlineState, UiDirty, UiDirtyFlags,
 };
@@ -36,12 +38,18 @@ fn deadline_app() -> App {
 
 /// Spawn a minimal enemy entity with a `Name` component.
 fn spawn_named_enemy(app: &mut App, name: &str) -> Entity {
-    app.world_mut().spawn((
-        Name::new(name.to_string()),
-        Combatant,
-        Faction(Team::Enemy),
-        Vital { hp: 50, max_hp: 100, armor: 0 },
-    )).id()
+    app.world_mut()
+        .spawn((
+            Name::new(name.to_string()),
+            Combatant,
+            Faction(Team::Enemy),
+            Vital {
+                hp: 50,
+                max_hp: 100,
+                armor: 0,
+            },
+        ))
+        .id()
 }
 
 /// Spawn an enemy with `VictoryTarget` and optionally with `Dead` / hp=0.
@@ -50,8 +58,14 @@ fn spawn_boss(app: &mut App, name: &str, alive: bool) -> Entity {
         Name::new(name.to_string()),
         Combatant,
         Faction(Team::Enemy),
-        Vital { hp: if alive { 50 } else { 0 }, max_hp: 100, armor: 0 },
-        VictoryTarget { marker_color: [1.0, 0.0, 0.0] },
+        Vital {
+            hp: if alive { 50 } else { 0 },
+            max_hp: 100,
+            armor: 0,
+        },
+        VictoryTarget {
+            marker_color: [1.0, 0.0, 0.0],
+        },
     ));
     if !alive {
         ent.insert(Dead);
@@ -61,12 +75,18 @@ fn spawn_boss(app: &mut App, name: &str, alive: bool) -> Entity {
 
 /// Spawn a living hero (player-team combatant) so `players_alive` is true.
 fn spawn_hero(app: &mut App) -> Entity {
-    app.world_mut().spawn((
-        Name::new("Hero"),
-        Combatant,
-        Faction(Team::Player),
-        Vital { hp: 30, max_hp: 30, armor: 0 },
-    )).id()
+    app.world_mut()
+        .spawn((
+            Name::new("Hero"),
+            Combatant,
+            Faction(Team::Player),
+            Vital {
+                hp: 30,
+                max_hp: 30,
+                armor: 0,
+            },
+        ))
+        .id()
 }
 
 // ── apply_phase_overrides_system ──────────────────────────────────────────────
@@ -87,15 +107,18 @@ fn apply_phase_overrides_sets_objective_deadline_and_marker() {
     let boss = spawn_named_enemy(&mut app, "Boss Phase Two");
 
     // Push the intent.
-    app.world_mut().resource_mut::<BridgeQueues>().phase_overrides.push(PhaseOverrideIntent {
-        entity: boss,
-        victory_override: Some(VictoryCondition::KillTarget {
-            enemy_name: "Boss Phase Two".to_string(),
-            marker_color: [1.0, 0.0, 0.0],
-            description: None,
-        }),
-        turn_limit: Some(3),
-    });
+    app.world_mut()
+        .resource_mut::<BridgeQueues>()
+        .phase_overrides
+        .push(PhaseOverrideIntent {
+            entity: boss,
+            victory_override: Some(VictoryCondition::KillTarget {
+                enemy_name: "Boss Phase Two".to_string(),
+                marker_color: [1.0, 0.0, 0.0],
+                description: None,
+            }),
+            turn_limit: Some(3),
+        });
 
     app.world_mut()
         .run_system_once(apply_phase_overrides_system)
@@ -112,7 +135,9 @@ fn apply_phase_overrides_sets_objective_deadline_and_marker() {
 
     // 2. PhaseDeadline must be set with correct round / limit.
     let dl = app.world().resource::<PhaseDeadline>();
-    let state = dl.0.as_ref().expect("PhaseDeadline must be Some after override");
+    let state =
+        dl.0.as_ref()
+            .expect("PhaseDeadline must be Some after override");
     assert_eq!(state.phase_started_round, 2);
     assert_eq!(state.limit, 3);
 
@@ -141,11 +166,14 @@ fn apply_phase_overrides_turn_limit_only() {
 
     let enemy = spawn_named_enemy(&mut app, "Runner");
 
-    app.world_mut().resource_mut::<BridgeQueues>().phase_overrides.push(PhaseOverrideIntent {
-        entity: enemy,
-        victory_override: None,
-        turn_limit: Some(4),
-    });
+    app.world_mut()
+        .resource_mut::<BridgeQueues>()
+        .phase_overrides
+        .push(PhaseOverrideIntent {
+            entity: enemy,
+            victory_override: None,
+            turn_limit: Some(4),
+        });
 
     app.world_mut()
         .run_system_once(apply_phase_overrides_system)
@@ -188,7 +216,11 @@ fn deadline_reached_target_alive_is_defeat() {
     app.update();
 
     let phase = app.world().resource::<State<CombatPhase>>().get().clone();
-    assert_eq!(phase, CombatPhase::Defeat, "expired deadline + boss alive must be Defeat");
+    assert_eq!(
+        phase,
+        CombatPhase::Defeat,
+        "expired deadline + boss alive must be Defeat"
+    );
 }
 
 /// Deadline reached + target dead (player killed in time) → Victory.
@@ -216,7 +248,11 @@ fn deadline_reached_target_dead_is_victory() {
     app.update();
 
     let phase = app.world().resource::<State<CombatPhase>>().get().clone();
-    assert_eq!(phase, CombatPhase::Victory, "expired deadline + boss dead must be Victory");
+    assert_eq!(
+        phase,
+        CombatPhase::Victory,
+        "expired deadline + boss dead must be Victory"
+    );
 }
 
 /// Deadline NOT yet reached (round - started < limit) → no state transition.
@@ -245,7 +281,11 @@ fn deadline_not_reached_no_transition() {
     app.update();
 
     let phase = app.world().resource::<State<CombatPhase>>().get().clone();
-    assert_eq!(phase, CombatPhase::AwaitCommand, "deadline not reached must leave phase unchanged");
+    assert_eq!(
+        phase,
+        CombatPhase::AwaitCommand,
+        "deadline not reached must leave phase unchanged"
+    );
 }
 
 /// No active deadline (PhaseDeadline is None) → no transition.
@@ -262,5 +302,9 @@ fn no_deadline_no_transition() {
     app.update();
 
     let phase = app.world().resource::<State<CombatPhase>>().get().clone();
-    assert_eq!(phase, CombatPhase::AwaitCommand, "no deadline must leave phase unchanged");
+    assert_eq!(
+        phase,
+        CombatPhase::AwaitCommand,
+        "no deadline must leave phase unchanged"
+    );
 }

@@ -8,8 +8,8 @@
 //! Templates have no hex position — position is always supplied at the use site.
 
 use crate::combat::ai::config::tuning::AiTuningOverride;
-use combat_engine::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
+use combat_engine::{AbilityId, ArmorId, WeaponId};
 use serde::Deserialize;
 
 #[derive(Debug, Clone)]
@@ -165,7 +165,10 @@ struct TemplateFile {
 pub fn parse_unit_templates(path: &str, src: &str) -> Vec<UnitTemplateDef> {
     let file: TemplateFile =
         toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
-    file.unit_templates.into_iter().map(convert_template_record).collect()
+    file.unit_templates
+        .into_iter()
+        .map(convert_template_record)
+        .collect()
 }
 
 /// Converts a raw TOML record into the runtime template. Reused by the campaign

@@ -46,14 +46,9 @@ pub mod builder;
 
 // Re-export builder items so existing callers can import them via
 // `crate::combat::ai::outcome::*` without changing their import paths.
-pub use builder::{
-    estimate_kill_soon,
-    from_sim_step,
-    hypothetical,
-    step_path_danger,
-};
+pub use builder::{estimate_kill_soon, from_sim_step, hypothetical, step_path_danger};
 
-use crate::combat::ai::scoring::factors::{PlanFactorValues, FactorTerminalScore};
+use crate::combat::ai::scoring::factors::{FactorTerminalScore, PlanFactorValues};
 use serde::{Deserialize, Serialize};
 
 // ── RejectReason ─────────────────────────────────────────────────────────────
@@ -127,7 +122,8 @@ impl Default for PerItemEval {
             tempo_factor: 0.0,
             eligible: true, // eligible by default; masking stages set to false
             reject_reason: None,
-            considerations: crate::combat::ai::intent::considerations::IntentConsiderations::default(),
+            considerations:
+                crate::combat::ai::intent::considerations::IntentConsiderations::default(),
         }
     }
 }
@@ -141,7 +137,6 @@ impl Default for PerItemEval {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ActionOutcomeEstimate {
     // ── Damage facts (raw, populated by sim walk or hypothetical) ──
-
     /// Raw damage dealt to all enemies (sum over AoE area); 0 for Move steps.
     pub enemy_damage: f32,
     /// Per-entity enemy damage breakdown. Empty for single-target casts (use
@@ -157,7 +152,6 @@ pub struct ActionOutcomeEstimate {
     pub self_damage: f32,
 
     // ── Kill facts ──
-
     /// 1.0 if this step killed ≥1 enemy this turn, else 0.0.
     /// Float reserved for forward-compat (probabilistic AI with dice variance).
     pub p_kill_now: f32,
@@ -165,7 +159,6 @@ pub struct ActionOutcomeEstimate {
     pub p_kill_soon: f32,
 
     // ── Status / control facts (aggregated; per-status breakdown — backlog) ──
-
     /// Σ (skips_turn × duration_rounds) over enemies hit by this step.
     pub cc_turns_applied: f32,
     /// Σ (damage_taken_bonus × duration_rounds) over enemies hit.
@@ -174,19 +167,16 @@ pub struct ActionOutcomeEstimate {
     pub armor_shred_applied: f32,
 
     // ── Support facts ──
-
     /// Raw HP restored, clamped to the target's missing HP; 0 for non-heal.
     pub hp_restored: f32,
 
     // ── Movement facts (Move steps; 0 for Cast) ──
-
     /// Worst danger value along the Move path (max over path tiles).
     pub path_max_danger: f32,
     /// Movement points consumed by this Move step.
     pub mp_spent: i32,
 
     // ── Resource facts ──
-
     /// Action points spent by this step.
     pub ap_spent: i32,
     /// Mana spent by this step.
@@ -195,7 +185,6 @@ pub struct ActionOutcomeEstimate {
     pub rage_spent: i32,
     /// Other resource costs (Energy and any future kinds).
     pub other_resource_spent: i32,
-
 }
 
 /// Result of the viability-gate pass for one plan (step 7.1).
@@ -214,7 +203,10 @@ pub struct ViabilityResult {
 
 impl Default for ViabilityResult {
     fn default() -> Self {
-        Self { passed: true, adjusted_score: 0.0 }
+        Self {
+            passed: true,
+            adjusted_score: 0.0,
+        }
     }
 }
 
@@ -303,7 +295,6 @@ pub struct PlanAnnotation {
     #[serde(default)]
     pub effective_ai_tags: Vec<crate::combat::ai::world::tags::AbilityTagSet>,
     // ── Step 11.4/11.6 fields ─────────────────────────────────────────────────
-
     /// Score immediately after the initial `score_plans_with_raw` pass,
     /// before any pipeline stages run.  Used in `PickBestStage` as the base
     /// for additive per-item composition: `composed = score_initial +
@@ -333,7 +324,8 @@ pub struct PlanAnnotation {
     /// Serialised in schema v32. Factors (`intent_factor`, `tempo_factor`) are
     /// runtime-only and live only in `per_item` (not serialised).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub considerations_per_item: Vec<crate::combat::ai::intent::considerations::IntentConsiderations>,
+    pub considerations_per_item:
+        Vec<crate::combat::ai::intent::considerations::IntentConsiderations>,
 
     /// Step 11.7: per-agenda-item reject reasons as set by `ItemScoringStage`.
     /// `reject_reasons_per_item[i]` is `Some(reason)` when item `i` was
@@ -344,7 +336,6 @@ pub struct PlanAnnotation {
     pub reject_reasons_per_item: Vec<Option<RejectReason>>,
 
     // ── P3a / P3b fields ──────────────────────────────────────────────────────
-
     /// P3a: typed log of score-affecting effects accumulated during pipeline.
     /// Not serialised (runtime-only); see `score_trace_log` for the JSONL mirror.
     ///
@@ -449,7 +440,9 @@ impl PlanAnnotation {
         }
 
         // Push hit into score_trace, deriving enriched detail from the paired observation.
-        use crate::combat::ai::pipeline::score_trace::{MaskHit, MultiplierDetail, MultiplierHit, MultiplierKind};
+        use crate::combat::ai::pipeline::score_trace::{
+            MaskHit, MultiplierDetail, MultiplierHit, MultiplierKind,
+        };
         match &effect.hit {
             ScoreHit::Multiplier(h) => {
                 // Derive detail from paired observation; pairing already validated above.
@@ -457,12 +450,10 @@ impl PlanAnnotation {
                     Some(EffectObservation::Sanity(s)) => {
                         Some(MultiplierDetail::Sanity { rule: s.rule })
                     }
-                    Some(EffectObservation::Critic(c)) => {
-                        Some(MultiplierDetail::Critic {
-                            critic: c.critic,
-                            reason: c.reason.clone(),
-                        })
-                    }
+                    Some(EffectObservation::Critic(c)) => Some(MultiplierDetail::Critic {
+                        critic: c.critic,
+                        reason: c.reason.clone(),
+                    }),
                     _ => None,
                 };
                 // TLE-1 invariant: Sanity/Critic multiplier MUST carry detail.
@@ -493,7 +484,6 @@ impl PlanAnnotation {
             }
             ScoreHit::Gate(h) => self.score_trace.push_gate(*h),
         }
-
     }
 
     /// Recompute cached `score` from `score_trace.compute()`. Called by the
@@ -670,7 +660,10 @@ mod tests {
     #[test]
     fn annotation_default_is_selectable() {
         let ann = PlanAnnotation::default();
-        assert!(ann.is_selectable(), "default annotation has no masks/gates — selectable");
+        assert!(
+            ann.is_selectable(),
+            "default annotation has no masks/gates — selectable"
+        );
         let key = ann.selection_key();
         assert!(key.selectable);
         assert_eq!(key.score, ann.score());
@@ -686,7 +679,11 @@ mod tests {
         ann.apply_effect(&AppliedEffect {
             source: StageId::ProtectSelfMask,
             plan_index: 0,
-            hit: ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, source: "protect_self", original_score: None }),
+            hit: ScoreHit::Mask(MaskHit {
+                kind: MaskKind::Poison,
+                source: "protect_self",
+                original_score: None,
+            }),
             observability: None,
         });
         assert!(!ann.is_selectable(), "masked plan is not selectable");
@@ -703,7 +700,10 @@ mod tests {
         ann.apply_effect(&AppliedEffect {
             source: StageId::KillableGate,
             plan_index: 0,
-            hit: ScoreHit::Gate(GateHit { outcome: GateOutcome::Reject, source: "killable_gate" }),
+            hit: ScoreHit::Gate(GateHit {
+                outcome: GateOutcome::Reject,
+                source: "killable_gate",
+            }),
             observability: None,
         });
         assert!(!ann.is_selectable(), "gated plan is not selectable");
@@ -721,13 +721,20 @@ mod tests {
         ann.apply_effect(&AppliedEffect {
             source: StageId::Sanity,
             plan_index: 0,
-            hit: ScoreHit::Multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.8, detail: None }),
+            hit: ScoreHit::Multiplier(MultiplierHit {
+                kind: MultiplierKind::Sanity,
+                value: 0.8,
+                detail: None,
+            }),
             observability: Some(EffectObservation::Sanity(SanityHit {
                 rule: SanityRule::HealerExposure,
                 multiplier: 0.8,
             })),
         });
-        assert!(ann.is_selectable(), "multiplier-only plan remains selectable");
+        assert!(
+            ann.is_selectable(),
+            "multiplier-only plan remains selectable"
+        );
         assert!(ann.selection_key().selectable);
     }
 }

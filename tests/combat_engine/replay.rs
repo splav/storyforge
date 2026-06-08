@@ -18,28 +18,43 @@
 use hexx::Hex;
 
 use storyforge::combat_engine::{
-    AbilityDef, AbilityId, AbilityRange, AoEShape, DiceExpr, DiceRng, EffectDef,
-    PhaseEntry, StatusDef, StatusId, TargetType,
     action::Action,
-    content::ContentView,  // used by record_then_replay signature
+    content::ContentView, // used by record_then_replay signature
     event::Event,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
     trace::{
-        InitLine, StepLine, SCHEMA_VERSION, parse_init, parse_step,
-        post_state_hash_hex, serialize_init, serialize_step,
+        parse_init, parse_step, post_state_hash_hex, serialize_init, serialize_step, InitLine,
+        StepLine, SCHEMA_VERSION,
     },
+    AbilityDef,
+    AbilityId,
+    AbilityRange,
+    AoEShape,
+    DiceExpr,
+    DiceRng,
+    EffectDef,
+    PhaseEntry,
+    StatusDef,
+    StatusId,
+    TargetType,
 };
 
 #[allow(dead_code)]
-fn sid(s: &str) -> StatusId { StatusId(s.to_string()) }
+fn sid(s: &str) -> StatusId {
+    StatusId(s.to_string())
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const SEED: u64 = 0xDEAD_BEEF_1234_5678;
 
-fn uid(n: u64) -> UnitId { UnitId(n) }
-fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
+fn abid(s: &str) -> AbilityId {
+    AbilityId(s.to_string())
+}
 
 use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
 
@@ -51,7 +66,7 @@ fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
         .hp(hp, max_hp)
         .speed(4)
         .ap(3, 3)
-        .build()  // Mp default is (6,6) — matches
+        .build() // Mp default is (6,6) — matches
 }
 
 /// Build `InitLine` from a `CombatState` and a seed.
@@ -71,12 +86,7 @@ fn init_line_for(state: &CombatState, seed: u64) -> InitLine {
 
 /// Build `CombatState` from an `InitLine`.
 fn state_from_init(init: &InitLine) -> CombatState {
-    let mut state = CombatState::new(
-        init.units.clone(),
-        init.round,
-        init.phase,
-        init.rng_seed,
-    );
+    let mut state = CombatState::new(init.units.clone(), init.round, init.phase, init.rng_seed);
     state.set_turn_queue(init.turn_queue.order.clone(), init.turn_queue.index);
     state.set_next_synthetic_uid(init.next_synthetic_uid);
     state
@@ -94,9 +104,7 @@ fn record_then_replay(
     let init = init_line_for(&state, seed);
     let mut rng = DiceRng::with_seed(seed);
 
-    let mut recorded_jsonl: Vec<String> = vec![
-        serialize_init(&init).expect("serialize init"),
-    ];
+    let mut recorded_jsonl: Vec<String> = vec![serialize_init(&init).expect("serialize init")];
     let mut step_lines: Vec<StepLine> = vec![];
 
     for (idx, action) in actions.into_iter().enumerate() {
@@ -127,9 +135,13 @@ fn record_then_replay(
     for (idx, step_json) in lines_iter.enumerate() {
         let recorded = parse_step(step_json).expect("parse step");
 
-        let (live_events, live_ctx) =
-            step(&mut replay_state, recorded.action.clone(), &mut replay_rng, content)
-                .unwrap_or_else(|e| panic!("replay step {idx} failed: {e:?}"));
+        let (live_events, live_ctx) = step(
+            &mut replay_state,
+            recorded.action.clone(),
+            &mut replay_rng,
+            content,
+        )
+        .unwrap_or_else(|e| panic!("replay step {idx} failed: {e:?}"));
 
         assert_eq!(
             live_events, recorded.events,
@@ -162,7 +174,10 @@ fn replay_pure_move_no_enemies() {
     state.set_turn_queue(vec![uid(1)], 0);
 
     let path = vec![Hex::new(0, 0), Hex::new(1, 0), Hex::new(2, 0)];
-    let actions = vec![Action::Move { actor: uid(1), path }];
+    let actions = vec![Action::Move {
+        actor: uid(1),
+        path,
+    }];
 
     let lines = record_then_replay(state, SEED, &StubContent::new(), actions);
     assert_eq!(lines.len(), 1);
@@ -188,18 +203,16 @@ fn replay_move_with_aoo_chain() {
     enemy.aoo_dice = Some(DiceExpr::new(1, 4, 0));
     enemy.reactions_left = 1;
 
-    let mut state = CombatState::new(
-        vec![mover, enemy],
-        1,
-        RoundPhase::ActorTurn,
-        SEED,
-    );
+    let mut state = CombatState::new(vec![mover, enemy], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![uid(1), uid(2)], 0);
 
     // Stepping from (0,0) → (-1,0): distance from (-1,0) to enemy (1,0) = 2
     // → no longer adjacent → AoO fires. Single-step path to keep it simple.
     let path = vec![Hex::new(0, 0), Hex::new(-1, 0)];
-    let actions = vec![Action::Move { actor: uid(1), path }];
+    let actions = vec![Action::Move {
+        actor: uid(1),
+        path,
+    }];
 
     let lines = record_then_replay(state, SEED, &StubContent::new(), actions);
     assert_eq!(lines.len(), 1);
@@ -225,12 +238,7 @@ fn replay_cast_damage_basic() {
 
     let target = make_unit(2, Team::Enemy, 20, 20, Hex::new(1, 0));
 
-    let mut state = CombatState::new(
-        vec![actor, target],
-        1,
-        RoundPhase::ActorTurn,
-        SEED,
-    );
+    let mut state = CombatState::new(vec![actor, target], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![actor_id, target_id], 0);
 
     let ability_id = abid("strike");
@@ -243,11 +251,13 @@ fn replay_cast_damage_basic() {
         aoe: AoEShape::None,
         friendly_fire: false,
         requires_los: false,
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 2) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 2),
+        },
         statuses: vec![],
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability.clone());
@@ -262,10 +272,17 @@ excludes_tags: Default::default()
     let lines = record_then_replay(state, SEED, &content, actions);
     assert_eq!(lines.len(), 1);
     // Cast uses at least 1 RNG call (d20 crit-fail check)
-    assert!(lines[0].rng_calls >= 1, "cast must use RNG; got {}", lines[0].rng_calls);
+    assert!(
+        lines[0].rng_calls >= 1,
+        "cast must use RNG; got {}",
+        lines[0].rng_calls
+    );
     // Must have a UnitDamaged event
     assert!(
-        lines[0].events.iter().any(|e| matches!(e, Event::UnitDamaged { .. })),
+        lines[0]
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::UnitDamaged { .. })),
         "expected UnitDamaged in {:?}",
         lines[0].events
     );
@@ -285,14 +302,14 @@ fn replay_phase_trigger() {
 
     // Boss: 100 hp, 50% threshold at 50 hp. Fixed damage of 60 will cross it.
     let mut boss = make_unit(2, Team::Enemy, 100, 100, Hex::new(1, 0));
-    boss.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 150, heal_to_full: false, tags: None }];
+    boss.enemy_phases = vec![PhaseEntry {
+        pct: 50,
+        new_max_hp: 150,
+        heal_to_full: false,
+        tags: None,
+    }];
 
-    let mut state = CombatState::new(
-        vec![attacker, boss],
-        1,
-        RoundPhase::ActorTurn,
-        SEED,
-    );
+    let mut state = CombatState::new(vec![attacker, boss], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![attacker_id, boss_id], 0);
 
     // Use a high fixed-bonus ability so damage definitely crosses 50% threshold.
@@ -307,11 +324,13 @@ fn replay_phase_trigger() {
         friendly_fire: false,
         requires_los: false,
         // 1d6 + 60 will always exceed 50 hp out of 100
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 60) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 60),
+        },
         statuses: vec![],
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
@@ -326,7 +345,10 @@ excludes_tags: Default::default()
     let lines = record_then_replay(state, SEED, &content, actions);
     assert_eq!(lines.len(), 1);
     assert!(
-        lines[0].events.iter().any(|e| matches!(e, Event::PhaseEntered { .. })),
+        lines[0]
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::PhaseEntered { .. })),
         "expected PhaseEntered in {:?}",
         lines[0].events
     );
@@ -351,10 +373,15 @@ fn replay_endturn_advances_queue() {
 
     struct NoContent;
     impl ContentView for NoContent {
-
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+            None
+        }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+            None
+        }
     }
 
     let actions = vec![Action::EndTurn { actor: uid(1) }];
@@ -363,8 +390,14 @@ fn replay_endturn_advances_queue() {
     // EndTurn uses no RNG
     assert_eq!(lines[0].rng_calls, 0);
     // Must emit TurnEnded + TurnStarted
-    assert!(lines[0].events.iter().any(|e| matches!(e, Event::TurnEnded { .. })));
-    assert!(lines[0].events.iter().any(|e| matches!(e, Event::TurnStarted { .. })));
+    assert!(lines[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, Event::TurnEnded { .. })));
+    assert!(lines[0]
+        .events
+        .iter()
+        .any(|e| matches!(e, Event::TurnStarted { .. })));
 }
 
 // ── Divergence sentinels (gate honesty) ──────────────────────────────────────
@@ -379,10 +412,15 @@ fn replay_event_divergence_detected() {
 
     struct NoContent;
     impl ContentView for NoContent {
-
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+            None
+        }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+            None
+        }
+        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+            None
+        }
     }
 
     let path = vec![Hex::new(0, 0), Hex::new(1, 0)];
@@ -391,10 +429,14 @@ fn replay_event_divergence_detected() {
 
     let (events, ctx) = step(
         &mut state,
-        Action::Move { actor: uid(1), path: path.clone() },
+        Action::Move {
+            actor: uid(1),
+            path: path.clone(),
+        },
         &mut rng,
         &NoContent,
-    ).unwrap();
+    )
+    .unwrap();
     let hash = post_state_hash_hex(&state);
 
     // Record with tampered events (append a spurious extra event).
@@ -404,7 +446,10 @@ fn replay_event_divergence_detected() {
     let step_line = StepLine {
         schema: SCHEMA_VERSION,
         step: 0,
-        action: Action::Move { actor: uid(1), path },
+        action: Action::Move {
+            actor: uid(1),
+            path,
+        },
         events: tampered_events,
         rng_calls: ctx.rng_calls,
         post_state_hash: hash,
@@ -423,7 +468,8 @@ fn replay_event_divergence_detected() {
         recorded.action.clone(),
         &mut replay_rng,
         &NoContent,
-    ).unwrap();
+    )
+    .unwrap();
 
     assert_eq!(live_events, recorded.events, "events diverged");
 }
@@ -449,11 +495,13 @@ fn replay_rng_count_divergence_detected() {
         aoe: AoEShape::None,
         friendly_fire: false,
         requires_los: false,
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         statuses: vec![],
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
@@ -475,7 +523,7 @@ excludes_tags: Default::default()
         step: 0,
         action: action.clone(),
         events,
-        rng_calls: ctx.rng_calls + 99,   // <-- tampered
+        rng_calls: ctx.rng_calls + 99, // <-- tampered
         post_state_hash: hash,
     };
     let init_json = serialize_init(&init).unwrap();
@@ -492,7 +540,8 @@ excludes_tags: Default::default()
         recorded.action.clone(),
         &mut replay_rng,
         &content,
-    ).unwrap();
+    )
+    .unwrap();
 
     assert_eq!(
         live_ctx.rng_calls, recorded.rng_calls,
@@ -507,11 +556,8 @@ excludes_tags: Default::default()
 /// captured in `rng_calls` and the `post_state_hash` is identical on replay.
 #[test]
 fn replay_summon_initiative_hash_stable() {
-    use storyforge::combat_engine::{
-        PoolKind, RegenRule, UnitTemplate,
-        content::CasterContext,
-    };
     use storyforge::combat_engine::enum_map::enum_map as em;
+    use storyforge::combat_engine::{content::CasterContext, PoolKind, RegenRule, UnitTemplate};
 
     // ── Local content that serves a Summon ability + a unit template ─────────
     struct SummonStub {
@@ -523,10 +569,17 @@ fn replay_summon_initiative_hash_stable() {
             let mut ctx = CasterContext::default();
             ctx.dex_mod = 4; // high dex so total is distinct from the raw roll
             let template = UnitTemplate {
-                max_hp: 6, armor: 0, base_speed: 4,
-                max_ap: 1, mana_max: 0, energy_max: 0, rage_max: 0,
-                caster_context: ctx, aoo_dice: None,
-                auras: Vec::new(), enemy_phases: Vec::new(),
+                max_hp: 6,
+                armor: 0,
+                base_speed: 4,
+                max_ap: 1,
+                mana_max: 0,
+                energy_max: 0,
+                rage_max: 0,
+                caster_context: ctx,
+                aoo_dice: None,
+                auras: Vec::new(),
+                enemy_phases: Vec::new(),
                 regen_per_pool: em! {
                     PoolKind::Hp     => RegenRule::None,
                     PoolKind::Mana   => RegenRule::Increment(1),
@@ -547,25 +600,46 @@ fn replay_summon_initiative_hash_stable() {
                 tags: Default::default(),
             };
             let ability = AbilityDef {
-                key: None, cost_ap: 1, costs: vec![],
+                key: None,
+                cost_ap: 1,
+                costs: vec![],
                 range: AbilityRange { min: 0, max: 0 },
                 target_type: TargetType::Myself,
-                aoe: AoEShape::None, friendly_fire: false,
-                effect: EffectDef::Summon { template_id: "minion".into(), max_active: None },
-                statuses: vec![], requires_los: false, passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                effect: EffectDef::Summon {
+                    template_id: "minion".into(),
+                    max_active: None,
+                },
+                statuses: vec![],
+                requires_los: false,
+                passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
             };
             Self { ability, template }
         }
     }
     impl storyforge::combat_engine::content::ContentView for SummonStub {
         fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-            if id.0 == "summon" { Some(&self.ability) } else { None }
+            if id.0 == "summon" {
+                Some(&self.ability)
+            } else {
+                None
+            }
         }
-        fn status_def(&self, _: &storyforge::combat_engine::StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
+        fn status_def(
+            &self,
+            _: &storyforge::combat_engine::StatusId,
+        ) -> Option<&storyforge::combat_engine::StatusDef> {
+            None
+        }
         fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
-            if id == "minion" { Some(self.template.clone()) } else { None }
+            if id == "minion" {
+                Some(self.template.clone())
+            } else {
+                None
+            }
         }
     }
 

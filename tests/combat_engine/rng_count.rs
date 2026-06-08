@@ -1,11 +1,10 @@
+use hexx::Hex;
 /// RNG call-count canary tests (Phase 5 D2).
 ///
 /// Verifies that `ApplyCtx::rng_calls` accurately reflects the number of
 /// `DiceSource::roll_d` invocations consumed by each `step()` call, and that
 /// `ExpectedValue::call_count()` stays at 0 (deterministic source).
 use storyforge::combat_engine::{
-    AbilityId,
-    UnitTemplate,
     action::Action,
     content::{
         AbilityDef, AbilityRange, AoEShape, ContentView, CritFailOutcome, EffectDef, TargetType,
@@ -13,9 +12,8 @@ use storyforge::combat_engine::{
     dice::{DiceExpr, DiceRng, DiceSource, ExpectedValue},
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
-    StatusDef, StatusId,
+    AbilityId, StatusDef, StatusId, UnitTemplate,
 };
-use hexx::Hex;
 
 use crate::common::engine_unit::EngineUnitBuilder;
 
@@ -37,9 +35,15 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
 struct NoWeaponContent;
 
 impl ContentView for NoWeaponContent {
-    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
+    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+        None
+    }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+        None
+    }
+    fn unit_template(&self, _: &str) -> Option<UnitTemplate> {
+        None
+    }
 }
 
 /// Minimal content stub for AoO tests (weapon dice now on unit.caster_context).
@@ -49,9 +53,15 @@ struct WithWeaponContent(DiceExpr);
 /// Weapon dice now live on Unit.caster_context.weapon_dice (5c.1).
 /// This impl provides only the 4 static-content methods.
 impl ContentView for WithWeaponContent {
-    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
+    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
+        None
+    }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+        None
+    }
+    fn unit_template(&self, _: &str) -> Option<UnitTemplate> {
+        None
+    }
 }
 
 /// Single ability definition, crit-fail = Miss.
@@ -62,10 +72,18 @@ struct CastContent {
 
 impl ContentView for CastContent {
     fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-        if id.0 == self.id { Some(&self.def) } else { None }
+        if id.0 == self.id {
+            Some(&self.def)
+        } else {
+            None
+        }
     }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
-    fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+        None
+    }
+    fn unit_template(&self, _: &str) -> Option<UnitTemplate> {
+        None
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -78,7 +96,11 @@ fn expected_value_call_count_always_zero() {
     let _ = ev.roll(DiceExpr::new(2, 6, 3));
     let _ = ev.roll(DiceExpr::new(1, 20, 0));
     let _ = ev.roll_disadvantage(DiceExpr::new(1, 8, 0));
-    assert_eq!(ev.call_count(), 0, "ExpectedValue.call_count() must always be 0");
+    assert_eq!(
+        ev.call_count(),
+        0,
+        "ExpectedValue.call_count() must always be 0"
+    );
 }
 
 /// `Action::Move` with no enemies in range consumes 0 RNG rolls.
@@ -91,13 +113,19 @@ fn move_no_aoo_consumes_zero_rolls() {
     let path = vec![Hex::new(1, 0), Hex::new(2, 0)];
     let (_, ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path },
+        Action::Move {
+            actor: UnitId(1),
+            path,
+        },
         &mut rng,
         &NoWeaponContent,
     )
     .expect("move should succeed");
 
-    assert_eq!(ctx.rng_calls, 0, "Move with no AoO must consume 0 RNG rolls");
+    assert_eq!(
+        ctx.rng_calls, 0,
+        "Move with no AoO must consume 0 RNG rolls"
+    );
 }
 
 /// `Action::Move` provoking 1 AoO consumes exactly 1 RNG roll.
@@ -116,8 +144,16 @@ fn move_with_one_aoo_consumes_one_roll() {
     // Destination: move away so actor leaves enemy's ZoC.
     // (-1,0) is distance 1 from ZERO; verify it is NOT adjacent to enemy at (1,0).
     let dest = Hex::new(-1, 0);
-    assert_eq!(Hex::ZERO.unsigned_distance_to(enemy_pos), 1, "enemy adjacent to start");
-    assert_ne!(dest.unsigned_distance_to(enemy_pos), 1, "dest must not be adjacent to enemy");
+    assert_eq!(
+        Hex::ZERO.unsigned_distance_to(enemy_pos),
+        1,
+        "enemy adjacent to start"
+    );
+    assert_ne!(
+        dest.unsigned_distance_to(enemy_pos),
+        1,
+        "dest must not be adjacent to enemy"
+    );
 
     // Weapon: 1d6 (count=1 → exactly 1 roll_d call). AoO dice lives on unit.aoo_dice (5c.1).
     let weapon = DiceExpr::new(1, 6, 0);
@@ -129,13 +165,19 @@ fn move_with_one_aoo_consumes_one_roll() {
 
     let (_, ctx) = step(
         &mut state,
-        Action::Move { actor: UnitId(1), path: vec![dest] },
+        Action::Move {
+            actor: UnitId(1),
+            path: vec![dest],
+        },
         &mut rng,
         &WithWeaponContent(weapon),
     )
     .expect("move with AoO should succeed");
 
-    assert_eq!(ctx.rng_calls, 1, "Move with 1 AoO (1d6 weapon) must consume exactly 1 roll");
+    assert_eq!(
+        ctx.rng_calls, 1,
+        "Move with 1 AoO (1d6 weapon) must consume exactly 1 roll"
+    );
 }
 
 /// `Action::Cast` on 3 targets consumes 1 (d20 crit-fail) + 3 (damage, 1d4 each) = 4 rolls.
@@ -166,13 +208,18 @@ fn cast_3_targets_consumes_d20_plus_3_damage_rolls() {
         aoe: AoEShape::Circle { radius: 1 },
         friendly_fire: false,
         requires_los: false,
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         statuses: vec![],
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
-    let content = CastContent { id: "fireball".to_string(), def };
+    let content = CastContent {
+        id: "fireball".to_string(),
+        def,
+    };
 
     let action = Action::Cast {
         actor: UnitId(1),

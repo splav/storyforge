@@ -32,12 +32,18 @@ impl EngineTraceWriter {
         }
     }
 
-    pub fn is_open(&self) -> bool { self.writer.is_some() }
-    pub fn step_counter(&self) -> u64 { self.step_counter }
+    pub fn is_open(&self) -> bool {
+        self.writer.is_some()
+    }
+    pub fn step_counter(&self) -> u64 {
+        self.step_counter
+    }
 
     /// Write the `init` line once at combat start.
     pub fn write_init(&mut self, line: &InitLine) -> std::io::Result<()> {
-        let Some(w) = self.writer.as_mut() else { return Ok(()) };
+        let Some(w) = self.writer.as_mut() else {
+            return Ok(());
+        };
         let json = trace::serialize_init(line)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         writeln!(w, "{json}")?;
@@ -54,7 +60,9 @@ impl EngineTraceWriter {
         rng_calls: u64,
         post_state_hash: String,
     ) -> std::io::Result<()> {
-        let Some(w) = self.writer.as_mut() else { return Ok(()) };
+        let Some(w) = self.writer.as_mut() else {
+            return Ok(());
+        };
         let line = StepLine {
             schema: SCHEMA_VERSION,
             step: self.step_counter,

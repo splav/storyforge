@@ -1,6 +1,6 @@
 use crate::content::weapons::WeaponDef;
-use combat_engine::{modifier, AbilityId, DiceExpr, ResourceKind, StatusId, WeaponId};
 use crate::game::components::{CombatStats, Equipment};
+use combat_engine::{modifier, AbilityId, DiceExpr, ResourceKind, StatusId, WeaponId};
 use serde::Deserialize;
 
 pub use combat_engine::TargetType;
@@ -12,11 +12,6 @@ pub use combat_engine::StatusApplication;
 pub use combat_engine::AbilityRange;
 
 pub use combat_engine::AoEShape;
-
-
-
-
-
 
 // EffectDef and PassiveTrigger are re-exported from the engine.
 pub use combat_engine::EffectDef;
@@ -162,8 +157,12 @@ struct AbilityFile {
     abilities: Vec<AbilityRecord>,
 }
 
-fn default_range() -> u32 { 1 }
-fn default_cost_ap() -> i32 { 1 }
+fn default_range() -> u32 {
+    1
+}
+fn default_cost_ap() -> i32 {
+    1
+}
 
 #[derive(Deserialize)]
 struct AbilityRecord {
@@ -238,8 +237,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
     if !std::path::Path::new(&path).is_file() {
         return Vec::new();
     }
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
     parse_abilities(&path, &src)
 }
 
@@ -275,27 +273,45 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
             let (effect, is_move_toggle) = match r.effect.as_str() {
                 "" | "none" => (EffectDef::None, false),
                 "weapon_attack" => (EffectDef::WeaponAttack, false),
-                "damage" => (EffectDef::Damage {
-                    dice: need_dice(&r.id, r.dice_count, r.dice_sides),
-                }, false),
-                "spell_damage" => (EffectDef::SpellDamage {
-                    dice: need_dice(&r.id, r.dice_count, r.dice_sides),
-                }, false),
-                "heal" => (EffectDef::Heal {
-                    dice: need_dice(&r.id, r.dice_count, r.dice_sides),
-                }, false),
-                "grant_movement" => (EffectDef::GrantMovement {
-                    distance: r.distance,
-                }, false),
+                "damage" => (
+                    EffectDef::Damage {
+                        dice: need_dice(&r.id, r.dice_count, r.dice_sides),
+                    },
+                    false,
+                ),
+                "spell_damage" => (
+                    EffectDef::SpellDamage {
+                        dice: need_dice(&r.id, r.dice_count, r.dice_sides),
+                    },
+                    false,
+                ),
+                "heal" => (
+                    EffectDef::Heal {
+                        dice: need_dice(&r.id, r.dice_count, r.dice_sides),
+                    },
+                    false,
+                ),
+                "grant_movement" => (
+                    EffectDef::GrantMovement {
+                        distance: r.distance,
+                    },
+                    false,
+                ),
                 "restore_resources" => (EffectDef::RestoreResources, false),
                 // UI-only sentinel: no engine effect; flag set on AbilityDef.
                 "toggle_move_mode" => (EffectDef::None, true),
-                "summon" => (EffectDef::Summon {
-                    template_id: r.summon_template.clone().unwrap_or_else(|| {
-                        panic!("{path}: ability '{}' effect=summon missing summon_template", r.id)
-                    }),
-                    max_active: r.summon_max_active,
-                }, false),
+                "summon" => (
+                    EffectDef::Summon {
+                        template_id: r.summon_template.clone().unwrap_or_else(|| {
+                            panic!(
+                                "{path}: ability '{}' effect=summon missing summon_template",
+                                r.id
+                            )
+                        }),
+                        max_active: r.summon_max_active,
+                    },
+                    false,
+                ),
                 // "reveal_env" is the canonical token; "reveal_env_in_range" accepted
                 // as a legacy alias.  Radius is sourced from the aoe shape.
                 "reveal_env" | "reveal_env_in_range" => {
@@ -307,11 +323,18 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                 }
                 other => panic!("{path}: unknown effect '{other}'"),
             };
-            let passive: Vec<EngineTrigger> = r.passive.iter().map(|tok| match tok.as_str() {
-                "turn_start" => EngineTrigger::TurnStart,
-                "on_move" => EngineTrigger::OnMove,
-                other => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
-            }).collect();
+            let passive: Vec<EngineTrigger> = r
+                .passive
+                .iter()
+                .map(|tok| match tok.as_str() {
+                    "turn_start" => EngineTrigger::TurnStart,
+                    "on_move" => EngineTrigger::OnMove,
+                    other => panic!(
+                        "{path}: ability '{}' unknown passive trigger '{other}'",
+                        r.id
+                    ),
+                })
+                .collect();
             let statuses = r
                 .statuses
                 .into_iter()
@@ -339,13 +362,22 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                         "energy" => ResourceKind::Energy,
                         other => panic!("{path}: ability '{}' unknown resource '{other}'", r.id),
                     };
-                    ResourceCost { resource, amount: c.amount }
+                    ResourceCost {
+                        resource,
+                        amount: c.amount,
+                    }
                 })
                 .collect();
             let is_magical = !r.magic_domains.is_empty() || !r.magic_method.is_empty();
             if is_magical {
-                let has_mana_cost = costs.iter().any(|c| c.resource == ResourceKind::Mana && c.amount > 0);
-                assert!(has_mana_cost, "{path}: magical ability '{}' must have a mana cost", r.id);
+                let has_mana_cost = costs
+                    .iter()
+                    .any(|c| c.resource == ResourceKind::Mana && c.amount > 0);
+                assert!(
+                    has_mana_cost,
+                    "{path}: magical ability '{}' must have a mana cost",
+                    r.id
+                );
             }
 
             AbilityDef {
@@ -359,7 +391,10 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     key: r.key,
                     cost_ap: r.cost_ap,
                     costs,
-                    range: AbilityRange { min: r.min_range, max: r.range },
+                    range: AbilityRange {
+                        min: r.min_range,
+                        max: r.range,
+                    },
                     target_type,
                     aoe,
                     friendly_fire: r.friendly_fire,
@@ -367,10 +402,14 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     statuses,
                     requires_los: r.requires_los,
                     passive,
-                    requires_tags: r.requires_tags.iter()
+                    requires_tags: r
+                        .requires_tags
+                        .iter()
                         .map(|s| combat_engine::TagId::from(s.as_str()))
                         .collect(),
-                    excludes_tags: r.excludes_tags.iter()
+                    excludes_tags: r
+                        .excludes_tags
+                        .iter()
                         .map(|s| combat_engine::TagId::from(s.as_str()))
                         .collect(),
                 },
@@ -383,8 +422,18 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
 mod tests {
     use super::*;
 
-    fn ctx(str_mod: i32, int_mod: i32, spell_power: i32, weapon_dice: Option<DiceExpr>) -> CasterContext {
-        CasterContext { str_mod, int_mod, spell_power, weapon_dice }
+    fn ctx(
+        str_mod: i32,
+        int_mod: i32,
+        spell_power: i32,
+        weapon_dice: Option<DiceExpr>,
+    ) -> CasterContext {
+        CasterContext {
+            str_mod,
+            int_mod,
+            spell_power,
+            weapon_dice,
+        }
     }
 
     // ── calc() returns correct bonus and flags per effect type ────────────
@@ -406,7 +455,11 @@ mod tests {
         let dice = DiceExpr::new(1, 8, 0);
         let calc = EffectDef::Damage { dice }.calc(&c).unwrap();
         assert_eq!(calc.bonus, 3, "should use str_mod, not int_mod");
-        assert_eq!(calc.dice.as_ref().unwrap().sides, 8, "should use ability dice, not weapon dice");
+        assert_eq!(
+            calc.dice.as_ref().unwrap().sides,
+            8,
+            "should use ability dice, not weapon dice"
+        );
         assert!(!calc.pierces_armor);
     }
 
@@ -445,7 +498,10 @@ mod tests {
         let dice = DiceExpr::new(2, 6, 0); // E[2d6] = 7.0
         let calc = EffectDef::Damage { dice }.calc(&c).unwrap();
         let expected = calc.expected();
-        assert!((expected - 9.0).abs() < 0.01, "E[2d6]+2 = 9.0, got {expected}");
+        assert!(
+            (expected - 9.0).abs() < 0.01,
+            "E[2d6]+2 = 9.0, got {expected}"
+        );
     }
 
     #[test]

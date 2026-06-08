@@ -1,18 +1,18 @@
-use bevy::prelude::Entity;
-use crate::content::content_view::ContentView;
+use super::kinds::TacticalIntent;
 use crate::combat::ai::adapt::EvaluationMode;
-use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, StepFactor};
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::scoring::position_eval::evaluate_position;
-use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::UnitView;
-use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::content::abilities::{AoEShape, TargetType};
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
+use crate::combat::ai::scoring::applies_cc;
+use crate::combat::ai::scoring::factors::ScoredStep;
+use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, StepFactor};
+use crate::combat::ai::scoring::position_eval::evaluate_position;
+use crate::combat::ai::world::snapshot::UnitView;
 #[cfg(test)]
 use crate::content::abilities::EffectCalcExt;
+use crate::content::abilities::{AoEShape, TargetType};
+use crate::content::content_view::ContentView;
 use crate::game::hex::Hex;
-use super::kinds::TacticalIntent;
+use bevy::prelude::Entity;
 
 // ── Pursuit (Move alignment under FocusTarget / ApplyCC) ───────────────────
 
@@ -106,10 +106,22 @@ pub struct IntentWeights {
 }
 
 impl IntentWeights {
-    pub fn damage(mut self, w: f32) -> Self { self.damage = w; self }
-    pub fn kill_now(mut self, w: f32) -> Self { self.kill_now = w; self }
-    pub fn kill_promised(mut self, w: f32) -> Self { self.kill_promised = w; self }
-    pub fn cc(mut self, w: f32) -> Self { self.cc = w; self }
+    pub fn damage(mut self, w: f32) -> Self {
+        self.damage = w;
+        self
+    }
+    pub fn kill_now(mut self, w: f32) -> Self {
+        self.kill_now = w;
+        self
+    }
+    pub fn kill_promised(mut self, w: f32) -> Self {
+        self.kill_promised = w;
+        self
+    }
+    pub fn cc(mut self, w: f32) -> Self {
+        self.cc = w;
+        self
+    }
 }
 
 // ── Narrow offensive API ─────────────────────────────────────────────────────
@@ -134,7 +146,12 @@ pub(crate) fn intent_offensive_value_on_target(
 
     let scale = match step {
         ScoredStep::Move { .. } => return 0.0,
-        ScoredStep::Cast { ability, target, target_pos, caster_tile } => {
+        ScoredStep::Cast {
+            ability,
+            target,
+            target_pos,
+            caster_tile,
+        } => {
             if *target == focus {
                 1.0
             } else if let Some(def) = content.abilities.get(*ability) {
@@ -158,10 +175,10 @@ pub(crate) fn intent_offensive_value_on_target(
         }
     };
 
-    let damage     = StepFactor::Damage.compute(ctx, step, outcome, &needs);
-    let kill_now   = StepFactor::KillNow.compute(ctx, step, outcome, &needs);
-    let kill_prom  = StepFactor::KillPromised.compute(ctx, step, outcome, &needs);
-    let cc         = StepFactor::Cc.compute(ctx, step, outcome, &needs);
+    let damage = StepFactor::Damage.compute(ctx, step, outcome, &needs);
+    let kill_now = StepFactor::KillNow.compute(ctx, step, outcome, &needs);
+    let kill_prom = StepFactor::KillPromised.compute(ctx, step, outcome, &needs);
+    let cc = StepFactor::Cc.compute(ctx, step, outcome, &needs);
 
     (weights.damage * damage
         + weights.kill_now * kill_now
@@ -197,9 +214,12 @@ pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32
     let active = step_ctx.active;
 
     let cast = match step {
-        ScoredStep::Cast { ability, target_pos, target, .. } => {
-            Some((*ability, *target_pos, *target))
-        }
+        ScoredStep::Cast {
+            ability,
+            target_pos,
+            target,
+            ..
+        } => Some((*ability, *target_pos, *target)),
         ScoredStep::Move { .. } => None,
     };
 
@@ -207,13 +227,18 @@ pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32
         // LastStand wants last useful action, not running.
         return -0.3;
     };
-    let Some(def) = content.abilities.get(ability) else { return 0.0 };
+    let Some(def) = content.abilities.get(ability) else {
+        return 0.0;
+    };
     let mut score = 0.0f32;
 
     // "Direct offensive action" bonus in LastStand: covers both
     // entity-targeted (SingleEnemy) and cell-targeted (Ground)
     // attacks. AoE footprint gets an additional +0.3 below.
-    if matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground) {
+    if matches!(
+        def.target_type,
+        TargetType::SingleEnemy | TargetType::Ground
+    ) {
         score += 0.5;
     }
     if let Some(target_unit) = snap.unit(target) {
@@ -251,7 +276,10 @@ pub fn evaluate_flee_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32 {
 
     // Distance to nearest enemy from a given tile (None if no enemies).
     let nearest = |tile: Hex| -> Option<u32> {
-        enemies.iter().map(|e| tile.unsigned_distance_to(e.pos)).min()
+        enemies
+            .iter()
+            .map(|e| tile.unsigned_distance_to(e.pos))
+            .min()
     };
 
     match step {
@@ -262,18 +290,21 @@ pub fn evaluate_flee_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32 {
                 _ => 0.0, // No enemies present; no reason to flee.
             }
         }
-        ScoredStep::Cast { ability, target, .. } => {
+        ScoredStep::Cast {
+            ability, target, ..
+        } => {
             if nearest(active.pos).is_none() {
                 // No enemies present — no flee objective; neutral.
                 return 0.0;
             }
-            let Some(def) = content.abilities.get(*ability) else { return 0.0 };
+            let Some(def) = content.abilities.get(*ability) else {
+                return 0.0;
+            };
             match def.target_type {
                 // Offensive: suppressed — score lowest, will not be chosen.
                 TargetType::SingleEnemy | TargetType::Ground => -1.0,
                 // Self-targeted heal/buff: allowed.
-                TargetType::Myself | TargetType::SingleAlly
-                    if *target == active.entity() => 0.3,
+                TargetType::Myself | TargetType::SingleAlly if *target == active.entity() => 0.3,
                 // Other (ally-targeted non-self, etc.): neutral.
                 _ => 0.0,
             }
@@ -305,9 +336,12 @@ pub fn intent_score(
 
     // Move steps: scored only on position-related intent axes.
     let cast = match step {
-        ScoredStep::Cast { ability, target_pos, target, .. } => {
-            Some((*ability, *target_pos, *target))
-        }
+        ScoredStep::Cast {
+            ability,
+            target_pos,
+            target,
+            ..
+        } => Some((*ability, *target_pos, *target)),
         ScoredStep::Move { .. } => None,
     };
 
@@ -337,24 +371,28 @@ pub fn intent_score(
                 // Pure move during ApplyCC: reach uses CC-capable range.
                 return match snap.unit(*cc_target) {
                     Some(t) => {
-                        let reach = (active.speed.max(0) as u32)
-                            .saturating_add(cc_reach(active, content));
+                        let reach =
+                            (active.speed.max(0) as u32).saturating_add(cc_reach(active, content));
                         pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
                     }
                     None => 0.0,
                 };
             }
             // Cast: score offensive value via narrow API (CC-target filtered).
-            let weights = IntentWeights::default()
-                .cc(1.5)
-                .damage(0.3);
+            let weights = IntentWeights::default().cc(1.5).damage(0.3);
             intent_offensive_value_on_target(*cc_target, step, step_ctx, outcome, &weights, content)
         }
         TacticalIntent::Reposition => {
             // Tiered: strong improvement rewarded, any improvement neutral,
             // no improvement penalized — mildly if casting, hard if just moving.
-            let current = evaluate_position(active.pos, &active.cache.role, step_ctx.world.tuning, maps);
-            let new = evaluate_position(step.caster_tile(), &active.cache.role, step_ctx.world.tuning, maps);
+            let current =
+                evaluate_position(active.pos, &active.cache.role, step_ctx.world.tuning, maps);
+            let new = evaluate_position(
+                step.caster_tile(),
+                &active.cache.role,
+                step_ctx.world.tuning,
+                maps,
+            );
             let improvement = new - current;
             let min_improv = difficulty.reposition_min_improvement(step_ctx.world.tuning);
             if improvement >= min_improv {
@@ -385,10 +423,19 @@ pub fn intent_score(
         }
         TacticalIntent::ProtectAlly { ally } => match cast {
             Some((ability, _, target)) => {
-                let Some(def) = content.abilities.get(ability) else { return 0.0 };
+                let Some(def) = content.abilities.get(ability) else {
+                    return 0.0;
+                };
                 if def.target_type == TargetType::SingleAlly {
-                    if target == *ally { 1.0 } else { mild_penalty }
-                } else if snap.unit(*ally).is_some_and(|a| step.caster_tile().unsigned_distance_to(a.pos) <= 1) {
+                    if target == *ally {
+                        1.0
+                    } else {
+                        mild_penalty
+                    }
+                } else if snap
+                    .unit(*ally)
+                    .is_some_and(|a| step.caster_tile().unsigned_distance_to(a.pos) <= 1)
+                {
                     0.5
                 } else {
                     0.0
@@ -396,7 +443,10 @@ pub fn intent_score(
             }
             // Move adjacent to the wounded ally = mild support (bodyguard).
             None => {
-                if snap.unit(*ally).is_some_and(|a| step.caster_tile().unsigned_distance_to(a.pos) <= 1) {
+                if snap
+                    .unit(*ally)
+                    .is_some_and(|a| step.caster_tile().unsigned_distance_to(a.pos) <= 1)
+                {
                     0.5
                 } else {
                     0.0
@@ -408,14 +458,20 @@ pub fn intent_score(
                 // Pure movement can't set up AoE; neutral.
                 return 0.0;
             };
-            let Some(def) = content.abilities.get(ability) else { return 0.0 };
+            let Some(def) = content.abilities.get(ability) else {
+                return 0.0;
+            };
             if def.aoe == AoEShape::None {
                 return mild_penalty;
             }
             let area = aoe_area(def, target_pos, step.caster_tile());
             let total = snap.enemies_of(active.team).count() as f32;
             let hit = aoe_hits(&area, step_ctx.active, snap).enemies.len() as f32;
-            if total > 0.0 { hit / total } else { 0.0 }
+            if total > 0.0 {
+                hit / total
+            } else {
+                0.0
+            }
         }
     }
 }

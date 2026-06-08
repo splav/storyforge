@@ -19,10 +19,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::appraisal::NeedSignals;
-use crate::combat::ai::intent::{AgendaItem, IntentKind};
-use crate::combat::ai::intent::bands::BandWeights;
-use crate::combat::ai::repair::affinity::RepairAffinity;
 use crate::combat::ai::config::role::AxisProfile;
+use crate::combat::ai::intent::bands::BandWeights;
+use crate::combat::ai::intent::{AgendaItem, IntentKind};
+use crate::combat::ai::repair::affinity::RepairAffinity;
 
 // ── IntentConsiderations ──────────────────────────────────────────────────────
 
@@ -57,15 +57,23 @@ impl IntentConsiderations {
     ///
     /// Returns 1.0 when `weight_sum ≈ 0` to avoid div-by-zero.
     pub fn weighted_dot(&self, w: &BandWeights) -> f32 {
-        let raw = self.urgency            * w.urgency
-                + self.feasibility        * w.feasibility
-                + self.leverage           * w.leverage
-                + self.safety             * w.safety
-                + self.role_affinity      * w.role_affinity
-                + self.continuation_value * w.continuation_value;
-        let sum = w.urgency + w.feasibility + w.leverage
-                + w.safety + w.role_affinity + w.continuation_value;
-        if sum > f32::EPSILON { raw / sum } else { 1.0 }
+        let raw = self.urgency * w.urgency
+            + self.feasibility * w.feasibility
+            + self.leverage * w.leverage
+            + self.safety * w.safety
+            + self.role_affinity * w.role_affinity
+            + self.continuation_value * w.continuation_value;
+        let sum = w.urgency
+            + w.feasibility
+            + w.leverage
+            + w.safety
+            + w.role_affinity
+            + w.continuation_value;
+        if sum > f32::EPSILON {
+            raw / sum
+        } else {
+            1.0
+        }
     }
 }
 
@@ -89,11 +97,11 @@ pub fn compute_considerations(
     repair: Option<&RepairAffinity>,
 ) -> IntentConsiderations {
     IntentConsiderations {
-        urgency:            urgency(item, needs),
-        feasibility:        1.0, // TODO 11.4: use plan viability when plan_for_item is available
-        leverage:           0.0, // TODO 11.4: use plan outcomes when plan_for_item is available
-        safety:             1.0, // TODO 11.4: use plan terminal exposure when plan_for_item is available
-        role_affinity:      role_affinity(item.kind, role),
+        urgency: urgency(item, needs),
+        feasibility: 1.0, // TODO 11.4: use plan viability when plan_for_item is available
+        leverage: 0.0,    // TODO 11.4: use plan outcomes when plan_for_item is available
+        safety: 1.0,      // TODO 11.4: use plan terminal exposure when plan_for_item is available
+        role_affinity: role_affinity(item.kind, role),
         continuation_value: continuation_value(needs, repair),
     }
 }
@@ -150,31 +158,31 @@ fn role_affinity(kind: IntentKind, role: &AxisProfile) -> f32 {
     // AxisProfile indices: 0=tank, 1=melee, 2=ranged, 3=control, 4=support
     match (dominant, kind) {
         // ── Support / Healer ─────────────────────────────────────────────
-        (4, IntentKind::ProtectAlly)   => 1.0,
-        (4, IntentKind::ProtectSelf)   => 0.7,
-        (4, IntentKind::FocusTarget)   => 0.3,
-        (4, IntentKind::ApplyCC)       => 0.5,
-        (4, IntentKind::SetupAOE)      => 0.3,
-        (4, IntentKind::Reposition)    => 0.6,
-        (4, IntentKind::LastStand)     => 0.4,
+        (4, IntentKind::ProtectAlly) => 1.0,
+        (4, IntentKind::ProtectSelf) => 0.7,
+        (4, IntentKind::FocusTarget) => 0.3,
+        (4, IntentKind::ApplyCC) => 0.5,
+        (4, IntentKind::SetupAOE) => 0.3,
+        (4, IntentKind::Reposition) => 0.6,
+        (4, IntentKind::LastStand) => 0.4,
 
         // ── DPS: Melee (1) or Ranged (2) ─────────────────────────────────
-        (1 | 2, IntentKind::FocusTarget)   => 1.0,
-        (1 | 2, IntentKind::ApplyCC)       => 0.7,
-        (1 | 2, IntentKind::SetupAOE)      => 0.6,
-        (1 | 2, IntentKind::ProtectAlly)   => 0.3,
-        (1 | 2, IntentKind::ProtectSelf)   => 0.4,
-        (1 | 2, IntentKind::Reposition)    => 0.5,
-        (1 | 2, IntentKind::LastStand)     => 0.6,
+        (1 | 2, IntentKind::FocusTarget) => 1.0,
+        (1 | 2, IntentKind::ApplyCC) => 0.7,
+        (1 | 2, IntentKind::SetupAOE) => 0.6,
+        (1 | 2, IntentKind::ProtectAlly) => 0.3,
+        (1 | 2, IntentKind::ProtectSelf) => 0.4,
+        (1 | 2, IntentKind::Reposition) => 0.5,
+        (1 | 2, IntentKind::LastStand) => 0.6,
 
         // ── Tank / Bruiser (0) or Control (3) ────────────────────────────
-        (0 | 3, IntentKind::ProtectAlly)   => 0.7, // peel
-        (0 | 3, IntentKind::FocusTarget)   => 0.7,
-        (0 | 3, IntentKind::ProtectSelf)   => 0.5,
-        (0 | 3, IntentKind::Reposition)    => 0.4,
-        (0 | 3, IntentKind::ApplyCC)       => 0.7, // control loves CC
-        (0 | 3, IntentKind::SetupAOE)      => 0.5,
-        (0 | 3, IntentKind::LastStand)     => 0.5,
+        (0 | 3, IntentKind::ProtectAlly) => 0.7, // peel
+        (0 | 3, IntentKind::FocusTarget) => 0.7,
+        (0 | 3, IntentKind::ProtectSelf) => 0.5,
+        (0 | 3, IntentKind::Reposition) => 0.4,
+        (0 | 3, IntentKind::ApplyCC) => 0.7, // control loves CC
+        (0 | 3, IntentKind::SetupAOE) => 0.5,
+        (0 | 3, IntentKind::LastStand) => 0.5,
 
         // Catch-all (should not happen with bounded dominant index)
         _ => 0.5,
@@ -212,9 +220,9 @@ fn continuation_value(needs: &NeedSignals, repair: Option<&RepairAffinity>) -> f
 mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
+    use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::intent::{AgendaItem, IntentKind, IntentReason};
     use crate::combat::ai::repair::affinity::RepairAffinity;
-    use crate::combat::ai::config::role::AxisProfile;
 
     fn item(kind: IntentKind) -> AgendaItem {
         AgendaItem {
@@ -227,14 +235,28 @@ mod tests {
     }
 
     fn pure_support() -> AxisProfile {
-        AxisProfile { tank: 0.0, melee: 0.0, ranged: 0.0, control: 0.0, support: 1.0 }
+        AxisProfile {
+            tank: 0.0,
+            melee: 0.0,
+            ranged: 0.0,
+            control: 0.0,
+            support: 1.0,
+        }
     }
 
     fn pure_melee_dps() -> AxisProfile {
-        AxisProfile { tank: 0.0, melee: 1.0, ranged: 0.0, control: 0.0, support: 0.0 }
+        AxisProfile {
+            tank: 0.0,
+            melee: 1.0,
+            ranged: 0.0,
+            control: 0.0,
+            support: 0.0,
+        }
     }
 
-    fn neutral_role() -> AxisProfile { AxisProfile::default() }
+    fn neutral_role() -> AxisProfile {
+        AxisProfile::default()
+    }
 
     // ── 1. urgency ────────────────────────────────────────────────────────────
 
@@ -253,7 +275,10 @@ mod tests {
     #[test]
     fn urgency_high_when_self_preserve_high_for_protect_self() {
         let it = item(IntentKind::ProtectSelf);
-        let needs = NeedSignals { self_preserve: 0.9, ..NeedSignals::default() };
+        let needs = NeedSignals {
+            self_preserve: 0.9,
+            ..NeedSignals::default()
+        };
         let c = compute_considerations(&it, &needs, &neutral_role(), None);
         assert!(
             c.urgency > 0.8,
@@ -333,7 +358,10 @@ mod tests {
     fn continuation_value_zero_without_repair_or_commitment() {
         // No repair, no commitment → 0.5 × 0.0 = 0.0
         let it = item(IntentKind::FocusTarget);
-        let needs = NeedSignals { continue_commitment: 0.0, ..NeedSignals::default() };
+        let needs = NeedSignals {
+            continue_commitment: 0.0,
+            ..NeedSignals::default()
+        };
         let c = compute_considerations(&it, &needs, &neutral_role(), None);
         assert!(
             c.continuation_value.abs() < 1e-6,
@@ -347,14 +375,17 @@ mod tests {
         // commitment=1.0, repair with severity_factor=1.0 (no mismatch) →
         // 0.5 × 1.0 + 0.5 × 1.0 = 1.0
         let it = item(IntentKind::FocusTarget);
-        let needs = NeedSignals { continue_commitment: 1.0, ..NeedSignals::default() };
+        let needs = NeedSignals {
+            continue_commitment: 1.0,
+            ..NeedSignals::default()
+        };
         let repair = RepairAffinity {
-            goal_alignment:   1.0,
+            goal_alignment: 1.0,
             region_alignment: 1.0,
             method_alignment: 1.0,
-            severity_factor:  1.0,  // Cosmetic — no mismatch
-            ttl_factor:       1.0,
-            confidence:       1.0,
+            severity_factor: 1.0, // Cosmetic — no mismatch
+            ttl_factor: 1.0,
+            confidence: 1.0,
         };
         let c = compute_considerations(&it, &needs, &neutral_role(), Some(&repair));
         assert!(
@@ -370,22 +401,22 @@ mod tests {
     fn all_axes_in_unit_range_with_saturated_needs() {
         let it = item(IntentKind::FocusTarget);
         let needs = NeedSignals {
-            self_preserve:       1.0,
-            rescue_ally:         1.0,
-            finish_target:       1.0,
-            apply_cc:            1.0,
-            setup_aoe:           1.0,
-            reposition:          1.0,
-            conserve_resource:   1.0,
+            self_preserve: 1.0,
+            rescue_ally: 1.0,
+            finish_target: 1.0,
+            apply_cc: 1.0,
+            setup_aoe: 1.0,
+            reposition: 1.0,
+            conserve_resource: 1.0,
             continue_commitment: 1.0,
         };
         let repair = RepairAffinity {
-            goal_alignment:   1.0,
+            goal_alignment: 1.0,
             region_alignment: 1.0,
             method_alignment: 1.0,
-            severity_factor:  1.0,
-            ttl_factor:       1.0,
-            confidence:       1.0,
+            severity_factor: 1.0,
+            ttl_factor: 1.0,
+            confidence: 1.0,
         };
         let c = compute_considerations(&it, &needs, &pure_support(), Some(&repair));
         for (name, val) in [
@@ -502,7 +533,14 @@ mod tests {
         for considerations in [
             uniform_considerations(),
             IntentConsiderations::default(), // all zeros
-            IntentConsiderations { urgency: 0.5, feasibility: 0.5, leverage: 0.5, safety: 0.5, role_affinity: 0.5, continuation_value: 0.5 },
+            IntentConsiderations {
+                urgency: 0.5,
+                feasibility: 0.5,
+                leverage: 0.5,
+                safety: 0.5,
+                role_affinity: 0.5,
+                continuation_value: 0.5,
+            },
         ] {
             let dot = considerations.weighted_dot(&w);
             assert!(

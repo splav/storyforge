@@ -7,26 +7,22 @@
 
 use bevy::prelude::*;
 
+use combat_engine::{AbilityId, DiceExpr, StatusId};
 use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
-use combat_engine::{AbilityId, DiceExpr, StatusId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
-use storyforge::game::components::{
-    CombatStats,
-    Team, Vital,
-};
+use storyforge::game::components::{CombatStats, Team, Vital};
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::resources::HexPositions;
 
 use super::common;
 
-
 #[test]
 fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
+    use bevy::prelude::Name as BevyName;
     use storyforge::content::abilities::TargetType;
     use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
-    use bevy::prelude::Name as BevyName;
     use storyforge::game::components::EnemyPhases;
 
     let caster_pos = hex_from_offset(0, 0);
@@ -44,7 +40,9 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         engine: combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 60) },
+            effect: EffectDef::Damage {
+                dice: DiceExpr::new(0, 1, 60),
+            },
             costs: vec![],
             cost_ap: 1,
             aoe: AoEShape::None,
@@ -53,8 +51,8 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
 
@@ -63,8 +61,13 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
 
     // Caster: str=0 so str_mod=0, damage is purely from the +60 bonus.
     let zero_str_stats = CombatStats {
-        max_hp: 20, strength: 0, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
+        max_hp: 20,
+        strength: 0,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
     };
     let caster = common::apps::bridge::spawn_unit(
         &mut app,
@@ -79,8 +82,13 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
 
     // Boss: max_hp=100, armor=0. Pending phase at 50% threshold.
     let boss_stats = CombatStats {
-        max_hp: 100, strength: 5, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
+        max_hp: 100,
+        strength: 5,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
     };
     let phase = PhaseDef {
         trigger: PhaseTrigger::HpBelowPct(50),
@@ -94,15 +102,26 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         ai_behavior: None,
         tags: None,
     };
-    let boss = app.world_mut().spawn((
-        CombatantBundle::new(
-            Team::Enemy, boss_stats, 0, 6, vec![],
-            common::apps::bridge::no_equipment(),
-        ),
-        EnemyPhases { pending: vec![phase] },
-        BevyName::new("Boss"),
-    )).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(boss, boss_hex);
+    let boss = app
+        .world_mut()
+        .spawn((
+            CombatantBundle::new(
+                Team::Enemy,
+                boss_stats,
+                0,
+                6,
+                vec![],
+                common::apps::bridge::no_equipment(),
+            ),
+            EnemyPhases {
+                pending: vec![phase],
+            },
+            BevyName::new("Boss"),
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(boss, boss_hex);
 
     common::apps::bridge::bootstrap(&mut app);
 
@@ -116,7 +135,10 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
     // --- Assertions ---
 
     // 1. EnemyPhases.pending is empty (pop happened).
-    let phases = app.world().entity(boss).get::<EnemyPhases>()
+    let phases = app
+        .world()
+        .entity(boss)
+        .get::<EnemyPhases>()
         .expect("boss must retain EnemyPhases component");
     assert!(
         phases.pending.is_empty(),
@@ -125,33 +147,64 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
     );
 
     // 2. Boss Name == "Phase Two" (ECS-only delta was written).
-    let name = app.world().entity(boss).get::<BevyName>()
+    let name = app
+        .world()
+        .entity(boss)
+        .get::<BevyName>()
         .expect("boss must have Name");
-    assert_eq!(name.as_str(), "Phase Two", "boss name must update to new phase name");
+    assert_eq!(
+        name.as_str(),
+        "Phase Two",
+        "boss name must update to new phase name"
+    );
 
     // 3. Boss is alive (heal_to_full: engine revived, Dead was not inserted).
-    let vital = app.world().entity(boss).get::<Vital>()
+    let vital = app
+        .world()
+        .entity(boss)
+        .get::<Vital>()
         .expect("boss must have Vital");
-    assert!(vital.is_alive(), "boss must be alive after phase transition (heal_to_full=true)");
-    assert_eq!(vital.hp, vital.max_hp, "boss must be healed to full after phase transition");
+    assert!(
+        vital.is_alive(),
+        "boss must be alive after phase transition (heal_to_full=true)"
+    );
+    assert_eq!(
+        vital.hp, vital.max_hp,
+        "boss must be healed to full after phase transition"
+    );
 
     // 4. CombatLog contains PhaseEntered with correct prev/next name.
     let log = app.world().resource::<CombatLog>();
     let phase_entry = log.0.iter().find_map(|e| {
-        if let CombatEvent::PhaseEntered { actor, prev_name, next_name, flavor } = e {
+        if let CombatEvent::PhaseEntered {
+            actor,
+            prev_name,
+            next_name,
+            flavor,
+        } = e
+        {
             Some((*actor, prev_name.clone(), next_name.clone(), flavor.clone()))
         } else {
             None
         }
     });
-    let (pe_actor, pe_prev, pe_next, pe_flavor) = phase_entry
-        .expect("CombatLog must contain PhaseEntered; full log: {log:?}");
+    let (pe_actor, pe_prev, pe_next, pe_flavor) =
+        phase_entry.expect("CombatLog must contain PhaseEntered; full log: {log:?}");
     assert_eq!(pe_actor, boss, "PhaseEntered.actor must be the boss entity");
-    assert_eq!(pe_prev, "Boss", "PhaseEntered.prev_name must be original boss name");
-    assert_eq!(pe_next, "Phase Two", "PhaseEntered.next_name must be new phase name");
-    assert_eq!(pe_flavor, Some("Boss enters phase two!".into()), "PhaseEntered.flavor must match");
+    assert_eq!(
+        pe_prev, "Boss",
+        "PhaseEntered.prev_name must be original boss name"
+    );
+    assert_eq!(
+        pe_next, "Phase Two",
+        "PhaseEntered.next_name must be new phase name"
+    );
+    assert_eq!(
+        pe_flavor,
+        Some("Boss enters phase two!".into()),
+        "PhaseEntered.flavor must match"
+    );
 }
-
 
 // ── Phase B-α: lock-in tests (pre-S6 bridge contract) ─────────────────────────
 
@@ -199,8 +252,8 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
     common::apps::bridge::insert_ability(&mut app, ability_def);
@@ -257,25 +310,33 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
     let log = app.world().resource::<CombatLog>();
 
     // Find indices of the relevant events.
-    let ability_used_idx = log.0.iter().position(|e| matches!(e, CombatEvent::AbilityUsed { .. }));
-    let turn_ended_idx = log.0.iter().position(|e| {
-        matches!(e, CombatEvent::TurnEnded { actor: a, .. } if *a == hero)
-    });
-    let turn_started_enemy_idx = log.0.iter().position(|e| {
-        matches!(e, CombatEvent::TurnStarted { actor: a } if *a == enemy)
-    });
+    let ability_used_idx = log
+        .0
+        .iter()
+        .position(|e| matches!(e, CombatEvent::AbilityUsed { .. }));
+    let turn_ended_idx = log
+        .0
+        .iter()
+        .position(|e| matches!(e, CombatEvent::TurnEnded { actor: a, .. } if *a == hero));
+    let turn_started_enemy_idx = log
+        .0
+        .iter()
+        .position(|e| matches!(e, CombatEvent::TurnStarted { actor: a } if *a == enemy));
 
     assert!(
         ability_used_idx.is_some(),
-        "CombatLog must contain AbilityUsed; log: {:?}", log.0,
+        "CombatLog must contain AbilityUsed; log: {:?}",
+        log.0,
     );
     assert!(
         turn_ended_idx.is_some(),
-        "CombatLog must contain TurnEnded(hero); log: {:?}", log.0,
+        "CombatLog must contain TurnEnded(hero); log: {:?}",
+        log.0,
     );
     assert!(
         turn_started_enemy_idx.is_some(),
-        "CombatLog must contain TurnStarted(enemy); log: {:?}", log.0,
+        "CombatLog must contain TurnStarted(enemy); log: {:?}",
+        log.0,
     );
 
     // Order: AbilityUsed → TurnEnded(hero) → TurnStarted(enemy).
@@ -313,9 +374,9 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
 /// Must pass both pre- and post-S6.
 #[test]
 fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
-    use storyforge::content::abilities::TargetType;
-    use storyforge::combat_engine::state::ActiveStatus as EngineActiveStatus;
     use storyforge::combat::engine_bridge::entity_to_uid;
+    use storyforge::combat_engine::state::ActiveStatus as EngineActiveStatus;
+    use storyforge::content::abilities::TargetType;
 
     let caster_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
@@ -343,8 +404,8 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
             key: None,
             requires_los: false,
             passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
         },
     };
     common::apps::bridge::insert_ability(&mut app, ability_def);
@@ -357,18 +418,21 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
         .resource_mut::<storyforge::content::content_view::ActiveContent>()
         .0
         .statuses
-        .insert(poison_id.clone(), storyforge::content::statuses::StatusDef {
-            id: poison_id.clone(),
-            name: "Hero Poison".into(),
-            dot_dice: None,
-            ai_controlled: false,
-            buff_class: None,
-            engine: combat_engine::StatusDef {
-                hp_percent_dot: 10,
-                heal_per_tick: 0,
-                ..Default::default()
+        .insert(
+            poison_id.clone(),
+            storyforge::content::statuses::StatusDef {
+                id: poison_id.clone(),
+                name: "Hero Poison".into(),
+                dot_dice: None,
+                ai_controlled: false,
+                buff_class: None,
+                engine: combat_engine::StatusDef {
+                    hp_percent_dot: 10,
+                    heal_per_tick: 0,
+                    ..Default::default()
+                },
             },
-        });
+        );
 
     let hero = common::apps::bridge::spawn_unit(
         &mut app,
@@ -418,7 +482,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
         u.statuses.push(EngineActiveStatus {
             id: poison_id.clone(),
             rounds_remaining: 3,
-            dot_per_tick: 0,   // flat tick = 0; damage comes from hp_percent_dot in StatusDef
+            dot_per_tick: 0, // flat tick = 0; damage comes from hp_percent_dot in StatusDef
             applier: combat_engine::state::EffectSource::Unit(hero_uid),
         });
     });
@@ -458,17 +522,22 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
 /// `enemy_phases` projection loop.
 #[test]
 fn phase_def_tags_carried_into_engine_phase_entry() {
-    use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
-    use storyforge::combat::engine_bridge::CombatStateRes;
-    use storyforge::game::components::EnemyPhases;
     use combat_engine::TagId;
     use std::collections::BTreeSet;
+    use storyforge::combat::engine_bridge::CombatStateRes;
+    use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
+    use storyforge::game::components::EnemyPhases;
 
     let boss_hex = hex_from_offset(1, 0);
 
     let boss_stats = CombatStats {
-        max_hp: 100, strength: 5, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
+        max_hp: 100,
+        strength: 5,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
     };
     let phase_tags: BTreeSet<TagId> = ["aberration", "incorporeal"]
         .iter()
@@ -488,24 +557,40 @@ fn phase_def_tags_carried_into_engine_phase_entry() {
     };
 
     let mut app = common::apps::bridge::bridge_app();
-    let boss = app.world_mut().spawn((
-        storyforge::game::bundles::CombatantBundle::new(
-            storyforge::game::components::Team::Enemy,
-            boss_stats,
-            0, 6, vec![],
-            common::apps::bridge::no_equipment(),
-        ),
-        EnemyPhases { pending: vec![phase] },
-    )).id();
-    app.world_mut().resource_mut::<storyforge::game::resources::HexPositions>().insert(boss, boss_hex);
+    let boss = app
+        .world_mut()
+        .spawn((
+            storyforge::game::bundles::CombatantBundle::new(
+                storyforge::game::components::Team::Enemy,
+                boss_stats,
+                0,
+                6,
+                vec![],
+                common::apps::bridge::no_equipment(),
+            ),
+            EnemyPhases {
+                pending: vec![phase],
+            },
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<storyforge::game::resources::HexPositions>()
+        .insert(boss, boss_hex);
 
     common::apps::bridge::bootstrap(&mut app);
 
     // After bootstrap, the engine state should have the boss's phase with tags populated.
     let state = app.world().resource::<CombatStateRes>();
     let boss_uid = entity_to_uid(boss);
-    let unit = state.0.unit(boss_uid).expect("boss must be in engine state after bootstrap");
-    assert_eq!(unit.enemy_phases.len(), 1, "boss must have one engine phase entry");
+    let unit = state
+        .0
+        .unit(boss_uid)
+        .expect("boss must be in engine state after bootstrap");
+    assert_eq!(
+        unit.enemy_phases.len(),
+        1,
+        "boss must have one engine phase entry"
+    );
     let entry = &unit.enemy_phases[0];
     assert_eq!(
         entry.tags.as_ref(),
@@ -522,11 +607,11 @@ fn phase_def_tags_carried_into_engine_phase_entry() {
 /// in `apply_phase_ecs_writes`.
 #[test]
 fn phase_transition_updates_ecs_tags_component() {
+    use combat_engine::TagId;
+    use std::collections::BTreeSet;
     use storyforge::content::abilities::TargetType;
     use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
     use storyforge::game::components::{EnemyPhases, Tags};
-    use combat_engine::TagId;
-    use std::collections::BTreeSet;
 
     let caster_pos = hex_from_offset(0, 0);
     let boss_hex = hex_from_offset(1, 0);
@@ -542,7 +627,9 @@ fn phase_transition_updates_ecs_tags_component() {
         engine: combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 60) },
+            effect: EffectDef::Damage {
+                dice: DiceExpr::new(0, 1, 60),
+            },
             costs: vec![],
             cost_ap: 1,
             aoe: AoEShape::None,
@@ -560,8 +647,13 @@ fn phase_transition_updates_ecs_tags_component() {
     common::apps::bridge::insert_ability(&mut app, ability_def);
 
     let zero_str_stats = CombatStats {
-        max_hp: 20, strength: 0, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
+        max_hp: 20,
+        strength: 0,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
     };
     let caster = common::apps::bridge::spawn_unit(
         &mut app,
@@ -575,8 +667,13 @@ fn phase_transition_updates_ecs_tags_component() {
     );
 
     let boss_stats = CombatStats {
-        max_hp: 100, strength: 5, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
+        max_hp: 100,
+        strength: 5,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
     };
     let new_tags: BTreeSet<TagId> = ["aberration", "incorporeal"]
         .iter()
@@ -595,18 +692,26 @@ fn phase_transition_updates_ecs_tags_component() {
         tags: Some(new_tags.clone()),
     };
 
-    let boss = app.world_mut().spawn((
-        storyforge::game::bundles::CombatantBundle::new(
-            storyforge::game::components::Team::Enemy,
-            boss_stats,
-            0, 6, vec![],
-            common::apps::bridge::no_equipment(),
-        ),
-        EnemyPhases { pending: vec![phase] },
-        Name::new("TagBoss"),
-        // Boss starts with no Tags component — the phase will insert one.
-    )).id();
-    app.world_mut().resource_mut::<storyforge::game::resources::HexPositions>()
+    let boss = app
+        .world_mut()
+        .spawn((
+            storyforge::game::bundles::CombatantBundle::new(
+                storyforge::game::components::Team::Enemy,
+                boss_stats,
+                0,
+                6,
+                vec![],
+                common::apps::bridge::no_equipment(),
+            ),
+            EnemyPhases {
+                pending: vec![phase],
+            },
+            Name::new("TagBoss"),
+            // Boss starts with no Tags component — the phase will insert one.
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<storyforge::game::resources::HexPositions>()
         .insert(boss, boss_hex);
 
     common::apps::bridge::bootstrap(&mut app);
@@ -615,11 +720,13 @@ fn phase_transition_updates_ecs_tags_component() {
     app.update();
 
     // After the phase transition, the ECS Tags component must hold the phase's tag set.
-    let tags_component = app.world().entity(boss).get::<Tags>()
+    let tags_component = app
+        .world()
+        .entity(boss)
+        .get::<Tags>()
         .expect("boss must have Tags component after phase transition with tags");
     assert_eq!(
-        tags_component.0,
-        new_tags,
+        tags_component.0, new_tags,
         "ECS Tags must be replaced with the phase's tag set after transition; got: {:?}",
         tags_component.0,
     );

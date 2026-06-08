@@ -17,15 +17,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::appraisal::{ally_threat_proxy, NeedSignals};
 use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::intent::{
-    select_intent_normal, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand, TacticalIntent,
-};
-use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
 use crate::combat::ai::config::role::AxisProfile;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
+use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
+use crate::combat::ai::intent::{
+    select_intent_normal, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand,
+    TacticalIntent,
+};
+use crate::combat::ai::scoring::target_selection::target_selection_score;
+use crate::combat::ai::world::influence::InfluenceMaps;
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 
 // ── AgendaItem ────────────────────────────────────────────────────────────────
 
@@ -122,18 +123,21 @@ pub fn build_agenda(
     status_tags: &crate::combat::ai::world::tags::StatusTagCache,
 ) -> Agenda {
     let mut items = match band {
-        PriorityBand::ForcedTargeting => {
-            build_forced_targeting(band_reason, active, snap)
-        }
+        PriorityBand::ForcedTargeting => build_forced_targeting(band_reason, active, snap),
         PriorityBand::CriticalSelfPreservation => {
             build_critical_self_preservation(band_reason, active, snap, maps, needs)
         }
-        PriorityBand::HardRescueOpportunity => {
-            build_hard_rescue_opportunity(active, snap, needs)
-        }
-        PriorityBand::NormalTactical => {
-            build_normal_tactical(active, snap, maps, needs, difficulty, tuning, memory, status_tags)
-        }
+        PriorityBand::HardRescueOpportunity => build_hard_rescue_opportunity(active, snap, needs),
+        PriorityBand::NormalTactical => build_normal_tactical(
+            active,
+            snap,
+            maps,
+            needs,
+            difficulty,
+            tuning,
+            memory,
+            status_tags,
+        ),
     };
 
     // ── Step 11.3: compute considerations per item ────────────────────────────
@@ -145,7 +149,11 @@ pub fn build_agenda(
     }
 
     // Ensure ordering contract: highest raw_score first.
-    items.sort_by(|a, b| b.raw_score.partial_cmp(&a.raw_score).unwrap_or(std::cmp::Ordering::Equal));
+    items.sort_by(|a, b| {
+        b.raw_score
+            .partial_cmp(&a.raw_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     Agenda { band, items }
 }
@@ -189,7 +197,10 @@ fn build_critical_self_preservation(
     needs: &NeedSignals,
 ) -> Vec<AgendaItem> {
     let (self_preserve, danger) = match band_reason {
-        BandReason::PanicOverride { self_preserve, danger } => (*self_preserve, *danger),
+        BandReason::PanicOverride {
+            self_preserve,
+            danger,
+        } => (*self_preserve, *danger),
         _ => (needs.self_preserve, maps.danger.get(active.pos)),
     };
 
@@ -252,7 +263,9 @@ fn build_hard_rescue_opportunity(
         .max_by(|a, b| {
             let score_a = (1.0 - a.hp_pct()) * ally_threat_proxy(*a, snap);
             let score_b = (1.0 - b.hp_pct()) * ally_threat_proxy(*b, snap);
-            score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
     let Some(endangered_ally) = ally else {
@@ -310,7 +323,9 @@ fn build_hard_rescue_opportunity(
         kind: IntentKind::FocusTarget,
         target: Some(threat.entity()),
         raw_score: focus_score,
-        reason: IntentReason::BestPriority { priority: focus_score },
+        reason: IntentReason::BestPriority {
+            priority: focus_score,
+        },
         considerations: IntentConsiderations::default(),
     };
 
@@ -336,7 +351,16 @@ fn build_normal_tactical(
     memory: &AiMemory,
     status_tags: &crate::combat::ai::world::tags::StatusTagCache,
 ) -> Vec<AgendaItem> {
-    let choice = select_intent_normal(active, snap, maps, memory, difficulty, tuning, needs, status_tags);
+    let choice = select_intent_normal(
+        active,
+        snap,
+        maps,
+        memory,
+        difficulty,
+        tuning,
+        needs,
+        status_tags,
+    );
 
     let kind = choice.intent.kind();
     let target = choice.intent.target();
@@ -363,12 +387,12 @@ mod tests {
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
 
+    use crate::combat::ai::config::tuning::AiTuning;
+    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
+    use crate::combat::ai::world::tags::cache::build_caches;
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::world::tags::StatusTagCache;
-    use crate::combat::ai::world::tags::cache::build_caches;
-    use crate::combat::ai::test_helpers::{empty_maps, empty_content, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::combat::ai::config::tuning::AiTuning;
     use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -376,8 +400,12 @@ mod tests {
     fn origin() -> crate::game::hex::Hex {
         hex_from_offset(0, 0)
     }
-    fn default_tuning() -> AiTuning { AiTuning::default() }
-    fn default_difficulty() -> DifficultyProfile { DifficultyProfile::default() }
+    fn default_tuning() -> AiTuning {
+        AiTuning::default()
+    }
+    fn default_difficulty() -> DifficultyProfile {
+        DifficultyProfile::default()
+    }
 
     fn taunt_status_tags() -> StatusTagCache {
         let mut content = empty_content();
@@ -402,15 +430,18 @@ mod tests {
         status_tags
     }
 
-    fn unit_with_taunt(id: u32, team: Team, pos: crate::game::hex::Hex)
-        -> crate::combat::ai::world::snapshot::UnitSnapshot
-    {
+    fn unit_with_taunt(
+        id: u32,
+        team: Team,
+        pos: crate::game::hex::Hex,
+    ) -> crate::combat::ai::world::snapshot::UnitSnapshot {
         let mut unit = UnitBuilder::new(id, team, pos).build();
-        unit.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
-            id: "taunt".into(),
-            rounds_remaining: 1,
-            dot_per_tick: 0,
-        });
+        unit.statuses
+            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
+                id: "taunt".into(),
+                rounds_remaining: 1,
+                dot_per_tick: 0,
+            });
         unit
     }
 
@@ -425,7 +456,9 @@ mod tests {
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
-        let band_reason = BandReason::TauntForced { taunter: taunter_entity };
+        let band_reason = BandReason::TauntForced {
+            taunter: taunter_entity,
+        };
         let status_tags = taunt_status_tags();
 
         let agenda = build_agenda(
@@ -441,7 +474,11 @@ mod tests {
             &status_tags,
         );
 
-        assert_eq!(agenda.items.len(), 1, "ForcedTargeting must emit exactly 1 item");
+        assert_eq!(
+            agenda.items.len(),
+            1,
+            "ForcedTargeting must emit exactly 1 item"
+        );
         let item = &agenda.items[0];
         assert_eq!(item.kind, IntentKind::FocusTarget);
         assert_eq!(item.target, Some(taunter_entity));
@@ -451,7 +488,10 @@ mod tests {
 
     #[test]
     fn agenda_critical_self_preservation_emits_two_items() {
-        let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
+        let active = UnitBuilder::new(1, Team::Enemy, origin())
+            .hp(2)
+            .max_hp(20)
+            .build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
         let snap = snapshot_from(vec![active.clone(), enemy], 1);
 
@@ -463,7 +503,7 @@ mod tests {
 
         let needs = NeedSignals {
             self_preserve: tuning.thresholds.panic_self_preserve_threshold + 0.01,
-            reposition:    0.6,
+            reposition: 0.6,
             ..NeedSignals::default()
         };
         let band_reason = BandReason::PanicOverride {
@@ -484,10 +524,22 @@ mod tests {
             &StatusTagCache::default(),
         );
 
-        assert_eq!(agenda.items.len(), 2, "CriticalSelf must emit exactly 2 items");
+        assert_eq!(
+            agenda.items.len(),
+            2,
+            "CriticalSelf must emit exactly 2 items"
+        );
         // Sorted descending — first must be ProtectSelf.
-        assert_eq!(agenda.items[0].kind, IntentKind::ProtectSelf, "item[0] must be ProtectSelf");
-        assert_eq!(agenda.items[1].kind, IntentKind::Reposition, "item[1] must be Reposition");
+        assert_eq!(
+            agenda.items[0].kind,
+            IntentKind::ProtectSelf,
+            "item[0] must be ProtectSelf"
+        );
+        assert_eq!(
+            agenda.items[1].kind,
+            IntentKind::Reposition,
+            "item[1] must be Reposition"
+        );
     }
 
     // ── 3. HardRescueOpportunity emits two items: ProtectAlly + FocusTarget ─
@@ -515,7 +567,9 @@ mod tests {
             rescue_ally: tuning.thresholds.hard_rescue_threshold + 0.05,
             ..NeedSignals::default()
         };
-        let band_reason = BandReason::HardRescueNeed { rescue_need: needs.rescue_ally };
+        let band_reason = BandReason::HardRescueNeed {
+            rescue_need: needs.rescue_ally,
+        };
 
         let agenda = build_agenda(
             PriorityBand::HardRescueOpportunity,
@@ -530,13 +584,32 @@ mod tests {
             &StatusTagCache::default(),
         );
 
-        assert_eq!(agenda.items.len(), 2, "HardRescue must emit exactly 2 items");
+        assert_eq!(
+            agenda.items.len(),
+            2,
+            "HardRescue must emit exactly 2 items"
+        );
         // First item must be ProtectAlly (highest raw_score).
-        assert_eq!(agenda.items[0].kind, IntentKind::ProtectAlly, "item[0] must be ProtectAlly");
-        assert_eq!(agenda.items[0].target, Some(ally.entity), "ProtectAlly target must be endangered ally");
+        assert_eq!(
+            agenda.items[0].kind,
+            IntentKind::ProtectAlly,
+            "item[0] must be ProtectAlly"
+        );
+        assert_eq!(
+            agenda.items[0].target,
+            Some(ally.entity),
+            "ProtectAlly target must be endangered ally"
+        );
         // Second item must be FocusTarget on the actual threat.
-        assert_eq!(agenda.items[1].kind, IntentKind::FocusTarget, "item[1] must be FocusTarget");
-        assert!(agenda.items[1].target.is_some(), "FocusTarget must carry a threat target");
+        assert_eq!(
+            agenda.items[1].kind,
+            IntentKind::FocusTarget,
+            "item[1] must be FocusTarget"
+        );
+        assert!(
+            agenda.items[1].target.is_some(),
+            "FocusTarget must carry a threat target"
+        );
     }
 
     /// Step 11.7 follow-up: when no enemy threatens the endangered ally,
@@ -562,7 +635,9 @@ mod tests {
             rescue_ally: tuning.thresholds.hard_rescue_threshold + 0.05,
             ..NeedSignals::default()
         };
-        let band_reason = BandReason::HardRescueNeed { rescue_need: needs.rescue_ally };
+        let band_reason = BandReason::HardRescueNeed {
+            rescue_need: needs.rescue_ally,
+        };
 
         let agenda = build_agenda(
             PriorityBand::HardRescueOpportunity,
@@ -584,7 +659,10 @@ mod tests {
         );
         assert_eq!(agenda.items[0].kind, IntentKind::ProtectAlly);
         assert!(
-            !agenda.items.iter().any(|item| item.kind == IntentKind::FocusTarget && item.target.is_none()),
+            !agenda
+                .items
+                .iter()
+                .any(|item| item.kind == IntentKind::FocusTarget && item.target.is_none()),
             "must never emit FocusTarget with target=None"
         );
     }
@@ -625,7 +703,10 @@ mod tests {
     #[test]
     fn agenda_items_ordered_by_raw_score_desc() {
         // Use CriticalSelf — guaranteed 2 items with known ordering invariant.
-        let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
+        let active = UnitBuilder::new(1, Team::Enemy, origin())
+            .hp(2)
+            .max_hp(20)
+            .build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
         let snap = snapshot_from(vec![active.clone(), enemy], 1);
 

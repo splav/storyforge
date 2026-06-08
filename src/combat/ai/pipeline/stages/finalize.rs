@@ -26,9 +26,9 @@
 //!   initial Default-mode score. This is the fix: Sanity/Critics then
 //!   multiply on the correct base.
 
-use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::pipeline::score_trace::ScoreTrace;
 use crate::combat::ai::adapt::EvaluationMode;
+use crate::combat::ai::pipeline::score_trace::ScoreTrace;
+use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 
 pub struct FinalizeStage;
@@ -122,12 +122,11 @@ mod tests {
     use super::*;
     use crate::combat::ai::adapt::AdaptationReason;
     use crate::combat::ai::outcome::AdaptationData;
-    
+
     use crate::combat::ai::scoring::factors::{aggregate::score_plans_with_raw, PlanFactorValues};
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, PoolBuilder,
-        StageTestHarness, UnitBuilder,
-        snapshot_from,
+        empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, snapshot_from,
+        PoolBuilder, StageTestHarness, UnitBuilder,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -141,7 +140,10 @@ mod tests {
     #[test]
     fn finalize_applies_per_plan_modes() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![empty_plan()];
 
         // ── 2. Harness ──
@@ -193,8 +195,7 @@ mod tests {
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let intent = crate::combat::ai::intent::TacticalIntent::Reposition;
         let mut plans = vec![empty_plan()];
-        let (initial_scores, initial_raw) =
-            score_plans_with_raw(&mut plans, &intent, &scoring);
+        let (initial_scores, initial_raw) = score_plans_with_raw(&mut plans, &intent, &scoring);
         let initial_score = initial_scores[0];
 
         // ── 2. Harness ──
@@ -224,7 +225,9 @@ mod tests {
     #[test]
     fn p3a_finalize_sets_trace_base_to_new_score() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
         let plans = vec![empty_plan()];
 
         // ── 2. Harness ──
@@ -267,7 +270,9 @@ mod tests {
         use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
         let plans = vec![empty_plan()];
 
         // ── 2. Harness ──
@@ -302,7 +307,10 @@ mod tests {
             ann.score_trace.base,
             ann.score,
         );
-        assert!(ann.score_trace.multipliers.is_empty(), "upstream multipliers must be cleared");
+        assert!(
+            ann.score_trace.multipliers.is_empty(),
+            "upstream multipliers must be cleared"
+        );
         assert!((ann.score_trace.compute() - ann.score).abs() < 1e-5);
     }
 
@@ -311,7 +319,10 @@ mod tests {
     #[test]
     fn p3a_finalize_records_rescore_mode_per_plan() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(5).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(5)
+            .max_hp(20)
+            .build();
         let plans = vec![empty_plan(), empty_plan()];
 
         // ── 2. Harness ──
@@ -325,7 +336,10 @@ mod tests {
         });
         let mut pool = PoolBuilder::new(plans)
             .scores(&[0.5, 0.8])
-            .factors(vec![PlanFactorValues::default(), PlanFactorValues::default()])
+            .factors(vec![
+                PlanFactorValues::default(),
+                PlanFactorValues::default(),
+            ])
             .adaptations(vec![adaptation_last_stand, None])
             .build();
 
@@ -349,7 +363,9 @@ mod tests {
     #[test]
     fn p3a_finalize_empty_pool_no_op() {
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .full_hp(20)
+            .build();
 
         // ── 2. Harness ──
         let h = StageTestHarness::new(actor);
@@ -372,7 +388,10 @@ mod tests {
         use crate::combat::ai::adapt::EvaluationMode;
 
         // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![empty_plan()];
 
         // ── 2. Harness ──

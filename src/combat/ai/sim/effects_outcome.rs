@@ -13,8 +13,8 @@
 
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef, StatusOn};
 use crate::content::races::CritFailEffect;
-use combat_engine::{DiceExpr, DiceRng, ResourceKind, StatusId};
 use bevy::prelude::Entity;
+use combat_engine::{DiceExpr, DiceRng, ResourceKind, StatusId};
 
 // ── Dice abstraction ────────────────────────────────────────────────────────
 
@@ -143,14 +143,24 @@ pub enum OutcomePrimary {
     /// status vulnerability + min-1 floor) is applied at the *backend* to
     /// match each backend's state shape — live reads Bevy components, sim
     /// reads snapshot aggregates.
-    Damage { raw: i32, pierces_armor: bool },
+    Damage {
+        raw: i32,
+        pierces_armor: bool,
+    },
     /// Uniform heal amount to every `affected` target. Real backend neutralises
     /// target DoTs first (handled in `apply_effects_system`); sim currently
     /// just adds to HP (drift #2, addressed in a later stage).
-    Heal { amount: i32 },
-    GrantMovement { distance: i32 },
+    Heal {
+        amount: i32,
+    },
+    GrantMovement {
+        distance: i32,
+    },
     RestoreResources,
-    Summon { template: String, max_active: Option<u32> },
+    Summon {
+        template: String,
+        max_active: Option<u32>,
+    },
     /// `ToggleMoveMode` or an ability whose only effect is status application.
     None,
 }
@@ -234,7 +244,10 @@ pub fn compute_ability_outcome<R: DiceSource>(
                     distance: *distance,
                 },
                 EffectDef::RestoreResources => OutcomePrimary::RestoreResources,
-                EffectDef::Summon { template_id, max_active } => OutcomePrimary::Summon {
+                EffectDef::Summon {
+                    template_id,
+                    max_active,
+                } => OutcomePrimary::Summon {
                     template: template_id.clone(),
                     max_active: *max_active,
                 },
@@ -351,7 +364,12 @@ mod tests {
     }
 
     fn ctx() -> CasterContext {
-        CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None }
+        CasterContext {
+            str_mod: 0,
+            int_mod: 0,
+            spell_power: 0,
+            weapon_dice: None,
+        }
     }
 
     fn damage_ability(mana_cost: i32) -> AbilityDef {
@@ -365,12 +383,17 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 1 },
-                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                effect: EffectDef::Damage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
                 costs: if mana_cost > 0 {
-                vec![ResourceCost { resource: ResourceKind::Mana, amount: mana_cost }]
-            } else {
-                Vec::new()
-            },
+                    vec![ResourceCost {
+                        resource: ResourceKind::Mana,
+                        amount: mana_cost,
+                    }]
+                } else {
+                    Vec::new()
+                },
                 cost_ap: 1,
                 aoe: AoEShape::None,
                 friendly_fire: false,
@@ -389,8 +412,14 @@ mod tests {
         let def = damage_ability(0);
         let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
-            ent(1), &def, vec![ent(2)], &ctx(),
-            false, true, &CritFailEffect::Miss, &mut dice,
+            ent(1),
+            &def,
+            vec![ent(2)],
+            &ctx(),
+            false,
+            true,
+            &CritFailEffect::Miss,
+            &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::Miss));
         assert!(outcome.crit.skips_primary());
@@ -404,11 +433,21 @@ mod tests {
         let def = damage_ability(0);
         let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
-            ent(1), &def, vec![ent(2)], &ctx(),
-            false, true, &CritFailEffect::BrokenFaith, &mut dice,
+            ent(1),
+            &def,
+            vec![ent(2)],
+            &ctx(),
+            false,
+            true,
+            &CritFailEffect::BrokenFaith,
+            &mut dice,
         );
         match outcome.crit {
-            CritOutcome::SelfStatus { status, duration_rounds, .. } => {
+            CritOutcome::SelfStatus {
+                status,
+                duration_rounds,
+                ..
+            } => {
                 assert_eq!(status.0, "broken_faith");
                 assert_eq!(duration_rounds, 1);
             }
@@ -422,8 +461,14 @@ mod tests {
         let def = damage_ability(5);
         let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
-            ent(1), &def, vec![ent(2)], &ctx(),
-            false, true, &CritFailEffect::CircuitBreach, &mut dice,
+            ent(1),
+            &def,
+            vec![ent(2)],
+            &ctx(),
+            false,
+            true,
+            &CritFailEffect::CircuitBreach,
+            &mut dice,
         );
         match outcome.crit {
             CritOutcome::SelfDamage { amount, .. } => assert_eq!(amount, 3),
@@ -436,12 +481,21 @@ mod tests {
         let def = damage_ability(5);
         let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
-            ent(1), &def, vec![ent(2)], &ctx(),
-            false, true, &CritFailEffect::ManaOverload, &mut dice,
+            ent(1),
+            &def,
+            vec![ent(2)],
+            &ctx(),
+            false,
+            true,
+            &CritFailEffect::ManaOverload,
+            &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::ManaOverload));
         assert!(outcome.crit.is_mana_overload());
-        assert!(!outcome.crit.skips_primary(), "overload keeps the primary payload");
+        assert!(
+            !outcome.crit.skips_primary(),
+            "overload keeps the primary payload"
+        );
         assert!(matches!(outcome.primary, OutcomePrimary::Damage { .. }));
     }
 
@@ -451,8 +505,14 @@ mod tests {
         let def = damage_ability(0);
         let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
-            ent(1), &def, vec![ent(2)], &ctx(),
-            false, true, &CritFailEffect::ManaOverload, &mut dice,
+            ent(1),
+            &def,
+            vec![ent(2)],
+            &ctx(),
+            false,
+            true,
+            &CritFailEffect::ManaOverload,
+            &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::Miss));
         assert!(!outcome.crit.is_mana_overload());
@@ -464,8 +524,14 @@ mod tests {
         let def = damage_ability(0);
         let mut dice = MockDice { roll: 5 };
         let outcome = compute_ability_outcome(
-            ent(1), &def, vec![ent(2)], &ctx(),
-            false, false, &CritFailEffect::Miss, &mut dice,
+            ent(1),
+            &def,
+            vec![ent(2)],
+            &ctx(),
+            false,
+            false,
+            &CritFailEffect::Miss,
+            &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::None));
         assert!(!outcome.crit.skips_primary());

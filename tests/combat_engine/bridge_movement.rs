@@ -7,15 +7,15 @@
 
 use bevy::prelude::*;
 
+use combat_engine::{AbilityId, StatusId, WeaponId};
 use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
+use storyforge::combat::DiceRngRes;
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::statuses::StatusDef;
-use storyforge::combat::DiceRngRes;
-use combat_engine::{AbilityId, StatusId, WeaponId};
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
-    ActionPoints, ActiveStatus, BonusMovement, CombatStats, Reactions, StatusEffects,
-    Team, UnitToken, Vital,
+    ActionPoints, ActiveStatus, BonusMovement, CombatStats, Reactions, StatusEffects, Team,
+    UnitToken, Vital,
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::ActionInput;
@@ -23,7 +23,6 @@ use storyforge::game::resources::HexPositions;
 use storyforge::ui::animation::{AnimationQueue, PendingAnim};
 
 use super::common;
-
 
 #[test]
 fn process_action_move_writes_engine_state_and_projects_to_ecs() {
@@ -38,14 +37,23 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
     let actor_uid = entity_to_uid(actor);
     {
         let state = app.world().resource::<CombatStateRes>();
-        let unit = state.0.unit(actor_uid).expect("actor must be in engine state after mirror");
-        assert_eq!(unit.pos, start, "engine state should reflect actor start pos after mirror");
+        let unit = state
+            .0
+            .unit(actor_uid)
+            .expect("actor must be in engine state after mirror");
+        assert_eq!(
+            unit.pos, start,
+            "engine state should reflect actor start pos after mirror"
+        );
     }
 
     // --- Send ActionInput::Move for the actor ---
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor, path: vec![target] });
+        .write(ActionInput::Move {
+            actor,
+            path: vec![target],
+        });
 
     // --- Update: process_action_system calls step(), project_state_to_ecs writes engine state back to ECS ---
     app.update();
@@ -53,12 +61,23 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
     // Engine state: actor at target hex.
     let (engine_pos, engine_mp) = {
         let state = app.world().resource::<CombatStateRes>();
-        let unit = state.0.unit(actor_uid).expect("actor must still be in engine state");
-        let mp = unit.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+        let unit = state
+            .0
+            .unit(actor_uid)
+            .expect("actor must still be in engine state");
+        let mp = unit.pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0);
         (unit.pos, mp)
     };
-    assert_eq!(engine_pos, target, "engine state must show actor at target hex after step()");
-    assert_eq!(engine_mp, 5, "engine movement_points must be 6 - 1 = 5 after one-hex move");
+    assert_eq!(
+        engine_pos, target,
+        "engine state must show actor at target hex after step()"
+    );
+    assert_eq!(
+        engine_mp, 5,
+        "engine movement_points must be 6 - 1 = 5 after one-hex move"
+    );
 
     // ECS: projector has written engine state back.
     let ecs_pos = app
@@ -66,7 +85,10 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
         .resource::<HexPositions>()
         .get(&actor)
         .expect("actor must still have an ECS position");
-    assert_eq!(ecs_pos, target, "ECS HexPositions must be updated by project_state_to_ecs");
+    assert_eq!(
+        ecs_pos, target,
+        "ECS HexPositions must be updated by project_state_to_ecs"
+    );
 
     let ecs_mp = app
         .world()
@@ -74,7 +96,10 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
         .get::<ActionPoints>()
         .expect("actor must have ActionPoints")
         .movement_points;
-    assert_eq!(ecs_mp, 5, "ECS movement_points must match engine after projection");
+    assert_eq!(
+        ecs_mp, 5,
+        "ECS movement_points must match engine after projection"
+    );
 }
 
 /// AoO integration test: real `EcsContentView` feeds weapon dice to the engine.
@@ -210,13 +235,23 @@ fn aoo_does_not_fire_from_stunned_enemy() {
     common::apps::bridge::bootstrap(&mut app);
 
     let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
-    let enemy_reactions_before = app.world().entity(enemy).get::<Reactions>().unwrap().remaining;
+    let enemy_reactions_before = app
+        .world()
+        .entity(enemy)
+        .get::<Reactions>()
+        .unwrap()
+        .remaining;
 
     common::apps::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let hp_after = app.world().entity(player).get::<Vital>().unwrap().hp;
-    let enemy_reactions_after = app.world().entity(enemy).get::<Reactions>().unwrap().remaining;
+    let enemy_reactions_after = app
+        .world()
+        .entity(enemy)
+        .get::<Reactions>()
+        .unwrap()
+        .remaining;
 
     assert_eq!(
         hp_after, max_hp,
@@ -248,26 +283,55 @@ fn engine_emits_combat_log_opportunity_attack() {
     app.insert_resource(ActiveContent(content));
 
     let player = common::apps::bridge::spawn_caster(&mut app, player_start, vec![]);
-    let enemy = common::apps::bridge::spawn_enemy_with_weapon(&mut app, enemy_pos, vec![ability_id], weapon_id);
-    app.world_mut().entity_mut(enemy).get_mut::<Reactions>().unwrap().remaining = 1;
+    let enemy = common::apps::bridge::spawn_enemy_with_weapon(
+        &mut app,
+        enemy_pos,
+        vec![ability_id],
+        weapon_id,
+    );
+    app.world_mut()
+        .entity_mut(enemy)
+        .get_mut::<Reactions>()
+        .unwrap()
+        .remaining = 1;
 
     common::apps::bridge::bootstrap(&mut app);
     common::apps::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let log = app.world().resource::<CombatLog>();
-    let aoo_events: Vec<_> = log.0.iter().filter_map(|e| {
-        if let CombatEvent::OpportunityAttack { attacker, target, damage, killed } = e {
-            Some((*attacker, *target, *damage, *killed))
-        } else { None }
-    }).collect();
+    let aoo_events: Vec<_> = log
+        .0
+        .iter()
+        .filter_map(|e| {
+            if let CombatEvent::OpportunityAttack {
+                attacker,
+                target,
+                damage,
+                killed,
+            } = e
+            {
+                Some((*attacker, *target, *damage, *killed))
+            } else {
+                None
+            }
+        })
+        .collect();
 
-    assert_eq!(aoo_events.len(), 1, "exactly one OpportunityAttack expected, got {:?}", aoo_events);
+    assert_eq!(
+        aoo_events.len(),
+        1,
+        "exactly one OpportunityAttack expected, got {:?}",
+        aoo_events
+    );
     let (att, tgt, dmg, killed) = aoo_events[0];
     assert_eq!(att, enemy, "attacker must be the enemy");
     assert_eq!(tgt, player, "target must be the player");
     assert!(dmg > 0, "damage must be positive");
-    assert!(!killed, "player should not die from one AoO with default HP");
+    assert!(
+        !killed,
+        "player should not die from one AoO with default HP"
+    );
 }
 
 #[test]
@@ -282,11 +346,17 @@ fn engine_emits_combat_log_unit_moved() {
     app.update();
 
     let log = app.world().resource::<CombatLog>();
-    let moved_events: Vec<_> = log.0.iter().filter_map(|e| {
-        if let CombatEvent::UnitMoved { actor: a, from, to } = e {
-            Some((*a, *from, *to))
-        } else { None }
-    }).collect();
+    let moved_events: Vec<_> = log
+        .0
+        .iter()
+        .filter_map(|e| {
+            if let CombatEvent::UnitMoved { actor: a, from, to } = e {
+                Some((*a, *from, *to))
+            } else {
+                None
+            }
+        })
+        .collect();
 
     assert_eq!(moved_events.len(), 1, "exactly one UnitMoved expected");
     let (a, from, to) = moved_events[0];
@@ -322,7 +392,10 @@ fn engine_enqueues_movement_animation() {
                 "waypoints should be start + each path step"
             );
         }
-        other => panic!("expected Movement animation, got {:?}", std::mem::discriminant(other)),
+        other => panic!(
+            "expected Movement animation, got {:?}",
+            std::mem::discriminant(other)
+        ),
     }
 }
 
@@ -366,7 +439,15 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
     app.insert_resource(ActiveContent(cv));
 
     // Player with hp=1 — any hit is lethal.
-    let weak_stats = CombatStats { max_hp: 1, strength: 5, dexterity: 5, constitution: 10, intelligence: 0, wisdom: 10, charisma: 10 };
+    let weak_stats = CombatStats {
+        max_hp: 1,
+        strength: 5,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
+    };
     let player = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Player,
@@ -383,7 +464,11 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
         vec![ability_id],
         weapon_id,
     );
-    app.world_mut().entity_mut(enemy).get_mut::<Reactions>().unwrap().remaining = 1;
+    app.world_mut()
+        .entity_mut(enemy)
+        .get_mut::<Reactions>()
+        .unwrap()
+        .remaining = 1;
 
     // Script the dice: roll maximum damage (6) to guarantee a kill on hp=1.
     app.world_mut().resource_mut::<DiceRngRes>().script(&[6]);
@@ -395,12 +480,18 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
 
     // Dead component must be inserted.
     assert!(
-        app.world().entity(player).get::<storyforge::game::components::Dead>().is_some(),
+        app.world()
+            .entity(player)
+            .get::<storyforge::game::components::Dead>()
+            .is_some(),
         "player must have Dead component after lethal AoO"
     );
 
     // CombatLog must contain UnitDied.
     let log = app.world().resource::<CombatLog>();
-    let died = log.0.iter().any(|e| matches!(e, CombatEvent::UnitDied { entity } if *entity == player));
+    let died = log
+        .0
+        .iter()
+        .any(|e| matches!(e, CombatEvent::UnitDied { entity } if *entity == player));
     assert!(died, "CombatLog must contain UnitDied for the player");
 }

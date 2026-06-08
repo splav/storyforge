@@ -2,11 +2,11 @@
 //!
 //! Encourages retreat-and-help combos. Multiplicative so it does not flip sign.
 
-use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
-use crate::content::abilities::EffectCalcExt;
-use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::world::snapshot::UnitView;
+use crate::content::abilities::EffectCalcExt;
 use crate::game::hex::Hex;
 
 /// Evaluate the SynergyBonus rule for one plan.
@@ -28,8 +28,8 @@ pub(super) fn evaluate(
         return None;
     }
     let safer_tile = ctx.maps.danger.get(final_pos) + 0.05 < current_danger;
-    let better_pos =
-        evaluate_position(final_pos, &active.cache.role, ctx.world.tuning, ctx.maps) > current_pos_eval;
+    let better_pos = evaluate_position(final_pos, &active.cache.role, ctx.world.tuning, ctx.maps)
+        > current_pos_eval;
     if (safer_tile || better_pos) && plan_has_useful_cast(plan, ctx) {
         Some(SanityHit {
             rule: SanityRule::SynergyBonus,
@@ -45,9 +45,10 @@ fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
     let caster = &ctx.active.cache.caster_ctx;
     plan.steps.iter().any(|s| {
         if let PlanStep::Cast { ability, .. } = s {
-            content.abilities.get(ability).is_some_and(|def| {
-                def.effect.calc(caster).is_some() || !def.statuses.is_empty()
-            })
+            content
+                .abilities
+                .get(ability)
+                .is_some_and(|def| def.effect.calc(caster).is_some() || !def.statuses.is_empty())
         } else {
             false
         }

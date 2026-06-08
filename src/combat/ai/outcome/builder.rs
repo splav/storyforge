@@ -10,18 +10,18 @@
 //!
 //! All private helpers live here; `outcome::mod.rs` re-exports the public API.
 
-use crate::combat::ai::world::influence::InfluenceMaps;
+use crate::combat::ai::orchestration::AiWorld;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::scoring::status_applications;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectCalcExt};
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
-use combat_engine::ResourceKind;
-use bevy::prelude::Entity;
 use crate::game::components::Team;
+use bevy::prelude::Entity;
+use combat_engine::ResourceKind;
 
 // ---------------------------------------------------------------------------
 // Primary public API
@@ -52,7 +52,11 @@ pub fn from_sim_step(
     actor_entity: Entity,
 ) -> ActionOutcomeEstimate {
     match step {
-        PlanStep::Cast { ability, target, target_pos } => {
+        PlanStep::Cast {
+            ability,
+            target,
+            target_pos,
+        } => {
             let content = ctx.content;
             let Some(def) = content.abilities.get(ability) else {
                 return ActionOutcomeEstimate {
@@ -69,19 +73,39 @@ pub fn from_sim_step(
             let p_kill_soon = if def.aoe == AoEShape::None {
                 target_unit.map_or(0.0, |t| estimate_kill_soon(def, t, caster, content))
             } else {
-                aoe_p_kill_soon(def, *target_pos, caster_tile, actor_unit_team, pre_snap, caster, content)
+                aoe_p_kill_soon(
+                    def,
+                    *target_pos,
+                    caster_tile,
+                    actor_unit_team,
+                    pre_snap,
+                    caster,
+                    content,
+                )
             };
 
             // ── Damage facts ──
             let dmg_facts = build_damage_facts(
-                def, *target_pos, *target, caster_tile,
-                actor_unit_team, actor_entity, pre_snap, caster, step_damage,
+                def,
+                *target_pos,
+                *target,
+                caster_tile,
+                actor_unit_team,
+                actor_entity,
+                pre_snap,
+                caster,
+                step_damage,
             );
 
             // ── Status facts ──
             let status_facts = build_status_facts(
-                def, *target, *target_pos, caster_tile,
-                actor_unit_team, pre_snap, content,
+                def,
+                *target,
+                *target_pos,
+                caster_tile,
+                actor_unit_team,
+                pre_snap,
+                content,
             );
 
             // ── Support facts ──
@@ -168,7 +192,11 @@ pub fn hypothetical(
     };
 
     // ── Kill facts ──
-    let p_kill_now = if enemy_damage >= target.hp().max(1) as f32 { 1.0 } else { 0.0 };
+    let p_kill_now = if enemy_damage >= target.hp().max(1) as f32 {
+        1.0
+    } else {
+        0.0
+    };
     let p_kill_soon = if p_kill_now == 0.0 {
         estimate_kill_soon(def, target, caster, content)
     } else {
@@ -229,7 +257,9 @@ pub fn estimate_kill_soon(
     caster: &CasterContext,
     content: &ContentView,
 ) -> f32 {
-    let Some(calc) = def.effect.calc(caster) else { return 0.0 };
+    let Some(calc) = def.effect.calc(caster) else {
+        return 0.0;
+    };
     let armor = if calc.pierces_armor {
         0.0
     } else {
@@ -242,7 +272,11 @@ pub fn estimate_kill_soon(
     }
     let pending_dot = already_pending_dot(target);
     let new_dot = dot_tick_sum_for_ability(def, target, content);
-    if net + pending_dot + new_dot >= target.hp() as f32 { 1.0 } else { 0.0 }
+    if net + pending_dot + new_dot >= target.hp() as f32 {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 /// Max danger value along the path tiles of a single Move step.
@@ -252,8 +286,12 @@ pub fn estimate_kill_soon(
 /// current step's path (not the whole plan) so each step's annotation is
 /// independent.
 pub fn step_path_danger(step: &PlanStep, maps: &InfluenceMaps) -> f32 {
-    let PlanStep::Move { path } = step else { return 0.0 };
-    path.iter().map(|&h| maps.danger.get(h)).fold(0.0f32, f32::max)
+    let PlanStep::Move { path } = step else {
+        return 0.0;
+    };
+    path.iter()
+        .map(|&h| maps.danger.get(h))
+        .fold(0.0f32, f32::max)
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +407,8 @@ pub(crate) fn build_damage_facts(
 
     // Iterate all live units (enemies + allies + self) via UnitView.
     let opponent_team = crate::combat::ai::world::snapshot::opponent_team(actor_team);
-    for view in pre_snap.enemies_of(actor_team)
+    for view in pre_snap
+        .enemies_of(actor_team)
         .chain(pre_snap.allies_of(actor_team))
         .chain(pre_snap.unit(actor_entity).into_iter())
         .filter(|v| area.contains(&v.state.pos))
@@ -416,10 +455,15 @@ pub(crate) fn aoe_p_kill_soon(
 ) -> f32 {
     use crate::combat::ai::scoring::factors::aoe_area;
     let area = aoe_area(def, target_pos, caster_tile);
-    let any = pre_snap.enemies_of(actor_team)
+    let any = pre_snap
+        .enemies_of(actor_team)
         .filter(|v| v.is_alive() && area.contains(&v.state.pos))
         .any(|v| estimate_kill_soon(def, v.state, caster, content) > 0.0);
-    if any { 1.0 } else { 0.0 }
+    if any {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 /// Aggregate status facts over enemies hit by this ability.
@@ -452,14 +496,19 @@ pub(crate) fn build_status_facts(
         pre_snap.unit(target).into_iter().collect()
     } else {
         let area = aoe_area(def, target_pos, caster_tile);
-        pre_snap.enemies_of(actor_team)
+        pre_snap
+            .enemies_of(actor_team)
             .filter(|v| v.is_alive() && area.contains(&v.state.pos))
             .collect()
     };
 
     let n = enemy_targets.len() as f32;
     if n == 0.0 {
-        return StatusFacts { cc_turns_applied: 0.0, vulnerability_applied: 0.0, armor_shred_applied: 0.0 };
+        return StatusFacts {
+            cc_turns_applied: 0.0,
+            vulnerability_applied: 0.0,
+            armor_shred_applied: 0.0,
+        };
     }
 
     let mut cc_turns = 0.0f32;
@@ -495,7 +544,9 @@ pub(crate) fn estimate_hp_restored(
     target: &combat_engine::state::Unit,
     caster: &CasterContext,
 ) -> f32 {
-    let Some(calc) = def.effect.calc(caster) else { return 0.0 };
+    let Some(calc) = def.effect.calc(caster) else {
+        return 0.0;
+    };
     if !calc.is_heal {
         return 0.0;
     }

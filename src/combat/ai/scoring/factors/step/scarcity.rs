@@ -12,13 +12,13 @@ pub const NAME: &str = "scarcity";
 pub const SIGNED: bool = true;
 
 use crate::combat::ai::appraisal::NeedSignals;
-use crate::combat::ai::scoring::factors::ScoredStep;
+use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::factors::aoe_hits::aoe_hits;
 use crate::combat::ai::scoring::factors::offensive::aoe_area;
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
+use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::scoring::stun_denial_value;
-use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::world::snapshot::{UnitView};
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -38,7 +38,13 @@ pub fn compute(
 /// situations get negative scores; expensive abilities in high-swing moments
 /// get positive scores.
 fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
-    let ScoredStep::Cast { ability, target_pos, target, caster_tile } = step else {
+    let ScoredStep::Cast {
+        ability,
+        target_pos,
+        target,
+        caster_tile,
+    } = step
+    else {
         return 0.0;
     };
     let world = ctx.world;
@@ -91,7 +97,8 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
         } else {
             // AoE kill: credit highest-role enemy hit.
             if let Some(t) = aoe_enemies.iter().copied().max_by(|a, b| {
-                a.cache.role
+                a.cache
+                    .role
                     .role_value()
                     .partial_cmp(&b.cache.role.role_value())
                     .unwrap_or(std::cmp::Ordering::Equal)
@@ -155,19 +162,18 @@ fn has_free_attack(active: UnitView<'_>, content: &ContentView) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::config::role::AxisProfile;
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::test_helpers::{
-        empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
-        snapshot_from,
-    };
     use crate::combat::ai::orchestration::AiWorld;
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, unit, UnitBuilder,
+    };
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::content::content_view::ContentView;
-    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::*;
+    use combat_engine::AbilityId;
 
     /// Shared scaffolding for the scarcity suite. All tests here are
     /// direction-only (assert < 0 / > 0 / == 0), so caster-mod tuning
@@ -175,7 +181,10 @@ mod tests {
     /// actor. If a future test needs INT-mod-sensitive behaviour, set
     /// `UnitBuilder::caster_ctx(...)` on the active unit explicitly.
     fn scarcity_fixture() -> (ContentView, DifficultyProfile) {
-        (ContentView::load_global_for_tests(), DifficultyProfile::default())
+        (
+            ContentView::load_global_for_tests(),
+            DifficultyProfile::default(),
+        )
     }
 
     fn cast_step<'a>(
@@ -184,7 +193,12 @@ mod tests {
         target_pos: Hex,
         target: Entity,
     ) -> ScoredStep<'a> {
-        ScoredStep::Cast { ability, target, target_pos, caster_tile: tile }
+        ScoredStep::Cast {
+            ability,
+            target,
+            target_pos,
+            caster_tile: tile,
+        }
     }
 
     /// Score `compute_scarcity` against a freshly-built `ScoringCtx` bundle.
@@ -245,7 +259,10 @@ mod tests {
         let tile = hex_from_offset(4, 3);
         let active = UnitBuilder::new(0, Team::Enemy, tile).mana(10, 10).build();
         let enemy = UnitBuilder::new(1, Team::Player, hex_from_offset(3, 3))
-            .role(AxisProfile { support: 1.0, ..Default::default() })
+            .role(AxisProfile {
+                support: 1.0,
+                ..Default::default()
+            })
             .hp(5)
             .build();
 
@@ -274,10 +291,7 @@ mod tests {
         let e2 = unit(2, Team::Player, neighbors[0]);
         let e3 = unit(3, Team::Player, neighbors[1]);
 
-        let s = snapshot_from(
-            vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
-            3,
-        );
+        let s = snapshot_from(vec![active.clone(), e1.clone(), e2.clone(), e3.clone()], 3);
         let (content, diff) = scarcity_fixture();
         let ctx = make_test_ctx(&content, &diff);
 
@@ -309,7 +323,8 @@ mod tests {
         assert!(
             score_r1 < score_r3,
             "round 1 ({:.2}) should have lower scarcity than round 3 ({:.2})",
-            score_r1, score_r3,
+            score_r1,
+            score_r3,
         );
     }
 }

@@ -7,19 +7,17 @@
 //! gone; they now live here and are exposed as the `ActiveContent` resource
 //! populated on scenario entry.
 
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::abilities::{parse_abilities, AbilityDef, ABILITIES_FILE};
 use crate::content::armor::{parse_armor, ArmorDef, ArmorSlot, CHEST_FILE, FEET_FILE, LEGS_FILE};
 use crate::content::classes::{parse_classes, ClassDef, CLASSES_FILE};
 use crate::content::races::{parse_races, FactionDef, PathDef, RaceDef, RACES_FILE};
 use crate::content::statuses::{parse_statuses, StatusDef, STATUSES_FILE};
-use crate::content::unit_templates::{
-    parse_unit_templates, UnitTemplateDef, UNIT_TEMPLATES_FILE,
-};
-use crate::combat::ai::config::tuning::AiTuning;
+use crate::content::unit_templates::{parse_unit_templates, UnitTemplateDef, UNIT_TEMPLATES_FILE};
 use crate::content::weapons::{parse_weapons, WeaponDef, WEAPONS_FILE};
-use combat_engine::{AbilityId, ArmorId, StatusId, WeaponId};
 use crate::game::components::{CombatStats, Equipment};
 use bevy::prelude::*;
+use combat_engine::{AbilityId, ArmorId, StatusId, WeaponId};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -45,7 +43,10 @@ impl ContentView {
     /// Effective CombatStats = base + sum of all equipped weapon/armor stat bonuses.
     pub fn effective_stats(&self, base: &CombatStats, equipment: &Equipment) -> CombatStats {
         let mut s = base.clone();
-        for weapon_id in [&equipment.main_hand, &equipment.off_hand].into_iter().flatten() {
+        for weapon_id in [&equipment.main_hand, &equipment.off_hand]
+            .into_iter()
+            .flatten()
+        {
             if let Some(w) = self.weapons.get(weapon_id) {
                 s.max_hp += w.max_hp;
                 s.strength += w.strength;
@@ -73,7 +74,10 @@ impl ContentView {
     /// Total armor from all equipment pieces (armor items + weapons like shields).
     pub fn equipment_armor(&self, equipment: &Equipment) -> i32 {
         let mut total = 0;
-        for weapon_id in [&equipment.main_hand, &equipment.off_hand].into_iter().flatten() {
+        for weapon_id in [&equipment.main_hand, &equipment.off_hand]
+            .into_iter()
+            .flatten()
+        {
             if let Some(w) = self.weapons.get(weapon_id) {
                 total += w.armor;
             }
@@ -99,10 +103,34 @@ impl ContentView {
 
         // Each content type: read the file at every layer (if present), merge by id.
         for base in layers {
-            merge_into_map(base, ABILITIES_FILE, parse_abilities, |a| a.id.clone(), &mut v.abilities);
-            merge_into_map(base, STATUSES_FILE, parse_statuses, |s| s.id.clone(), &mut v.statuses);
-            merge_into_map(base, WEAPONS_FILE, parse_weapons, |w| w.id.clone(), &mut v.weapons);
-            merge_into_map(base, CLASSES_FILE, parse_classes, |c| c.id.clone(), &mut v.classes);
+            merge_into_map(
+                base,
+                ABILITIES_FILE,
+                parse_abilities,
+                |a| a.id.clone(),
+                &mut v.abilities,
+            );
+            merge_into_map(
+                base,
+                STATUSES_FILE,
+                parse_statuses,
+                |s| s.id.clone(),
+                &mut v.statuses,
+            );
+            merge_into_map(
+                base,
+                WEAPONS_FILE,
+                parse_weapons,
+                |w| w.id.clone(),
+                &mut v.weapons,
+            );
+            merge_into_map(
+                base,
+                CLASSES_FILE,
+                parse_classes,
+                |c| c.id.clone(),
+                &mut v.classes,
+            );
             merge_into_map(
                 base,
                 UNIT_TEMPLATES_FILE,
@@ -170,12 +198,7 @@ fn merge_into_map<T, K: std::hash::Hash + Eq, P, F>(
     }
 }
 
-fn merge_armor(
-    base: &Path,
-    file: &str,
-    slot: ArmorSlot,
-    dst: &mut HashMap<ArmorId, ArmorDef>,
-) {
+fn merge_armor(base: &Path, file: &str, slot: ArmorSlot, dst: &mut HashMap<ArmorId, ArmorDef>) {
     let path = base.join(file);
     if !path.is_file() {
         return;
@@ -200,9 +223,15 @@ fn merge_races(
     let src = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("Cannot read {}: {e}", path.display()));
     let (rs, fs, ps) = parse_races(&path.display().to_string(), &src);
-    for r in rs { races.insert(r.id.clone(), r); }
-    for f in fs { factions.insert(f.id.clone(), f); }
-    for p in ps { paths.insert(p.id.clone(), p); }
+    for r in rs {
+        races.insert(r.id.clone(), r);
+    }
+    for f in fs {
+        factions.insert(f.id.clone(), f);
+    }
+    for p in ps {
+        paths.insert(p.id.clone(), p);
+    }
 }
 
 impl ContentView {

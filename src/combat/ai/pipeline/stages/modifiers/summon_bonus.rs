@@ -40,20 +40,26 @@ impl PlanModifier for SummonBonus {
             .state
             .units()
             .iter()
-            .filter(|u| {
-                u.team == active.team
-                    && (active_uid != Some(u.id))
-                    && u.hp() > 0
-            })
+            .filter(|u| u.team == active.team && (active_uid != Some(u.id)) && u.hp() > 0)
             .count() as f32;
         // Saturation_mult computed once before the loop (legacy line :392).
         let saturation_mult = 0.65_f32.powf(total_allies);
 
         let mut total = 0.0f32;
         for step in &plan.steps {
-            let PlanStep::Cast { ability, .. } = step else { continue };
-            let Some(def) = world.content.abilities.get(ability) else { continue };
-            let EffectDef::Summon { template_id, max_active } = &def.effect else { continue };
+            let PlanStep::Cast { ability, .. } = step else {
+                continue;
+            };
+            let Some(def) = world.content.abilities.get(ability) else {
+                continue;
+            };
+            let EffectDef::Summon {
+                template_id,
+                max_active,
+            } = &def.effect
+            else {
+                continue;
+            };
 
             let cap = max_active.unwrap_or(3).max(1) as f32;
             let decay = (1.0 - (count / cap)).max(0.0);
@@ -79,17 +85,16 @@ mod tests {
     use crate::combat::ai::pipeline::stages::modifiers::ModifierCtx;
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
-    
-    use crate::combat::ai::test_helpers::{
-        empty_maps, empty_content, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        snapshot_from,
-    };
-    use crate::combat::ai::scoring::trade::unit_value;
+
     use crate::combat::ai::orchestration::AiWorld;
+    use crate::combat::ai::pipeline::StageCtx;
+    use crate::combat::ai::scoring::trade::unit_value;
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
+    };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::DiceRng;
-    use crate::combat::ai::pipeline::StageCtx;
     use std::collections::HashMap;
 
     /// Plans without any Summon step get zero bonus.
@@ -98,7 +103,11 @@ mod tests {
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let plan = TurnPlan { steps: vec![], final_pos: pos, ..TurnPlan::default() };
+        let plan = TurnPlan {
+            steps: vec![],
+            final_pos: pos,
+            ..TurnPlan::default()
+        };
 
         // ── 2. Context ──
         let content = empty_content();
@@ -109,14 +118,25 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = DiceRng::default();
-        let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+        let stage = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
 
         // ── 3. ModifierCtx ──
         let summon_dpr = HashMap::new();
         let actor_view = snap.unit(actor.entity).unwrap();
         let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
-        let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
+        let ctx = ModifierCtx {
+            stage: &stage,
+            summon_dpr: &summon_dpr,
+            actor_value,
+            repair_weights,
+        };
 
         // ── 4. Act ──
         let ann = crate::combat::ai::outcome::PlanAnnotation::default();
@@ -145,13 +165,20 @@ mod tests {
         let maps = empty_maps();
         let reservations = Reservations::default();
 
-        let summon_ability = real_content.abilities.iter().find(|(_, def)| {
-            matches!(def.effect, EffectDef::Summon { .. })
-        });
+        let summon_ability = real_content
+            .abilities
+            .iter()
+            .find(|(_, def)| matches!(def.effect, EffectDef::Summon { .. }));
         let Some((summon_name, summon_def)) = summon_ability else {
             return; // no Summon ability in real content — zero-path test still covers guard
         };
-        let EffectDef::Summon { template_id, max_active } = &summon_def.effect else { unreachable!() };
+        let EffectDef::Summon {
+            template_id,
+            max_active,
+        } = &summon_def.effect
+        else {
+            unreachable!()
+        };
 
         // ── 2. Context ──
         let world = AiWorld {
@@ -166,7 +193,13 @@ mod tests {
         let snap = snapshot_from(vec![actor.clone()], 1);
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = combat_engine::DiceRng::default();
-        let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+        let stage = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
 
         // ── 3. ModifierCtx ──
         let injected_dpr = 7.0_f32;
@@ -175,7 +208,12 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
         let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
-        let ctx = ModifierCtx { stage: &stage, summon_dpr: &dpr_cache, actor_value, repair_weights };
+        let ctx = ModifierCtx {
+            stage: &stage,
+            summon_dpr: &dpr_cache,
+            actor_value,
+            repair_weights,
+        };
 
         // ── 4. Act ──
         use crate::combat::ai::plan::types::PlanStep;
@@ -194,7 +232,7 @@ mod tests {
         // ── 5. Assert ──
         let cap = max_active.unwrap_or(3).max(1) as f32;
         let decay = (1.0 - (0.0_f32 / cap)).max(0.0); // = 1.0
-        let saturation_mult = 0.65_f32.powf(0.0);      // = 1.0
+        let saturation_mult = 0.65_f32.powf(0.0); // = 1.0
         let expected = injected_dpr * decay * saturation_mult; // = 7.0
         assert!(
             (got - expected).abs() < 1e-5,

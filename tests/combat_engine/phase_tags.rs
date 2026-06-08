@@ -26,9 +26,15 @@ use storyforge::combat_engine::{
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn uid(n: u64) -> UnitId { UnitId(n) }
-fn tag(s: &str) -> TagId { TagId::from(s) }
-fn tags(v: &[&str]) -> BTreeSet<TagId> { v.iter().map(|s| tag(s)).collect() }
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
+fn tag(s: &str) -> TagId {
+    TagId::from(s)
+}
+fn tags(v: &[&str]) -> BTreeSet<TagId> {
+    v.iter().map(|s| tag(s)).collect()
+}
 
 // ── Minimal ContentView that services one ability + one status ────────────────
 
@@ -64,7 +70,11 @@ impl PhaseTagContent {
                 blocks_mana_abilities: false,
                 forces_targeting: false,
                 skips_turn: false,
-                bonuses: StatusBonuses { speed_bonus: -2, armor_bonus: 0, damage_taken_bonus: 0 },
+                bonuses: StatusBonuses {
+                    speed_bonus: -2,
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                },
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
             },
@@ -74,10 +84,18 @@ impl PhaseTagContent {
 
 impl ContentView for PhaseTagContent {
     fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-        if *id == self.ability_id { Some(&self.ability_def) } else { None }
+        if *id == self.ability_id {
+            Some(&self.ability_def)
+        } else {
+            None
+        }
     }
     fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
-        if *id == self.aura_status_id { Some(&self.aura_status_def) } else { None }
+        if *id == self.aura_status_id {
+            Some(&self.aura_status_def)
+        } else {
+            None
+        }
     }
     fn status_bonuses(&self, id: &StatusId) -> StatusBonuses {
         if *id == self.aura_status_id {
@@ -86,7 +104,9 @@ impl ContentView for PhaseTagContent {
             StatusBonuses::default()
         }
     }
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+        None
+    }
 }
 
 // ── Unit builders ─────────────────────────────────────────────────────────────
@@ -161,7 +181,7 @@ fn make_state(units: Vec<Unit>, order: Vec<UnitId>) -> CombatState {
 /// - `unit(boss).tags` equals `{aberration, incorporeal}`.
 #[test]
 fn aura_cutoff_on_phase_tag_replace() {
-    let src = uid(1);   // aura source
+    let src = uid(1); // aura source
     let attacker = uid(2);
     let boss = uid(3);
 
@@ -171,7 +191,7 @@ fn aura_cutoff_on_phase_tag_replace() {
     // Phase: at 50% threshold, replace tags with {aberration, incorporeal}.
     let phase = PhaseEntry {
         pct: 50,
-        new_max_hp: 0,       // keep current max_hp
+        new_max_hp: 0, // keep current max_hp
         heal_to_full: false,
         tags: Some(tags(&["aberration", "incorporeal"])),
     };
@@ -196,7 +216,10 @@ fn aura_cutoff_on_phase_tag_replace() {
         "boss should be in aura membership before phase (has symbiote tag): {pre_membership:?}",
     );
     let pre_bonus = state.aura_effects_on(boss, &content);
-    assert_eq!(pre_bonus.speed_bonus, -2, "boss should receive speed penalty from aura before phase");
+    assert_eq!(
+        pre_bonus.speed_bonus, -2,
+        "boss should receive speed penalty from aura before phase"
+    );
 
     // Act: Cast "strike" (60 damage, ExpectedValue) at boss.
     // Boss HP: 90 → 30.  Threshold: 30*100=3000, 100*50=5000 → 3000 <= 5000 → phase fires.
@@ -204,28 +227,44 @@ fn aura_cutoff_on_phase_tag_replace() {
     let mut rng = ExpectedValue;
     let (events, _ctx) = step(
         &mut state,
-        Action::Cast { actor: attacker, ability, target: boss, target_pos: Hex::new(1, 0) },
+        Action::Cast {
+            actor: attacker,
+            ability,
+            target: boss,
+            target_pos: Hex::new(1, 0),
+        },
         &mut rng,
         &content,
     )
     .expect("step must succeed");
 
     // (a) AuraStatusLost event for the boss must appear.
-    let lost = events.iter().any(|e| matches!(
-        e,
-        Event::AuraStatusLost { target, source, status_id }
-        if *target == boss && *source == src && status_id.0 == aura_status
-    ));
-    assert!(lost, "AuraStatusLost for boss expected after phase tag-replace; events:\n{events:#?}");
+    let lost = events.iter().any(|e| {
+        matches!(
+            e,
+            Event::AuraStatusLost { target, source, status_id }
+            if *target == boss && *source == src && status_id.0 == aura_status
+        )
+    });
+    assert!(
+        lost,
+        "AuraStatusLost for boss expected after phase tag-replace; events:\n{events:#?}"
+    );
 
     // (b) After the step, aura_effects_on(boss) returns zero bonus (no longer member).
     let post_bonus = state.aura_effects_on(boss, &content);
-    assert_eq!(post_bonus.speed_bonus, 0, "boss should no longer receive aura speed penalty after shedding symbiote tag");
+    assert_eq!(
+        post_bonus.speed_bonus, 0,
+        "boss should no longer receive aura speed penalty after shedding symbiote tag"
+    );
 
     // (c) Boss tags are now {aberration, incorporeal}.
     let boss_tags = &state.unit(boss).expect("boss must be alive").tags;
-    assert_eq!(*boss_tags, tags(&["aberration", "incorporeal"]),
-        "boss tags should be replaced by phase; got: {boss_tags:?}");
+    assert_eq!(
+        *boss_tags,
+        tags(&["aberration", "incorporeal"]),
+        "boss tags should be replaced by phase; got: {boss_tags:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -246,7 +285,12 @@ fn phase_entry_tags_none_leaves_tags_unchanged() {
         .speed(3)
         .build();
     u.tags = initial_tags.clone();
-    u.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 0, heal_to_full: false, tags: None }];
+    u.enemy_phases = vec![PhaseEntry {
+        pct: 50,
+        new_max_hp: 0,
+        heal_to_full: false,
+        tags: None,
+    }];
 
     let mut state = make_state(vec![u], vec![boss]);
     let content = crate::common::engine_unit::StubContent::new();
@@ -274,8 +318,10 @@ fn phase_entry_tags_none_leaves_tags_unchanged() {
 
     // Tags must be unchanged.
     let after_tags = &state.unit(boss).unwrap().tags;
-    assert_eq!(*after_tags, initial_tags,
-        "tags must be unchanged when PhaseEntry.tags is None; got: {after_tags:?}");
+    assert_eq!(
+        *after_tags, initial_tags,
+        "tags must be unchanged when PhaseEntry.tags is None; got: {after_tags:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,7 +368,10 @@ fn effect_changes_aura_membership_predicate() {
     // Apply a Heal (non-membership-changing) effect.
     let (_, _) = apply_effect(
         &mut state,
-        &Effect::Heal { target: target_unit, amount: 5 },
+        &Effect::Heal {
+            target: target_unit,
+            amount: 5,
+        },
         &content,
     );
     // Apply an ApplyStatus effect (also non-membership-changing for aura diff).
@@ -349,7 +398,7 @@ fn effect_changes_aura_membership_predicate() {
     // First add a PhaseEntry with tags = Some({other}) to the target.
     if let Some(u) = state.unit_mut(target_unit) {
         u.enemy_phases = vec![PhaseEntry {
-            pct: 100,     // always fires on next EnterPhase
+            pct: 100, // always fires on next EnterPhase
             new_max_hp: 0,
             heal_to_full: false,
             tags: Some(tags(&["other"])), // sheds "living"
@@ -374,18 +423,25 @@ fn effect_changes_aura_membership_predicate() {
     ];
     for (name, expected) in true_cases {
         let result = match *name {
-            "MovePosition" => effect_is_membership_changing(
-                &Effect::MovePosition { actor: uid(1), to: Hex::ZERO },
-            ),
+            "MovePosition" => effect_is_membership_changing(&Effect::MovePosition {
+                actor: uid(1),
+                to: Hex::ZERO,
+            }),
             "Death" => effect_is_membership_changing(&Effect::Death { unit: uid(1) }),
-            "EnterPhase" => effect_is_membership_changing(&Effect::EnterPhase { unit: uid(1), phase_idx: 0 }),
+            "EnterPhase" => effect_is_membership_changing(&Effect::EnterPhase {
+                unit: uid(1),
+                phase_idx: 0,
+            }),
             "Damage" => effect_is_membership_changing(&Effect::Damage {
                 target: uid(1),
                 raw: 10.0,
                 source: EffectSource::Unit(uid(2)),
                 pierces: false,
             }),
-            "Heal" => effect_is_membership_changing(&Effect::Heal { target: uid(1), amount: 5 }),
+            "Heal" => effect_is_membership_changing(&Effect::Heal {
+                target: uid(1),
+                amount: 5,
+            }),
             "ApplyStatus" => effect_is_membership_changing(&Effect::ApplyStatus {
                 target: uid(1),
                 status: StatusId::from("s"),
@@ -395,7 +451,10 @@ fn effect_changes_aura_membership_predicate() {
             }),
             _ => unreachable!(),
         };
-        assert_eq!(result, *expected, "effect_is_membership_changing({name}) should be {expected}");
+        assert_eq!(
+            result, *expected,
+            "effect_is_membership_changing({name}) should be {expected}"
+        );
     }
 }
 
@@ -423,7 +482,10 @@ fn phase_entry_with_tags_roundtrip() {
     };
     let json = serde_json::to_string(&entry).unwrap();
     let back: PhaseEntry = serde_json::from_str(&json).unwrap();
-    assert_eq!(back, entry, "PhaseEntry with tags must survive serde round-trip");
+    assert_eq!(
+        back, entry,
+        "PhaseEntry with tags must survive serde round-trip"
+    );
 }
 
 /// Old `PhaseEntry` JSON without a `tags` key deserialises to `tags: None`.
@@ -431,7 +493,10 @@ fn phase_entry_with_tags_roundtrip() {
 fn phase_entry_old_wire_without_tags_deserialises_to_none() {
     let json = r#"{"pct":50,"new_max_hp":120,"heal_to_full":false}"#;
     let entry: PhaseEntry = serde_json::from_str(json).unwrap();
-    assert_eq!(entry.tags, None, "missing tags key must deserialise to None");
+    assert_eq!(
+        entry.tags, None,
+        "missing tags key must deserialise to None"
+    );
     assert_eq!(entry.pct, 50);
     assert_eq!(entry.new_max_hp, 120);
 }

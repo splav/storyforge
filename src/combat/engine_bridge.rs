@@ -30,34 +30,38 @@
 
 use std::collections::HashMap;
 
-use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 
 use crate::app_state::CombatPhase;
-use crate::content::abilities::{CasterContext, EffectDef};
-use crate::content::content_view::ActiveContent;
-use crate::content::races::CritFailEffect;
 use crate::combat::ai::config::role::{infer_profile, AxisProfile};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::world::tags::AbilityTagCache;
+use crate::content::abilities::{CasterContext, EffectDef};
+use crate::content::content_view::ActiveContent;
+use crate::content::races::CritFailEffect;
+use crate::game::bundles::enemy_bundle;
 use crate::game::combat_log::{
     CombatEvent, CombatLog, CritFailOutcomeEcs, SpawnBlockedReasonEcs, TurnSkipReasonEcs,
 };
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, AiBehaviorOverride, AuraSource, BonusMovement,
-    CombatPath, CombatStats, Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana,
-    Rage, Reactions, Speed, StatusEffects, SummonedBy, Tags, TemplateRef, UnitToken, Vital, VictoryTarget,
+    CombatPath, CombatStats, Combatant, Dead, EnemyPhases, Energy, Equipment, Faction, Mana, Rage,
+    Reactions, Speed, StatusEffects, SummonedBy, Tags, TemplateRef, UnitToken, VictoryTarget,
+    Vital,
 };
-use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, RestartCombat};
 use crate::game::resources::{
     CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, HexCorpses,
-    HexPositions, PhaseDeadline, PhaseDeadlineState, PresetInitiative, TurnQueue, UiDirty, UiDirtyFlags,
+    HexPositions, PhaseDeadline, PhaseDeadlineState, PresetInitiative, TurnQueue, UiDirty,
+    UiDirtyFlags,
 };
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
+use combat_engine::dice::DiceExpr as EngineDiceExpr;
+use combat_engine::modifier;
 use combat_engine::{
     action::Action,
     content::{AuraDef, ContentView as EngineContentView, TeamRelation},
@@ -67,8 +71,6 @@ use combat_engine::{
     step::step,
     PoolKind,
 };
-use combat_engine::dice::DiceExpr as EngineDiceExpr;
-use combat_engine::modifier;
 
 // ── Entity ↔ UnitId mapping ───────────────────────────────────────────────────
 
@@ -188,140 +190,165 @@ pub fn from_ecs(
 
     let units: Vec<Unit> = combatants
         .iter()
-        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt, template_ref)| {
-            let is_dead = vital.hp <= 0;
-            // Alive units live in HexPositions; dead units in HexCorpses.
-            let pos = if is_dead {
-                corpses.get(&entity)?
-            } else {
-                positions.get(&entity)?
-            };
+        .filter_map(
+            |(
+                entity,
+                vital,
+                speed,
+                ap,
+                reactions,
+                faction,
+                statuses,
+                rage,
+                mana,
+                energy_opt,
+                template_ref,
+            )| {
+                let is_dead = vital.hp <= 0;
+                // Alive units live in HexPositions; dead units in HexCorpses.
+                let pos = if is_dead {
+                    corpses.get(&entity)?
+                } else {
+                    positions.get(&entity)?
+                };
 
-            let uid = entity_to_uid(entity);
-            id_map.insert(entity, uid);
+                let uid = entity_to_uid(entity);
+                id_map.insert(entity, uid);
 
-            let statuses_vec: Vec<ActiveStatus> = statuses
-                .map(|se| {
-                    se.0.iter()
-                        .map(|s| ActiveStatus {
-                            id: s.id.clone(),
-                            rounds_remaining: s.rounds_remaining,
-                            dot_per_tick: s.dot_per_tick,
-                            // ECS-origin statuses always have a unit applier.
-                            // `None` applier would mean an env-applied status was
-                            // round-tripped through ECS, which does not occur in
-                            // normal gameplay; map defensively to a fixed Env(0).
-                            applier: match s.applier {
-                                Some(e) => combat_engine::state::EffectSource::Unit(entity_to_uid(e)),
-                                None    => combat_engine::state::EffectSource::Env(
-                                    combat_engine::state::EnvId(0)
-                                ),
-                            },
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+                let statuses_vec: Vec<ActiveStatus> = statuses
+                    .map(|se| {
+                        se.0.iter()
+                            .map(|s| ActiveStatus {
+                                id: s.id.clone(),
+                                rounds_remaining: s.rounds_remaining,
+                                dot_per_tick: s.dot_per_tick,
+                                // ECS-origin statuses always have a unit applier.
+                                // `None` applier would mean an env-applied status was
+                                // round-tripped through ECS, which does not occur in
+                                // normal gameplay; map defensively to a fixed Env(0).
+                                applier: match s.applier {
+                                    Some(e) => {
+                                        combat_engine::state::EffectSource::Unit(entity_to_uid(e))
+                                    }
+                                    None => combat_engine::state::EffectSource::Env(
+                                        combat_engine::state::EnvId(0),
+                                    ),
+                                },
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
-            let team = faction.0;
+                let team = faction.0;
 
-            // Dead units: keep with hp=0 (tombstone).
-            let hp = if is_dead { 0 } else { vital.hp };
+                // Dead units: keep with hp=0 (tombstone).
+                let hp = if is_dead { 0 } else { vital.hp };
 
-            // ── Fail-loud defaults for optional components ───────────────────
-            // Speed / ActionPoints / Reactions are optional in `CombatantRow`
-            // so minimal NPC entities (just Combatant + Faction + Vital) are
-            // accepted into engine state. Missing components fall back to
-            // "immobile, single-action" defaults, BUT we emit a `warn!` so
-            // the gap is loud, not silent — catches forgotten components in
-            // template spawns (see the wounded_scout regression).
-            let speed_val = match speed {
-                Some(s) => s.0,
-                None => {
-                    bevy::log::warn!("Combatant entity {:?} has no Speed — defaulting to 0", entity);
-                    0
+                // ── Fail-loud defaults for optional components ───────────────────
+                // Speed / ActionPoints / Reactions are optional in `CombatantRow`
+                // so minimal NPC entities (just Combatant + Faction + Vital) are
+                // accepted into engine state. Missing components fall back to
+                // "immobile, single-action" defaults, BUT we emit a `warn!` so
+                // the gap is loud, not silent — catches forgotten components in
+                // template spawns (see the wounded_scout regression).
+                let speed_val = match speed {
+                    Some(s) => s.0,
+                    None => {
+                        bevy::log::warn!(
+                            "Combatant entity {:?} has no Speed — defaulting to 0",
+                            entity
+                        );
+                        0
+                    }
+                };
+                let (ap_cur, ap_max, mp_cur) = match ap {
+                    Some(a) => (a.action_points, a.max_ap, a.movement_points),
+                    None => {
+                        bevy::log::warn!(
+                            "Combatant entity {:?} has no ActionPoints — defaulting to (1,1,0)",
+                            entity
+                        );
+                        (1, 1, 0)
+                    }
+                };
+                let reactions_max = match reactions {
+                    Some(r) => r.max,
+                    None => {
+                        bevy::log::warn!(
+                            "Combatant entity {:?} has no Reactions — defaulting to 1",
+                            entity
+                        );
+                        1
+                    }
+                };
+
+                let rage_pool: Option<Pool> = rage.map(|r| (r.current, r.max));
+                let mana_pool: Option<Pool> = mana.map(|m| (m.current, m.max));
+                let energy_pool: Option<Pool> = energy_opt.map(|e| (e.current, e.max));
+                let bridge_pools = combat_engine::enum_map::enum_map! {
+                    // Stage 1 dual-write: pools[Hp] mirrors Vital hp/max_hp.
+                    combat_engine::PoolKind::Hp     => Some((hp, vital.max_hp)),
+                    combat_engine::PoolKind::Mana   => mana_pool,
+                    combat_engine::PoolKind::Rage   => rage_pool,
+                    combat_engine::PoolKind::Energy => energy_pool,
+                    combat_engine::PoolKind::Ap     => Some((ap_cur, ap_max)),
+                    combat_engine::PoolKind::Mp     => Some((mp_cur, mp_cur)),
+                };
+                let bridge_regen = combat_engine::enum_map::enum_map! {
+                    // Hp has no turn-start regen in gameplay.
+                    combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
+                    combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+                    combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+                    combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+                    combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+                    combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+                };
+
+                // Compute status-derived aggregate bonuses from active statuses.
+                // Mirrors Effect::RefreshAggregates (status half only); aura-based
+                // contributions are added after bootstrap populates unit.auras.
+                let mut armor_bonus: i32 = 0;
+                let mut speed_bonus: i32 = 0;
+                let mut damage_taken_bonus: i32 = 0;
+                for s in &statuses_vec {
+                    if let Some(def) = content.statuses.get(&s.id) {
+                        armor_bonus += def.engine.bonuses.armor_bonus;
+                        speed_bonus += def.engine.bonuses.speed_bonus;
+                        damage_taken_bonus += def.engine.bonuses.damage_taken_bonus;
+                    }
                 }
-            };
-            let (ap_cur, ap_max, mp_cur) = match ap {
-                Some(a) => (a.action_points, a.max_ap, a.movement_points),
-                None => {
-                    bevy::log::warn!("Combatant entity {:?} has no ActionPoints — defaulting to (1,1,0)", entity);
-                    (1, 1, 0)
-                }
-            };
-            let reactions_max = match reactions {
-                Some(r) => r.max,
-                None => {
-                    bevy::log::warn!("Combatant entity {:?} has no Reactions — defaulting to 1", entity);
-                    1
-                }
-            };
 
-            let rage_pool: Option<Pool> = rage.map(|r| (r.current, r.max));
-            let mana_pool: Option<Pool> = mana.map(|m| (m.current, m.max));
-            let energy_pool: Option<Pool> = energy_opt.map(|e| (e.current, e.max));
-            let bridge_pools = combat_engine::enum_map::enum_map! {
-                // Stage 1 dual-write: pools[Hp] mirrors Vital hp/max_hp.
-                combat_engine::PoolKind::Hp     => Some((hp, vital.max_hp)),
-                combat_engine::PoolKind::Mana   => mana_pool,
-                combat_engine::PoolKind::Rage   => rage_pool,
-                combat_engine::PoolKind::Energy => energy_pool,
-                combat_engine::PoolKind::Ap     => Some((ap_cur, ap_max)),
-                combat_engine::PoolKind::Mp     => Some((mp_cur, mp_cur)),
-            };
-            let bridge_regen = combat_engine::enum_map::enum_map! {
-                // Hp has no turn-start regen in gameplay.
-                combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-            };
-
-            // Compute status-derived aggregate bonuses from active statuses.
-            // Mirrors Effect::RefreshAggregates (status half only); aura-based
-            // contributions are added after bootstrap populates unit.auras.
-            let mut armor_bonus: i32 = 0;
-            let mut speed_bonus: i32 = 0;
-            let mut damage_taken_bonus: i32 = 0;
-            for s in &statuses_vec {
-                if let Some(def) = content.statuses.get(&s.id) {
-                    armor_bonus       += def.engine.bonuses.armor_bonus;
-                    speed_bonus       += def.engine.bonuses.speed_bonus;
-                    damage_taken_bonus += def.engine.bonuses.damage_taken_bonus;
-                }
-            }
-
-            Some(Unit::new(
-                uid,
-                team,
-                pos,
-                vital.armor,
-                armor_bonus,
-                damage_taken_bonus,
-                speed_val,
-                speed_val + speed_bonus,
-                // Bootstrap-initial: a unit always enters combat with a full reaction
-                // budget. We intentionally ignore `Reactions.remaining` here — the ECS
-                // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
-                // mid-combat summons), so reading it would yield 0 and break round-1
-                // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
-                // reactions_left = reactions_max on every subsequent round.
-                reactions_max as i32,
-                reactions_max as i32,
-                statuses_vec,
-                None,
-                None,               // initiative: not yet rolled
-                // Per-combat fields populated by bootstrap_combat_state after from_ecs.
-                combat_engine::CasterContext::default(),
-                None,
-                Vec::new(),
-                Vec::new(),
-                bridge_pools,
-                bridge_regen,
-                template_ref.map(|tr| tr.0.clone()),
-            ))
-        })
+                Some(Unit::new(
+                    uid,
+                    team,
+                    pos,
+                    vital.armor,
+                    armor_bonus,
+                    damage_taken_bonus,
+                    speed_val,
+                    speed_val + speed_bonus,
+                    // Bootstrap-initial: a unit always enters combat with a full reaction
+                    // budget. We intentionally ignore `Reactions.remaining` here — the ECS
+                    // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
+                    // mid-combat summons), so reading it would yield 0 and break round-1
+                    // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
+                    // reactions_left = reactions_max on every subsequent round.
+                    reactions_max as i32,
+                    reactions_max as i32,
+                    statuses_vec,
+                    None,
+                    None, // initiative: not yet rolled
+                    // Per-combat fields populated by bootstrap_combat_state after from_ecs.
+                    combat_engine::CasterContext::default(),
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    bridge_pools,
+                    bridge_regen,
+                    template_ref.map(|tr| tr.0.clone()),
+                ))
+            },
+        )
         .collect();
 
     CombatState::new(units, round, RoundPhase::ActorTurn, 0)
@@ -431,10 +458,13 @@ fn build_engine_template_from_def(
     // Build CasterContext from stats + main-hand weapon, mirroring CasterContext::new.
     let bevy_ctx = CasterContext::new(&tpl.stats, Some(&equipment), &active_content.weapons);
     // crit_fail_outcome: look up the unit's combat path, default to Miss.
-    let crit_fail_effect = tpl.path
+    let crit_fail_effect = tpl
+        .path
         .as_deref()
         .and_then(|p| active_content.paths.get(p))
-        .map_or(crate::content::races::CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
+        .map_or(crate::content::races::CritFailEffect::Miss, |p| {
+            p.crit_fail_effect.clone()
+        });
     let engine_ctx = combat_engine::CasterContext {
         str_mod: bevy_ctx.str_mod,
         int_mod: bevy_ctx.int_mod,
@@ -446,9 +476,10 @@ fn build_engine_template_from_def(
 
     // AoO dice: unit needs a melee WeaponAttack ability (range.max == 1) + weapon dice.
     let has_melee = tpl.ability_ids.iter().any(|aid| {
-        active_content.abilities.get(aid).is_some_and(|def| {
-            matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
-        })
+        active_content
+            .abilities
+            .get(aid)
+            .is_some_and(|def| matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1)
     });
     let aoo_dice = if has_melee {
         bevy_ctx.weapon_dice.map(|core_dice| {
@@ -483,7 +514,8 @@ fn build_engine_template_from_def(
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
-        initial_statuses: tpl.initial_statuses
+        initial_statuses: tpl
+            .initial_statuses
             .iter()
             .map(|s| combat_engine::StatusId::from(s.as_str()))
             .collect(),
@@ -511,10 +543,10 @@ fn build_engine_template_from_def(
 ///
 /// Called from `bootstrap_combat_state`, `process_action_system`, and
 /// `advance_turn_system` (for dead-actor sirota-DoT ticks).
-pub(crate) fn build_ecs_content_view<'a>(
-    content: &'a ActiveContent,
-) -> EcsContentView<'a> {
-    EcsContentView { active_content: content }
+pub(crate) fn build_ecs_content_view<'a>(content: &'a ActiveContent) -> EcsContentView<'a> {
+    EcsContentView {
+        active_content: content,
+    }
 }
 
 // ── apply_phase_ecs_writes ────────────────────────────────────────────────────
@@ -556,14 +588,18 @@ fn apply_phase_ecs_writes(
     tag_cache: &AbilityTagCache,
     overrides: &mut Vec<PhaseOverrideIntent>,
 ) {
-    let Some(ent) = id_map.get_entity(unit) else { return };
+    let Some(ent) = id_map.get_entity(unit) else {
+        return;
+    };
     let Ok((mut phases, mut vital, mut stats, mut abilities, role_opt, mut name, is_dead)) =
         q.get_mut(ent)
     else {
         return;
     };
 
-    let Some(phase) = phases.pending.get(phase_idx).cloned() else { return };
+    let Some(phase) = phases.pending.get(phase_idx).cloned() else {
+        return;
+    };
 
     // Capture name before mutation so the log shows the actual "was → now".
     let prev_name = name.as_str().to_string();
@@ -680,9 +716,6 @@ pub struct InitiativeParams<'w, 's> {
 
 // ── Queue Resources for deferred ECS side-effects ────────────────────────────
 
-
-
-
 // ── apply-systems for the new queue Resources ─────────────────────────────────
 
 /// Drains the pre-projection half of [`BridgeQueues`]: deaths and turn-lifecycle.
@@ -774,7 +807,17 @@ pub fn apply_bridge_queues_post_projection(
     // Phase transitions — move phases out first so we can borrow phase_overrides independently.
     let transitions = std::mem::take(&mut queues.phases);
     for (unit, phase_idx) in transitions {
-        apply_phase_ecs_writes(unit, phase_idx, &id_map, &mut commands, &mut log, &mut q, &active_content, &tag_cache, &mut queues.phase_overrides);
+        apply_phase_ecs_writes(
+            unit,
+            phase_idx,
+            &id_map,
+            &mut commands,
+            &mut log,
+            &mut q,
+            &active_content,
+            &tag_cache,
+            &mut queues.phase_overrides,
+        );
     }
 }
 
@@ -790,7 +833,10 @@ pub fn apply_phase_overrides_system(
 ) {
     for intent in std::mem::take(&mut queues.phase_overrides) {
         if let Some(ov) = intent.victory_override {
-            if let crate::content::encounters::VictoryCondition::KillTarget { marker_color, .. } = &ov {
+            if let crate::content::encounters::VictoryCondition::KillTarget {
+                marker_color, ..
+            } = &ov
+            {
                 // The override always targets the phasing unit itself; load-time
                 // validation (`validate_scenario`) guarantees the KillTarget enemy_name
                 // equals the phasing enemy's config name. KillTarget victory is
@@ -799,13 +845,18 @@ pub fn apply_phase_overrides_system(
                 // and the UI ring then track the new objective. (Matching by display
                 // `Name` would be wrong: combat names carry a race prefix, e.g.
                 // "Зверокров Страж" vs the bare config name "Страж".)
-                commands.entity(intent.entity).insert(VictoryTarget { marker_color: *marker_color });
+                commands.entity(intent.entity).insert(VictoryTarget {
+                    marker_color: *marker_color,
+                });
             }
             objective.0 = ov;
             ui_dirty.0 |= UiDirtyFlags::PHASE_HINT;
         }
         if let Some(limit) = intent.turn_limit {
-            deadline.0 = Some(PhaseDeadlineState { phase_started_round: ctx.round, limit });
+            deadline.0 = Some(PhaseDeadlineState {
+                phase_started_round: ctx.round,
+                limit,
+            });
         }
     }
 }
@@ -848,7 +899,10 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
     };
     let effective = active_content.effective_stats(&template.stats, &equipment);
     let armor = active_content.equipment_armor(&equipment);
-    let race_name = active_content.races.get(&template.race).map_or("", |r| r.name.as_str());
+    let race_name = active_content
+        .races
+        .get(&template.race)
+        .map_or("", |r| r.name.as_str());
     let display_name = if race_name.is_empty() {
         template.name.clone()
     } else {
@@ -858,11 +912,23 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
         combat_engine::state::Team::Player => EcsTeam::Player,
         combat_engine::state::Team::Enemy => EcsTeam::Enemy,
     };
-    let role = infer_profile(&template.ability_ids, effective.max_hp, armor, active_content, tag_cache);
+    let role = infer_profile(
+        &template.ability_ids,
+        effective.max_hp,
+        armor,
+        active_content,
+        tag_cache,
+    );
 
     let mut ec = commands.spawn((
         Name::new(display_name.clone()),
-        enemy_bundle(effective, armor, template.speed, template.ability_ids.clone(), equipment),
+        enemy_bundle(
+            effective,
+            armor,
+            template.speed,
+            template.ability_ids.clone(),
+            equipment,
+        ),
         role,
         AiMemory::default(),
         SummonedBy(summoner_entity),
@@ -1003,10 +1069,12 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             if let Some(mv) = ctx.move_.as_mut() {
                 if mv.first_from.is_none() {
                     mv.first_from = Some(*from);
-                    mv.waypoints.push(LAYOUT.hex_to_world_pos(*from) + mv.grid_offset.0);
+                    mv.waypoints
+                        .push(LAYOUT.hex_to_world_pos(*from) + mv.grid_offset.0);
                 }
                 mv.last_to = Some(*to);
-                mv.waypoints.push(LAYOUT.hex_to_world_pos(*to) + mv.grid_offset.0);
+                mv.waypoints
+                    .push(LAYOUT.hex_to_world_pos(*to) + mv.grid_offset.0);
             }
         }
 
@@ -1026,7 +1094,14 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         // Move:  only AoO-paired damage (decision 6.3 — pending_aoo_target machine).
         // Cast:  pass mitigation as-is (engine zeroes it for piercing casts).
         // Tick:  pierce-aware formula (DoT always pierces armor — use pierces flag).
-        Event::UnitDamaged { target, amount, raw, mitigation, pierces, source } => {
+        Event::UnitDamaged {
+            target,
+            amount,
+            raw,
+            mitigation,
+            pierces,
+            source,
+        } => {
             if let Some(mv) = ctx.move_.as_mut() {
                 if mv.pending_aoo_target == Some(*target) {
                     // AoO arm: source is always a unit (reactions are unit-only).
@@ -1086,7 +1161,9 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
                 }
             } else if ctx.cast.is_some() {
                 // Cast context: engine already zeroes mitigation for piercing casts.
-                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
+                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else {
+                    return;
+                };
                 ctx.log.push(CombatEvent::DamageResult {
                     target: tgt_ent,
                     raw: raw.round() as i32,
@@ -1108,10 +1185,20 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
 
         // ── DoT damage (fused atomic, tick context only) ──────────────────────
-        Event::DotDamaged { target, source, source_status, raw, mitigation, pierces, amount } => {
+        Event::DotDamaged {
+            target,
+            source,
+            source_status,
+            raw,
+            mitigation,
+            pierces,
+            amount,
+        } => {
             // no-op: DotDamaged not produced during Cast or Move actions
             if ctx.cast.is_none() && ctx.move_.is_none() {
-                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
+                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else {
+                    return;
+                };
                 // For env-applied DoTs there is no unit attacker; source is None.
                 let src_ent_opt: Option<Entity> = match source {
                     combat_engine::state::EffectSource::Unit(u) => ctx.id_map.get_entity(*u),
@@ -1130,7 +1217,11 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
 
         // ── HoT heal (fused atomic, tick context only) ───────────────────────
-        Event::HotHealed { target, source_status, amount } => {
+        Event::HotHealed {
+            target,
+            source_status,
+            amount,
+        } => {
             // no-op: HotHealed not produced during Cast or Move actions
             if ctx.cast.is_none() && ctx.move_.is_none() {
                 if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
@@ -1170,7 +1261,9 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
 
         // ── Aura events (turn/round-boundary, any context) ────────────────────
-        Event::AuraStatusGained { target, status_id, .. } => {
+        Event::AuraStatusGained {
+            target, status_id, ..
+        } => {
             if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
                 ctx.log.push(CombatEvent::StatusApplied {
                     target: tgt_ent,
@@ -1178,7 +1271,9 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
                 });
             }
         }
-        Event::AuraStatusLost { target, status_id, .. } => {
+        Event::AuraStatusLost {
+            target, status_id, ..
+        } => {
             if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
                 ctx.log.push(CombatEvent::StatusExpired {
                     target: tgt_ent,
@@ -1199,7 +1294,9 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         Event::UnitHealed { target, amount } => {
             // no-op: not produced during tick or move actions
             if ctx.cast.is_some() {
-                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
+                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else {
+                    return;
+                };
                 ctx.log.push(CombatEvent::HealResult {
                     target: tgt_ent,
                     amount: *amount,
@@ -1210,10 +1307,15 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         // ── Resource changes (C6: only PoolChanged remains) ──────────────────
 
         // ── Crit-fail (cast only) ─────────────────────────────────────────────
-        Event::CritFailed { actor: actor_uid, outcome } => {
+        Event::CritFailed {
+            actor: actor_uid,
+            outcome,
+        } => {
             // no-op: not produced during tick or move actions
             if ctx.cast.is_some() {
-                let Some(actor_ent) = ctx.id_map.get_entity(*actor_uid) else { return };
+                let Some(actor_ent) = ctx.id_map.get_entity(*actor_uid) else {
+                    return;
+                };
                 match outcome {
                     combat_engine::CritFailOutcome::Miss => {
                         ctx.log.push(CombatEvent::CriticalMiss { actor: actor_ent });
@@ -1236,10 +1338,16 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             // in cast context handle UnitSpawned in a separate post-pass after
             // translate_events returns (same pattern as PhaseEntered).
         }
-        Event::SpawnBlocked { summoner: summoner_uid, reason, .. } => {
+        Event::SpawnBlocked {
+            summoner: summoner_uid,
+            reason,
+            ..
+        } => {
             // no-op: not produced during tick or move actions
             if ctx.cast.is_some() {
-                let Some(summoner_entity) = ctx.id_map.get_entity(*summoner_uid) else { return };
+                let Some(summoner_entity) = ctx.id_map.get_entity(*summoner_uid) else {
+                    return;
+                };
                 ctx.log.push(CombatEvent::SummonBlocked {
                     summoner: summoner_entity,
                     reason: SpawnBlockedReasonEcs::from(reason),
@@ -1297,7 +1405,13 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
 
         // ── Unified pool-change (C6: sole pool-mutation event) ───────────────
-        Event::PoolChanged { unit, pool, current, max, cause } => {
+        Event::PoolChanged {
+            unit,
+            pool,
+            current,
+            max,
+            cause,
+        } => {
             if let Some(ent) = ctx.id_map.get_entity(*unit) {
                 ctx.log.push(CombatEvent::PoolChanged {
                     actor: ent,
@@ -1313,7 +1427,8 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         // A trap fired (one-shot) and was removed from the board — log the hit.
         Event::HazardTriggered { victim, .. } => {
             if let Some(victim_ent) = ctx.id_map.get_entity(*victim) {
-                ctx.log.push(CombatEvent::HazardTriggered { victim: victim_ent });
+                ctx.log
+                    .push(CombatEvent::HazardTriggered { victim: victim_ent });
             }
         }
         // EnvRevealed: an armed trap became visible (reveal mechanic). Flag the
@@ -1326,7 +1441,12 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         // Emitted by CombatState::roll_initiative_for_all. Not wired into the
         // round lifecycle yet; translate here so the workspace compiles and the
         // combat-log rendering path is exercised once Wave 5 emits these.
-        Event::InitiativeRolled { unit, roll, dex_mod, total } => {
+        Event::InitiativeRolled {
+            unit,
+            roll,
+            dex_mod,
+            total,
+        } => {
             if let Some(ent) = ctx.id_map.get_entity(*unit) {
                 ctx.log.push(CombatEvent::InitiativeRolled {
                     actor: ent,
@@ -1338,7 +1458,6 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
     }
 }
-
 
 /// Emit the `CombatEvent::AbilityUsed` preamble for a cast action.
 /// Called once before `translate_events` in the cast flow.
@@ -1425,7 +1544,9 @@ pub fn process_action_system(
                         // Write trace BEFORE ECS projection so a crash mid-projection
                         // doesn't corrupt the trace (plan spec §4 wiring note).
                         let hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
-                        if let Err(e) = trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash) {
+                        if let Err(e) =
+                            trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash)
+                        {
                             warn!("Engine trace step write failed: {e}");
                         }
                         // Save interrupted flag before `ctx` is shadowed by TranslateCtx below.
@@ -1454,10 +1575,16 @@ pub fn process_action_system(
                         };
                         // Emit aggregated UnitMoved and enqueue animation (ctx dropped above).
                         if let (Some(from), Some(to)) = (final_from, final_to) {
-                            log.push(CombatEvent::UnitMoved { actor: final_actor, from, to });
+                            log.push(CombatEvent::UnitMoved {
+                                actor: final_actor,
+                                from,
+                                to,
+                            });
                         }
                         if !final_waypoints.is_empty() {
-                            if let Some((token_entity, _)) = visuals.tokens.iter().find(|(_, t)| t.0 == final_actor) {
+                            if let Some((token_entity, _)) =
+                                visuals.tokens.iter().find(|(_, t)| t.0 == final_actor)
+                            {
                                 queues.animations.push(PendingAnim::Movement {
                                     token: token_entity,
                                     waypoints: final_waypoints,
@@ -1466,7 +1593,10 @@ pub fn process_action_system(
                         }
                         // AoO on a move can cross a phase threshold; queue for apply system.
                         for ev in &events {
-                            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                            if let Event::PhaseEntered {
+                                unit, phase_idx, ..
+                            } = ev
+                            {
                                 queues.phases.push((*unit, *phase_idx));
                             }
                         }
@@ -1475,7 +1605,8 @@ pub fn process_action_system(
                         // reading combat_state, which is not available inside TranslateCtx.
                         for ev in &events {
                             if let Event::EnvRevealed { env_id } = ev {
-                                let hex = combat_state.0
+                                let hex = combat_state
+                                    .0
                                     .environment
                                     .iter()
                                     .find(|e| e.id == *env_id)
@@ -1501,7 +1632,12 @@ pub fn process_action_system(
                     }
                 }
             }
-            ActionInput::Cast { actor, ability, target, target_pos } => {
+            ActionInput::Cast {
+                actor,
+                ability,
+                target,
+                target_pos,
+            } => {
                 let Some(actor_uid) = id_map.get_id(*actor) else {
                     warn!(
                         "process_action_system: no UnitId for cast actor {:?} — skipping",
@@ -1531,10 +1667,19 @@ pub fn process_action_system(
                     Ok((events, ctx)) => {
                         // Write trace BEFORE ECS projection.
                         let hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
-                        if let Err(e) = trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash) {
+                        if let Err(e) =
+                            trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash)
+                        {
                             warn!("Engine trace step write failed: {e}");
                         }
-                        emit_ability_used(*actor, ability, *target, *target_pos, &active_content, &mut log);
+                        emit_ability_used(
+                            *actor,
+                            ability,
+                            *target,
+                            *target_pos,
+                            &active_content,
+                            &mut log,
+                        );
                         {
                             let cast_ctx = CastCtx { _phantom: () };
                             let mut ctx = TranslateCtx {
@@ -1546,11 +1691,20 @@ pub fn process_action_system(
                             };
                             translate_events(&events, &mut ctx);
                         } // ctx drops here, releasing &mut id_map
-                        // Post-pass: handle UnitSpawned separately (needs &mut Commands
-                        // which cannot be stored in TranslateCtx — same pattern as PhaseEntered).
+                          // Post-pass: handle UnitSpawned separately (needs &mut Commands
+                          // which cannot be stored in TranslateCtx — same pattern as PhaseEntered).
                         for ev in &events {
-                            if let Event::UnitSpawned { uid, summoner: summoner_uid, pos, template_id, team } = ev {
-                                let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
+                            if let Event::UnitSpawned {
+                                uid,
+                                summoner: summoner_uid,
+                                pos,
+                                template_id,
+                                team,
+                            } = ev
+                            {
+                                let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else {
+                                    continue;
+                                };
                                 let spawned_uid = *uid;
                                 if let Some(new_entity) = spawn_ecs_entity_from_engine_unit(
                                     spawned_uid,
@@ -1588,7 +1742,10 @@ pub fn process_action_system(
                         // Queue phase transitions from cast events (most common case:
                         // boss crosses HP threshold from a direct damage spell).
                         for ev in &events {
-                            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                            if let Event::PhaseEntered {
+                                unit, phase_idx, ..
+                            } = ev
+                            {
                                 queues.phases.push((*unit, *phase_idx));
                             }
                         }
@@ -1615,11 +1772,18 @@ pub fn process_action_system(
                 let content = build_ecs_content_view(&active_content);
 
                 let end_action = Action::EndTurn { actor: actor_uid };
-                match step(&mut combat_state.0, end_action.clone(), &mut rng.0, &content) {
+                match step(
+                    &mut combat_state.0,
+                    end_action.clone(),
+                    &mut rng.0,
+                    &content,
+                ) {
                     Ok((events, ctx)) => {
                         // Write trace BEFORE ECS projection.
                         let hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
-                        if let Err(e) = trace_writer.write_step(&end_action, &events, ctx.rng_calls, hash) {
+                        if let Err(e) =
+                            trace_writer.write_step(&end_action, &events, ctx.rng_calls, hash)
+                        {
                             warn!("Engine trace step write failed: {e}");
                         }
                         let mut ctx = TranslateCtx {
@@ -1632,7 +1796,10 @@ pub fn process_action_system(
                         translate_events(&events, &mut ctx);
                         // DoT ticks at end of turn can cross a phase threshold.
                         for ev in &events {
-                            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                            if let Event::PhaseEntered {
+                                unit, phase_idx, ..
+                            } = ev
+                            {
                                 queues.phases.push((*unit, *phase_idx));
                             }
                         }
@@ -1730,23 +1897,31 @@ pub fn project_state_to_ecs(
         positions.insert(entity, unit.pos);
 
         // Write Vital / ActionPoints / Reactions / Rage / Mana / Energy / StatusEffects.
-        if let Ok((mut vital, mut ap, mut reactions, has_bonus, rage_opt, mana_opt, energy_opt, status_effects_opt)) =
-            combatants.get_mut(entity)
+        if let Ok((
+            mut vital,
+            mut ap,
+            mut reactions,
+            has_bonus,
+            rage_opt,
+            mana_opt,
+            energy_opt,
+            status_effects_opt,
+        )) = combatants.get_mut(entity)
         {
             vital.hp = unit.hp();
 
             // AP / MP — sourced from pools[Ap] / pools[Mp] (C5).
             // Invariant: both are Some for every alive combatant.
             if let Some((ap_cur, ap_max)) = unit.pools[PoolKind::Ap] {
-                ap.action_points  = ap_cur;
-                ap.max_ap         = ap_max;
+                ap.action_points = ap_cur;
+                ap.max_ap = ap_max;
             }
             if let Some((mp_cur, _mp_max)) = unit.pools[PoolKind::Mp] {
                 ap.movement_points = mp_cur;
             }
 
             reactions.remaining = unit.reactions_left as u8;
-            reactions.max       = unit.reactions_max as u8;
+            reactions.max = unit.reactions_max as u8;
 
             if has_bonus && ap.movement_points == 0 {
                 commands.entity(entity).remove::<BonusMovement>();
@@ -1760,19 +1935,25 @@ pub fn project_state_to_ecs(
             }
 
             // Project mana.current when both sides carry a mana pool.
-            if let (Some((current, _max)), Some(mut mana_comp)) = (unit.pools[PoolKind::Mana], mana_opt) {
+            if let (Some((current, _max)), Some(mut mana_comp)) =
+                (unit.pools[PoolKind::Mana], mana_opt)
+            {
                 mana_comp.current = current;
             }
 
             // Project energy.current when both sides carry an energy pool.
-            if let (Some((current, _max)), Some(mut energy_comp)) = (unit.pools[PoolKind::Energy], energy_opt) {
+            if let (Some((current, _max)), Some(mut energy_comp)) =
+                (unit.pools[PoolKind::Energy], energy_opt)
+            {
                 energy_comp.current = current;
             }
 
             // Merge statuses: preserve ECS entries the engine doesn't know about.
             if let Some(mut status_effects) = status_effects_opt {
-                let engine_known: std::collections::HashSet<(&combat_engine::StatusId, combat_engine::state::EffectSource)> =
-                    unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
+                let engine_known: std::collections::HashSet<(
+                    &combat_engine::StatusId,
+                    combat_engine::state::EffectSource,
+                )> = unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
 
                 // Preserve ECS statuses that are NOT in the engine's status list.
                 // For ECS statuses with a unit applier we key on
@@ -1786,7 +1967,9 @@ pub fn project_state_to_ecs(
                         match ecs_s.applier {
                             Some(applier_ent) => !engine_known.contains(&(
                                 &ecs_s.id,
-                                combat_engine::state::EffectSource::Unit(entity_to_uid(applier_ent)),
+                                combat_engine::state::EffectSource::Unit(entity_to_uid(
+                                    applier_ent,
+                                )),
                             )),
                             // applier: None means env-applied; never in engine_known.
                             None => true,
@@ -1824,7 +2007,10 @@ pub fn project_state_to_ecs(
     // On round-2+ Execute frames this keeps the UI strip in sync with the
     // engine's current cursor (turn_queue.index may advance as turns end).
     if !combat_state.0.units().is_empty() {
-        queue.order = combat_state.0.turn_queue.order
+        queue.order = combat_state
+            .0
+            .turn_queue
+            .order
             .iter()
             .filter_map(|uid| id_map.get_entity(*uid))
             .collect();
@@ -1879,7 +2065,14 @@ pub fn bootstrap_combat_state(
     use crate::content::encounters::AuraAffects;
 
     let active_content: &ActiveContent = &env_params.active_content;
-    let mut state = from_ecs(&combatants, &positions, &corpses, combat_context.round, &mut id_map, active_content);
+    let mut state = from_ecs(
+        &combatants,
+        &positions,
+        &corpses,
+        combat_context.round,
+        &mut id_map,
+        active_content,
+    );
 
     // ── Apply initial_statuses from unit templates (engine-side, idempotent) ──
     {
@@ -1897,7 +2090,9 @@ pub fn bootstrap_combat_state(
 
     // caster_context: built from Equipment + CombatStats (alive and dead units).
     for (entity, equipment, stats, combat_path) in caster_q.iter() {
-        let Some(uid) = id_map.get_id(entity) else { continue };
+        let Some(uid) = id_map.get_id(entity) else {
+            continue;
+        };
         let bevy_ctx = CasterContext::new(stats, Some(equipment), &active_content.weapons);
         let crit_fail_outcome = combat_path
             .and_then(|cp| active_content.paths.get(&cp.0))
@@ -1920,16 +2115,24 @@ pub fn bootstrap_combat_state(
     // ranged units (no melee ability) don't AoO even though they have a weapon.
     // Strength modifier is baked in so engine's unit_aoo_dice returns the final formula.
     for (entity, equipment, stats, abilities, is_dead) in aoo_q.iter() {
-        if is_dead { continue; }
-        let Some(uid) = id_map.get_id(entity) else { continue };
+        if is_dead {
+            continue;
+        }
+        let Some(uid) = id_map.get_id(entity) else {
+            continue;
+        };
         let has_melee = abilities.0.iter().any(|aid| {
             active_content.abilities.get(aid).is_some_and(|def| {
                 matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
             })
         });
-        if !has_melee { continue; }
+        if !has_melee {
+            continue;
+        }
         let ctx = CasterContext::new(stats, Some(equipment), &active_content.weapons);
-        let Some(core_dice) = ctx.weapon_dice else { continue };
+        let Some(core_dice) = ctx.weapon_dice else {
+            continue;
+        };
         let engine_dice = EngineDiceExpr::new(
             core_dice.count,
             core_dice.sides,
@@ -1942,11 +2145,13 @@ pub fn bootstrap_combat_state(
 
     // auras: from AuraSource components (alive sources only).
     for (entity, aura_src) in aura_q.iter() {
-        let Some(uid) = id_map.get_id(entity) else { continue };
+        let Some(uid) = id_map.get_id(entity) else {
+            continue;
+        };
         let applies_to = match aura_src.affects {
             AuraAffects::Enemies => TeamRelation::Enemies,
-            AuraAffects::Allies  => TeamRelation::Allies,
-            AuraAffects::All     => TeamRelation::All,
+            AuraAffects::Allies => TeamRelation::Allies,
+            AuraAffects::All => TeamRelation::All,
         };
         if let Some(unit) = state.unit_mut(uid) {
             unit.auras.push(AuraDef {
@@ -1961,7 +2166,9 @@ pub fn bootstrap_combat_state(
     // tags: copy BTreeSet<TagId> from Tags component into engine Unit.
     // Units without the component keep their default empty tag set.
     for (entity, tags) in tags_q.iter() {
-        let Some(uid) = id_map.get_id(entity) else { continue };
+        let Some(uid) = id_map.get_id(entity) else {
+            continue;
+        };
         if let Some(unit) = state.unit_mut(uid) {
             unit.tags = tags.0.clone();
         }
@@ -1969,13 +2176,24 @@ pub fn bootstrap_combat_state(
 
     // enemy_phases: from EnemyPhases.pending.
     for (entity, phases) in phases_q.iter() {
-        let Some(uid) = id_map.get_id(entity) else { continue };
+        let Some(uid) = id_map.get_id(entity) else {
+            continue;
+        };
         if let Some(unit) = state.unit_mut(uid) {
-            unit.enemy_phases = phases.pending.iter().map(|phase| {
-                let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
-                let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
-                combat_engine::PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full, tags: phase.tags.clone() }
-            }).collect();
+            unit.enemy_phases = phases
+                .pending
+                .iter()
+                .map(|phase| {
+                    let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
+                    let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
+                    combat_engine::PhaseEntry {
+                        pct,
+                        new_max_hp,
+                        heal_to_full: phase.heal_to_full,
+                        tags: phase.tags.clone(),
+                    }
+                })
+                .collect();
         }
     }
 
@@ -1983,7 +2201,9 @@ pub fn bootstrap_combat_state(
     // a non-empty passive trigger list; store them so resolve_turn_start_passives can fire.
     // Reuses aoo_q which already queries &Abilities — no extra system param needed.
     for (entity, _equipment, _stats, abilities, _is_dead) in aoo_q.iter() {
-        let Some(uid) = id_map.get_id(entity) else { continue };
+        let Some(uid) = id_map.get_id(entity) else {
+            continue;
+        };
         let passive_ability_ids: Vec<combat_engine::AbilityId> = abilities
             .0
             .iter()
@@ -2071,7 +2291,10 @@ pub fn bootstrap_combat_state(
 
         // Queue ECS-only phase deltas (same pattern as process_action_system).
         for ev in &events {
-            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+            if let Event::PhaseEntered {
+                unit, phase_idx, ..
+            } = ev
+            {
                 queues.phases.push((*unit, *phase_idx));
             }
         }
@@ -2089,7 +2312,6 @@ pub fn bootstrap_combat_state(
 
     combat_state.0 = state;
 }
-
 
 // ── reset_engine_mirrors ──────────────────────────────────────────────────────
 
@@ -2139,7 +2361,6 @@ pub fn reset_engine_mirrors_on_restart(
     }
     reset_engine_mirrors(&mut combat_state, &mut id_map, &mut queues);
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -2197,16 +2418,16 @@ mod tests {
             UnitId(1),
             Team::Player,
             Hex::ZERO,
-            3,  // armor
-            0,  // armor_bonus
-            0,  // damage_taken_bonus
-            3,  // base_speed
-            3,  // speed
-            1,  // reactions_left
-            1,  // reactions_max
+            3, // armor
+            0, // armor_bonus
+            0, // damage_taken_bonus
+            3, // base_speed
+            3, // speed
+            1, // reactions_left
+            1, // reactions_max
             Vec::new(),
             None,
-            None,               // initiative: not yet rolled
+            None, // initiative: not yet rolled
             combat_engine::CasterContext::default(),
             None,
             Vec::new(),

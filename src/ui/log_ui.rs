@@ -42,8 +42,13 @@ pub fn update_log(
         .0
         .iter()
         .filter_map(|e| {
-            e.format(name, &content, settings.crit_fail_die, &crate::game::combat_log::BuiltinRu)
-                .map(|s| format!("{s}\n"))
+            e.format(
+                name,
+                &content,
+                settings.crit_fail_die,
+                &crate::game::combat_log::BuiltinRu,
+            )
+            .map(|s| format!("{s}\n"))
         })
         .collect();
 }
@@ -51,10 +56,7 @@ pub fn update_log(
 /// Mouse wheel scrolling — works when cursor hovers over the log area.
 pub fn log_scroll_input(
     accumulated: Res<AccumulatedMouseScroll>,
-    mut clip_q: Query<
-        (&Interaction, &ComputedNode, &mut ScrollPosition),
-        With<LogScrollClip>,
-    >,
+    mut clip_q: Query<(&Interaction, &ComputedNode, &mut ScrollPosition), With<LogScrollClip>>,
 ) {
     let Ok((interaction, node, mut scroll)) = clip_q.single_mut() else {
         return;

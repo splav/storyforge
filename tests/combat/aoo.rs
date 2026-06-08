@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::common::{fixtures::*, apps::engine::*, scenarios::statuses::*};
+use crate::common::{apps::engine::*, fixtures::*, scenarios::statuses::*};
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
     Abilities, ActiveCombatant, ActiveStatus, Dead, Rage, Reactions, StatusEffects, Vital,
@@ -15,9 +15,12 @@ fn aoo_events(app: &App) -> Vec<(Entity, i32, bool)> {
         .0
         .iter()
         .filter_map(|e| match e {
-            CombatEvent::OpportunityAttack { attacker, damage, killed, .. } => {
-                Some((*attacker, *damage, *killed))
-            }
+            CombatEvent::OpportunityAttack {
+                attacker,
+                damage,
+                killed,
+                ..
+            } => Some((*attacker, *damage, *killed)),
             _ => None,
         })
         .collect()
@@ -25,15 +28,23 @@ fn aoo_events(app: &App) -> Vec<(Entity, i32, bool)> {
 
 fn spawn_at(app: &mut App, pos: Hex, bundle: impl Bundle, name: &'static str) -> Entity {
     let e = app.world_mut().spawn((Name::new(name), bundle)).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(e, pos);
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(e, pos);
     e
 }
 
 /// Heroes and goblin placed such that (3,3) and (4,3) are adjacent in even-r layout.
-fn start_pos() -> Hex { hex_from_offset(3, 3) }
-fn goblin_pos() -> Hex { hex_from_offset(4, 3) }
+fn start_pos() -> Hex {
+    hex_from_offset(3, 3)
+}
+fn goblin_pos() -> Hex {
+    hex_from_offset(4, 3)
+}
 /// (2,3) is one hex left of hero; not adjacent to goblin at (4,3) — distance 2.
-fn away_pos() -> Hex { hex_from_offset(2, 3) }
+fn away_pos() -> Hex {
+    hex_from_offset(2, 3)
+}
 
 /// Baseline: covers trigger, armor mitigation (#9), rage gain on both sides (#11).
 /// Also serves as the control case for `stunned_enemy_no_opportunity` (#10).
@@ -41,7 +52,9 @@ fn away_pos() -> Hex { hex_from_offset(2, 3) }
 fn leave_adjacent_triggers_aoo() {
     let mut app = movement_app();
     // Weapon 1d8 + STR_mod(2) = raw 2+2=4. Hero armor 3, status 0 → final = max(1, 4-3) = 1.
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[2]);
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[2]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
@@ -53,7 +66,13 @@ fn leave_adjacent_triggers_aoo() {
 
     let hp_before = app.world().get::<Vital>(hero).unwrap().hp;
 
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: hero,
+            path: vec![away_pos()],
+        },
+    );
     app.update();
 
     let events = aoo_events(&app);
@@ -66,7 +85,10 @@ fn leave_adjacent_triggers_aoo() {
     let hp_after = app.world().get::<Vital>(hero).unwrap().hp;
     assert_eq!(hp_after, hp_before - 1);
     assert_eq!(app.world().get::<Reactions>(goblin).unwrap().remaining, 0);
-    assert_eq!(app.world().resource::<HexPositions>().get(&hero), Some(away_pos()));
+    assert_eq!(
+        app.world().resource::<HexPositions>().get(&hero),
+        Some(away_pos())
+    );
 
     // Rage +1 on both sides (mirrors apply_effects behavior).
     assert_eq!(app.world().get::<Rage>(hero).unwrap().current, 1);
@@ -76,7 +98,9 @@ fn leave_adjacent_triggers_aoo() {
 #[test]
 fn opportunity_once_per_round() {
     let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[3, 3]);
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[3, 3]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let _goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
@@ -86,7 +110,13 @@ fn opportunity_once_per_round() {
     // Two separate ActionInput::Move events in the SAME round. Between them we manually restore
     // pools[Mp] and hero position directly in CombatStateRes; we do NOT touch
     // reactions_left. Without a StartRound reset the second leave must not produce an AoO.
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: hero,
+            path: vec![away_pos()],
+        },
+    );
     app.update();
     assert_eq!(aoo_events(&app).len(), 1, "first move triggers AoO");
 
@@ -100,9 +130,19 @@ fn opportunity_once_per_round() {
         unit.pos = start_pos();
         // DO NOT reset reactions_left — that's what the test is verifying.
     }
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: hero,
+            path: vec![away_pos()],
+        },
+    );
     app.update();
-    assert_eq!(aoo_events(&app).len(), 1, "second move must not trigger — reaction spent");
+    assert_eq!(
+        aoo_events(&app).len(),
+        1,
+        "second move must not trigger — reaction spent"
+    );
 }
 
 #[test]
@@ -117,13 +157,21 @@ fn stunned_enemy_no_opportunity() {
     // when the AoO check fires.
     {
         use storyforge::game::resources::PresetInitiative;
-        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero".into(),   20);
-        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Goblin".into(),  5);
+        app.world_mut()
+            .resource_mut::<PresetInitiative>()
+            .0
+            .insert("Hero".into(), 20);
+        app.world_mut()
+            .resource_mut::<PresetInitiative>()
+            .0
+            .insert("Goblin".into(), 5);
     }
 
     // With both units preset, roll_initiative_for_all draws no dice → script
     // is fully available for the AoO hit-roll (scripted to 8 to ensure a hit).
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[8]);
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[8]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
@@ -144,7 +192,13 @@ fn stunned_enemy_no_opportunity() {
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
 
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: hero,
+            path: vec![away_pos()],
+        },
+    );
     app.update();
 
     assert!(aoo_events(&app).is_empty(), "stunned enemy must not react");
@@ -154,18 +208,31 @@ fn stunned_enemy_no_opportunity() {
 #[test]
 fn multiple_provokers_all_fire() {
     let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[2, 2]);
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[2, 2]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let g1 = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "G1");
-    let g2 = spawn_at(&mut app, hex_from_offset(3, 4), test_enemy(base_stats()), "G2");
+    let g2 = spawn_at(
+        &mut app,
+        hex_from_offset(3, 4),
+        test_enemy(base_stats()),
+        "G2",
+    );
     // Sanity: both flank hero, both leave adjacency after move to (2,3).
     assert_eq!(start_pos().unsigned_distance_to(hex_from_offset(3, 4)), 1);
     assert_eq!(away_pos().unsigned_distance_to(hex_from_offset(3, 4)), 2);
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
 
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: hero,
+            path: vec![away_pos()],
+        },
+    );
     app.update();
 
     let events = aoo_events(&app);
@@ -179,11 +246,18 @@ fn multiple_provokers_all_fire() {
 fn dead_actor_truncates_path() {
     let mut app = movement_app();
     // First roll = 8 (lethal at hp=1, armor=0). Second roll scripted but should never fire.
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[8, 8]);
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[8, 8]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let _g1 = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "G1");
-    let _g2 = spawn_at(&mut app, hex_from_offset(3, 4), test_enemy(base_stats()), "G2");
+    let _g2 = spawn_at(
+        &mut app,
+        hex_from_offset(3, 4),
+        test_enemy(base_stats()),
+        "G2",
+    );
     app.world_mut().get_mut::<Vital>(hero).unwrap().hp = 1;
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
@@ -193,7 +267,11 @@ fn dead_actor_truncates_path() {
     app.update();
 
     let events = aoo_events(&app);
-    assert_eq!(events.len(), 1, "second provoker must not fire after hero dies");
+    assert_eq!(
+        events.len(),
+        1,
+        "second provoker must not fire after hero dies"
+    );
     assert!(events[0].2, "killed flag set");
     // Dead units live in HexCorpses (not HexPositions) after projection.
     assert_eq!(
@@ -207,10 +285,15 @@ fn dead_actor_truncates_path() {
         "dead hero must not occupy HexPositions (occupancy layer)"
     );
     assert!(!app.world().get::<Vital>(hero).unwrap().is_alive());
-    assert!(app.world().get::<Dead>(hero).is_some(), "Dead marker inserted");
+    assert!(
+        app.world().get::<Dead>(hero).is_some(),
+        "Dead marker inserted"
+    );
     let log = app.world().resource::<CombatLog>();
     assert!(
-        log.0.iter().any(|e| matches!(e, CombatEvent::UnitDied { entity } if *entity == hero)),
+        log.0
+            .iter()
+            .any(|e| matches!(e, CombatEvent::UnitDied { entity } if *entity == hero)),
         "UnitDied event emitted for AoO kill"
     );
 }
@@ -220,21 +303,36 @@ fn no_melee_enemy_no_opportunity() {
     let mut app = movement_app();
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
-    app.world_mut().get_mut::<Abilities>(goblin).unwrap().0.clear();
+    app.world_mut()
+        .get_mut::<Abilities>(goblin)
+        .unwrap()
+        .0
+        .clear();
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
 
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: hero,
+            path: vec![away_pos()],
+        },
+    );
     app.update();
 
-    assert!(aoo_events(&app).is_empty(), "enemy without melee must not react");
+    assert!(
+        aoo_events(&app).is_empty(),
+        "enemy without melee must not react"
+    );
 }
 
 /// Faction symmetry (#1): enemy moves, hero provokes.
 #[test]
 fn enemy_mover_hero_provokes() {
     let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[5]);
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[5]);
 
     let hero = spawn_at(&mut app, goblin_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, start_pos(), test_enemy(base_stats()), "Goblin");
@@ -242,11 +340,21 @@ fn enemy_mover_hero_provokes() {
     init_engine_state(&mut app);
 
     let hp_before = app.world().get::<Vital>(goblin).unwrap().hp;
-    write_message(&mut app, ActionInput::Move { actor: goblin, path: vec![away_pos()] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: goblin,
+            path: vec![away_pos()],
+        },
+    );
     app.update();
 
     let events = aoo_events(&app);
-    assert_eq!(events.len(), 1, "hero should AoO the fleeing goblin, got {events:?}");
+    assert_eq!(
+        events.len(),
+        1,
+        "hero should AoO the fleeing goblin, got {events:?}"
+    );
     assert_eq!(events[0].0, hero);
     assert!(app.world().get::<Vital>(goblin).unwrap().hp < hp_before);
 }
@@ -270,9 +378,19 @@ fn move_within_adjacency_no_trigger() {
     // Move to a cell still adjacent to goblin. (3,2) and (4,3) both neighbor hero.
     // Verify adjacency before asserting no trigger.
     let step = hex_from_offset(3, 2);
-    assert_eq!(step.unsigned_distance_to(goblin_pos()), 1, "precondition: step still adjacent");
+    assert_eq!(
+        step.unsigned_distance_to(goblin_pos()),
+        1,
+        "precondition: step still adjacent"
+    );
 
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![step] });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: hero,
+            path: vec![step],
+        },
+    );
     app.update();
 
     assert!(aoo_events(&app).is_empty(), "stayed adjacent, no AoO");
@@ -298,11 +416,13 @@ fn move_within_adjacency_no_trigger() {
 fn aoo_kills_into_ally_hex_creates_corpse_at_shared_hex() {
     let mut app = movement_app();
     // Roll scripted to be lethal at hp=1, armor=0.
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[8]);
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[8]);
 
-    let a  = spawn_at(&mut app, away_pos(),              test_hero(base_stats()),  "A");
-    let _b = spawn_at(&mut app, goblin_pos(),            test_enemy(base_stats()), "B");
-    let c  = spawn_at(&mut app, start_pos(),             test_hero(base_stats()),  "C");
+    let a = spawn_at(&mut app, away_pos(), test_hero(base_stats()), "A");
+    let _b = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "B");
+    let c = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "C");
     app.world_mut().get_mut::<Vital>(c).unwrap().hp = 1;
     app.world_mut().entity_mut(c).insert(ActiveCombatant);
     init_engine_state(&mut app);
@@ -315,7 +435,7 @@ fn aoo_kills_into_ally_hex_creates_corpse_at_shared_hex() {
     app.update();
 
     let positions = app.world().resource::<HexPositions>();
-    let corpses   = app.world().resource::<HexCorpses>();
+    let corpses = app.world().resource::<HexCorpses>();
 
     // A must still be alive and in HexPositions at away_pos.
     assert_eq!(

@@ -2,8 +2,8 @@
 
 use super::button::{spawn_standard_button, ButtonStyle};
 use crate::app_state::AppState;
-use crate::content::settings::{DifficultyPreset, GameSettings};
 use crate::combat::ai::config::difficulty::DifficultyProfile;
+use crate::content::settings::{DifficultyPreset, GameSettings};
 use crate::game::resources::{CampaignState, GameDb, ScenarioState};
 use crate::persistence::{save_repo, settings_repo, PersistencePaths};
 use crate::ui::modal::{PendingPrompt, PromptKind};
@@ -56,54 +56,72 @@ pub fn setup_settings(
         .with_children(|root| {
             root.spawn((
                 Text::new("Настройки"),
-                TextFont { font: font.clone(), font_size: 32.0, ..default() },
+                TextFont {
+                    font: font.clone(),
+                    font_size: 32.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.85, 0.82, 0.70)),
-                Node { margin: UiRect::bottom(Val::Px(20.0)), ..default() },
+                Node {
+                    margin: UiRect::bottom(Val::Px(20.0)),
+                    ..default()
+                },
             ));
 
             // ── Difficulty ──────────────────────────────────────────────
             root.spawn((
                 Text::new("Сложность"),
-                TextFont { font: font.clone(), font_size: 18.0, ..default() },
-                TextColor(Color::srgb(0.75, 0.72, 0.65)),
-            ));
-            root.spawn((
-                Node {
-                    flex_direction: FlexDirection::Row,
-                    column_gap: Val::Px(10.0),
-                    margin: UiRect::bottom(Val::Px(24.0)),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 18.0,
                     ..default()
                 },
-            ))
-            .with_children(|row| {
-                for preset in [DifficultyPreset::Easy, DifficultyPreset::Normal, DifficultyPreset::Hard, DifficultyPreset::Epic] {
-                    let is_active = settings.difficulty_preset == preset;
-                    let label = format!(
-                        "{}{}",
-                        if is_active { "● " } else { "○ " },
-                        match preset {
-                            DifficultyPreset::Easy => "Легко",
-                            DifficultyPreset::Normal => "Нормально",
-                            DifficultyPreset::Hard => "Сложно",
-                            DifficultyPreset::Epic => "Эпично",
-                        }
-                    );
-                    spawn_standard_button(
-                        row,
-                        font.clone(),
-                        label,
-                        Val::Px(160.0),
-                        Val::Auto,
-                        ButtonStyle::Default,
-                    )
-                    .insert(DifficultyRadio(preset));
-                }
-            });
+                TextColor(Color::srgb(0.75, 0.72, 0.65)),
+            ));
+            root.spawn((Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(10.0),
+                margin: UiRect::bottom(Val::Px(24.0)),
+                ..default()
+            },))
+                .with_children(|row| {
+                    for preset in [
+                        DifficultyPreset::Easy,
+                        DifficultyPreset::Normal,
+                        DifficultyPreset::Hard,
+                        DifficultyPreset::Epic,
+                    ] {
+                        let is_active = settings.difficulty_preset == preset;
+                        let label = format!(
+                            "{}{}",
+                            if is_active { "● " } else { "○ " },
+                            match preset {
+                                DifficultyPreset::Easy => "Легко",
+                                DifficultyPreset::Normal => "Нормально",
+                                DifficultyPreset::Hard => "Сложно",
+                                DifficultyPreset::Epic => "Эпично",
+                            }
+                        );
+                        spawn_standard_button(
+                            row,
+                            font.clone(),
+                            label,
+                            Val::Px(160.0),
+                            Val::Auto,
+                            ButtonStyle::Default,
+                        )
+                        .insert(DifficultyRadio(preset));
+                    }
+                });
 
             // ── Slots ───────────────────────────────────────────────────
             root.spawn((
                 Text::new("Слоты"),
-                TextFont { font: font.clone(), font_size: 18.0, ..default() },
+                TextFont {
+                    font: font.clone(),
+                    font_size: 18.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.75, 0.72, 0.65)),
             ));
             for slot in 1..=save_repo::SLOT_COUNT {
@@ -184,9 +202,16 @@ fn spawn_slot_row(
             };
             row.spawn((
                 Text::new(text),
-                TextFont { font: font.clone(), font_size: 15.0, ..default() },
+                TextFont {
+                    font: font.clone(),
+                    font_size: 15.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.90, 0.88, 0.80)),
-                Node { width: Val::Px(380.0), ..default() },
+                Node {
+                    width: Val::Px(380.0),
+                    ..default()
+                },
             ));
 
             if !is_active {

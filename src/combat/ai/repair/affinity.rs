@@ -9,8 +9,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
+use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::repair::ContinuationSeverity;
 use crate::game::hex::Hex;
 
@@ -121,9 +121,7 @@ fn goal_alignment(stored_kind: &GoalKind, fresh_intent: TacticalIntent) -> f32 {
         {
             1.0
         }
-        (GoalKind::HealAlly { ally: a }, TacticalIntent::ProtectAlly { ally: b }) if *a == b => {
-            1.0
-        }
+        (GoalKind::HealAlly { ally: a }, TacticalIntent::ProtectAlly { ally: b }) if *a == b => 1.0,
         // Retreat matches ProtectSelf — LastStand is now an EvaluationMode, not
         // a TacticalIntent; Retreat affinity for adapted plans is covered via ProtectSelf.
         (GoalKind::Retreat { .. }, TacticalIntent::ProtectSelf) => 0.9,
@@ -131,12 +129,8 @@ fn goal_alignment(stored_kind: &GoalKind, fresh_intent: TacticalIntent) -> f32 {
         (GoalKind::SetupAOE { .. }, TacticalIntent::SetupAOE) => 0.95,
         (GoalKind::Reposition { .. }, TacticalIntent::Reposition) => 0.85,
         // Cross-goal partial credit — same target but different method
-        (GoalKind::Finish { target: a }, TacticalIntent::ApplyCC { target: b }) if *a == b => {
-            0.4
-        }
-        (GoalKind::Pressure { target: a }, TacticalIntent::ApplyCC { target: b }) if *a == b => {
-            0.4
-        }
+        (GoalKind::Finish { target: a }, TacticalIntent::ApplyCC { target: b }) if *a == b => 0.4,
+        (GoalKind::Pressure { target: a }, TacticalIntent::ApplyCC { target: b }) if *a == b => 0.4,
         // Step 6.8.B: target switch within the same intent (FocusTarget on a
         // different enemy) — partial credit. Recognises that the actor is still
         // "in attack mode" and provides a small commitment nudge against
@@ -203,11 +197,15 @@ mod tests {
     use super::*;
     use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::test_helpers::ent;
-    use combat_engine::AbilityId;
     use crate::game::hex::Hex;
-    
+    use combat_engine::AbilityId;
 
-    fn stored(kind: GoalKind, anchor: Hex, radius: u32, ability: Option<&str>) -> StoredGoalContext {
+    fn stored(
+        kind: GoalKind,
+        anchor: Hex,
+        radius: u32,
+        ability: Option<&str>,
+    ) -> StoredGoalContext {
         StoredGoalContext {
             kind,
             region_anchor: anchor,
@@ -229,7 +227,11 @@ mod tests {
 
     fn weights() -> RepairWeights {
         // Equal weights for test clarity
-        RepairWeights { goal_w: 1.0, region_w: 1.0, method_w: 1.0 }
+        RepairWeights {
+            goal_w: 1.0,
+            region_w: 1.0,
+            method_w: 1.0,
+        }
     }
 
     // ── goal_alignment ────────────────────────────────────────────────────────
@@ -282,7 +284,14 @@ mod tests {
     #[test]
     fn goal_alignment_zero_for_cross_intent_abandon() {
         let target = ent(1);
-        let s = stored(GoalKind::Retreat { region_anchor: Hex::ZERO }, Hex::ZERO, 2, None);
+        let s = stored(
+            GoalKind::Retreat {
+                region_anchor: Hex::ZERO,
+            },
+            Hex::ZERO,
+            2,
+            None,
+        );
         let affinity = compute_repair_affinity(
             TacticalIntent::FocusTarget { target },
             &[],
@@ -316,7 +325,14 @@ mod tests {
         // dist == 0, radius == 2 → 1 - 0/3 = 1.0
         let target = ent(1);
         let anchor = Hex::new(3, 0);
-        let s = stored(GoalKind::Reposition { region_center: anchor }, anchor, 2, None);
+        let s = stored(
+            GoalKind::Reposition {
+                region_center: anchor,
+            },
+            anchor,
+            2,
+            None,
+        );
         let affinity = compute_repair_affinity(
             TacticalIntent::Reposition,
             &[],
@@ -325,7 +341,11 @@ mod tests {
             None,
             1,
         );
-        assert!((affinity.region_alignment - 1.0).abs() < 1e-6, "expected 1.0, got {}", affinity.region_alignment);
+        assert!(
+            (affinity.region_alignment - 1.0).abs() < 1e-6,
+            "expected 1.0, got {}",
+            affinity.region_alignment
+        );
         let _ = target;
     }
 
@@ -334,17 +354,22 @@ mod tests {
         // dist == 1, radius == 2 → 1 - 1/3 ≈ 0.666...
         let anchor = Hex::new(0, 0);
         let fresh_pos = Hex::new(1, 0); // distance 1 from anchor
-        let s = stored(GoalKind::Reposition { region_center: anchor }, anchor, 2, None);
-        let affinity = compute_repair_affinity(
-            TacticalIntent::Reposition,
-            &[],
-            fresh_pos,
-            &s,
+        let s = stored(
+            GoalKind::Reposition {
+                region_center: anchor,
+            },
+            anchor,
+            2,
             None,
-            1,
         );
+        let affinity =
+            compute_repair_affinity(TacticalIntent::Reposition, &[], fresh_pos, &s, None, 1);
         let expected = 1.0 - 1.0_f32 / 3.0;
-        assert!((affinity.region_alignment - expected).abs() < 1e-5, "expected {expected}, got {}", affinity.region_alignment);
+        assert!(
+            (affinity.region_alignment - expected).abs() < 1e-5,
+            "expected {expected}, got {}",
+            affinity.region_alignment
+        );
     }
 
     #[test]
@@ -352,16 +377,21 @@ mod tests {
         // dist == 3, radius == 2 → 0.0
         let anchor = Hex::new(0, 0);
         let fresh_pos = Hex::new(3, 0); // distance 3 from anchor
-        let s = stored(GoalKind::Reposition { region_center: anchor }, anchor, 2, None);
-        let affinity = compute_repair_affinity(
-            TacticalIntent::Reposition,
-            &[],
-            fresh_pos,
-            &s,
+        let s = stored(
+            GoalKind::Reposition {
+                region_center: anchor,
+            },
+            anchor,
+            2,
             None,
-            1,
         );
-        assert!((affinity.region_alignment - 0.0).abs() < 1e-6, "expected 0.0, got {}", affinity.region_alignment);
+        let affinity =
+            compute_repair_affinity(TacticalIntent::Reposition, &[], fresh_pos, &s, None, 1);
+        assert!(
+            (affinity.region_alignment - 0.0).abs() < 1e-6,
+            "expected 0.0, got {}",
+            affinity.region_alignment
+        );
     }
 
     // ── method_alignment ─────────────────────────────────────────────────────
@@ -370,38 +400,43 @@ mod tests {
     fn method_alignment_set_when_planned_ability_matches() {
         let target = ent(1);
         let ability_id = AbilityId::from("fireball");
-        let s = stored(GoalKind::SetupAOE { region_center: Hex::ZERO, planned_ability: ability_id.clone() }, Hex::ZERO, 2, Some("fireball"));
+        let s = stored(
+            GoalKind::SetupAOE {
+                region_center: Hex::ZERO,
+                planned_ability: ability_id.clone(),
+            },
+            Hex::ZERO,
+            2,
+            Some("fireball"),
+        );
         let cast_step = PlanStep::Cast {
             ability: ability_id,
             target,
             target_pos: Hex::ZERO,
         };
         let steps = vec![
-            PlanStep::Move { path: vec![Hex::new(1, 0)] },
+            PlanStep::Move {
+                path: vec![Hex::new(1, 0)],
+            },
             cast_step,
         ];
-        let affinity = compute_repair_affinity(
-            TacticalIntent::SetupAOE,
-            &steps,
-            Hex::ZERO,
-            &s,
-            None,
-            1,
-        );
+        let affinity =
+            compute_repair_affinity(TacticalIntent::SetupAOE, &steps, Hex::ZERO, &s, None, 1);
         assert!((affinity.method_alignment - 1.0).abs() < 1e-6);
     }
 
     #[test]
     fn method_alignment_zero_when_no_planned_ability() {
-        let s = stored(GoalKind::Reposition { region_center: Hex::ZERO }, Hex::ZERO, 2, None);
-        let affinity = compute_repair_affinity(
-            TacticalIntent::Reposition,
-            &[],
+        let s = stored(
+            GoalKind::Reposition {
+                region_center: Hex::ZERO,
+            },
             Hex::ZERO,
-            &s,
+            2,
             None,
-            1,
         );
+        let affinity =
+            compute_repair_affinity(TacticalIntent::Reposition, &[], Hex::ZERO, &s, None, 1);
         assert!((affinity.method_alignment - 0.0).abs() < 1e-6);
     }
 
@@ -422,7 +457,10 @@ mod tests {
             1,
         );
         let bonus = affinity.aggregate(&weights());
-        assert!((bonus - 0.0).abs() < 1e-6, "expected aggregate=0.0, got {bonus}");
+        assert!(
+            (bonus - 0.0).abs() < 1e-6,
+            "expected aggregate=0.0, got {bonus}"
+        );
     }
 
     // ── ttl_factor ────────────────────────────────────────────────────────────
@@ -440,7 +478,11 @@ mod tests {
             None,
             3, // current_round
         );
-        assert!((affinity.ttl_factor - 0.0).abs() < 1e-6, "expected ttl_factor=0.0, got {}", affinity.ttl_factor);
+        assert!(
+            (affinity.ttl_factor - 0.0).abs() < 1e-6,
+            "expected ttl_factor=0.0, got {}",
+            affinity.ttl_factor
+        );
     }
 
     #[test]
@@ -456,7 +498,11 @@ mod tests {
             None,
             2, // current_round
         );
-        assert!((affinity.ttl_factor - 0.5).abs() < 1e-6, "expected ttl_factor=0.5, got {}", affinity.ttl_factor);
+        assert!(
+            (affinity.ttl_factor - 0.5).abs() < 1e-6,
+            "expected ttl_factor=0.5, got {}",
+            affinity.ttl_factor
+        );
     }
 
     // ── aggregate ────────────────────────────────────────────────────────────

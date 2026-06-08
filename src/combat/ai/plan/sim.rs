@@ -11,15 +11,14 @@
 //! which pull from `combat_state` directly.  Engine `CombatState`
 //! (`combat_state`) is the sole mutable working copy.
 
-use crate::combat::ai::world::snapshot::{
-    BattleSnapshot, UnitView,
-};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::content::abilities::{AbilityDef, CasterContext};
 use crate::content::content_view::ContentView;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
+use crate::combat::engine_bridge::entity_to_uid;
 use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
@@ -27,7 +26,6 @@ use combat_engine::{
     state::{CombatState, Team, UnitId},
     step::step,
 };
-use crate::combat::engine_bridge::entity_to_uid;
 
 use super::types::{PlanStep, StepOutcome};
 
@@ -57,7 +55,11 @@ pub struct SimState<'a> {
 }
 
 impl<'a> SimState<'a> {
-    pub fn from_snapshot(snap: &BattleSnapshot, actor: Entity, status_tags: &'a StatusTagCache) -> Self {
+    pub fn from_snapshot(
+        snap: &BattleSnapshot,
+        actor: Entity,
+        status_tags: &'a StatusTagCache,
+    ) -> Self {
         let combat_state = snap.state.clone();
         Self {
             snapshot: snap.clone(),
@@ -97,7 +99,9 @@ impl<'a> SimState<'a> {
     /// Mirrors `BattleSnapshot::enemies_of()` but reads from `combat_state`.
     pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         self.combat_state.units().iter().filter_map(move |u| {
-            if u.team == team || u.hp() <= 0 { return None; }
+            if u.team == team || u.hp() <= 0 {
+                return None;
+            }
             let entity = self.snapshot.entity_for_uid(u.id)?;
             let cache = self.snapshot.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -167,10 +171,17 @@ impl<'a> SimState<'a> {
     }
 
     fn apply_move(&mut self, path: &[Hex]) -> StepOutcome {
-        let mut outcome = StepOutcome { moved: true, ..Default::default() };
-        if path.is_empty() { return outcome; }
+        let mut outcome = StepOutcome {
+            moved: true,
+            ..Default::default()
+        };
+        if path.is_empty() {
+            return outcome;
+        }
 
-        let Some(actor_snap) = self.actor_unit() else { return outcome };
+        let Some(actor_snap) = self.actor_unit() else {
+            return outcome;
+        };
         let actor_hp_before = actor_snap.hp();
         let actor_uid = entity_to_uid(self.actor);
 
@@ -178,8 +189,16 @@ impl<'a> SimState<'a> {
         // snapshot's AoO expected damage cache).
         let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
 
-        let action = Action::Move { actor: actor_uid, path: path.to_vec() };
-        let step_result = step(&mut self.combat_state, action, &mut EngineExpectedValue, &content_view);
+        let action = Action::Move {
+            actor: actor_uid,
+            path: path.to_vec(),
+        };
+        let step_result = step(
+            &mut self.combat_state,
+            action,
+            &mut EngineExpectedValue,
+            &content_view,
+        );
 
         match step_result {
             Ok((_events, _ctx)) => {
@@ -230,7 +249,12 @@ impl<'a> SimState<'a> {
             target_pos,
         };
 
-        let step_result = step(&mut self.combat_state, action, &mut EngineExpectedValue, &content_view);
+        let step_result = step(
+            &mut self.combat_state,
+            action,
+            &mut EngineExpectedValue,
+            &content_view,
+        );
 
         match step_result {
             Ok((events, _ctx)) => {
@@ -241,7 +265,11 @@ impl<'a> SimState<'a> {
                 use combat_engine::event::Event;
                 for ev in &events {
                     match ev {
-                        Event::UnitDamaged { target: t_uid, amount, .. } => {
+                        Event::UnitDamaged {
+                            target: t_uid,
+                            amount,
+                            ..
+                        } => {
                             outcome.hits += 1;
                             outcome.damage += *amount as f32;
                             // killed: unit is dead in engine state post-step.
@@ -260,9 +288,14 @@ impl<'a> SimState<'a> {
                             outcome.hits += 1;
                             outcome.heal += *amount as f32;
                         }
-                        Event::StatusApplied { target: t_uid, status } => {
+                        Event::StatusApplied {
+                            target: t_uid,
+                            status,
+                        } => {
                             // Check skips_turn via the content view's status_def.
-                            let skips = content.statuses.get(status.0.as_str())
+                            let skips = content
+                                .statuses
+                                .get(status.0.as_str())
                                 .is_some_and(|sd| sd.skips_turn);
                             if skips {
                                 // Map UnitId → Entity via explicit uid_to_entity map.
@@ -306,7 +339,6 @@ struct SnapshotContentView {
     statuses: std::collections::HashMap<combat_engine::StatusId, combat_engine::StatusDef>,
 }
 
-
 impl SnapshotContentView {
     fn from_snapshot(_snap: &BattleSnapshot) -> Self {
         Self {
@@ -330,17 +362,23 @@ impl SnapshotContentView {
             .map(|(id, def)| (id.clone(), crate::content::to_engine::status_def(def)))
             .collect();
 
-        Self { abilities, statuses }
+        Self {
+            abilities,
+            statuses,
+        }
     }
 }
 
 impl EngineContentView for SnapshotContentView {
     fn status_bonuses(&self, id: &combat_engine::StatusId) -> EngineStatusBonuses {
-        self.statuses.get(id).map(|def| EngineStatusBonuses {
-            armor_bonus: def.bonuses.armor_bonus,
-            speed_bonus: def.bonuses.speed_bonus,
-            damage_taken_bonus: def.bonuses.damage_taken_bonus,
-        }).unwrap_or_default()
+        self.statuses
+            .get(id)
+            .map(|def| EngineStatusBonuses {
+                armor_bonus: def.bonuses.armor_bonus,
+                speed_bonus: def.bonuses.speed_bonus,
+                damage_taken_bonus: def.bonuses.damage_taken_bonus,
+            })
+            .unwrap_or_default()
     }
 
     fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> {
@@ -357,12 +395,7 @@ impl EngineContentView for SnapshotContentView {
     }
 }
 
-
-
-
-
 // ── Tests ──────────────────────────────────────────────────────────────────────
-
 
 #[cfg(test)]
 #[path = "sim_tests.rs"]

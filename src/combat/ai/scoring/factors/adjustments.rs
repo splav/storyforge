@@ -75,15 +75,14 @@ mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::reservations::Reservations;
-    
+
     use crate::combat::ai::test_helpers::{
-        empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        snapshot_from,
+        empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
     };
     use crate::content::content_view::ContentView;
-    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::AbilityId;
 
     /// Shared scaffolding for the adjustments suite. Adjustment logic is
     /// actor-agnostic (reservation coordination only), so zero-caster
@@ -100,7 +99,10 @@ mod tests {
         let (content, diff) = fixture();
         let utility = make_test_ctx(&content, &diff);
         let mult = diff.overkill_multiplier();
-        assert!(mult > 0.0 && mult < 1.0, "precondition: non-trivial multiplier");
+        assert!(
+            mult > 0.0 && mult < 1.0,
+            "precondition: non-trivial multiplier"
+        );
 
         let target = UnitBuilder::new(99, Team::Player, hex_from_offset(1, 0))
             .hp(5)
@@ -118,7 +120,13 @@ mod tests {
             target_pos: target.pos,
             caster_tile: hex_from_offset(0, 0),
         };
-        let mut off = OffensiveFactors { damage: 8.0, heal: 0.0, kill_now: 1.0, kill_promised: 0.0, cc: 0.0 };
+        let mut off = OffensiveFactors {
+            damage: 8.0,
+            heal: 0.0,
+            kill_now: 1.0,
+            kill_promised: 0.0,
+            cc: 0.0,
+        };
         let maps = empty_maps();
         // `apply_reservation_adjustments` is actor-agnostic; use `target` (already in snap)
         // so `make_scoring_ctx` can resolve a real `UnitView` without a placeholder.
@@ -127,15 +135,18 @@ mod tests {
 
         assert!(
             (off.damage - 8.0 * mult).abs() < 1e-5,
-            "damage must be scaled by overkill multiplier, got {}", off.damage,
+            "damage must be scaled by overkill multiplier, got {}",
+            off.damage,
         );
         assert!(
             (off.kill_now - mult).abs() < 1e-5,
-            "kill_now must be scaled by the SAME multiplier (not zeroed), got {}", off.kill_now,
+            "kill_now must be scaled by the SAME multiplier (not zeroed), got {}",
+            off.kill_now,
         );
         assert!(
             off.kill_promised.abs() < 1e-5,
-            "kill_promised was 0 before adjustment, should stay 0, got {}", off.kill_promised,
+            "kill_promised was 0 before adjustment, should stay 0, got {}",
+            off.kill_promised,
         );
         // Sanity: the target is still reachable by entity after mutation.
         assert!(snap.unit(target_ent).is_some());

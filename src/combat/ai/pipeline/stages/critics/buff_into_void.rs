@@ -17,11 +17,11 @@
 //! Multiplier: **0.6** (moderate — wasteful, but not catastrophic).
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use crate::combat::ai::orchestration::ScoringCtx;
-use combat_engine::StatusId;
 use bevy::prelude::Entity;
+use combat_engine::StatusId;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,10 @@ impl PlanCritic for BuffIntoVoid {
         let mut plan_applied: Vec<(Entity, StatusId)> = Vec::new();
 
         for step in &plan.steps {
-            let PlanStep::Cast { ability, target, .. } = step else {
+            let PlanStep::Cast {
+                ability, target, ..
+            } = step
+            else {
                 continue;
             };
 
@@ -109,19 +112,20 @@ impl PlanCritic for BuffIntoVoid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::outcome::PlanAnnotation;
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::{
-        UnitBuilder, CriticScenarioBuilder,
-        assert_critic_fires, assert_critic_passes, run_critic,
+        assert_critic_fires, assert_critic_passes, run_critic, CriticScenarioBuilder, UnitBuilder,
     };
-    use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType};
-    use combat_engine::{AbilityId, StatusId};
+    use crate::combat::ai::world::snapshot::ActiveStatusView;
+    use crate::content::abilities::{
+        AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
+    };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use bevy::prelude::Entity;
+    use combat_engine::{AbilityId, StatusId};
 
     /// Build a simple status-applying ability def.
     fn buff_ability(id: &str, status_id: &str) -> AbilityDef {
@@ -154,7 +158,11 @@ mod tests {
         }
     }
 
-    fn cast_plan(ability: &str, target_entity: Entity, target_pos: crate::game::hex::Hex) -> TurnPlan {
+    fn cast_plan(
+        ability: &str,
+        target_entity: Entity,
+        target_pos: crate::game::hex::Hex,
+    ) -> TurnPlan {
         TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: AbilityId::from(ability),
@@ -174,26 +182,38 @@ mod tests {
     #[test]
     fn buff_into_void_fires_on_canonical_case() {
         // Target already has "shield" status active → critic must fire.
-        let caster_pos    = hex_from_offset(0, 0);
-        let target_pos    = hex_from_offset(2, 0);
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let mut target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
-        target.statuses = vec![ActiveStatusView { id: StatusId::from("shield"), rounds_remaining: 2, dot_per_tick: 0 }];
+        target.statuses = vec![ActiveStatusView {
+            id: StatusId::from("shield"),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+        }];
 
         let scn = CriticScenarioBuilder::new(caster)
             .with_units(vec![target])
             .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
             .build();
         let plan = cast_plan("buff_shield", target_entity, target_pos);
-        let ann  = PlanAnnotation::default();
+        let ann = PlanAnnotation::default();
 
         assert_critic_fires(
-            &BuffIntoVoid, &plan, &ann, &scn,
-            CriticKind::BuffIntoVoid, BUFF_INTO_VOID_MULTIPLIER,
+            &BuffIntoVoid,
+            &plan,
+            &ann,
+            &scn,
+            CriticKind::BuffIntoVoid,
+            BUFF_INTO_VOID_MULTIPLIER,
             |reason| {
-                let CriticReason::BuffIntoVoid { target_already_buffed, .. } = reason else {
+                let CriticReason::BuffIntoVoid {
+                    target_already_buffed,
+                    ..
+                } = reason
+                else {
                     panic!("expected BuffIntoVoid reason, got {reason:?}");
                 };
                 assert!(*target_already_buffed, "target_already_buffed must be true");
@@ -206,8 +226,8 @@ mod tests {
     #[test]
     fn buff_into_void_passes_on_clean_plan() {
         // Target has no statuses — applying "shield" is useful.
-        let caster_pos    = hex_from_offset(0, 0);
-        let target_pos    = hex_from_offset(2, 0);
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
@@ -218,7 +238,7 @@ mod tests {
             .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
             .build();
         let plan = cast_plan("buff_shield", target_entity, target_pos);
-        let ann  = PlanAnnotation::default();
+        let ann = PlanAnnotation::default();
 
         assert_critic_passes(&BuffIntoVoid, &plan, &ann, &scn);
     }
@@ -229,8 +249,8 @@ mod tests {
     fn buff_into_void_severity_scales_with_input() {
         // Single cast with no existing status → None.
         // Double cast of same status to same target → Some (redundant within plan).
-        let caster_pos    = hex_from_offset(0, 0);
-        let target_pos    = hex_from_offset(2, 0);
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
@@ -244,8 +264,16 @@ mod tests {
         let single_plan = cast_plan("buff_shield", target_entity, target_pos);
         let double_plan = TurnPlan {
             steps: vec![
-                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_entity, target_pos },
-                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_entity, target_pos },
+                PlanStep::Cast {
+                    ability: AbilityId::from("buff_shield"),
+                    target: target_entity,
+                    target_pos,
+                },
+                PlanStep::Cast {
+                    ability: AbilityId::from("buff_shield"),
+                    target: target_entity,
+                    target_pos,
+                },
             ],
             final_pos: caster_pos,
             residual_ap: 0,
@@ -261,7 +289,11 @@ mod tests {
         // Double cast — second step is redundant, must fire.
         let hit = run_critic(&BuffIntoVoid, &double_plan, &ann, &scn)
             .expect("second cast of same status must trigger buff_into_void critic");
-        let CriticReason::BuffIntoVoid { target_already_buffed, .. } = hit.reason else {
+        let CriticReason::BuffIntoVoid {
+            target_already_buffed,
+            ..
+        } = hit.reason
+        else {
             panic!("expected BuffIntoVoid reason");
         };
         assert!(
@@ -286,8 +318,8 @@ mod tests {
     /// incorrectly mark second step as buff-into-void.
     #[test]
     fn different_statuses_to_same_target_does_not_fire() {
-        let caster_pos    = hex_from_offset(0, 0);
-        let target_pos    = hex_from_offset(2, 0);
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
@@ -301,8 +333,16 @@ mod tests {
 
         let plan = TurnPlan {
             steps: vec![
-                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_entity, target_pos },
-                PlanStep::Cast { ability: AbilityId::from("buff_haste"),  target: target_entity, target_pos },
+                PlanStep::Cast {
+                    ability: AbilityId::from("buff_shield"),
+                    target: target_entity,
+                    target_pos,
+                },
+                PlanStep::Cast {
+                    ability: AbilityId::from("buff_haste"),
+                    target: target_entity,
+                    target_pos,
+                },
             ],
             final_pos: caster_pos,
             residual_ap: 0,
@@ -320,13 +360,13 @@ mod tests {
     /// flag the second step.
     #[test]
     fn same_status_to_different_targets_does_not_fire() {
-        let caster_pos      = hex_from_offset(0, 0);
-        let target_a_pos    = hex_from_offset(2, 0);
-        let target_b_pos    = hex_from_offset(3, 0);
+        let caster_pos = hex_from_offset(0, 0);
+        let target_a_pos = hex_from_offset(2, 0);
+        let target_b_pos = hex_from_offset(3, 0);
         let target_a_entity = Entity::from_raw_u32(2).expect("valid");
         let target_b_entity = Entity::from_raw_u32(3).expect("valid");
 
-        let caster   = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target_a = UnitBuilder::new(2, Team::Enemy, target_a_pos).build();
         let target_b = UnitBuilder::new(3, Team::Enemy, target_b_pos).build();
 
@@ -337,8 +377,16 @@ mod tests {
 
         let plan = TurnPlan {
             steps: vec![
-                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_a_entity, target_pos: target_a_pos },
-                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_b_entity, target_pos: target_b_pos },
+                PlanStep::Cast {
+                    ability: AbilityId::from("buff_shield"),
+                    target: target_a_entity,
+                    target_pos: target_a_pos,
+                },
+                PlanStep::Cast {
+                    ability: AbilityId::from("buff_shield"),
+                    target: target_b_entity,
+                    target_pos: target_b_pos,
+                },
             ],
             final_pos: caster_pos,
             residual_ap: 0,

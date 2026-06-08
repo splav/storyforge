@@ -42,8 +42,7 @@ pub mod entity {
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Entity, D::Error> {
         let bits = u64::deserialize(d)?;
-        Entity::try_from_bits(bits)
-            .ok_or_else(|| serde::de::Error::custom("invalid entity bits"))
+        Entity::try_from_bits(bits).ok_or_else(|| serde::de::Error::custom("invalid entity bits"))
     }
 }
 
@@ -57,8 +56,7 @@ pub mod entity_opt {
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Entity>, D::Error> {
         let bits = Option::<u64>::deserialize(d)?;
         bits.map(|b| {
-            Entity::try_from_bits(b)
-                .ok_or_else(|| serde::de::Error::custom("invalid entity bits"))
+            Entity::try_from_bits(b).ok_or_else(|| serde::de::Error::custom("invalid entity bits"))
         })
         .transpose()
     }

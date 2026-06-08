@@ -96,9 +96,9 @@ pub fn target_selection_score(
 mod tests {
     use super::*;
     use crate::combat::ai::config::role::AxisProfile;
-    
-    use crate::combat::ai::test_helpers::{unit, UnitBuilder};
+
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{unit, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -124,7 +124,10 @@ mod tests {
     fn support_target_scores_higher_than_bruiser() {
         let active = unit(0, Team::Player, hex_from_offset(0, 0));
         let support = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
-            .role(AxisProfile { support: 1.0, ..Default::default() })
+            .role(AxisProfile {
+                support: 1.0,
+                ..Default::default()
+            })
             .build();
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 
@@ -147,7 +150,7 @@ mod tests {
         // Active attacker at origin.
         let active = unit(0, Team::Enemy, hex_from_offset(0, 0));
         // Full-threat melee hero equidistant from active.
-        let hero   = unit(1, Team::Player, hex_from_offset(3, 0));
+        let hero = unit(1, Team::Player, hex_from_offset(3, 0));
 
         // Stunned NPC: zero threat, OPPONENT_OBJECTIVE tagged, equidistant.
         let npc = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
@@ -156,12 +159,12 @@ mod tests {
             .build();
 
         let s = snapshot_from(vec![active.clone(), hero.clone(), npc.clone()], 1);
-        let va   = s.unit(active.entity).unwrap();
-        let vh   = s.unit(hero.entity).unwrap();
+        let va = s.unit(active.entity).unwrap();
+        let vh = s.unit(hero.entity).unwrap();
         let vnpc = s.unit(npc.entity).unwrap();
 
         let score_hero = target_selection_score(va, vh, &s);
-        let score_npc  = target_selection_score(va, vnpc, &s);
+        let score_npc = target_selection_score(va, vnpc, &s);
 
         assert!(
             score_npc > score_hero,

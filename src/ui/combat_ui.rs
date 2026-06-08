@@ -1,15 +1,18 @@
 #![allow(clippy::type_complexity)]
 use super::ability_panel::spawn_ability_panel;
 use super::log_ui::LogScrollState;
+use super::turn_order_ui::spawn_turn_order_panel;
 use super::{
     DefeatOverlay, HudPhase, HudTurnOrder, LogScrollClip, LogScrollThumb, LogText, ProceedButton,
     RestartButton, TurnOrderTooltip, TurnOrderTooltipText, UiFont,
 };
-use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
 use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Faction, Team};
 use crate::game::messages::RestartCombat;
-use crate::game::resources::{CombatContext, CombatObjective, GameDb, PhaseDeadline, ScenarioState, SelectionState, UiDirty, UiDirtyFlags};
+use crate::game::resources::{
+    CombatContext, CombatObjective, GameDb, PhaseDeadline, ScenarioState, SelectionState, UiDirty,
+    UiDirtyFlags,
+};
 use bevy::prelude::*;
 
 const CLR_HINT: Color = Color::srgb(0.55, 0.55, 0.30);
@@ -115,7 +118,13 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 }
 
                 // Hidden legacy marker (kept so update_turn_order can find it)
-                center.spawn((HudTurnOrder, Node { display: Display::None, ..default() }));
+                center.spawn((
+                    HudTurnOrder,
+                    Node {
+                        display: Display::None,
+                        ..default()
+                    },
+                ));
 
                 center.spawn(Node {
                     flex_grow: 1.0,
@@ -132,33 +141,34 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 
     // ── Equipment tooltip (absolute, hidden until card is hovered) ───────────
-    commands.spawn((
-        TurnOrderTooltip,
-        Node {
-            position_type: PositionType::Absolute,
-            right: Val::Px(172.0),
-            top: Val::Px(8.0),
-            padding: UiRect::all(Val::Px(8.0)),
-            border: UiRect::all(Val::Px(1.0)),
-            ..default()
-        },
-        BorderColor::all(Color::srgb(0.32, 0.32, 0.38)),
-        BackgroundColor(Color::srgba(0.07, 0.07, 0.09, 0.96)),
-        Visibility::Hidden,
-        ZIndex(50),
-    ))
-    .with_children(|tooltip| {
-        tooltip.spawn((
-            TurnOrderTooltipText,
-            Text::new(""),
-            TextFont {
-                font: font.clone(),
-                font_size: 11.0,
+    commands
+        .spawn((
+            TurnOrderTooltip,
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(172.0),
+                top: Val::Px(8.0),
+                padding: UiRect::all(Val::Px(8.0)),
+                border: UiRect::all(Val::Px(1.0)),
                 ..default()
             },
-            TextColor(Color::srgb(0.82, 0.82, 0.88)),
-        ));
-    });
+            BorderColor::all(Color::srgb(0.32, 0.32, 0.38)),
+            BackgroundColor(Color::srgba(0.07, 0.07, 0.09, 0.96)),
+            Visibility::Hidden,
+            ZIndex(50),
+        ))
+        .with_children(|tooltip| {
+            tooltip.spawn((
+                TurnOrderTooltipText,
+                Text::new(""),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.82, 0.82, 0.88)),
+            ));
+        });
 }
 
 // ── Update: phase hint ────────────────────────────────────────────────────────
@@ -206,9 +216,7 @@ pub fn update_phase_hint(
                 .ok()
                 .and_then(|e| combatants.get(e).ok())
                 .filter(|(_, f, _)| f.0 == Team::Player);
-            let actor_name = actor_info
-                .map(|(n, _, _)| n.as_str())
-                .unwrap_or("Враг");
+            let actor_name = actor_info.map(|(n, _, _)| n.as_str()).unwrap_or("Враг");
 
             if actor_info.is_some() {
                 let mut hints: Vec<&str> = Vec::new();
@@ -286,7 +294,11 @@ pub fn setup_defeat_overlay(
                 // Title
                 panel.spawn((
                     Text::new("✗  ПОРАЖЕНИЕ"),
-                    TextFont { font: font.clone(), font_size: 28.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 28.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.85, 0.25, 0.20)),
                 ));
 
@@ -306,7 +318,11 @@ pub fn setup_defeat_overlay(
                         // Hint
                         panel.spawn((
                             Text::new("[R] — сразиться ещё раз   [Esc] — главное меню"),
-                            TextFont { font, font_size: 12.0, ..default() },
+                            TextFont {
+                                font,
+                                font_size: 12.0,
+                                ..default()
+                            },
                             TextColor(Color::srgb(0.45, 0.45, 0.45)),
                         ));
                     }
@@ -325,7 +341,11 @@ pub fn setup_defeat_overlay(
                         // Hint
                         panel.spawn((
                             Text::new("[Space] — продолжить   [Esc] — главное меню"),
-                            TextFont { font, font_size: 12.0, ..default() },
+                            TextFont {
+                                font,
+                                font_size: 12.0,
+                                ..default()
+                            },
                             TextColor(Color::srgb(0.45, 0.45, 0.45)),
                         ));
                     }
@@ -450,7 +470,10 @@ mod tests {
         app.init_resource::<AdvanceCount>();
         app.init_resource::<RestartCount>();
         app.insert_resource(make_db(on_defeat));
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         // Insert NextState directly — init_state requires StatesPlugin (DefaultPlugins).
         app.insert_resource(NextState::<crate::app_state::AppState>::default());
         let mut input = ButtonInput::<KeyCode>::default();
@@ -468,8 +491,16 @@ mod tests {
     fn proceed_space_writes_advance() {
         let mut app = base_app(OnDefeat::Proceed, KeyCode::Space);
         app.update();
-        assert_eq!(app.world().resource::<AdvanceCount>().0, 1, "expected one AdvanceScenario");
-        assert_eq!(app.world().resource::<RestartCount>().0, 0, "expected no RestartCombat");
+        assert_eq!(
+            app.world().resource::<AdvanceCount>().0,
+            1,
+            "expected one AdvanceScenario"
+        );
+        assert_eq!(
+            app.world().resource::<RestartCount>().0,
+            0,
+            "expected no RestartCombat"
+        );
     }
 
     /// Retry + R → RestartCombat written, no AdvanceScenario.
@@ -477,8 +508,15 @@ mod tests {
     fn retry_r_writes_restart() {
         let mut app = base_app(OnDefeat::Retry, KeyCode::KeyR);
         app.update();
-        assert_eq!(app.world().resource::<RestartCount>().0, 1, "expected one RestartCombat");
-        assert_eq!(app.world().resource::<AdvanceCount>().0, 0, "expected no AdvanceScenario");
+        assert_eq!(
+            app.world().resource::<RestartCount>().0,
+            1,
+            "expected one RestartCombat"
+        );
+        assert_eq!(
+            app.world().resource::<AdvanceCount>().0,
+            0,
+            "expected no AdvanceScenario"
+        );
     }
 }
-

@@ -16,10 +16,10 @@ pub mod next_turn_lethality;
 pub mod pressure_spacing_zone;
 pub mod secure_kill;
 
-use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats, NeedAxis};
-use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats, NeedAxis};
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 
 crate::factor_kind! {
     name: TerminalFactor,
@@ -38,13 +38,13 @@ crate::factor_kind! {
 impl TerminalFactor {
     pub fn name(self) -> &'static str {
         match self {
-            Self::ExposureAtEnd       => "exposure_at_end",
-            Self::NextTurnLethality   => "next_turn_lethality",
-            Self::SecureKill          => "secure_kill",
-            Self::AllyRescue          => "ally_rescue",
-            Self::BoardControlGain    => "board_control_gain",
-            Self::LineActionability   => "line_actionability",
-            Self::DensityValue        => "density_value",
+            Self::ExposureAtEnd => "exposure_at_end",
+            Self::NextTurnLethality => "next_turn_lethality",
+            Self::SecureKill => "secure_kill",
+            Self::AllyRescue => "ally_rescue",
+            Self::BoardControlGain => "board_control_gain",
+            Self::LineActionability => "line_actionability",
+            Self::DensityValue => "density_value",
             Self::PressureSpacingZone => "pressure_spacing_zone",
         }
     }
@@ -61,18 +61,20 @@ impl TerminalFactor {
     /// Which `NeedSignals` axis modulates this terminal factor.
     pub fn need_modulation(self) -> NeedAxis {
         match self {
-            Self::ExposureAtEnd       => NeedAxis::SelfPreserve,
-            Self::NextTurnLethality   => NeedAxis::SelfPreserve,
-            Self::SecureKill          => NeedAxis::FinishTarget,
-            Self::AllyRescue          => NeedAxis::RescueAlly,
-            Self::BoardControlGain    => NeedAxis::Reposition,
-            Self::LineActionability   => NeedAxis::None,
-            Self::DensityValue        => NeedAxis::SetupAOE,
+            Self::ExposureAtEnd => NeedAxis::SelfPreserve,
+            Self::NextTurnLethality => NeedAxis::SelfPreserve,
+            Self::SecureKill => NeedAxis::FinishTarget,
+            Self::AllyRescue => NeedAxis::RescueAlly,
+            Self::BoardControlGain => NeedAxis::Reposition,
+            Self::LineActionability => NeedAxis::None,
+            Self::DensityValue => NeedAxis::SetupAOE,
             Self::PressureSpacingZone => NeedAxis::None,
         }
     }
 
-    pub fn count() -> usize { COUNT }
+    pub fn count() -> usize {
+        COUNT
+    }
 
     pub fn iter() -> impl Iterator<Item = Self> {
         [
@@ -90,14 +92,14 @@ impl TerminalFactor {
 
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
-            "exposure_at_end"        => Some(Self::ExposureAtEnd),
-            "next_turn_lethality"    => Some(Self::NextTurnLethality),
-            "secure_kill"            => Some(Self::SecureKill),
-            "ally_rescue"            => Some(Self::AllyRescue),
-            "board_control_gain"     => Some(Self::BoardControlGain),
-            "line_actionability"     => Some(Self::LineActionability),
-            "density_value"          => Some(Self::DensityValue),
-            "pressure_spacing_zone"  => Some(Self::PressureSpacingZone),
+            "exposure_at_end" => Some(Self::ExposureAtEnd),
+            "next_turn_lethality" => Some(Self::NextTurnLethality),
+            "secure_kill" => Some(Self::SecureKill),
+            "ally_rescue" => Some(Self::AllyRescue),
+            "board_control_gain" => Some(Self::BoardControlGain),
+            "line_actionability" => Some(Self::LineActionability),
+            "density_value" => Some(Self::DensityValue),
+            "pressure_spacing_zone" => Some(Self::PressureSpacingZone),
             _ => None,
         }
     }
@@ -108,13 +110,13 @@ impl TerminalFactor {
     /// need it bind the parameter as `_snap`.
     pub fn compute(self, plan: &TurnPlan, snap: &BattleSnapshot, ctx: &ScoringCtx) -> f32 {
         match self {
-            Self::ExposureAtEnd       => exposure_at_end::compute(plan, snap, ctx),
-            Self::NextTurnLethality   => next_turn_lethality::compute(plan, snap, ctx),
-            Self::SecureKill          => secure_kill::compute(plan, snap, ctx),
-            Self::AllyRescue          => ally_rescue::compute(plan, snap, ctx),
-            Self::BoardControlGain    => board_control_gain::compute(plan, snap, ctx),
-            Self::LineActionability   => line_actionability::compute(plan, snap, ctx),
-            Self::DensityValue        => density_value::compute(plan, snap, ctx),
+            Self::ExposureAtEnd => exposure_at_end::compute(plan, snap, ctx),
+            Self::NextTurnLethality => next_turn_lethality::compute(plan, snap, ctx),
+            Self::SecureKill => secure_kill::compute(plan, snap, ctx),
+            Self::AllyRescue => ally_rescue::compute(plan, snap, ctx),
+            Self::BoardControlGain => board_control_gain::compute(plan, snap, ctx),
+            Self::LineActionability => line_actionability::compute(plan, snap, ctx),
+            Self::DensityValue => density_value::compute(plan, snap, ctx),
             Self::PressureSpacingZone => pressure_spacing_zone::compute(plan, snap, ctx),
         }
     }
@@ -204,8 +206,14 @@ mod tests {
         ts.set(TerminalFactor::PressureSpacingZone, 0.1);
 
         let json = serde_json::to_string(&ts).unwrap();
-        assert!(json.contains("\"exposure_at_end\""), "expected named map: {json}");
-        assert!(json.contains("\"pressure_spacing_zone\""), "missing key: {json}");
+        assert!(
+            json.contains("\"exposure_at_end\""),
+            "expected named map: {json}"
+        );
+        assert!(
+            json.contains("\"pressure_spacing_zone\""),
+            "missing key: {json}"
+        );
 
         let ts2: TerminalScore = serde_json::from_str(&json).unwrap();
         assert_eq!(ts, ts2, "round-trip mismatch");

@@ -18,30 +18,31 @@
 // `[[test]]` target name distinct from the existing `combat_engine` suite.
 
 use bevy::prelude::*;
-use std::io::BufRead;
-use storyforge::combat::ai::log::{ActorTickEvent, AiLogger, PendingAiLogEntries, SCHEMA_VERSION};
-use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
-use storyforge::combat::engine_bridge::{
-    apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
-    bootstrap_combat_state, entity_to_uid, process_action_system,
-    project_state_to_ecs, BridgeQueues, CombatStateRes, UnitIdMap,
-};
-use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::combat::DiceRngRes;
-use storyforge::content::content_view::ActiveContent;
-use storyforge::game::bundles::CombatantBundle;
-use storyforge::game::components::Team;
-use storyforge::game::hex::hex_from_offset;
-use storyforge::game::messages::ActionInput;
-use storyforge::game::combat_log::CombatLog;
-use storyforge::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatEnvironment, HexCorpses, HexPositions, TurnQueue, UiDirty,
-};
-use storyforge::ui::animation::AnimationQueue;
-use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 use combat_engine::action::Action;
 use combat_engine::state::UnitId;
 use combat_engine::trace::{parse_init, parse_step};
+use std::io::BufRead;
+use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
+use storyforge::combat::ai::log::{ActorTickEvent, AiLogger, PendingAiLogEntries, SCHEMA_VERSION};
+use storyforge::combat::ai::world::tags::AbilityTagCache;
+use storyforge::combat::engine_bridge::{
+    apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
+    bootstrap_combat_state, entity_to_uid, process_action_system, project_state_to_ecs,
+    BridgeQueues, CombatStateRes, UnitIdMap,
+};
+use storyforge::combat::DiceRngRes;
+use storyforge::content::content_view::ActiveContent;
+use storyforge::game::bundles::CombatantBundle;
+use storyforge::game::combat_log::CombatLog;
+use storyforge::game::components::Team;
+use storyforge::game::hex::hex_from_offset;
+use storyforge::game::messages::ActionInput;
+use storyforge::game::resources::{
+    CombatBlockedHexes, CombatContext, CombatEnvironment, HexCorpses, HexPositions, TurnQueue,
+    UiDirty,
+};
+use storyforge::ui::animation::AnimationQueue;
+use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
 // ── Setup helpers ─────────────────────────────────────────────────────────────
 
@@ -167,10 +168,8 @@ fn engine_step_range_correlates_with_action_actor() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let ai_path =
-        std::env::temp_dir().join(format!("corr_ai_{ts}.jsonl"));
-    let trace_path =
-        std::env::temp_dir().join(format!("corr_engine_{ts}.jsonl"));
+    let ai_path = std::env::temp_dir().join(format!("corr_ai_{ts}.jsonl"));
+    let trace_path = std::env::temp_dir().join(format!("corr_engine_{ts}.jsonl"));
 
     let mut app = correlation_app();
 
@@ -178,18 +177,18 @@ fn engine_step_range_correlates_with_action_actor() {
     // actor_a: row 0, cols 0→1→2
     // actor_b: row 2, cols 0→1
     let a_start = hex_from_offset(0, 0);
-    let a_mid   = hex_from_offset(1, 0);
-    let a_end   = hex_from_offset(2, 0);
+    let a_mid = hex_from_offset(1, 0);
+    let a_end = hex_from_offset(2, 0);
     let b_start = hex_from_offset(0, 2);
-    let b_end   = hex_from_offset(1, 2);
+    let b_end = hex_from_offset(1, 2);
 
     let actor_a = app
         .world_mut()
         .spawn(CombatantBundle::new(
             Team::Player,
             test_stats(),
-            0,   // armor
-            6,   // speed
+            0, // armor
+            6, // speed
             vec![],
             test_equipment(),
         ))
@@ -206,8 +205,12 @@ fn engine_step_range_correlates_with_action_actor() {
         ))
         .id();
 
-    app.world_mut().resource_mut::<HexPositions>().insert(actor_a, a_start);
-    app.world_mut().resource_mut::<HexPositions>().insert(actor_b, b_start);
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(actor_a, a_start);
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(actor_b, b_start);
     seed_engine(&mut app);
 
     // ── Open both writers ────────────────────────────────────────────────────
@@ -257,7 +260,13 @@ fn engine_step_range_correlates_with_action_actor() {
 
     // Two move actions in one frame: both are applied by process_action_system
     // before flush_pending_ai_log_system runs.
-    push_action(&mut app, ActionInput::Move { actor: actor_a, path: vec![a_mid] });
+    push_action(
+        &mut app,
+        ActionInput::Move {
+            actor: actor_a,
+            path: vec![a_mid],
+        },
+    );
     app.update();
     // Flush fires after the first update. Now push second move in next frame
     // (flush has already consumed the pending entry; we need step_counter=1 now).
@@ -273,7 +282,13 @@ fn engine_step_range_correlates_with_action_actor() {
         .resource_mut::<PendingAiLogEntries>()
         .entries
         .push(make_tick_entry(actor_a, step_before_a2));
-    push_action(&mut app, ActionInput::Move { actor: actor_a, path: vec![a_end] });
+    push_action(
+        &mut app,
+        ActionInput::Move {
+            actor: actor_a,
+            path: vec![a_end],
+        },
+    );
     app.update();
 
     let step_before_b = app.world().resource::<EngineTraceWriter>().step_counter();
@@ -284,7 +299,13 @@ fn engine_step_range_correlates_with_action_actor() {
         .resource_mut::<PendingAiLogEntries>()
         .entries
         .push(make_tick_entry(actor_b, step_before_b));
-    push_action(&mut app, ActionInput::Move { actor: actor_b, path: vec![b_end] });
+    push_action(
+        &mut app,
+        ActionInput::Move {
+            actor: actor_b,
+            path: vec![b_end],
+        },
+    );
     app.update();
 
     let step_final = app.world().resource::<EngineTraceWriter>().step_counter();
@@ -319,9 +340,7 @@ fn engine_step_range_correlates_with_action_actor() {
     let step_lines: Vec<_> = engine_lines[1..]
         .iter()
         .enumerate()
-        .map(|(i, raw)| {
-            parse_step(raw).unwrap_or_else(|e| panic!("parse StepLine[{i}]: {e}"))
-        })
+        .map(|(i, raw)| parse_step(raw).unwrap_or_else(|e| panic!("parse StepLine[{i}]: {e}")))
         .collect();
 
     // Helper: extract actor UnitId from an Action.
@@ -340,13 +359,17 @@ fn engine_step_range_correlates_with_action_actor() {
         .collect();
 
     assert_eq!(
-        step_actor.len(), 3,
+        step_actor.len(),
+        3,
         "expected 3 StepLines, got {}",
         step_actor.len()
     );
 
     // ── Read ai_decisions.jsonl ───────────────────────────────────────────────
-    assert!(ai_path.exists(), "ai_decisions.jsonl missing at {ai_path:?}");
+    assert!(
+        ai_path.exists(),
+        "ai_decisions.jsonl missing at {ai_path:?}"
+    );
     let ai_lines: Vec<String> = {
         let f = std::fs::File::open(&ai_path).expect("open ai_decisions.jsonl");
         std::io::BufReader::new(f)
@@ -357,7 +380,8 @@ fn engine_step_range_correlates_with_action_actor() {
     };
     // 3 actor ticks: actor_a tick1, actor_a tick2, actor_b tick1.
     assert_eq!(
-        ai_lines.len(), 3,
+        ai_lines.len(),
+        3,
         "expected 3 actor_tick lines, got {}",
         ai_lines.len()
     );
@@ -366,8 +390,7 @@ fn engine_step_range_correlates_with_action_actor() {
         .iter()
         .enumerate()
         .map(|(i, raw)| {
-            serde_json::from_str(raw)
-                .unwrap_or_else(|e| panic!("parse ActorTickEvent[{i}]: {e}"))
+            serde_json::from_str(raw).unwrap_or_else(|e| panic!("parse ActorTickEvent[{i}]: {e}"))
         })
         .collect();
 
@@ -379,9 +402,9 @@ fn engine_step_range_correlates_with_action_actor() {
         let expected_uid = UnitId(tick.actor_id);
 
         for s in start..end {
-            let actual_uid = *step_actor
-                .get(&s)
-                .unwrap_or_else(|| panic!("tick[{i}] range [{start},{end}): step {s} not found in engine.jsonl"));
+            let actual_uid = *step_actor.get(&s).unwrap_or_else(|| {
+                panic!("tick[{i}] range [{start},{end}): step {s} not found in engine.jsonl")
+            });
             assert_eq!(
                 actual_uid, expected_uid,
                 "tick[{i}] (actor={:?}): step {s} has wrong actor {:?}",
@@ -394,7 +417,7 @@ fn engine_step_range_correlates_with_action_actor() {
     let mut ranges: Vec<(u64, u64)> = ticks
         .iter()
         .filter_map(|t| t.engine_step_range)
-        .filter(|(s, e)| s < e)  // skip zero-length skip-path ranges
+        .filter(|(s, e)| s < e) // skip zero-length skip-path ranges
         .collect();
     ranges.sort_by_key(|(s, _)| *s);
     for w in ranges.windows(2) {

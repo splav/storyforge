@@ -44,11 +44,13 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use storyforge::combat::ai::adapt::AdaptationReason;
+use storyforge::combat::ai::intent::{IntentKind, TacticalIntent};
+use storyforge::combat::ai::log::{
+    ActorTickEvent, AgendaItemLog, LoggedDecision, LoggedPlan, StoredGoalContextSnapshot,
+};
 use storyforge::combat::ai::repair::{
     classify_continuation_outcome, ContinuationOutcome, FreshDecisionKind, StoredGoalContext,
 };
-use storyforge::combat::ai::intent::{IntentKind, TacticalIntent};
-use storyforge::combat::ai::log::{ActorTickEvent, AgendaItemLog, LoggedDecision, LoggedPlan, StoredGoalContextSnapshot};
 use storyforge::combat::ai::world::tags::AbilityTag;
 
 // ── Session actor key ─────────────────────────────────────────────────────────
@@ -78,11 +80,11 @@ enum IntentSource {
 impl IntentSource {
     fn label(self) -> &'static str {
         match self {
-            Self::ChosenIntentField   => "ChosenIntentField (v35+)",
-            Self::AgendaItemIndex     => "AgendaItemIndex   (tier 2)",
-            Self::AgendaZeroFallback  => "AgendaZeroFallback (tier 3)",
+            Self::ChosenIntentField => "ChosenIntentField (v35+)",
+            Self::AgendaItemIndex => "AgendaItemIndex   (tier 2)",
+            Self::AgendaZeroFallback => "AgendaZeroFallback (tier 3)",
             Self::DecisionTargetMatch => "DecisionTargetMatch (tier 4)",
-            Self::Heuristic           => "Heuristic           (tier 5)",
+            Self::Heuristic => "Heuristic           (tier 5)",
         }
     }
 }
@@ -99,12 +101,12 @@ impl IntentSource {
 /// Move-only, bucket 4 would also fire (trivially true), so we prefer bucket 3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum H3cBucket {
-    ApMpBlocked          = 0,
-    NoTargetInAgenda     = 1,
-    TargetUnreachable    = 2,
-    OnlyMovePlans        = 3,
+    ApMpBlocked = 0,
+    NoTargetInAgenda = 1,
+    TargetUnreachable = 2,
+    OnlyMovePlans = 3,
     NoPlanAttemptsTarget = 4,
-    Unclassified         = 5,
+    Unclassified = 5,
 }
 
 const H3C_BUCKET_LABELS: [&str; 6] = [
@@ -181,7 +183,7 @@ struct Aggregate {
 
     // E1: modifier contribution distributions (per-plan, non-zero entries only).
     e1_summon_bonus: Vec<f32>,
-    e1_trade_bonus: Vec<f32>,  // signed: can be negative
+    e1_trade_bonus: Vec<f32>, // signed: can be negative
     e1_repair_bonus: Vec<f32>,
     // Plans in which at least one modifier was emitted (denominator for "% of plans with modifiers").
     e1_total_modifier_entries: usize,
@@ -367,7 +369,10 @@ impl Aggregate {
         let decision_kind = decision_kind_label(&event.decision);
 
         // A2: decision_kind
-        *self.decision_kind_counts.entry(decision_kind.to_owned()).or_default() += 1;
+        *self
+            .decision_kind_counts
+            .entry(decision_kind.to_owned())
+            .or_default() += 1;
 
         // Skip path
         if matches!(event.decision, LoggedDecision::Skip { .. }) {
@@ -384,7 +389,10 @@ impl Aggregate {
             let counter = self.actor_tick_counters.entry(key.clone()).or_default();
             let order = *counter;
             *counter += 1;
-            self.actor_timelines.entry(key).or_default().push((order, decision_kind.to_owned()));
+            self.actor_timelines
+                .entry(key)
+                .or_default()
+                .push((order, decision_kind.to_owned()));
             return;
         }
 
@@ -411,20 +419,41 @@ impl Aggregate {
             for outcome in &chosen.annotation.outcomes {
                 self.d1_total_cast_steps += 1;
 
-                if outcome.enemy_damage > 0.0 { self.d1_enemy_damage.push(outcome.enemy_damage); }
-                if outcome.ally_damage > 0.0 { self.d1_ally_damage.push(outcome.ally_damage); }
-                if outcome.self_damage > 0.0 { self.d1_self_damage.push(outcome.self_damage); }
-                if outcome.hp_restored > 0.0 { self.d1_hp_restored.push(outcome.hp_restored); }
-                if outcome.cc_turns_applied > 0.0 { self.d1_cc_turns_applied.push(outcome.cc_turns_applied); }
-                if outcome.vulnerability_applied > 0.0 { self.d1_vulnerability_applied.push(outcome.vulnerability_applied); }
-                if outcome.armor_shred_applied > 0.0 { self.d1_armor_shred_applied.push(outcome.armor_shred_applied); }
+                if outcome.enemy_damage > 0.0 {
+                    self.d1_enemy_damage.push(outcome.enemy_damage);
+                }
+                if outcome.ally_damage > 0.0 {
+                    self.d1_ally_damage.push(outcome.ally_damage);
+                }
+                if outcome.self_damage > 0.0 {
+                    self.d1_self_damage.push(outcome.self_damage);
+                }
+                if outcome.hp_restored > 0.0 {
+                    self.d1_hp_restored.push(outcome.hp_restored);
+                }
+                if outcome.cc_turns_applied > 0.0 {
+                    self.d1_cc_turns_applied.push(outcome.cc_turns_applied);
+                }
+                if outcome.vulnerability_applied > 0.0 {
+                    self.d1_vulnerability_applied
+                        .push(outcome.vulnerability_applied);
+                }
+                if outcome.armor_shred_applied > 0.0 {
+                    self.d1_armor_shred_applied
+                        .push(outcome.armor_shred_applied);
+                }
 
-                if outcome.p_kill_now >= 1.0 { self.d1_p_kill_now_count += 1; }
-                if outcome.p_kill_soon >= 1.0 { self.d1_p_kill_soon_count += 1; }
+                if outcome.p_kill_now >= 1.0 {
+                    self.d1_p_kill_now_count += 1;
+                }
+                if outcome.p_kill_soon >= 1.0 {
+                    self.d1_p_kill_soon_count += 1;
+                }
 
                 // D2: AoE breakdown.
                 if !outcome.enemy_damage_per_entity.is_empty() {
-                    self.d2_entities_hit_per_cast.push(outcome.enemy_damage_per_entity.len());
+                    self.d2_entities_hit_per_cast
+                        .push(outcome.enemy_damage_per_entity.len());
                     for &(_, dmg) in &outcome.enemy_damage_per_entity {
                         self.d2_per_entity_damage.push(dmg);
                     }
@@ -444,7 +473,7 @@ impl Aggregate {
                     if addend.value.abs() > f32::EPSILON {
                         match addend.name.as_str() {
                             "summon_bonus" => self.e1_summon_bonus.push(addend.value),
-                            "trade_bonus"  => self.e1_trade_bonus.push(addend.value),
+                            "trade_bonus" => self.e1_trade_bonus.push(addend.value),
                             "repair_bonus" => self.e1_repair_bonus.push(addend.value),
                             _ => {}
                         }
@@ -473,7 +502,10 @@ impl Aggregate {
                     .iter()
                     .any(|step_tags| step_tags.contains_tag(tag));
                 if has_tag {
-                    *self.f1_ability_tag_counts.entry(tag.name().to_owned()).or_default() += 1;
+                    *self
+                        .f1_ability_tag_counts
+                        .entry(tag.name().to_owned())
+                        .or_default() += 1;
                 }
             }
 
@@ -484,23 +516,34 @@ impl Aggregate {
             let mut overcommit_in_chosen = false;
             {
                 use storyforge::combat::ai::pipeline::score_trace::{
-                    MultiplierKind, MultiplierDetail,
+                    MultiplierDetail, MultiplierKind,
                 };
                 let used_trace = if let Some(trace) = &chosen.annotation.score_trace_log {
                     // Check whether we have at least one Critic multiplier with detail.
-                    let has_detailed_critic = trace.multipliers.iter().any(|m| {
-                        matches!(m.kind, MultiplierKind::Critic) && m.detail.is_some()
-                    });
+                    let has_detailed_critic = trace
+                        .multipliers
+                        .iter()
+                        .any(|m| matches!(m.kind, MultiplierKind::Critic) && m.detail.is_some());
                     if has_detailed_critic {
                         for mh in &trace.multipliers {
-                            if !matches!(mh.kind, MultiplierKind::Critic) { continue; }
-                            let Some(detail) = &mh.detail else { continue; };
+                            if !matches!(mh.kind, MultiplierKind::Critic) {
+                                continue;
+                            }
+                            let Some(detail) = &mh.detail else {
+                                continue;
+                            };
                             let critic_key = match detail {
                                 MultiplierDetail::Critic { critic, .. } => format!("{:?}", critic),
                                 _ => continue,
                             };
-                            *self.g1_critic_hit_counts.entry(critic_key.clone()).or_default() += 1;
-                            self.g1_critic_multipliers.entry(critic_key.clone()).or_default().push(mh.value);
+                            *self
+                                .g1_critic_hit_counts
+                                .entry(critic_key.clone())
+                                .or_default() += 1;
+                            self.g1_critic_multipliers
+                                .entry(critic_key.clone())
+                                .or_default()
+                                .push(mh.value);
                             if critic_key == "OvercommitIntoDanger" {
                                 overcommit_in_chosen = true;
                             }
@@ -517,9 +560,15 @@ impl Aggregate {
             }
 
             // E: chosen-plan totals by decision_kind + Overcommit cross-tab.
-            *self.g1_chosen_by_decision_kind.entry(decision_kind.to_owned()).or_default() += 1;
+            *self
+                .g1_chosen_by_decision_kind
+                .entry(decision_kind.to_owned())
+                .or_default() += 1;
             if overcommit_in_chosen {
-                *self.g1_overcommit_by_decision_kind.entry(decision_kind.to_owned()).or_default() += 1;
+                *self
+                    .g1_overcommit_by_decision_kind
+                    .entry(decision_kind.to_owned())
+                    .or_default() += 1;
             }
 
             // G: Overcommit × adaptation reason cross-tab.
@@ -531,15 +580,25 @@ impl Aggregate {
                 .adaptation
                 .as_ref()
                 .map(|a| match &a.reason {
-                    AdaptationReason::ExpectedSelfLethal { .. } => "expected_self_lethal".to_owned(),
-                    AdaptationReason::ProtectSelfNoDefensive => "protect_self_no_defensive".to_owned(),
+                    AdaptationReason::ExpectedSelfLethal { .. } => {
+                        "expected_self_lethal".to_owned()
+                    }
+                    AdaptationReason::ProtectSelfNoDefensive => {
+                        "protect_self_no_defensive".to_owned()
+                    }
                     AdaptationReason::ProtectSelfFutile { .. } => "protect_self_futile".to_owned(),
                     AdaptationReason::Forced { .. } => "forced".to_owned(),
                 })
                 .unwrap_or_else(|| "none".to_owned());
-            *self.g1_chosen_by_adapt_reason.entry(adapt_key.clone()).or_default() += 1;
+            *self
+                .g1_chosen_by_adapt_reason
+                .entry(adapt_key.clone())
+                .or_default() += 1;
             if overcommit_in_chosen {
-                *self.g1_overcommit_by_adapt_reason.entry(adapt_key).or_default() += 1;
+                *self
+                    .g1_overcommit_by_adapt_reason
+                    .entry(adapt_key)
+                    .or_default() += 1;
             }
         }
 
@@ -551,7 +610,10 @@ impl Aggregate {
             self.g1_pool_total += 1;
             if let Some(trace) = &plan.annotation.score_trace_log {
                 use storyforge::combat::ai::pipeline::score_trace::MultiplierKind;
-                let has_critic = trace.multipliers.iter().any(|m| matches!(m.kind, MultiplierKind::Critic));
+                let has_critic = trace
+                    .multipliers
+                    .iter()
+                    .any(|m| matches!(m.kind, MultiplierKind::Critic));
                 if has_critic {
                     self.g1_pool_with_any_critic += 1;
                 }
@@ -559,8 +621,12 @@ impl Aggregate {
                 use storyforge::combat::ai::pipeline::score_trace::MultiplierDetail;
                 let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for mh in &trace.multipliers {
-                    if !matches!(mh.kind, MultiplierKind::Critic) { continue; }
-                    let Some(detail) = &mh.detail else { continue; };
+                    if !matches!(mh.kind, MultiplierKind::Critic) {
+                        continue;
+                    }
+                    let Some(detail) = &mh.detail else {
+                        continue;
+                    };
                     let key = match detail {
                         MultiplierDetail::Critic { critic, .. } => format!("{:?}", critic),
                         _ => continue,
@@ -595,7 +661,7 @@ impl Aggregate {
                     if addend.value.abs() > f32::EPSILON {
                         match addend.name.as_str() {
                             "summon_bonus" => self.e1_trace_summon.push(addend.value),
-                            "trade_bonus"  => self.e1_trace_trade.push(addend.value),
+                            "trade_bonus" => self.e1_trace_trade.push(addend.value),
                             "repair_bonus" => self.e1_trace_repair.push(addend.value),
                             _ => {}
                         }
@@ -610,8 +676,14 @@ impl Aggregate {
                 self.g2_trace_chosen_total += 1;
                 for m in &trace.multipliers {
                     let kind_key = format!("{:?}", m.kind);
-                    *self.g2_trace_multiplier_counts.entry(kind_key.clone()).or_default() += 1;
-                    self.g2_trace_multiplier_values.entry(kind_key).or_default().push(m.value);
+                    *self
+                        .g2_trace_multiplier_counts
+                        .entry(kind_key.clone())
+                        .or_default() += 1;
+                    self.g2_trace_multiplier_values
+                        .entry(kind_key)
+                        .or_default()
+                        .push(m.value);
                 }
             }
         }
@@ -621,7 +693,10 @@ impl Aggregate {
         let counter = self.actor_tick_counters.entry(key.clone()).or_default();
         let order = *counter;
         *counter += 1;
-        self.actor_timelines.entry(key).or_default().push((order, decision_kind.to_owned()));
+        self.actor_timelines
+            .entry(key)
+            .or_default()
+            .push((order, decision_kind.to_owned()));
 
         // C6
         let fdk = fresh_decision_kind(&event.decision);
@@ -631,7 +706,10 @@ impl Aggregate {
         // Skipped on skip-path (event.band is None).
         if let Some(band) = &event.band {
             let band_key = format!("{band:?}");
-            *self.h1_band_tick_counts.entry(band_key.clone()).or_default() += 1;
+            *self
+                .h1_band_tick_counts
+                .entry(band_key.clone())
+                .or_default() += 1;
 
             // H1: per-axis histograms from agenda item-level considerations.
             for item in &event.agenda {
@@ -670,12 +748,30 @@ impl Aggregate {
 
                 for (kind, leverage, is_winner) in entries {
                     let (winners_bucket, losers_bucket) = match kind {
-                        IntentKind::FocusTarget => (&mut self.h1_leverage_focus_target_winners, &mut self.h1_leverage_focus_target_losers),
-                        IntentKind::ApplyCC     => (&mut self.h1_leverage_apply_cc_winners,     &mut self.h1_leverage_apply_cc_losers),
-                        IntentKind::ProtectAlly => (&mut self.h1_leverage_protect_ally_winners, &mut self.h1_leverage_protect_ally_losers),
-                        IntentKind::ProtectSelf => (&mut self.h1_leverage_protect_self_winners, &mut self.h1_leverage_protect_self_losers),
-                        IntentKind::Reposition | IntentKind::SetupAOE => (&mut self.h1_leverage_reposition_winners, &mut self.h1_leverage_reposition_losers),
-                        IntentKind::LastStand   => (&mut self.h1_leverage_last_stand_winners, &mut self.h1_leverage_last_stand_losers),
+                        IntentKind::FocusTarget => (
+                            &mut self.h1_leverage_focus_target_winners,
+                            &mut self.h1_leverage_focus_target_losers,
+                        ),
+                        IntentKind::ApplyCC => (
+                            &mut self.h1_leverage_apply_cc_winners,
+                            &mut self.h1_leverage_apply_cc_losers,
+                        ),
+                        IntentKind::ProtectAlly => (
+                            &mut self.h1_leverage_protect_ally_winners,
+                            &mut self.h1_leverage_protect_ally_losers,
+                        ),
+                        IntentKind::ProtectSelf => (
+                            &mut self.h1_leverage_protect_self_winners,
+                            &mut self.h1_leverage_protect_self_losers,
+                        ),
+                        IntentKind::Reposition | IntentKind::SetupAOE => (
+                            &mut self.h1_leverage_reposition_winners,
+                            &mut self.h1_leverage_reposition_losers,
+                        ),
+                        IntentKind::LastStand => (
+                            &mut self.h1_leverage_last_stand_winners,
+                            &mut self.h1_leverage_last_stand_losers,
+                        ),
                     };
                     if is_winner {
                         winners_bucket.push(leverage);
@@ -687,7 +783,8 @@ impl Aggregate {
                 }
 
                 if let (Some(w), false) = (winner_leverage, loser_leverages.is_empty()) {
-                    let losers_mean = loser_leverages.iter().sum::<f32>() / loser_leverages.len() as f32;
+                    let losers_mean =
+                        loser_leverages.iter().sum::<f32>() / loser_leverages.len() as f32;
                     self.h1_leverage_delta_per_tick.push(w - losers_mean);
                 }
             }
@@ -704,7 +801,10 @@ impl Aggregate {
 
             // H2: agenda-item win-rate — which item index wins per band.
             if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
-                *self.h2_band_chosen_total.entry(band_key.clone()).or_default() += 1;
+                *self
+                    .h2_band_chosen_total
+                    .entry(band_key.clone())
+                    .or_default() += 1;
                 if let Some(item_idx) = chosen.annotation.agenda_item {
                     let win_key = format!("{band_key}/{item_idx}");
                     *self.h2_band_item_win.entry(win_key).or_default() += 1;
@@ -729,14 +829,26 @@ impl Aggregate {
             // H3a: fallback bucket classification (chosen plan).
             if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
                 if chosen.annotation.agenda_item.is_some() {
-                    *self.h3a_band_attributed.entry(band_key.clone()).or_default() += 1;
+                    *self
+                        .h3a_band_attributed
+                        .entry(band_key.clone())
+                        .or_default() += 1;
                 } else {
-                    *self.h3a_band_unattributed.entry(band_key.clone()).or_default() += 1;
+                    *self
+                        .h3a_band_unattributed
+                        .entry(band_key.clone())
+                        .or_default() += 1;
                     // Sub-classification.
                     if event.agenda.is_empty() {
-                        *self.h3a_unattr_no_items.entry(band_key.clone()).or_default() += 1;
+                        *self
+                            .h3a_unattr_no_items
+                            .entry(band_key.clone())
+                            .or_default() += 1;
                     } else if event.agenda.iter().all(|it| it.target.is_none()) {
-                        *self.h3a_unattr_all_no_target.entry(band_key.clone()).or_default() += 1;
+                        *self
+                            .h3a_unattr_all_no_target
+                            .entry(band_key.clone())
+                            .or_default() += 1;
                     }
                     // else: unclassified at construction-time; needs per-plan reject reasons.
                 }
@@ -784,24 +896,34 @@ impl Aggregate {
 
                     // Bucket 1: ap_mp_blocked — actor has no AP and no MP.
                     let bucket = if let Some(actor) = actor_snap {
-                        let ap = actor.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
-                        let mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+                        let ap = actor.pools[combat_engine::PoolKind::Ap]
+                            .map(|(c, _)| c)
+                            .unwrap_or(0);
+                        let mp = actor.pools[combat_engine::PoolKind::Mp]
+                            .map(|(c, _)| c)
+                            .unwrap_or(0);
                         if ap == 0 && mp == 0 {
                             H3cBucket::ApMpBlocked
                         } else {
                             // Bucket 2: no_target_in_agenda — all items have target=None.
                             let primary_target = event.agenda[0].target;
-                            if primary_target.is_none() && event.agenda.iter().all(|it| it.target.is_none()) {
+                            if primary_target.is_none()
+                                && event.agenda.iter().all(|it| it.target.is_none())
+                            {
                                 H3cBucket::NoTargetInAgenda
                             } else if let Some(target_bits) = primary_target {
                                 // Bucket 3: target_unreachable — target too far.
                                 let target_snap = bevy::prelude::Entity::try_from_bits(target_bits)
                                     .and_then(|e| event.snapshot.unit(e));
-                                let unreachable = target_snap.map(|t| {
-                                    let dist = actor.pos.unsigned_distance_to(t.pos);
-                                    let actor_mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
-                                    dist > (actor_mp as u32) + actor.cache.max_attack_range
-                                }).unwrap_or(false);
+                                let unreachable = target_snap
+                                    .map(|t| {
+                                        let dist = actor.pos.unsigned_distance_to(t.pos);
+                                        let actor_mp = actor.pools[combat_engine::PoolKind::Mp]
+                                            .map(|(c, _)| c)
+                                            .unwrap_or(0);
+                                        dist > (actor_mp as u32) + actor.cache.max_attack_range
+                                    })
+                                    .unwrap_or(false);
 
                                 if unreachable {
                                     H3cBucket::TargetUnreachable
@@ -810,11 +932,12 @@ impl Aggregate {
                                     // Checked before bucket 4: "all move-only" is a more specific
                                     // root-cause than "no plan targets this entity" (trivially true
                                     // when there are no Cast plans at all).
-                                    let any_cast = event.plans.iter().any(|p| {
-                                        p.steps.iter().any(|s| matches!(s,
+                                    let any_cast =
+                                        event.plans.iter().any(|p| {
+                                            p.steps.iter().any(|s| matches!(s,
                                             storyforge::combat::ai::plan::PlanStep::Cast { .. }
                                         ))
-                                    });
+                                        });
                                     if !any_cast {
                                         H3cBucket::OnlyMovePlans
                                     } else {
@@ -836,9 +959,12 @@ impl Aggregate {
                                 // primary_target is None but not all items lack target —
                                 // fall through to OnlyMovePlans / Unclassified.
                                 let any_cast = event.plans.iter().any(|p| {
-                                    p.steps.iter().any(|s| matches!(s,
-                                        storyforge::combat::ai::plan::PlanStep::Cast { .. }
-                                    ))
+                                    p.steps.iter().any(|s| {
+                                        matches!(
+                                            s,
+                                            storyforge::combat::ai::plan::PlanStep::Cast { .. }
+                                        )
+                                    })
                                 });
                                 if !any_cast {
                                     H3cBucket::OnlyMovePlans
@@ -853,18 +979,36 @@ impl Aggregate {
                     };
 
                     match bucket {
-                        H3cBucket::ApMpBlocked =>
-                            *self.h3c_ap_mp_blocked.entry(band_key.clone()).or_default() += 1,
-                        H3cBucket::NoTargetInAgenda =>
-                            *self.h3c_no_target_in_agenda.entry(band_key.clone()).or_default() += 1,
-                        H3cBucket::TargetUnreachable =>
-                            *self.h3c_target_unreachable.entry(band_key.clone()).or_default() += 1,
-                        H3cBucket::NoPlanAttemptsTarget =>
-                            *self.h3c_no_plan_attempts_target.entry(band_key.clone()).or_default() += 1,
-                        H3cBucket::OnlyMovePlans =>
-                            *self.h3c_only_move_plans.entry(band_key.clone()).or_default() += 1,
-                        H3cBucket::Unclassified =>
-                            *self.h3c_unclassified.entry(band_key.clone()).or_default() += 1,
+                        H3cBucket::ApMpBlocked => {
+                            *self.h3c_ap_mp_blocked.entry(band_key.clone()).or_default() += 1
+                        }
+                        H3cBucket::NoTargetInAgenda => {
+                            *self
+                                .h3c_no_target_in_agenda
+                                .entry(band_key.clone())
+                                .or_default() += 1
+                        }
+                        H3cBucket::TargetUnreachable => {
+                            *self
+                                .h3c_target_unreachable
+                                .entry(band_key.clone())
+                                .or_default() += 1
+                        }
+                        H3cBucket::NoPlanAttemptsTarget => {
+                            *self
+                                .h3c_no_plan_attempts_target
+                                .entry(band_key.clone())
+                                .or_default() += 1
+                        }
+                        H3cBucket::OnlyMovePlans => {
+                            *self
+                                .h3c_only_move_plans
+                                .entry(band_key.clone())
+                                .or_default() += 1
+                        }
+                        H3cBucket::Unclassified => {
+                            *self.h3c_unclassified.entry(band_key.clone()).or_default() += 1
+                        }
                     }
                     *self.h3c_total.entry(band_key.clone()).or_default() += 1;
                     self.h3c_by_band_kind
@@ -940,15 +1084,19 @@ impl Aggregate {
         }
 
         if let Some(sev) = cont.severity {
-            *self.cont_severity_counts.entry(format!("{sev:?}")).or_default() += 1;
+            *self
+                .cont_severity_counts
+                .entry(format!("{sev:?}"))
+                .or_default() += 1;
         }
         let goal_kind = format!("{:?}", cont.stored_goal.kind);
-        *self.cont_goal_kind_counts.entry(goal_kind.clone()).or_default() += 1;
+        *self
+            .cont_goal_kind_counts
+            .entry(goal_kind.clone())
+            .or_default() += 1;
 
         // F2: setup_aoe goal regression pin — count goals of kind "setup_aoe".
-        if goal_kind.to_lowercase().contains("setup_aoe")
-            || cont.stored_goal.kind == "setup_aoe"
-        {
+        if goal_kind.to_lowercase().contains("setup_aoe") || cont.stored_goal.kind == "setup_aoe" {
             self.f2_setup_aoe_goal_count += 1;
         }
 
@@ -957,7 +1105,10 @@ impl Aggregate {
         // because the severity is what drives continuation behaviour.
         if let Some(sev) = cont.severity {
             let sev_label = format!("{sev:?}");
-            *self.f3_severity_counts.entry(sev_label.clone()).or_default() += 1;
+            *self
+                .f3_severity_counts
+                .entry(sev_label.clone())
+                .or_default() += 1;
 
             // Cross-tab: which statuses are on the actor at this tick?
             // Map each known status_id to its hardcoded StatusTag bucket.
@@ -974,7 +1125,10 @@ impl Aggregate {
 
             // Goal continuation rate per severity.
             if goal_preserved {
-                *self.f3_preserved_by_severity.entry(sev_label.clone()).or_default() += 1;
+                *self
+                    .f3_preserved_by_severity
+                    .entry(sev_label.clone())
+                    .or_default() += 1;
             } else {
                 *self.f3_abandoned_by_severity.entry(sev_label).or_default() += 1;
             }
@@ -1016,15 +1170,15 @@ fn statuses_to_tag_labels(event: &ActorTickEvent) -> Vec<&'static str> {
     let mut seen: std::collections::BTreeSet<&'static str> = std::collections::BTreeSet::new();
     for s in actor_statuses {
         let tag = match s.id.0.as_str() {
-            "stunned" | "paralyzed"          => "HardCC",
-            "taunted"                         => "Compulsion",
-            "pact_control"                    => "Cosmetic",
-            "poisoned" | "burning"            => "Dot",
-            "exhaustion"                      => "Dot",     // hp_percent_dot + speed_bonus → also SoftCC but Dot is primary
-            "defending"                       => "Buff",
-            "disoriented"                     => "SoftCC",
-            "broken_faith"                    => "Cosmetic",
-            _                                 => "unknown",
+            "stunned" | "paralyzed" => "HardCC",
+            "taunted" => "Compulsion",
+            "pact_control" => "Cosmetic",
+            "poisoned" | "burning" => "Dot",
+            "exhaustion" => "Dot", // hp_percent_dot + speed_bonus → also SoftCC but Dot is primary
+            "defending" => "Buff",
+            "disoriented" => "SoftCC",
+            "broken_faith" => "Cosmetic",
+            _ => "unknown",
         };
         seen.insert(tag);
     }
@@ -1093,10 +1247,10 @@ fn tactical_intent_from_agenda_item(item: &AgendaItemLog) -> TacticalIntent {
                 TacticalIntent::Reposition
             }
         }
-        IntentKind::Reposition  => TacticalIntent::Reposition,
+        IntentKind::Reposition => TacticalIntent::Reposition,
         IntentKind::ProtectSelf => TacticalIntent::ProtectSelf,
-        IntentKind::SetupAOE    => TacticalIntent::SetupAOE,
-        IntentKind::LastStand   => TacticalIntent::Reposition, // LastStand has no TacticalIntent variant
+        IntentKind::SetupAOE => TacticalIntent::SetupAOE,
+        IntentKind::LastStand => TacticalIntent::Reposition, // LastStand has no TacticalIntent variant
     }
 }
 
@@ -1125,14 +1279,20 @@ fn approximate_fresh_intent(
     if let Some(plan) = chosen {
         if let Some(idx) = plan.annotation.agenda_item {
             if let Some(item) = event.agenda.get(idx as usize) {
-                return (tactical_intent_from_agenda_item(item), IntentSource::AgendaItemIndex);
+                return (
+                    tactical_intent_from_agenda_item(item),
+                    IntentSource::AgendaItemIndex,
+                );
             }
         }
     }
 
     // Tier 3: agenda non-empty → use agenda[0].
     if let Some(item) = event.agenda.first() {
-        return (tactical_intent_from_agenda_item(item), IntentSource::AgendaZeroFallback);
+        return (
+            tactical_intent_from_agenda_item(item),
+            IntentSource::AgendaZeroFallback,
+        );
     }
 
     // Tier 4: Cast/MoveAndCast — existing target-match heuristic.
@@ -1162,7 +1322,11 @@ fn approximate_fresh_intent(
 // ── Printing helpers ──────────────────────────────────────────────────────────
 
 fn pct(num: usize, denom: usize) -> f64 {
-    if denom > 0 { num as f64 / denom as f64 * 100.0 } else { 0.0 }
+    if denom > 0 {
+        num as f64 / denom as f64 * 100.0
+    } else {
+        0.0
+    }
 }
 
 fn print_freq_table(items: &BTreeMap<String, usize>, total: usize) {
@@ -1177,7 +1341,12 @@ fn print_depth_table(items: &BTreeMap<usize, usize>, total: usize) {
     let mut rows: Vec<(usize, usize)> = items.iter().map(|(k, v)| (*k, *v)).collect();
     rows.sort_by_key(|r| r.0);
     for (depth, count) in rows {
-        println!("  depth {:>2}   {:>6}  ({:5.1}%)", depth, count, pct(count, total));
+        println!(
+            "  depth {:>2}   {:>6}  ({:5.1}%)",
+            depth,
+            count,
+            pct(count, total)
+        );
     }
 }
 
@@ -1237,7 +1406,11 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
                 print!("  {:>col_w$}", ".");
             }
         }
-        println!("  |  {:>5}  ({:.1}%)", row_total, pct(row_total, total_transitions));
+        println!(
+            "  |  {:>5}  ({:.1}%)",
+            row_total,
+            pct(row_total, total_transitions)
+        );
     }
 
     println!("{}", "-".repeat(row_label_w + (col_w + 2) * n + 12));
@@ -1258,7 +1431,10 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
     for ((from, to), cnt) in top.iter().take(10) {
         println!(
             "  {:<40} -> {:<40}  {:>5}  ({:.1}%)",
-            from, to, cnt, pct(**cnt, total_transitions)
+            from,
+            to,
+            cnt,
+            pct(**cnt, total_transitions)
         );
     }
 
@@ -1268,7 +1444,9 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
         .sum();
     println!(
         "\nSelf-loop rate (intent unchanged between ticks): {} / {} ({:.1}%)",
-        self_loops, total_transitions, pct(self_loops, total_transitions)
+        self_loops,
+        total_transitions,
+        pct(self_loops, total_transitions)
     );
 }
 
@@ -1277,7 +1455,9 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
 /// Compute percentile of a sorted slice (linear interpolation, index clamped).
 /// `values` MUST be sorted ascending before calling.
 fn percentile_sorted(sorted: &[f32], p: f64) -> f32 {
-    if sorted.is_empty() { return 0.0; }
+    if sorted.is_empty() {
+        return 0.0;
+    }
     let idx = (p / 100.0 * (sorted.len() - 1) as f64).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
 }
@@ -1306,7 +1486,9 @@ fn print_fact_field(label: &str, values: &mut [f32], total_steps: usize) {
 fn print_kill_rate(label: &str, count: usize, total_steps: usize) {
     println!(
         "  {:<28}  count={:>4} ({:5.1}%)",
-        label, count, pct(count, total_steps)
+        label,
+        count,
+        pct(count, total_steps)
     );
 }
 
@@ -1326,7 +1508,13 @@ fn print_signed_field(label: &str, values: &[f32], total: usize) {
     let abs_max = values.iter().copied().map(f32::abs).fold(0.0f32, f32::max);
     println!(
         "  {:<28}  count={:>4} ({:5.1}%)  mean={:+8.3}  min={:+8.3}  max={:+8.3}  abs_max={:8.3}",
-        label, count, pct(count, total), mean, min, max, abs_max
+        label,
+        count,
+        pct(count, total),
+        mean,
+        min,
+        max,
+        abs_max
     );
 }
 
@@ -1369,7 +1557,11 @@ fn main() {
     let mut schema_errors = 0usize;
 
     for path in &files {
-        let session = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let session = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let file = std::fs::File::open(path)
             .unwrap_or_else(|e| panic!("cannot open {}: {e}", path.display()));
         let reader = BufReader::new(file);
@@ -1393,7 +1585,11 @@ fn main() {
 
             let event: ActorTickEvent = match storyforge::combat::ai::log::parse_actor_tick(line) {
                 Ok(e) => e,
-                Err(storyforge::combat::ai::log::LogError::UnsupportedSchema { found, required, .. }) => {
+                Err(storyforge::combat::ai::log::LogError::UnsupportedSchema {
+                    found,
+                    required,
+                    ..
+                }) => {
                     eprintln!(
                         "error: schema v{found} unsupported, v{required}+ required (file: {})",
                         path.display()
@@ -1417,7 +1613,9 @@ fn main() {
     println!();
     println!(
         "Source: {} JSONL files, {} AI decisions ({} skip)",
-        files.len(), agg.total_decisions, agg.skip_total
+        files.len(),
+        agg.total_decisions,
+        agg.skip_total
     );
     if parse_errors > 0 {
         println!("Parse errors (lines skipped): {parse_errors}");
@@ -1430,7 +1628,10 @@ fn main() {
     // A1: Adaptation reason frequency
     println!("## A1. Adaptation reason frequency (per plan in pool)");
     println!();
-    println!("Total plans in pool (all logged, not just chosen): {}", agg.total_plans);
+    println!(
+        "Total plans in pool (all logged, not just chosen): {}",
+        agg.total_plans
+    );
     println!();
     print_freq_table(&agg.adaptation_counts, agg.total_plans);
     println!();
@@ -1456,11 +1657,13 @@ fn main() {
     println!();
     println!(
         "  skip total                : {:>6}  ({:5.1}% of all ticks)",
-        agg.skip_total, pct(agg.skip_total, agg.total_decisions)
+        agg.skip_total,
+        pct(agg.skip_total, agg.total_decisions)
     );
     println!(
         "  skip with stored_goal     : {:>6}  ({:5.1}% of skips)",
-        agg.skip_with_stored_goal, pct(agg.skip_with_stored_goal, agg.skip_total)
+        agg.skip_with_stored_goal,
+        pct(agg.skip_with_stored_goal, agg.skip_total)
     );
     println!();
 
@@ -1485,24 +1688,30 @@ fn main() {
     if stored_subset == 0 {
         println!("  (no decision-bearing stored-goal ticks found)");
     } else {
-        println!("  ### Over decision-bearing stored-goal subset (n={stored_subset}, primary metric)");
+        println!(
+            "  ### Over decision-bearing stored-goal subset (n={stored_subset}, primary metric)"
+        );
         println!();
         println!(
             "  goal_preserved | method_delivered : {:>6.1}%  ({})  [target: >=20%]",
-            pct(agg.cont_method_delivered, stored_subset), agg.cont_method_delivered,
+            pct(agg.cont_method_delivered, stored_subset),
+            agg.cont_method_delivered,
         );
         println!(
             "  goal_preserved | in_transit       : {:>6.1}%  ({})",
-            pct(agg.cont_in_transit, stored_subset), agg.cont_in_transit,
+            pct(agg.cont_in_transit, stored_subset),
+            agg.cont_in_transit,
         );
         println!(
             "  goal_preserved (combined)         : {:>6.1}%  ({})  [target: >=70%]",
-            pct(cont_preserved_combined, stored_subset), cont_preserved_combined,
+            pct(cont_preserved_combined, stored_subset),
+            cont_preserved_combined,
         );
         println!();
         println!(
             "  goal_abandoned | reactive         : {:>6.1}%  ({})",
-            pct(cont_abandoned_reactive_total, stored_subset), cont_abandoned_reactive_total,
+            pct(cont_abandoned_reactive_total, stored_subset),
+            cont_abandoned_reactive_total,
         );
         {
             let mut reactive_rows: Vec<(&str, usize)> = agg
@@ -1512,20 +1721,28 @@ fn main() {
                 .collect();
             reactive_rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
             for (src, count) in &reactive_rows {
-                println!("    {:<34} {:>4}  ({:5.1}%)", src, count, pct(*count, stored_subset));
+                println!(
+                    "    {:<34} {:>4}  ({:5.1}%)",
+                    src,
+                    count,
+                    pct(*count, stored_subset)
+                );
             }
         }
         println!(
             "  goal_abandoned | voluntary        : {:>6.1}%  ({})  [target: <=15%]",
-            pct(agg.cont_abandoned_voluntary, stored_subset), agg.cont_abandoned_voluntary,
+            pct(agg.cont_abandoned_voluntary, stored_subset),
+            agg.cont_abandoned_voluntary,
         );
         println!(
             "  goal_abandoned | invalidating     : {:>6.1}%  ({})",
-            pct(agg.cont_abandoned_invalidating, stored_subset), agg.cont_abandoned_invalidating,
+            pct(agg.cont_abandoned_invalidating, stored_subset),
+            agg.cont_abandoned_invalidating,
         );
         println!(
             "  goal_abandoned | ttl_expired      : {:>6.1}%  ({})",
-            pct(agg.cont_abandoned_ttl_expired, stored_subset), agg.cont_abandoned_ttl_expired,
+            pct(agg.cont_abandoned_ttl_expired, stored_subset),
+            agg.cont_abandoned_ttl_expired,
         );
     }
     println!();
@@ -1535,11 +1752,13 @@ fn main() {
     println!();
     println!(
         "  goal_skip_no_action               : {:>6.1}%  ({})  [over total ticks]",
-        pct(agg.cont_skip_with_stored, n_total), agg.cont_skip_with_stored,
+        pct(agg.cont_skip_with_stored, n_total),
+        agg.cont_skip_with_stored,
     );
     println!(
         "  no_stored_goal                    : {:>6.1}%  ({})  [over total ticks]",
-        pct(agg.cont_no_stored, n_total), agg.cont_no_stored,
+        pct(agg.cont_no_stored, n_total),
+        agg.cont_no_stored,
     );
     println!();
 
@@ -1551,7 +1770,9 @@ fn main() {
         for (tier, count) in &agg.intent_source_counts {
             println!(
                 "  {:<38} {:>5}  ({:5.1}%)",
-                tier.label(), count, pct(*count, intent_total),
+                tier.label(),
+                count,
+                pct(*count, intent_total),
             );
         }
         println!();
@@ -1587,21 +1808,31 @@ fn main() {
     println!("Total chosen-plan steps: {}", agg.d1_total_cast_steps);
     println!("(stats over non-zero values; count% = fraction of all steps where field > 0)");
     println!();
-    println!("  {:<28}  {:>27}  {:>14}  {:>14}  {:>14}  {:>14}",
-        "field", "count (freq%)", "mean", "p50", "p90/p99", "max");
+    println!(
+        "  {:<28}  {:>27}  {:>14}  {:>14}  {:>14}  {:>14}",
+        "field", "count (freq%)", "mean", "p50", "p90/p99", "max"
+    );
     println!("  {}", "-".repeat(105));
 
     let total = agg.d1_total_cast_steps;
-    print_fact_field("enemy_damage",          &mut agg.d1_enemy_damage,          total);
-    print_fact_field("ally_damage",           &mut agg.d1_ally_damage,           total);
-    print_fact_field("self_damage",           &mut agg.d1_self_damage,           total);
-    print_fact_field("hp_restored",           &mut agg.d1_hp_restored,           total);
-    print_fact_field("cc_turns_applied",      &mut agg.d1_cc_turns_applied,      total);
-    print_fact_field("vulnerability_applied", &mut agg.d1_vulnerability_applied, total);
-    print_fact_field("armor_shred_applied",   &mut agg.d1_armor_shred_applied,   total);
+    print_fact_field("enemy_damage", &mut agg.d1_enemy_damage, total);
+    print_fact_field("ally_damage", &mut agg.d1_ally_damage, total);
+    print_fact_field("self_damage", &mut agg.d1_self_damage, total);
+    print_fact_field("hp_restored", &mut agg.d1_hp_restored, total);
+    print_fact_field("cc_turns_applied", &mut agg.d1_cc_turns_applied, total);
+    print_fact_field(
+        "vulnerability_applied",
+        &mut agg.d1_vulnerability_applied,
+        total,
+    );
+    print_fact_field(
+        "armor_shred_applied",
+        &mut agg.d1_armor_shred_applied,
+        total,
+    );
     println!();
     println!("  Kill binary facts (rate = % of all chosen-plan steps):");
-    print_kill_rate("p_kill_now",  agg.d1_p_kill_now_count,  total);
+    print_kill_rate("p_kill_now", agg.d1_p_kill_now_count, total);
     print_kill_rate("p_kill_soon", agg.d1_p_kill_soon_count, total);
     println!();
 
@@ -1621,12 +1852,22 @@ fn main() {
             *hit_counts.entry(bucket).or_default() += 1;
         }
         for (bucket, count) in &hit_counts {
-            let label = if *bucket >= 4 { "4+".to_owned() } else { bucket.to_string() };
-            println!("    {} entities: {:>4}  ({:5.1}%)", label, count, pct(*count, total_aoe));
+            let label = if *bucket >= 4 {
+                "4+".to_owned()
+            } else {
+                bucket.to_string()
+            };
+            println!(
+                "    {} entities: {:>4}  ({:5.1}%)",
+                label,
+                count,
+                pct(*count, total_aoe)
+            );
         }
         println!();
         if !agg.d2_per_entity_damage.is_empty() {
-            agg.d2_per_entity_damage.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            agg.d2_per_entity_damage
+                .sort_by(|a, b| a.partial_cmp(b).unwrap());
             let vals = &agg.d2_per_entity_damage;
             let mean = vals.iter().sum::<f32>() / vals.len() as f32;
             let p50 = percentile_sorted(vals, 50.0);
@@ -1634,7 +1875,11 @@ fn main() {
             let max = vals.last().copied().unwrap_or(0.0);
             println!(
                 "  Per-entity damage (n={}):  mean={:.1}  p50={:.1}  p90={:.1}  max={:.1}",
-                vals.len(), mean, p50, p90, max
+                vals.len(),
+                mean,
+                p50,
+                p90,
+                max
             );
         }
     }
@@ -1651,7 +1896,7 @@ fn main() {
     println!();
     let e1_denom = agg.e1_total_modifier_entries;
     print_signed_field("summon_bonus", &agg.e1_summon_bonus, e1_denom);
-    print_signed_field("trade_bonus",  &agg.e1_trade_bonus,  e1_denom);
+    print_signed_field("trade_bonus", &agg.e1_trade_bonus, e1_denom);
     print_signed_field("repair_bonus", &agg.e1_repair_bonus, e1_denom);
     println!();
 
@@ -1660,7 +1905,8 @@ fn main() {
     println!();
     println!(
         "Chosen plans with non-zero noise_applied: {}  (of {} chosen plans)",
-        agg.e2_noise_applied.len(), agg.e2_chosen_count
+        agg.e2_noise_applied.len(),
+        agg.e2_chosen_count
     );
     println!("(sign-aware: negative noise can flip close decisions)");
     println!();
@@ -1676,10 +1922,16 @@ fn main() {
     );
     println!();
     for tag in AbilityTag::iter() {
-        let count = agg.f1_ability_tag_counts.get(tag.name()).copied().unwrap_or(0);
+        let count = agg
+            .f1_ability_tag_counts
+            .get(tag.name())
+            .copied()
+            .unwrap_or(0);
         println!(
             "  {:<14}  {:>6}  ({:5.1}%)",
-            tag.name(), count, pct(count, agg.total_chosen)
+            tag.name(),
+            count,
+            pct(count, agg.total_chosen)
         );
     }
     println!();
@@ -1695,7 +1947,9 @@ fn main() {
         agg.f2_setup_aoe_goal_count
     );
     if agg.f2_setup_aoe_goal_count > 0 {
-        println!("  *** REGRESSION: setup_aoe goal appeared in corpus — check compute_need_signals ***");
+        println!(
+            "  *** REGRESSION: setup_aoe goal appeared in corpus — check compute_need_signals ***"
+        );
     }
     println!();
     println!("  (rescue_ally / apply_cc distributions: add NeedSignals to ActorTickEvent");
@@ -1744,7 +1998,12 @@ fn main() {
             .collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
         for (key, count) in &rows {
-            println!("    {:<30}  {:>4}  ({:5.1}%)", key, count, pct(*count, cross_total));
+            println!(
+                "    {:<30}  {:>4}  ({:5.1}%)",
+                key,
+                count,
+                pct(*count, cross_total)
+            );
         }
     } else {
         println!("  (no mismatch events with status data in corpus)");
@@ -1795,8 +2054,12 @@ fn main() {
             }
             _ => (None, None),
         };
-        let mean_str = mean_mul.map(|m| format!("{:.3}", m)).unwrap_or_else(|| "—".into());
-        let min_str = min_mul.map(|m| format!("{:.3}", m)).unwrap_or_else(|| "—".into());
+        let mean_str = mean_mul
+            .map(|m| format!("{:.3}", m))
+            .unwrap_or_else(|| "—".into());
+        let min_str = min_mul
+            .map(|m| format!("{:.3}", m))
+            .unwrap_or_else(|| "—".into());
         println!(
             "  {:<28} {:>8} {:>7.1}% {:>8} {:>7.1}% {:>10} {:>10}",
             k,
@@ -1810,14 +2073,20 @@ fn main() {
     }
     println!();
     println!("  Content-bound critics (0% expected — see docs/ai/tech-debt.md):");
-    println!("    BuffIntoVoid              — planner emits unique abilities per plan; round-start");
+    println!(
+        "    BuffIntoVoid              — planner emits unique abilities per plan; round-start"
+    );
     println!("                                snapshots have no pre-existing buffs. Cross-actor");
     println!("                                synergy check blocked by step 13 (TeamTasks).");
     println!("    RareResourceForLowImpact  — threshold mana_cost ≥ 30; content max = 5.");
     println!("                                Deferred until content has rare-resource abilities.");
-    println!("    SelfLethalWithoutPayoff   — no self-AoE plans; self_damage > 0 expected post-step12");
+    println!(
+        "    SelfLethalWithoutPayoff   — no self-AoE plans; self_damage > 0 expected post-step12"
+    );
     println!("                                for AoO-provoking scenarios (AoO propagation), not");
-    println!("                                from self-AoE (still requires content with origin blast).");
+    println!(
+        "                                from self-AoE (still requires content with origin blast)."
+    );
     println!();
 
     // F: multiplier severity buckets per critic that has hits.
@@ -1848,9 +2117,12 @@ fn main() {
         println!(
             "  {:<28} {:>4} ({:>4.1}%) {:>4} ({:>4.1}%) {:>4} ({:>4.1}%)",
             k,
-            severe, pct(severe, total),
-            moderate, pct(moderate, total),
-            mild, pct(mild, total),
+            severe,
+            pct(severe, total),
+            moderate,
+            pct(moderate, total),
+            mild,
+            pct(mild, total),
         );
     }
     println!();
@@ -1866,14 +2138,27 @@ fn main() {
         println!("  {}", "-".repeat(44));
         let mut kinds: Vec<&String> = agg.g1_chosen_by_decision_kind.keys().collect();
         kinds.sort_by(|a, b| {
-            agg.g1_chosen_by_decision_kind.get(*b).cmp(&agg.g1_chosen_by_decision_kind.get(*a))
+            agg.g1_chosen_by_decision_kind
+                .get(*b)
+                .cmp(&agg.g1_chosen_by_decision_kind.get(*a))
         });
         for kind in kinds {
-            let chosen_total = agg.g1_chosen_by_decision_kind.get(kind).copied().unwrap_or(0);
-            let with_oc = agg.g1_overcommit_by_decision_kind.get(kind).copied().unwrap_or(0);
+            let chosen_total = agg
+                .g1_chosen_by_decision_kind
+                .get(kind)
+                .copied()
+                .unwrap_or(0);
+            let with_oc = agg
+                .g1_overcommit_by_decision_kind
+                .get(kind)
+                .copied()
+                .unwrap_or(0);
             println!(
                 "  {:<14} {:>8} {:>8} {:>7.1}%",
-                kind, chosen_total, with_oc, pct(with_oc, chosen_total),
+                kind,
+                chosen_total,
+                with_oc,
+                pct(with_oc, chosen_total),
             );
         }
         println!();
@@ -1890,20 +2175,31 @@ fn main() {
         );
         println!("  {}", "-".repeat(60));
         let reason_order = [
-            "none",                          // Default mode
-            "expected_self_lethal",          // per-plan LastStand
-            "protect_self_no_defensive",     // global LastStand (no defensive options)
-            "protect_self_futile",           // global LastStand (DoT-doomed)
+            "none",                      // Default mode
+            "expected_self_lethal",      // per-plan LastStand
+            "protect_self_no_defensive", // global LastStand (no defensive options)
+            "protect_self_futile",       // global LastStand (DoT-doomed)
         ];
         for reason in &reason_order {
-            let chosen_total = agg.g1_chosen_by_adapt_reason.get(*reason).copied().unwrap_or(0);
+            let chosen_total = agg
+                .g1_chosen_by_adapt_reason
+                .get(*reason)
+                .copied()
+                .unwrap_or(0);
             if chosen_total == 0 {
                 continue;
             }
-            let with_oc = agg.g1_overcommit_by_adapt_reason.get(*reason).copied().unwrap_or(0);
+            let with_oc = agg
+                .g1_overcommit_by_adapt_reason
+                .get(*reason)
+                .copied()
+                .unwrap_or(0);
             println!(
                 "  {:<32} {:>8} {:>8} {:>7.1}%",
-                reason, chosen_total, with_oc, pct(with_oc, chosen_total),
+                reason,
+                chosen_total,
+                with_oc,
+                pct(with_oc, chosen_total),
             );
         }
         // Aggregated LastStand row (sum of all non-"none" reasons).
@@ -1939,8 +2235,11 @@ fn main() {
     if h1_total_with_band == 0 {
         println!("  (no v32 band data — corpus is pre-v32 or skip-only)");
     } else {
-        println!("Ticks with band attribution: {} ({:.1}% of all ticks)", h1_total_with_band,
-            pct(h1_total_with_band, agg.total_decisions));
+        println!(
+            "Ticks with band attribution: {} ({:.1}% of all ticks)",
+            h1_total_with_band,
+            pct(h1_total_with_band, agg.total_decisions)
+        );
         println!();
         println!("### H1a. Per-band tick count");
         println!();
@@ -1952,12 +2251,22 @@ fn main() {
         ];
         for band in &band_order {
             let count = agg.h1_band_tick_counts.get(*band).copied().unwrap_or(0);
-            println!("  {:<28} {:>6}  ({:5.1}%)", band, count, pct(count, h1_total_with_band));
+            println!(
+                "  {:<28} {:>6}  ({:5.1}%)",
+                band,
+                count,
+                pct(count, h1_total_with_band)
+            );
         }
         // Any bands not in the canonical order (forward-compat).
         for (band, count) in &agg.h1_band_tick_counts {
             if !band_order.contains(&band.as_str()) {
-                println!("  {:<28} {:>6}  ({:5.1}%)", band, count, pct(*count, h1_total_with_band));
+                println!(
+                    "  {:<28} {:>6}  ({:5.1}%)",
+                    band,
+                    count,
+                    pct(*count, h1_total_with_band)
+                );
             }
         }
         println!();
@@ -1970,10 +2279,16 @@ fn main() {
         println!();
 
         println!("### H1c. Per-axis consideration histograms (all agenda items, all bands)");
-        println!("  (mean / p10 / p50 / p90 / p99 over {} samples)", agg.h1_urgency.len());
+        println!(
+            "  (mean / p10 / p50 / p90 / p99 over {} samples)",
+            agg.h1_urgency.len()
+        );
         println!();
         let print_axis = |name: &str, mut v: Vec<f32>| {
-            if v.is_empty() { println!("  {name:<20} (no data)"); return; }
+            if v.is_empty() {
+                println!("  {name:<20} (no data)");
+                return;
+            }
             v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let mean = v.iter().sum::<f32>() / v.len() as f32;
             let p10 = percentile_sorted(&v, 10.0);
@@ -1982,12 +2297,12 @@ fn main() {
             let p99 = percentile_sorted(&v, 99.0);
             println!("  {name:<20} mean={mean:.3}  p10={p10:.3}  p50={p50:.3}  p90={p90:.3}  p99={p99:.3}");
         };
-        print_axis("urgency",             agg.h1_urgency.clone());
-        print_axis("feasibility",         agg.h1_feasibility.clone());
-        print_axis("leverage",            agg.h1_leverage.clone());
-        print_axis("safety",              agg.h1_safety.clone());
-        print_axis("role_affinity",       agg.h1_role_affinity.clone());
-        print_axis("continuation_value",  agg.h1_continuation_value.clone());
+        print_axis("urgency", agg.h1_urgency.clone());
+        print_axis("feasibility", agg.h1_feasibility.clone());
+        print_axis("leverage", agg.h1_leverage.clone());
+        print_axis("safety", agg.h1_safety.clone());
+        print_axis("role_affinity", agg.h1_role_affinity.clone());
+        print_axis("continuation_value", agg.h1_continuation_value.clone());
         println!();
 
         // H1c.bis: per-IntentKind leverage histograms (step 11.8), winners vs losers.
@@ -2003,7 +2318,9 @@ fn main() {
 
         // Helper: compute middle_mass = fraction of values in (0.05, 0.95).
         let middle_mass = |v: &[f32]| -> f32 {
-            if v.is_empty() { return 0.0; }
+            if v.is_empty() {
+                return 0.0;
+            }
             let in_middle = v.iter().filter(|&&x| x > 0.05 && x < 0.95).count();
             in_middle as f32 / v.len() as f32
         };
@@ -2026,16 +2343,40 @@ fn main() {
         };
 
         let kinds_wl: &[(&str, Vec<f32>, Vec<f32>)] = &[
-            ("FocusTarget",    agg.h1_leverage_focus_target_winners.clone(),  agg.h1_leverage_focus_target_losers.clone()),
-            ("ApplyCC",        agg.h1_leverage_apply_cc_winners.clone(),       agg.h1_leverage_apply_cc_losers.clone()),
-            ("ProtectAlly",    agg.h1_leverage_protect_ally_winners.clone(),   agg.h1_leverage_protect_ally_losers.clone()),
-            ("ProtectSelf",    agg.h1_leverage_protect_self_winners.clone(),   agg.h1_leverage_protect_self_losers.clone()),
-            ("Reposition/AOE", agg.h1_leverage_reposition_winners.clone(),     agg.h1_leverage_reposition_losers.clone()),
-            ("LastStand",      agg.h1_leverage_last_stand_winners.clone(),     agg.h1_leverage_last_stand_losers.clone()),
+            (
+                "FocusTarget",
+                agg.h1_leverage_focus_target_winners.clone(),
+                agg.h1_leverage_focus_target_losers.clone(),
+            ),
+            (
+                "ApplyCC",
+                agg.h1_leverage_apply_cc_winners.clone(),
+                agg.h1_leverage_apply_cc_losers.clone(),
+            ),
+            (
+                "ProtectAlly",
+                agg.h1_leverage_protect_ally_winners.clone(),
+                agg.h1_leverage_protect_ally_losers.clone(),
+            ),
+            (
+                "ProtectSelf",
+                agg.h1_leverage_protect_self_winners.clone(),
+                agg.h1_leverage_protect_self_losers.clone(),
+            ),
+            (
+                "Reposition/AOE",
+                agg.h1_leverage_reposition_winners.clone(),
+                agg.h1_leverage_reposition_losers.clone(),
+            ),
+            (
+                "LastStand",
+                agg.h1_leverage_last_stand_winners.clone(),
+                agg.h1_leverage_last_stand_losers.clone(),
+            ),
         ];
         for (name, winners, losers) in kinds_wl {
             print_kind_axis(name, "winners", winners.clone());
-            print_kind_axis(name, "losers",  losers.clone());
+            print_kind_axis(name, "losers", losers.clone());
         }
         println!();
 
@@ -2054,7 +2395,9 @@ fn main() {
                 let p90 = percentile_sorted(&delta, 90.0);
                 println!("    N={n}  mean={mean:.3}  p10={p10:.3}  p50={p50:.3}  p90={p90:.3}");
                 if mean > 0.05 {
-                    println!("  [OK]   mean delta > +0.05 — formula provides useful ranking signal");
+                    println!(
+                        "  [OK]   mean delta > +0.05 — formula provides useful ranking signal"
+                    );
                 } else if mean < 0.02 {
                     println!("  [WARN] mean delta < +0.02 — formula barely discriminates");
                 } else {
@@ -2068,7 +2411,8 @@ fn main() {
         // if max_mean / min_mean > 1.30 → flag for retune.
         // Computed over winners only (the items the formula actually chose).
         {
-            let means: Vec<(&str, f32)> = kinds_wl.iter()
+            let means: Vec<(&str, f32)> = kinds_wl
+                .iter()
                 .filter(|(_, winners, _)| !winners.is_empty())
                 .map(|(name, winners, _)| {
                     let mean = winners.iter().sum::<f32>() / winners.len() as f32;
@@ -2076,8 +2420,20 @@ fn main() {
                 })
                 .collect();
             if means.len() >= 2 {
-                let max_entry = means.iter().copied().fold(("", f32::NEG_INFINITY), |acc, x| if x.1 > acc.1 { x } else { acc });
-                let min_entry = means.iter().copied().fold(("", f32::INFINITY),     |acc, x| if x.1 < acc.1 { x } else { acc });
+                let max_entry = means
+                    .iter()
+                    .copied()
+                    .fold(
+                        ("", f32::NEG_INFINITY),
+                        |acc, x| if x.1 > acc.1 { x } else { acc },
+                    );
+                let min_entry = means.iter().copied().fold(("", f32::INFINITY), |acc, x| {
+                    if x.1 < acc.1 {
+                        x
+                    } else {
+                        acc
+                    }
+                });
                 if min_entry.1 > 0.0 {
                     let ratio = max_entry.1 / min_entry.1;
                     if ratio > 1.30 {
@@ -2104,30 +2460,53 @@ fn main() {
     if agg.h2_band_chosen_total.is_empty() {
         println!("  (no v32 agenda data — corpus is pre-v32 or skip-only)");
     } else {
-        println!("  Sanity check: NormalTactical should have distributed wins (not index 0 dominating).");
+        println!(
+            "  Sanity check: NormalTactical should have distributed wins (not index 0 dominating)."
+        );
         println!();
         // Group by band for readability.
-        let band_order = ["ForcedTargeting", "CriticalSelfPreservation", "HardRescueOpportunity", "NormalTactical"];
+        let band_order = [
+            "ForcedTargeting",
+            "CriticalSelfPreservation",
+            "HardRescueOpportunity",
+            "NormalTactical",
+        ];
         for band in &band_order {
             let band_total = agg.h2_band_chosen_total.get(*band).copied().unwrap_or(0);
-            if band_total == 0 { continue; }
+            if band_total == 0 {
+                continue;
+            }
             println!("  {band} (attributed ticks: {band_total})");
             // Collect item wins for this band.
-            let mut items: Vec<(usize, usize)> = agg.h2_band_item_win.iter()
+            let mut items: Vec<(usize, usize)> = agg
+                .h2_band_item_win
+                .iter()
                 .filter_map(|(k, v)| {
                     let (b, idx) = k.rsplit_once('/')?;
-                    if b == *band { Some((idx.parse::<usize>().ok()?, *v)) } else { None }
+                    if b == *band {
+                        Some((idx.parse::<usize>().ok()?, *v))
+                    } else {
+                        None
+                    }
                 })
                 .collect();
             items.sort_by_key(|(idx, _)| *idx);
             for (idx, count) in &items {
-                println!("    item[{idx}] wins: {:>5}  ({:5.1}%)", count, pct(*count, band_total));
+                println!(
+                    "    item[{idx}] wins: {:>5}  ({:5.1}%)",
+                    count,
+                    pct(*count, band_total)
+                );
             }
             // Ticks where chosen plan had no attributed agenda item.
             let attributed_sum: usize = items.iter().map(|(_, c)| c).sum();
             let unattributed = band_total.saturating_sub(attributed_sum);
             if unattributed > 0 {
-                println!("    (no attribution): {:>5}  ({:5.1}%)", unattributed, pct(unattributed, band_total));
+                println!(
+                    "    (no attribution): {:>5}  ({:5.1}%)",
+                    unattributed,
+                    pct(unattributed, band_total)
+                );
             }
             println!();
         }
@@ -2143,22 +2522,51 @@ fn main() {
         // H3a.1: agenda size distribution per band.
         println!("### H3a.1. Agenda size distribution per band");
         println!();
-        let band_order = ["ForcedTargeting", "CriticalSelfPreservation", "HardRescueOpportunity", "NormalTactical"];
+        let band_order = [
+            "ForcedTargeting",
+            "CriticalSelfPreservation",
+            "HardRescueOpportunity",
+            "NormalTactical",
+        ];
         // Collect max size seen across all bands.
-        let max_size: usize = agg.h3a_agenda_size.keys()
-            .filter_map(|k| k.rsplit_once('/').and_then(|(_, s)| s.parse::<usize>().ok()))
+        let max_size: usize = agg
+            .h3a_agenda_size
+            .keys()
+            .filter_map(|k| {
+                k.rsplit_once('/')
+                    .and_then(|(_, s)| s.parse::<usize>().ok())
+            })
             .max()
             .unwrap_or(3);
-        let col_header: String = (0..=max_size).map(|i| format!("  items={i:>2}")).collect::<Vec<_>>().join("");
+        let col_header: String = (0..=max_size)
+            .map(|i| format!("  items={i:>2}"))
+            .collect::<Vec<_>>()
+            .join("");
         println!("  {:<28}{col_header}   total", "Band");
         for band in &band_order {
             let band_total: usize = (0..=max_size)
-                .map(|s| agg.h3a_agenda_size.get(&format!("{band}/{s}")).copied().unwrap_or(0))
+                .map(|s| {
+                    agg.h3a_agenda_size
+                        .get(&format!("{band}/{s}"))
+                        .copied()
+                        .unwrap_or(0)
+                })
                 .sum();
-            if band_total == 0 { continue; }
+            if band_total == 0 {
+                continue;
+            }
             let counts: String = (0..=max_size)
-                .map(|s| format!("  {:>8}", agg.h3a_agenda_size.get(&format!("{band}/{s}")).copied().unwrap_or(0)))
-                .collect::<Vec<_>>().join("");
+                .map(|s| {
+                    format!(
+                        "  {:>8}",
+                        agg.h3a_agenda_size
+                            .get(&format!("{band}/{s}"))
+                            .copied()
+                            .unwrap_or(0)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("");
             println!("  {:<28}{counts}   {}", band, band_total);
         }
         println!();
@@ -2166,7 +2574,10 @@ fn main() {
         // H3a.2: item.target=None rate by (band, item.kind).
         println!("### H3a.2. Item.target=None rate by (band, item.kind)");
         println!();
-        println!("  {:<44} {:>11}  {:>11}  {:>7}  {:>9}", "Band/Kind", "target=None", "target=Some", "total", "none_rate%");
+        println!(
+            "  {:<44} {:>11}  {:>11}  {:>7}  {:>9}",
+            "Band/Kind", "target=None", "target=Some", "total", "none_rate%"
+        );
         // Collect all band/kind keys.
         let mut kind_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         kind_keys.extend(agg.h3a_target_none.keys().cloned());
@@ -2175,21 +2586,38 @@ fn main() {
             let none_cnt = agg.h3a_target_none.get(key).copied().unwrap_or(0);
             let some_cnt = agg.h3a_target_some.get(key).copied().unwrap_or(0);
             let total = none_cnt + some_cnt;
-            println!("  {:<44} {:>11}  {:>11}  {:>7}  {:>8.1}%",
-                key, none_cnt, some_cnt, total, pct(none_cnt, total));
+            println!(
+                "  {:<44} {:>11}  {:>11}  {:>7}  {:>8.1}%",
+                key,
+                none_cnt,
+                some_cnt,
+                total,
+                pct(none_cnt, total)
+            );
         }
         println!();
 
         // H3a.3: fallback buckets per band (attributed vs unattributed).
         println!("### H3a.3. Unattributed fallback rate per band");
         println!();
-        println!("  {:<28} {:>11}  {:>12}  {:>12}", "Band", "attributed", "unattributed", "unattr_rate%");
+        println!(
+            "  {:<28} {:>11}  {:>12}  {:>12}",
+            "Band", "attributed", "unattributed", "unattr_rate%"
+        );
         for band in &band_order {
             let attr = agg.h3a_band_attributed.get(*band).copied().unwrap_or(0);
             let unattr = agg.h3a_band_unattributed.get(*band).copied().unwrap_or(0);
             let total = attr + unattr;
-            if total == 0 { continue; }
-            println!("  {:<28} {:>11}  {:>12}  {:>11.1}%", band, attr, unattr, pct(unattr, total));
+            if total == 0 {
+                continue;
+            }
+            println!(
+                "  {:<28} {:>11}  {:>12}  {:>11.1}%",
+                band,
+                attr,
+                unattr,
+                pct(unattr, total)
+            );
         }
         println!();
 
@@ -2216,28 +2644,62 @@ fn main() {
     } else {
         println!("### H3b.1. Reject-reason distribution per (band, item.kind)");
         println!();
-        println!("  {:<44} {:>9}  {:>9}  {:>9}  {:>9}  {:>13}", "Band/Kind", "not_def", "not_off", "no_tgt", "no_ally", "total_rejects");
+        println!(
+            "  {:<44} {:>9}  {:>9}  {:>9}  {:>9}  {:>13}",
+            "Band/Kind", "not_def", "not_off", "no_tgt", "no_ally", "total_rejects"
+        );
         let mut all_kinds: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         all_kinds.extend(agg.h3b_total.keys().cloned());
         for kind_key in &all_kinds {
-            let not_def = agg.h3b_reject_reason.get(&format!("{kind_key}/NotDefensive")).copied().unwrap_or(0);
-            let not_off = agg.h3b_reject_reason.get(&format!("{kind_key}/NotOffensiveVsTarget")).copied().unwrap_or(0);
-            let no_tgt  = agg.h3b_reject_reason.get(&format!("{kind_key}/NoTarget")).copied().unwrap_or(0);
-            let no_ally = agg.h3b_reject_reason.get(&format!("{kind_key}/NoAllyTarget")).copied().unwrap_or(0);
+            let not_def = agg
+                .h3b_reject_reason
+                .get(&format!("{kind_key}/NotDefensive"))
+                .copied()
+                .unwrap_or(0);
+            let not_off = agg
+                .h3b_reject_reason
+                .get(&format!("{kind_key}/NotOffensiveVsTarget"))
+                .copied()
+                .unwrap_or(0);
+            let no_tgt = agg
+                .h3b_reject_reason
+                .get(&format!("{kind_key}/NoTarget"))
+                .copied()
+                .unwrap_or(0);
+            let no_ally = agg
+                .h3b_reject_reason
+                .get(&format!("{kind_key}/NoAllyTarget"))
+                .copied()
+                .unwrap_or(0);
             let total_rej = not_def + not_off + no_tgt + no_ally;
-            if total_rej == 0 { continue; }
-            println!("  {:<44} {:>9}  {:>9}  {:>9}  {:>9}  {:>13}", kind_key, not_def, not_off, no_tgt, no_ally, total_rej);
+            if total_rej == 0 {
+                continue;
+            }
+            println!(
+                "  {:<44} {:>9}  {:>9}  {:>9}  {:>9}  {:>13}",
+                kind_key, not_def, not_off, no_tgt, no_ally, total_rej
+            );
         }
         println!();
 
         println!("### H3b.2. Eligibility rate per (band, item.kind)");
         println!();
-        println!("  {:<44} {:>9}  {:>9}  {:>8}  {:>10}", "Band/Kind", "eligible", "rejected", "total", "elig_rate%");
+        println!(
+            "  {:<44} {:>9}  {:>9}  {:>8}  {:>10}",
+            "Band/Kind", "eligible", "rejected", "total", "elig_rate%"
+        );
         for kind_key in &all_kinds {
-            let elig  = agg.h3b_eligible.get(kind_key).copied().unwrap_or(0);
+            let elig = agg.h3b_eligible.get(kind_key).copied().unwrap_or(0);
             let total = agg.h3b_total.get(kind_key).copied().unwrap_or(0);
-            let rej   = total.saturating_sub(elig);
-            println!("  {:<44} {:>9}  {:>9}  {:>8}  {:>9.1}%", kind_key, elig, rej, total, pct(elig, total));
+            let rej = total.saturating_sub(elig);
+            println!(
+                "  {:<44} {:>9}  {:>9}  {:>8}  {:>9.1}%",
+                kind_key,
+                elig,
+                rej,
+                total,
+                pct(elig, total)
+            );
         }
         println!();
     }
@@ -2253,7 +2715,12 @@ fn main() {
         println!("Total unattributed ticks: {h3c_total_all}");
         println!();
 
-        let band_order = ["ForcedTargeting", "CriticalSelfPreservation", "HardRescueOpportunity", "NormalTactical"];
+        let band_order = [
+            "ForcedTargeting",
+            "CriticalSelfPreservation",
+            "HardRescueOpportunity",
+            "NormalTactical",
+        ];
 
         // H3c.1: per-band fallback breakdown
         println!("### H3c.1. Per-band fallback breakdown");
@@ -2269,13 +2736,19 @@ fn main() {
         );
         for band in &band_order {
             let total = agg.h3c_total.get(*band).copied().unwrap_or(0);
-            if total == 0 { continue; }
-            let ap  = agg.h3c_ap_mp_blocked.get(*band).copied().unwrap_or(0);
-            let nt  = agg.h3c_no_target_in_agenda.get(*band).copied().unwrap_or(0);
-            let ur  = agg.h3c_target_unreachable.get(*band).copied().unwrap_or(0);
-            let na  = agg.h3c_no_plan_attempts_target.get(*band).copied().unwrap_or(0);
-            let om  = agg.h3c_only_move_plans.get(*band).copied().unwrap_or(0);
-            let uc  = agg.h3c_unclassified.get(*band).copied().unwrap_or(0);
+            if total == 0 {
+                continue;
+            }
+            let ap = agg.h3c_ap_mp_blocked.get(*band).copied().unwrap_or(0);
+            let nt = agg.h3c_no_target_in_agenda.get(*band).copied().unwrap_or(0);
+            let ur = agg.h3c_target_unreachable.get(*band).copied().unwrap_or(0);
+            let na = agg
+                .h3c_no_plan_attempts_target
+                .get(*band)
+                .copied()
+                .unwrap_or(0);
+            let om = agg.h3c_only_move_plans.get(*band).copied().unwrap_or(0);
+            let uc = agg.h3c_unclassified.get(*band).copied().unwrap_or(0);
             println!(
                 "  {:<28}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
                 band, ap, nt, ur, na, om, uc, total,
@@ -2284,13 +2757,19 @@ fn main() {
         }
         // Any unlisted bands.
         for (band, total) in &agg.h3c_total {
-            if band_order.contains(&band.as_str()) { continue; }
-            let ap  = agg.h3c_ap_mp_blocked.get(band).copied().unwrap_or(0);
-            let nt  = agg.h3c_no_target_in_agenda.get(band).copied().unwrap_or(0);
-            let ur  = agg.h3c_target_unreachable.get(band).copied().unwrap_or(0);
-            let na  = agg.h3c_no_plan_attempts_target.get(band).copied().unwrap_or(0);
-            let om  = agg.h3c_only_move_plans.get(band).copied().unwrap_or(0);
-            let uc  = agg.h3c_unclassified.get(band).copied().unwrap_or(0);
+            if band_order.contains(&band.as_str()) {
+                continue;
+            }
+            let ap = agg.h3c_ap_mp_blocked.get(band).copied().unwrap_or(0);
+            let nt = agg.h3c_no_target_in_agenda.get(band).copied().unwrap_or(0);
+            let ur = agg.h3c_target_unreachable.get(band).copied().unwrap_or(0);
+            let na = agg
+                .h3c_no_plan_attempts_target
+                .get(band)
+                .copied()
+                .unwrap_or(0);
+            let om = agg.h3c_only_move_plans.get(band).copied().unwrap_or(0);
+            let uc = agg.h3c_unclassified.get(band).copied().unwrap_or(0);
             println!(
                 "  {:<28}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
                 band, ap, nt, ur, na, om, uc, total,
@@ -2306,7 +2785,11 @@ fn main() {
             // H3a.unattributed includes agenda-empty cases (no_items).
             let h3a_no_items: usize = agg.h3a_unattr_no_items.values().sum();
             let h3a_comparable = h3a_total_unattr.saturating_sub(h3a_no_items);
-            let match_mark = if h3c_total_all == h3a_comparable { "OK" } else { "MISMATCH" };
+            let match_mark = if h3c_total_all == h3a_comparable {
+                "OK"
+            } else {
+                "MISMATCH"
+            };
             println!(
                 "  Sanity: H3c total={h3c_total_all}, H3a unattr-no_items={h3a_comparable} [{match_mark}]"
             );
@@ -2329,7 +2812,9 @@ fn main() {
         );
         for (key, counts) in &agg.h3c_by_band_kind {
             let total: usize = counts.iter().sum();
-            if total == 0 { continue; }
+            if total == 0 {
+                continue;
+            }
             println!(
                 "  {:<40}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
                 key, counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], total,
@@ -2347,14 +2832,20 @@ fn main() {
         );
         for band in &band_order {
             let band_total = agg.h3c_band_total.get(*band).copied().unwrap_or(0);
-            if band_total == 0 { continue; }
+            if band_total == 0 {
+                continue;
+            }
             let unattr = agg.h3c_total.get(*band).copied().unwrap_or(0);
-            let ap  = agg.h3c_ap_mp_blocked.get(*band).copied().unwrap_or(0);
-            let nt  = agg.h3c_no_target_in_agenda.get(*band).copied().unwrap_or(0);
-            let ur  = agg.h3c_target_unreachable.get(*band).copied().unwrap_or(0);
-            let na  = agg.h3c_no_plan_attempts_target.get(*band).copied().unwrap_or(0);
-            let om  = agg.h3c_only_move_plans.get(*band).copied().unwrap_or(0);
-            let uc  = agg.h3c_unclassified.get(*band).copied().unwrap_or(0);
+            let ap = agg.h3c_ap_mp_blocked.get(*band).copied().unwrap_or(0);
+            let nt = agg.h3c_no_target_in_agenda.get(*band).copied().unwrap_or(0);
+            let ur = agg.h3c_target_unreachable.get(*band).copied().unwrap_or(0);
+            let na = agg
+                .h3c_no_plan_attempts_target
+                .get(*band)
+                .copied()
+                .unwrap_or(0);
+            let om = agg.h3c_only_move_plans.get(*band).copied().unwrap_or(0);
+            let uc = agg.h3c_unclassified.get(*band).copied().unwrap_or(0);
             // unreach is folded into no_attempt% column for the decomposition display
             // (both indicate "generator gap"), or shown as separate columns.
             let _ = ur; // shown in H3c.1; in decomp we show all as % of unattributed.
@@ -2362,11 +2853,11 @@ fn main() {
                 "  {:<28}  {:>9.1}%  {:>7.1}%  {:>7.1}%  {:>10.1}%  {:>9.1}%  {:>8.1}%",
                 band,
                 pct(unattr, band_total),
-                pct(ap,  unattr),
-                pct(nt,  unattr),
-                pct(na,  unattr),
-                pct(om,  unattr),
-                pct(uc,  unattr),
+                pct(ap, unattr),
+                pct(nt, unattr),
+                pct(na, unattr),
+                pct(om, unattr),
+                pct(uc, unattr),
             );
         }
         println!();
@@ -2379,7 +2870,10 @@ fn main() {
     if agg.trace_plans_total > 0 {
         println!("## P3b-A1. Rescore-mode distribution (score_trace_log, v33+)");
         println!();
-        println!("Plans with score_trace_log: {} / {}", agg.trace_plans_total, agg.total_plans);
+        println!(
+            "Plans with score_trace_log: {} / {}",
+            agg.trace_plans_total, agg.total_plans
+        );
         println!();
         print_freq_table(&agg.a1_trace_rescore_mode, agg.trace_plans_total);
         println!();
@@ -2394,7 +2888,7 @@ fn main() {
         );
         println!();
         print_signed_field("summon_bonus", &agg.e1_trace_summon, agg.trace_plans_total);
-        print_signed_field("trade_bonus",  &agg.e1_trace_trade,  agg.trace_plans_total);
+        print_signed_field("trade_bonus", &agg.e1_trace_trade, agg.trace_plans_total);
         print_signed_field("repair_bonus", &agg.e1_trace_repair, agg.trace_plans_total);
         println!();
 
@@ -2408,11 +2902,22 @@ fn main() {
         );
         println!();
         for (kind, count) in &agg.g2_trace_multiplier_counts {
-            let values = agg.g2_trace_multiplier_values.get(kind).map(|v| v.as_slice()).unwrap_or(&[]);
-            let mean = if values.is_empty() { 0.0 } else { values.iter().sum::<f32>() / values.len() as f32 };
+            let values = agg
+                .g2_trace_multiplier_values
+                .get(kind)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            let mean = if values.is_empty() {
+                0.0
+            } else {
+                values.iter().sum::<f32>() / values.len() as f32
+            };
             println!(
                 "  {:<10} hits={:>5}  ({:.1}% of trace-chosen)  mean_value={:.4}",
-                kind, count, pct(*count, agg.g2_trace_chosen_total), mean
+                kind,
+                count,
+                pct(*count, agg.g2_trace_chosen_total),
+                mean
             );
         }
         if agg.g2_trace_multiplier_counts.is_empty() {
@@ -2431,11 +2936,11 @@ fn main() {
 mod tests {
     use super::*;
     use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
-    use storyforge::combat::ai::world::snapshot::BattleSnapshot;
-    use storyforge::combat::ai::outcome::{PlanAnnotation, PickInfo};
+    use storyforge::combat::ai::outcome::{PickInfo, PlanAnnotation};
     use storyforge::combat::ai::pipeline::score_trace::{AddendHitLog, ScoreTraceLog};
-    use storyforge::combat::ai::plan::PlanStep;
     use storyforge::combat::ai::pipeline::stages::pick_best::PickMechanics;
+    use storyforge::combat::ai::plan::PlanStep;
+    use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 
     fn make_event(
         actor_id: u64,
@@ -2489,8 +2994,14 @@ mod tests {
     #[test]
     fn decision_kind_counted_correctly() {
         let mut agg = Aggregate::default();
-        agg.process_event("f.jsonl", &make_event(1, LoggedDecision::EndTurn, vec![], None));
-        agg.process_event("f.jsonl", &make_event(1, LoggedDecision::EndTurn, vec![], None));
+        agg.process_event(
+            "f.jsonl",
+            &make_event(1, LoggedDecision::EndTurn, vec![], None),
+        );
+        agg.process_event(
+            "f.jsonl",
+            &make_event(1, LoggedDecision::EndTurn, vec![], None),
+        );
         agg.process_event(
             "f.jsonl",
             &make_event(1, LoggedDecision::Move { path: vec![] }, vec![], None),
@@ -2511,8 +3022,15 @@ mod tests {
             None,
         );
         agg.process_event("f.jsonl", &event);
-        assert_eq!(*agg.depth_counts.get(&3).unwrap(), 1, "chosen plan has 3 steps");
-        assert!(!agg.depth_counts.contains_key(&1), "non-chosen plan not counted");
+        assert_eq!(
+            *agg.depth_counts.get(&3).unwrap(),
+            1,
+            "chosen plan has 3 steps"
+        );
+        assert!(
+            !agg.depth_counts.contains_key(&1),
+            "non-chosen plan not counted"
+        );
     }
 
     #[test]
@@ -2522,7 +3040,9 @@ mod tests {
             "f.jsonl",
             &make_event(
                 1,
-                LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
+                LoggedDecision::Skip {
+                    reason: "no_ap_no_mp".to_owned(),
+                },
                 vec![],
                 None,
             ),
@@ -2538,7 +3058,10 @@ mod tests {
         // This test verifies the label logic directly via the fast-path check.
         let json = r#"{"event_type":"actor_tick","schema_version":26,"round":1}"#;
         let val: serde_json::Value = serde_json::from_str(json).unwrap();
-        let ver = val.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0);
+        let ver = val
+            .get("schema_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         assert_ne!(ver, 27, "v26 must be rejected");
     }
 
@@ -2596,14 +3119,20 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = chosen;
         ann.pick = if chosen {
-            Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: 0.0 })
+            Some(PickInfo {
+                mechanics: PickMechanics::default(),
+                noise_applied: 0.0,
+            })
         } else {
             None
         };
         ann.score_trace_log = Some(ScoreTraceLog {
             addends: addends
                 .into_iter()
-                .map(|(name, value)| AddendHitLog { name: name.to_owned(), value })
+                .map(|(name, value)| AddendHitLog {
+                    name: name.to_owned(),
+                    value,
+                })
                 .collect(),
             ..Default::default()
         });
@@ -2617,7 +3146,10 @@ mod tests {
     fn plan_with_noise(noise: f32) -> LoggedPlan {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
-        ann.pick = Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: noise });
+        ann.pick = Some(PickInfo {
+            mechanics: PickMechanics::default(),
+            noise_applied: noise,
+        });
         LoggedPlan {
             rank: 1,
             steps: vec![PlanStep::Move { path: vec![] }],
@@ -2630,7 +3162,10 @@ mod tests {
         let event = make_event(
             1,
             LoggedDecision::EndTurn,
-            vec![plan_with_trace_addends(true, vec![("summon_bonus", 5.0), ("trade_bonus", -2.0)])],
+            vec![plan_with_trace_addends(
+                true,
+                vec![("summon_bonus", 5.0), ("trade_bonus", -2.0)],
+            )],
             None,
         );
 
@@ -2666,7 +3201,10 @@ mod tests {
         let event = make_event(
             1,
             LoggedDecision::EndTurn,
-            vec![plan_with_trace_addends(false, vec![("summon_bonus", 0.0), ("repair_bonus", 3.0)])],
+            vec![plan_with_trace_addends(
+                false,
+                vec![("summon_bonus", 0.0), ("repair_bonus", 3.0)],
+            )],
             None,
         );
 
@@ -2682,12 +3220,7 @@ mod tests {
     #[test]
     fn mine_e2_skips_zero_noise() {
         // noise_applied == 0.0 must not land in e2_noise_applied vec.
-        let event = make_event(
-            1,
-            LoggedDecision::EndTurn,
-            vec![plan_with_noise(0.0)],
-            None,
-        );
+        let event = make_event(1, LoggedDecision::EndTurn, vec![plan_with_noise(0.0)], None);
 
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
@@ -2714,13 +3247,21 @@ mod tests {
         use storyforge::combat::ai::world::tags::{AbilityTag, AbilityTagSet};
         let mut tags = AbilityTagSet::empty();
         tags.insert_tag(AbilityTag::Offensive);
-        let event = make_event(1, LoggedDecision::EndTurn, vec![plan_with_tags(vec![tags])], None);
+        let event = make_event(
+            1,
+            LoggedDecision::EndTurn,
+            vec![plan_with_tags(vec![tags])],
+            None,
+        );
 
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
 
         assert_eq!(*agg.f1_ability_tag_counts.get("offensive").unwrap(), 1);
-        assert!(!agg.f1_ability_tag_counts.contains_key("rescue"), "rescue not set");
+        assert!(
+            !agg.f1_ability_tag_counts.contains_key("rescue"),
+            "rescue not set"
+        );
         assert_eq!(agg.total_chosen, 1);
     }
 
@@ -2740,8 +3281,11 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
 
-        assert_eq!(*agg.f1_ability_tag_counts.get("offensive").unwrap(), 1,
-            "plan counted once per tag even with two steps");
+        assert_eq!(
+            *agg.f1_ability_tag_counts.get("offensive").unwrap(),
+            1,
+            "plan counted once per tag even with two steps"
+        );
     }
 
     #[test]
@@ -2753,13 +3297,20 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = false;
         ann.effective_ai_tags = vec![tags];
-        let unchosen = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let unchosen = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
         let event = make_event(1, LoggedDecision::EndTurn, vec![unchosen], None);
 
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
 
-        assert!(agg.f1_ability_tag_counts.is_empty(), "unchosen plan not counted for F1");
+        assert!(
+            agg.f1_ability_tag_counts.is_empty(),
+            "unchosen plan not counted for F1"
+        );
     }
 
     // ── F2: Need signals regression pin ──────────────────────────────────────
@@ -2786,13 +3337,20 @@ mod tests {
             target_hp_at_store: 10,
             target_pos_at_store: [1, 0],
         };
-        let cont = ContinuationLogSection { stored_goal: stored, severity: None, age: 1 };
+        let cont = ContinuationLogSection {
+            stored_goal: stored,
+            severity: None,
+            age: 1,
+        };
         let event = make_event(1, LoggedDecision::EndTurn, vec![], Some(cont));
 
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
 
-        assert_eq!(agg.f2_setup_aoe_goal_count, 0, "no setup_aoe goal should appear");
+        assert_eq!(
+            agg.f2_setup_aoe_goal_count, 0,
+            "no setup_aoe goal should appear"
+        );
     }
 
     // ── F3: Continuation severity ─────────────────────────────────────────────
@@ -2848,15 +3406,23 @@ mod tests {
         event
     }
 
-    fn agenda_item_log(kind: storyforge::combat::ai::intent::IntentKind) -> storyforge::combat::ai::log::AgendaItemLog {
-        use storyforge::combat::ai::intent::IntentReason;
+    fn agenda_item_log(
+        kind: storyforge::combat::ai::intent::IntentKind,
+    ) -> storyforge::combat::ai::log::AgendaItemLog {
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::IntentReason;
         storyforge::combat::ai::log::AgendaItemLog {
             kind,
             target: None,
             raw_score: 1.0,
-            considerations: IntentConsiderations { urgency: 0.5, feasibility: 0.7,
-                leverage: 0.6, safety: 0.8, role_affinity: 0.9, continuation_value: 0.3 },
+            considerations: IntentConsiderations {
+                urgency: 0.5,
+                feasibility: 0.7,
+                leverage: 0.6,
+                safety: 0.8,
+                role_affinity: 0.9,
+                continuation_value: 0.3,
+            },
             reason: IntentReason::NoRuleDefault,
         }
     }
@@ -2877,7 +3443,10 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h1_band_tick_counts.get("NormalTactical").copied(), Some(1));
+        assert_eq!(
+            agg.h1_band_tick_counts.get("NormalTactical").copied(),
+            Some(1)
+        );
         assert_eq!(agg.h1_urgency.len(), 1);
         assert!((agg.h1_urgency[0] - 0.5).abs() < 1e-6);
     }
@@ -2891,7 +3460,11 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = Some(1);
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let agenda = vec![
             agenda_item_log(IntentKind::FocusTarget),
@@ -2907,19 +3480,35 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h2_band_chosen_total.get("NormalTactical").copied(), Some(1));
-        assert_eq!(agg.h2_band_item_win.get("NormalTactical/1").copied(), Some(1));
+        assert_eq!(
+            agg.h2_band_chosen_total.get("NormalTactical").copied(),
+            Some(1)
+        );
+        assert_eq!(
+            agg.h2_band_item_win.get("NormalTactical/1").copied(),
+            Some(1)
+        );
         assert!(!agg.h2_band_item_win.contains_key("NormalTactical/0"));
     }
 
     #[test]
     fn h1_skip_path_does_not_increment_band_counts() {
         // Skip path event has no band.
-        let event = make_event(1, LoggedDecision::Skip { reason: "no_ap".to_owned() }, vec![], None);
+        let event = make_event(
+            1,
+            LoggedDecision::Skip {
+                reason: "no_ap".to_owned(),
+            },
+            vec![],
+            None,
+        );
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert!(agg.h1_band_tick_counts.is_empty(), "skip-path should not add to band counts");
+        assert!(
+            agg.h1_band_tick_counts.is_empty(),
+            "skip-path should not add to band counts"
+        );
         assert!(agg.h1_urgency.is_empty());
     }
 
@@ -2953,8 +3542,8 @@ mod tests {
     #[test]
     fn h3a_target_none_rate_by_band_kind() {
         use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::log::AgendaItemLog;
 
         let mut item_with_target = AgendaItemLog {
@@ -2965,7 +3554,10 @@ mod tests {
             reason: IntentReason::NoRuleDefault,
         };
         // One item with target, one without.
-        let item_no_target = AgendaItemLog { target: None, ..item_with_target.clone() };
+        let item_no_target = AgendaItemLog {
+            target: None,
+            ..item_with_target.clone()
+        };
         item_with_target.target = Some(7);
 
         let event = make_event_with_band(
@@ -2977,8 +3569,18 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h3a_target_none.get("ForcedTargeting/FocusTarget").copied(), Some(1));
-        assert_eq!(agg.h3a_target_some.get("ForcedTargeting/FocusTarget").copied(), Some(1));
+        assert_eq!(
+            agg.h3a_target_none
+                .get("ForcedTargeting/FocusTarget")
+                .copied(),
+            Some(1)
+        );
+        assert_eq!(
+            agg.h3a_target_some
+                .get("ForcedTargeting/FocusTarget")
+                .copied(),
+            Some(1)
+        );
     }
 
     #[test]
@@ -2988,7 +3590,11 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = None; // no attribution
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let event = make_event_with_band(
             PriorityBand::NormalTactical,
@@ -2999,8 +3605,14 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h3a_band_unattributed.get("NormalTactical").copied(), Some(1));
-        assert_eq!(agg.h3a_unattr_no_items.get("NormalTactical").copied(), Some(1));
+        assert_eq!(
+            agg.h3a_band_unattributed.get("NormalTactical").copied(),
+            Some(1)
+        );
+        assert_eq!(
+            agg.h3a_unattr_no_items.get("NormalTactical").copied(),
+            Some(1)
+        );
     }
 
     // ── H3b: Per-plan reject reason ───────────────────────────────────────────
@@ -3013,7 +3625,11 @@ mod tests {
         // Plan without reject_reasons_per_item (empty = pre-11.7 log).
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let event = make_event_with_band(
             PriorityBand::NormalTactical,
@@ -3024,7 +3640,10 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert!(!agg.h3b_has_data, "no reject_reasons_per_item → h3b_has_data stays false");
+        assert!(
+            !agg.h3b_has_data,
+            "no reject_reasons_per_item → h3b_has_data stays false"
+        );
     }
 
     #[test]
@@ -3036,7 +3655,11 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.reject_reasons_per_item = vec![Some(RejectReason::NotDefensive)];
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let event = make_event_with_band(
             PriorityBand::CriticalSelfPreservation,
@@ -3049,11 +3672,23 @@ mod tests {
 
         assert!(agg.h3b_has_data);
         assert_eq!(
-            agg.h3b_reject_reason.get("CriticalSelfPreservation/ProtectSelf/NotDefensive").copied(),
+            agg.h3b_reject_reason
+                .get("CriticalSelfPreservation/ProtectSelf/NotDefensive")
+                .copied(),
             Some(1)
         );
-        assert_eq!(agg.h3b_total.get("CriticalSelfPreservation/ProtectSelf").copied(), Some(1));
-        assert_eq!(agg.h3b_eligible.get("CriticalSelfPreservation/ProtectSelf").copied(), None);
+        assert_eq!(
+            agg.h3b_total
+                .get("CriticalSelfPreservation/ProtectSelf")
+                .copied(),
+            Some(1)
+        );
+        assert_eq!(
+            agg.h3b_eligible
+                .get("CriticalSelfPreservation/ProtectSelf")
+                .copied(),
+            None
+        );
     }
 
     // ── H3c: Post-hoc fallback cause classifier ───────────────────────────────
@@ -3061,12 +3696,20 @@ mod tests {
     /// Build a `(engine::Unit, UnitAiCache)` pair at the given hex-axial position with given AP/MP.
     /// The `raw_id` is passed to `UnitBuilder::new(raw_id, ...)` — use the same u32 raw id
     /// that was passed to `Entity::from_raw_u32` when building the entity in the test.
-    fn unit_at_pair(raw_id: u32, x: i32, y: i32, ap: i32, mp: i32, max_range: u32)
-        -> (combat_engine::state::Unit, storyforge::combat::ai::world::cache::UnitAiCache)
-    {
+    fn unit_at_pair(
+        raw_id: u32,
+        x: i32,
+        y: i32,
+        ap: i32,
+        mp: i32,
+        max_range: u32,
+    ) -> (
+        combat_engine::state::Unit,
+        storyforge::combat::ai::world::cache::UnitAiCache,
+    ) {
+        use hexx::Hex;
         use storyforge::combat::ai::test_helpers::UnitBuilder;
         use storyforge::game::components::Team;
-        use hexx::Hex;
         UnitBuilder::new(raw_id, Team::Player, Hex::new(x, y))
             .ap(ap)
             .movement_points(mp)
@@ -3093,8 +3736,8 @@ mod tests {
 
     #[test]
     fn h3c_ap_mp_blocked_when_actor_has_zero_resources() {
-        use storyforge::combat::ai::intent::IntentKind;
         use bevy::prelude::Entity;
+        use storyforge::combat::ai::intent::IntentKind;
 
         let actor_bits = Entity::from_raw_u32(1).expect("valid").to_bits();
         // Actor with 0 AP and 0 MP.
@@ -3107,7 +3750,11 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = None;
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let mut item = agenda_item_log(IntentKind::FocusTarget);
         item.target = Some(999u64);
@@ -3116,7 +3763,10 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h3c_ap_mp_blocked.get("NormalTactical").copied(), Some(1));
+        assert_eq!(
+            agg.h3c_ap_mp_blocked.get("NormalTactical").copied(),
+            Some(1)
+        );
         assert_eq!(agg.h3c_total.get("NormalTactical").copied(), Some(1));
         // All other buckets empty.
         assert!(agg.h3c_no_target_in_agenda.is_empty());
@@ -3124,8 +3774,8 @@ mod tests {
 
     #[test]
     fn h3c_no_target_when_all_agenda_items_have_no_target() {
-        use storyforge::combat::ai::intent::IntentKind;
         use bevy::prelude::Entity;
+        use storyforge::combat::ai::intent::IntentKind;
 
         let actor_bits = Entity::from_raw_u32(2).expect("valid").to_bits();
         // Actor has AP+MP.
@@ -3137,7 +3787,11 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = None;
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         // Agenda items with target=None.
         let item1 = agenda_item_log(IntentKind::FocusTarget); // target = None by default
@@ -3147,16 +3801,19 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h3c_no_target_in_agenda.get("NormalTactical").copied(), Some(1));
+        assert_eq!(
+            agg.h3c_no_target_in_agenda.get("NormalTactical").copied(),
+            Some(1)
+        );
         assert!(agg.h3c_ap_mp_blocked.is_empty());
     }
 
     #[test]
     fn h3c_no_plan_attempts_target_when_pool_skips_agenda_target() {
-        use storyforge::combat::ai::intent::IntentKind;
         use bevy::prelude::Entity;
         use combat_engine::AbilityId;
         use hexx::Hex;
+        use storyforge::combat::ai::intent::IntentKind;
 
         let actor_bits = Entity::from_raw_u32(3).expect("valid").to_bits();
         let target_bits = Entity::from_raw_u32(4).expect("valid").to_bits();
@@ -3164,7 +3821,10 @@ mod tests {
 
         // Actor at (0,0) with AP+MP; target at (1,0) — within range.
         let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
-            vec![unit_at_pair(3, 0, 0, 2, 3, 2), unit_at_pair(4, 1, 0, 2, 3, 1)],
+            vec![
+                unit_at_pair(3, 0, 0, 2, 3, 2),
+                unit_at_pair(4, 1, 0, 2, 3, 1),
+            ],
             1,
         );
 
@@ -3191,22 +3851,30 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h3c_no_plan_attempts_target.get("NormalTactical").copied(), Some(1),
-            "pool does not attempt agenda target → NoPlanAttemptsTarget");
+        assert_eq!(
+            agg.h3c_no_plan_attempts_target
+                .get("NormalTactical")
+                .copied(),
+            Some(1),
+            "pool does not attempt agenda target → NoPlanAttemptsTarget"
+        );
     }
 
     #[test]
     fn h3c_only_move_plans_when_no_cast_steps_at_all() {
-        use storyforge::combat::ai::intent::IntentKind;
         use bevy::prelude::Entity;
         use hexx::Hex;
+        use storyforge::combat::ai::intent::IntentKind;
 
         let actor_bits = Entity::from_raw_u32(6).expect("valid").to_bits();
         let target_bits = Entity::from_raw_u32(7).expect("valid").to_bits();
 
         // Actor at (0,0); target at (1,0) in range.
         let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
-            vec![unit_at_pair(6, 0, 0, 2, 3, 2), unit_at_pair(7, 1, 0, 2, 3, 1)],
+            vec![
+                unit_at_pair(6, 0, 0, 2, 3, 2),
+                unit_at_pair(7, 1, 0, 2, 3, 1),
+            ],
             1,
         );
 
@@ -3216,7 +3884,9 @@ mod tests {
         // All plans are Move-only.
         let plan = LoggedPlan {
             rank: 1,
-            steps: vec![PlanStep::Move { path: vec![Hex::new(1, 0)] }],
+            steps: vec![PlanStep::Move {
+                path: vec![Hex::new(1, 0)],
+            }],
             annotation: ann,
         };
 
@@ -3227,15 +3897,18 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h3c_only_move_plans.get("NormalTactical").copied(), Some(1),
-            "all plans are Move-only → OnlyMovePlans bucket");
+        assert_eq!(
+            agg.h3c_only_move_plans.get("NormalTactical").copied(),
+            Some(1),
+            "all plans are Move-only → OnlyMovePlans bucket"
+        );
     }
 
     #[test]
     fn h3c_attributed_tick_not_counted() {
         // If chosen plan has an agenda_item, H3c should not fire.
-        use storyforge::combat::ai::intent::IntentKind;
         use bevy::prelude::Entity;
+        use storyforge::combat::ai::intent::IntentKind;
 
         let actor_bits = Entity::from_raw_u32(8).expect("valid").to_bits();
         let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
@@ -3246,7 +3919,11 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = Some(0); // attributed
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let item = agenda_item_log(IntentKind::FocusTarget);
         let event = make_h3c_event(actor_bits, snap, vec![item], vec![plan]);
@@ -3269,8 +3946,8 @@ mod tests {
     #[test]
     fn h1c_per_kind_leverage_buckets_split_correctly() {
         use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::log::AgendaItemLog;
 
         let item_focus = AgendaItemLog {
@@ -3290,18 +3967,30 @@ mod tests {
 
         // Chosen plan with considerations_per_item aligned to the agenda.
         let cons_focus = IntentConsiderations {
-            urgency: 0.0, feasibility: 1.0, leverage: 0.7,
-            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+            urgency: 0.0,
+            feasibility: 1.0,
+            leverage: 0.7,
+            safety: 1.0,
+            role_affinity: 0.5,
+            continuation_value: 0.0,
         };
         let cons_protect = IntentConsiderations {
-            urgency: 0.0, feasibility: 1.0, leverage: 0.4,
-            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+            urgency: 0.0,
+            feasibility: 1.0,
+            leverage: 0.4,
+            safety: 1.0,
+            role_affinity: 0.5,
+            continuation_value: 0.0,
         };
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.considerations_per_item = vec![cons_focus, cons_protect];
 
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let mut event = make_event_with_band(
             PriorityBand::NormalTactical,
@@ -3318,36 +4007,75 @@ mod tests {
         // No agenda_item set: all go to losers.
         // FocusTarget losers gets 0.7.
         assert_eq!(agg.h1_leverage_focus_target_losers.len(), 1);
-        assert!((agg.h1_leverage_focus_target_losers[0] - 0.7).abs() < 1e-6,
-            "FocusTarget loser leverage expected 0.7, got {}", agg.h1_leverage_focus_target_losers[0]);
-        assert!(agg.h1_leverage_focus_target_winners.is_empty(), "FocusTarget winners should be empty when no agenda_item");
+        assert!(
+            (agg.h1_leverage_focus_target_losers[0] - 0.7).abs() < 1e-6,
+            "FocusTarget loser leverage expected 0.7, got {}",
+            agg.h1_leverage_focus_target_losers[0]
+        );
+        assert!(
+            agg.h1_leverage_focus_target_winners.is_empty(),
+            "FocusTarget winners should be empty when no agenda_item"
+        );
 
         // ProtectSelf losers gets 0.4.
         assert_eq!(agg.h1_leverage_protect_self_losers.len(), 1);
-        assert!((agg.h1_leverage_protect_self_losers[0] - 0.4).abs() < 1e-6,
-            "ProtectSelf loser leverage expected 0.4, got {}", agg.h1_leverage_protect_self_losers[0]);
-        assert!(agg.h1_leverage_protect_self_winners.is_empty(), "ProtectSelf winners should be empty when no agenda_item");
+        assert!(
+            (agg.h1_leverage_protect_self_losers[0] - 0.4).abs() < 1e-6,
+            "ProtectSelf loser leverage expected 0.4, got {}",
+            agg.h1_leverage_protect_self_losers[0]
+        );
+        assert!(
+            agg.h1_leverage_protect_self_winners.is_empty(),
+            "ProtectSelf winners should be empty when no agenda_item"
+        );
 
         // Other buckets stay empty.
-        assert!(agg.h1_leverage_apply_cc_winners.is_empty(), "ApplyCC winners should be empty");
-        assert!(agg.h1_leverage_apply_cc_losers.is_empty(), "ApplyCC losers should be empty");
-        assert!(agg.h1_leverage_protect_ally_winners.is_empty(), "ProtectAlly winners should be empty");
-        assert!(agg.h1_leverage_protect_ally_losers.is_empty(), "ProtectAlly losers should be empty");
-        assert!(agg.h1_leverage_reposition_winners.is_empty(), "Reposition winners should be empty");
-        assert!(agg.h1_leverage_reposition_losers.is_empty(), "Reposition losers should be empty");
-        assert!(agg.h1_leverage_last_stand_winners.is_empty(), "LastStand winners should be empty");
-        assert!(agg.h1_leverage_last_stand_losers.is_empty(), "LastStand losers should be empty");
+        assert!(
+            agg.h1_leverage_apply_cc_winners.is_empty(),
+            "ApplyCC winners should be empty"
+        );
+        assert!(
+            agg.h1_leverage_apply_cc_losers.is_empty(),
+            "ApplyCC losers should be empty"
+        );
+        assert!(
+            agg.h1_leverage_protect_ally_winners.is_empty(),
+            "ProtectAlly winners should be empty"
+        );
+        assert!(
+            agg.h1_leverage_protect_ally_losers.is_empty(),
+            "ProtectAlly losers should be empty"
+        );
+        assert!(
+            agg.h1_leverage_reposition_winners.is_empty(),
+            "Reposition winners should be empty"
+        );
+        assert!(
+            agg.h1_leverage_reposition_losers.is_empty(),
+            "Reposition losers should be empty"
+        );
+        assert!(
+            agg.h1_leverage_last_stand_winners.is_empty(),
+            "LastStand winners should be empty"
+        );
+        assert!(
+            agg.h1_leverage_last_stand_losers.is_empty(),
+            "LastStand losers should be empty"
+        );
 
         // No winner → no delta.
-        assert!(agg.h1_leverage_delta_per_tick.is_empty(), "delta should be empty when no agenda_item");
+        assert!(
+            agg.h1_leverage_delta_per_tick.is_empty(),
+            "delta should be empty when no agenda_item"
+        );
     }
 
     /// Verify Reposition and SetupAOE both route to the shared reposition bucket.
     #[test]
     fn h1c_reposition_and_setup_aoe_share_bucket() {
         use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::log::AgendaItemLog;
 
         let make_item = |kind| AgendaItemLog {
@@ -3358,19 +4086,30 @@ mod tests {
             reason: IntentReason::NoRuleDefault,
         };
         let make_cons = |leverage| IntentConsiderations {
-            urgency: 0.0, feasibility: 1.0, leverage,
-            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+            urgency: 0.0,
+            feasibility: 1.0,
+            leverage,
+            safety: 1.0,
+            role_affinity: 0.5,
+            continuation_value: 0.0,
         };
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.considerations_per_item = vec![make_cons(0.6), make_cons(0.3)];
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let event = make_event_with_band(
             PriorityBand::NormalTactical,
             BandReason::Normal,
-            vec![make_item(IntentKind::Reposition), make_item(IntentKind::SetupAOE)],
+            vec![
+                make_item(IntentKind::Reposition),
+                make_item(IntentKind::SetupAOE),
+            ],
             vec![plan],
         );
 
@@ -3378,15 +4117,24 @@ mod tests {
         agg.process_event("h.jsonl", &event);
 
         // No agenda_item set: both go to losers.
-        assert_eq!(agg.h1_leverage_reposition_losers.len(), 2,
-            "both Reposition and SetupAOE should land in reposition losers bucket");
+        assert_eq!(
+            agg.h1_leverage_reposition_losers.len(),
+            2,
+            "both Reposition and SetupAOE should land in reposition losers bucket"
+        );
         let values: Vec<f32> = agg.h1_leverage_reposition_losers.clone();
-        assert!(values.iter().any(|&v| (v - 0.6).abs() < 1e-6),
-            "Reposition loser should contain 0.6");
-        assert!(values.iter().any(|&v| (v - 0.3).abs() < 1e-6),
-            "SetupAOE loser should contain 0.3");
-        assert!(agg.h1_leverage_reposition_winners.is_empty(),
-            "reposition winners should be empty when no agenda_item");
+        assert!(
+            values.iter().any(|&v| (v - 0.6).abs() < 1e-6),
+            "Reposition loser should contain 0.6"
+        );
+        assert!(
+            values.iter().any(|&v| (v - 0.3).abs() < 1e-6),
+            "SetupAOE loser should contain 0.3"
+        );
+        assert!(
+            agg.h1_leverage_reposition_winners.is_empty(),
+            "reposition winners should be empty when no agenda_item"
+        );
     }
 
     /// Verify winners/losers split: agenda_item=Some(0) makes idx=0 the winner,
@@ -3394,8 +4142,8 @@ mod tests {
     #[test]
     fn h1c_winners_vs_losers_split_correctly() {
         use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::log::AgendaItemLog;
 
         let make_item = |kind| AgendaItemLog {
@@ -3406,20 +4154,31 @@ mod tests {
             reason: IntentReason::NoRuleDefault,
         };
         let make_cons = |leverage| IntentConsiderations {
-            urgency: 0.0, feasibility: 1.0, leverage,
-            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+            urgency: 0.0,
+            feasibility: 1.0,
+            leverage,
+            safety: 1.0,
+            role_affinity: 0.5,
+            continuation_value: 0.0,
         };
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = Some(0); // FocusTarget is the winner
         ann.considerations_per_item = vec![make_cons(0.8), make_cons(0.2)];
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let mut event = make_event_with_band(
             PriorityBand::NormalTactical,
             BandReason::Normal,
-            vec![make_item(IntentKind::FocusTarget), make_item(IntentKind::Reposition)],
+            vec![
+                make_item(IntentKind::FocusTarget),
+                make_item(IntentKind::Reposition),
+            ],
             vec![plan],
         );
         event.snapshot = BattleSnapshot::default();
@@ -3427,18 +4186,31 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h1_leverage_focus_target_winners, vec![0.8_f32],
-            "FocusTarget winner should get 0.8");
-        assert!(agg.h1_leverage_focus_target_losers.is_empty(),
-            "FocusTarget losers should be empty (it is the winner)");
-        assert!(agg.h1_leverage_reposition_winners.is_empty(),
-            "Reposition winners should be empty");
-        assert_eq!(agg.h1_leverage_reposition_losers, vec![0.2_f32],
-            "Reposition loser should get 0.2");
+        assert_eq!(
+            agg.h1_leverage_focus_target_winners,
+            vec![0.8_f32],
+            "FocusTarget winner should get 0.8"
+        );
+        assert!(
+            agg.h1_leverage_focus_target_losers.is_empty(),
+            "FocusTarget losers should be empty (it is the winner)"
+        );
+        assert!(
+            agg.h1_leverage_reposition_winners.is_empty(),
+            "Reposition winners should be empty"
+        );
+        assert_eq!(
+            agg.h1_leverage_reposition_losers,
+            vec![0.2_f32],
+            "Reposition loser should get 0.2"
+        );
 
         assert_eq!(agg.h1_leverage_delta_per_tick.len(), 1);
-        assert!((agg.h1_leverage_delta_per_tick[0] - 0.6).abs() < 1e-5,
-            "delta should be 0.8 - 0.2 = 0.6, got {}", agg.h1_leverage_delta_per_tick[0]);
+        assert!(
+            (agg.h1_leverage_delta_per_tick[0] - 0.6).abs() < 1e-5,
+            "delta should be 0.8 - 0.2 = 0.6, got {}",
+            agg.h1_leverage_delta_per_tick[0]
+        );
     }
 
     /// Verify that when chosen plan has agenda_item=None, all entries go to losers
@@ -3446,8 +4218,8 @@ mod tests {
     #[test]
     fn h1c_unattributed_chosen_treats_all_as_losers() {
         use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::log::AgendaItemLog;
 
         let item = AgendaItemLog {
@@ -3458,15 +4230,23 @@ mod tests {
             reason: IntentReason::NoRuleDefault,
         };
         let cons = IntentConsiderations {
-            urgency: 0.0, feasibility: 1.0, leverage: 0.5,
-            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+            urgency: 0.0,
+            feasibility: 1.0,
+            leverage: 0.5,
+            safety: 1.0,
+            role_affinity: 0.5,
+            continuation_value: 0.0,
         };
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = None; // unattributed
         ann.considerations_per_item = vec![cons];
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let mut event = make_event_with_band(
             PriorityBand::NormalTactical,
@@ -3479,18 +4259,28 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h1_leverage_focus_target_losers, vec![0.5_f32],
-            "FocusTarget loser should get 0.5 when unattributed");
-        assert!(agg.h1_leverage_focus_target_winners.is_empty(),
-            "FocusTarget winners should be empty when unattributed");
-        assert!(agg.h1_leverage_delta_per_tick.is_empty(),
-            "delta should be empty when no winner (agenda_item=None)");
+        assert_eq!(
+            agg.h1_leverage_focus_target_losers,
+            vec![0.5_f32],
+            "FocusTarget loser should get 0.5 when unattributed"
+        );
+        assert!(
+            agg.h1_leverage_focus_target_winners.is_empty(),
+            "FocusTarget winners should be empty when unattributed"
+        );
+        assert!(
+            agg.h1_leverage_delta_per_tick.is_empty(),
+            "delta should be empty when no winner (agenda_item=None)"
+        );
     }
 
     // ── C6 / approximate_fresh_intent tier tests ──────────────────────────────
 
     /// Helper: minimal StoredGoalContextSnapshot for C6 tests.
-    fn make_stored_goal(kind: &str, target_bits: Option<u64>) -> storyforge::combat::ai::log::StoredGoalContextSnapshot {
+    fn make_stored_goal(
+        kind: &str,
+        target_bits: Option<u64>,
+    ) -> storyforge::combat::ai::log::StoredGoalContextSnapshot {
         storyforge::combat::ai::log::StoredGoalContextSnapshot {
             kind: kind.to_owned(),
             target_id: target_bits,
@@ -3531,7 +4321,9 @@ mod tests {
         let target = Entity::from_bits(42);
         let stored = make_stored_goal("pressure", Some(target.to_bits()));
         let cont = storyforge::combat::ai::log::ContinuationLogSection {
-            stored_goal: stored.clone(), severity: None, age: 1,
+            stored_goal: stored.clone(),
+            severity: None,
+            age: 1,
         };
         let focus_intent = TacticalIntent::FocusTarget { target };
         let event = make_event_with_chosen_intent(
@@ -3551,19 +4343,25 @@ mod tests {
     #[test]
     fn approximate_fresh_intent_uses_agenda_item_index() {
         use bevy::prelude::Entity;
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
 
         let target = Entity::from_bits(99);
         let stored = make_stored_goal("pressure", Some(target.to_bits()));
         let cont = storyforge::combat::ai::log::ContinuationLogSection {
-            stored_goal: stored.clone(), severity: None, age: 1,
+            stored_goal: stored.clone(),
+            severity: None,
+            age: 1,
         };
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = Some(0);
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let agenda_item = AgendaItemLog {
             kind: IntentKind::FocusTarget,
@@ -3591,13 +4389,15 @@ mod tests {
     #[test]
     fn approximate_fresh_intent_falls_back_to_agenda_zero() {
         use bevy::prelude::Entity;
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
 
         let target = Entity::from_bits(77);
         let stored = make_stored_goal("pressure", None);
         let cont = storyforge::combat::ai::log::ContinuationLogSection {
-            stored_goal: stored.clone(), severity: None, age: 1,
+            stored_goal: stored.clone(),
+            severity: None,
+            age: 1,
         };
 
         let agenda_item = AgendaItemLog {
@@ -3611,7 +4411,11 @@ mod tests {
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
         ann.agenda_item = None;
-        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![],
+            annotation: ann,
+        };
 
         let event = make_event_with_chosen_intent(
             LoggedDecision::Move { path: vec![] },
@@ -3632,7 +4436,9 @@ mod tests {
     fn approximate_fresh_intent_heuristic_fallback() {
         let stored = make_stored_goal("pressure", None);
         let cont = storyforge::combat::ai::log::ContinuationLogSection {
-            stored_goal: stored.clone(), severity: None, age: 1,
+            stored_goal: stored.clone(),
+            severity: None,
+            age: 1,
         };
 
         let event = make_event_with_chosen_intent(
@@ -3654,11 +4460,15 @@ mod tests {
     fn c6_skip_with_stored_does_not_classify() {
         let stored = make_stored_goal("pressure", Some(1));
         let cont = storyforge::combat::ai::log::ContinuationLogSection {
-            stored_goal: stored, severity: None, age: 1,
+            stored_goal: stored,
+            severity: None,
+            age: 1,
         };
         let event = make_event(
             1,
-            LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
+            LoggedDecision::Skip {
+                reason: "no_ap_no_mp".to_owned(),
+            },
             vec![],
             Some(cont),
         );
@@ -3666,9 +4476,18 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
 
-        assert_eq!(agg.cont_skip_with_stored, 1, "skip with stored increments cont_skip_with_stored");
-        assert_eq!(agg.cont_abandoned_voluntary, 0, "no voluntary increment for skip");
-        assert_eq!(agg.cont_method_delivered, 0, "no preserved increment for skip");
+        assert_eq!(
+            agg.cont_skip_with_stored, 1,
+            "skip with stored increments cont_skip_with_stored"
+        );
+        assert_eq!(
+            agg.cont_abandoned_voluntary, 0,
+            "no voluntary increment for skip"
+        );
+        assert_eq!(
+            agg.cont_method_delivered, 0,
+            "no preserved increment for skip"
+        );
         assert_eq!(agg.cont_in_transit, 0, "no in_transit increment for skip");
     }
 
@@ -3679,13 +4498,15 @@ mod tests {
     #[test]
     fn c6_voluntary_no_longer_false_positive_on_move_with_matching_agenda() {
         use bevy::prelude::Entity;
-        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
         use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
 
         let target = Entity::from_bits(42);
         let stored = make_stored_goal("pressure", Some(target.to_bits()));
         let cont = storyforge::combat::ai::log::ContinuationLogSection {
-            stored_goal: stored, severity: None, age: 1,
+            stored_goal: stored,
+            severity: None,
+            age: 1,
         };
 
         let agenda_item = AgendaItemLog {
@@ -3709,9 +4530,13 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
 
-        assert_eq!(agg.cont_abandoned_voluntary, 0,
-            "Move with matching FocusTarget agenda must NOT be classified as voluntary abandon");
-        assert!(agg.cont_in_transit > 0 || agg.cont_method_delivered > 0,
-            "should be classified as preserved (in_transit or method_delivered)");
+        assert_eq!(
+            agg.cont_abandoned_voluntary, 0,
+            "Move with matching FocusTarget agenda must NOT be classified as voluntary abandon"
+        );
+        assert!(
+            agg.cont_in_transit > 0 || agg.cont_method_delivered > 0,
+            "should be classified as preserved (in_transit or method_delivered)"
+        );
     }
 }

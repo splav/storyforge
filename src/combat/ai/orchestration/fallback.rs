@@ -3,8 +3,8 @@
 //! retreat, depending on HP.
 
 use super::{AiDecision, MoveOrigin};
-use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::plan::reach_from;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::Hex;
@@ -14,7 +14,11 @@ pub(super) fn fallback_move(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> AiDecision {
-    if active.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0) == 0 {
+    if active.pools[combat_engine::PoolKind::Mp]
+        .map(|(c, _)| c)
+        .unwrap_or(0)
+        == 0
+    {
         return AiDecision::EndTurn;
     }
 
@@ -43,7 +47,10 @@ pub(super) fn fallback_move(
         if let Some(dest) = safest {
             if let Some(path) = reach.path_to(dest) {
                 if !path.is_empty() {
-                    return AiDecision::Move { path, origin: MoveOrigin::Fallback };
+                    return AiDecision::Move {
+                        path,
+                        origin: MoveOrigin::Fallback,
+                    };
                 }
             }
         }
@@ -69,7 +76,10 @@ pub(super) fn fallback_move(
     if let Some((dest, _)) = best {
         if let Some(path) = reach.path_to(dest) {
             if !path.is_empty() {
-                return AiDecision::Move { path, origin: MoveOrigin::Fallback };
+                return AiDecision::Move {
+                    path,
+                    origin: MoveOrigin::Fallback,
+                };
             }
         }
     }

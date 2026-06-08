@@ -83,11 +83,16 @@ fn load_global(file: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
     if !std::path::Path::new(&path).is_file() {
         return Vec::new();
     }
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
     parse_armor(&path, &src, slot)
 }
 
-pub fn load_chest() -> Vec<ArmorDef> { load_global(CHEST_FILE, ArmorSlot::Chest) }
-pub fn load_legs()  -> Vec<ArmorDef> { load_global(LEGS_FILE,  ArmorSlot::Legs)  }
-pub fn load_feet()  -> Vec<ArmorDef> { load_global(FEET_FILE,  ArmorSlot::Feet)  }
+pub fn load_chest() -> Vec<ArmorDef> {
+    load_global(CHEST_FILE, ArmorSlot::Chest)
+}
+pub fn load_legs() -> Vec<ArmorDef> {
+    load_global(LEGS_FILE, ArmorSlot::Legs)
+}
+pub fn load_feet() -> Vec<ArmorDef> {
+    load_global(FEET_FILE, ArmorSlot::Feet)
+}

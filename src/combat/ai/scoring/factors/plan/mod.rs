@@ -9,10 +9,10 @@ pub mod intent;
 pub mod self_survival;
 pub mod tempo_gain;
 
-use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats};
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats};
 
 crate::factor_kind! {
     name: PlanFactor,
@@ -27,8 +27,8 @@ impl PlanFactor {
     /// String name used in serde named maps and `from_name`.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Intent       => "intent",
-            Self::TempoGain    => "tempo_gain",
+            Self::Intent => "intent",
+            Self::TempoGain => "tempo_gain",
             Self::SelfSurvival => "self_survival",
         }
     }
@@ -42,7 +42,9 @@ impl PlanFactor {
         default_norm(raw, batch, self.signed())
     }
 
-    pub fn count() -> usize { COUNT }
+    pub fn count() -> usize {
+        COUNT
+    }
 
     pub fn iter() -> impl Iterator<Item = Self> {
         [Self::Intent, Self::TempoGain, Self::SelfSurvival].into_iter()
@@ -50,8 +52,8 @@ impl PlanFactor {
 
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
-            "intent"        => Some(Self::Intent),
-            "tempo_gain"    => Some(Self::TempoGain),
+            "intent" => Some(Self::Intent),
+            "tempo_gain" => Some(Self::TempoGain),
             "self_survival" => Some(Self::SelfSurvival),
             _ => None,
         }
@@ -60,8 +62,8 @@ impl PlanFactor {
     /// Compute this plan-level factor.
     pub fn compute(self, plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f32 {
         match self {
-            Self::Intent       => intent::compute(plan, intent, ctx),
-            Self::TempoGain    => tempo_gain::compute(plan, intent, ctx),
+            Self::Intent => intent::compute(plan, intent, ctx),
+            Self::TempoGain => tempo_gain::compute(plan, intent, ctx),
             Self::SelfSurvival => self_survival::compute(plan, intent, ctx),
         }
     }

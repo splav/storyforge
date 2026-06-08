@@ -5,10 +5,10 @@
 pub const NAME: &str = "board_control_gain";
 pub const SIGNED: bool = false;
 
-use crate::combat::ai::scoring::factors::terminal_state::compute_board_control_gain;
-use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::terminal_state::compute_board_control_gain;
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 
 pub fn compute(plan: &TurnPlan, _snap: &BattleSnapshot, ctx: &ScoringCtx) -> f32 {
     compute_board_control_gain(plan, ctx)

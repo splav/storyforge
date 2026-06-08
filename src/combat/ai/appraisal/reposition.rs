@@ -8,7 +8,10 @@ pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
     let tuning = ctx.tuning;
     let has_ap = active.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) >= 1;
     let cur_pos_eval = crate::combat::ai::scoring::position_eval::evaluate_position(
-        active.pos, &active.cache.role, tuning, maps,
+        active.pos,
+        &active.cache.role,
+        tuning,
+        maps,
     );
 
     // BFS over reachable tiles (movement_points budget) to find the best
@@ -20,7 +23,10 @@ pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
         .iter()
         .map(|&tile| {
             let pe = crate::combat::ai::scoring::position_eval::evaluate_position(
-                tile, &active.cache.role, tuning, maps,
+                tile,
+                &active.cache.role,
+                tuning,
+                maps,
             );
             (pe - cur_pos_eval).max(0.0)
         })
@@ -30,7 +36,10 @@ pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
         .enemies_of(active.team)
         .all(|e| active.pos.unsigned_distance_to(e.pos) > active.cache.max_attack_range);
 
-    let mut reposition = tuning.curves.reposition_pos_gain.eval(best_position_improvement);
+    let mut reposition = tuning
+        .curves
+        .reposition_pos_gain
+        .eval(best_position_improvement);
 
     // Idle AP boost: no enemies in attack range, we have AP, AND there is a
     // real positional improvement to take. Without the improvement gate, the
@@ -51,11 +60,11 @@ pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
+    use crate::combat::ai::appraisal::tests::{default_memory, make_ctx, snap};
     use crate::combat::ai::config::tuning::AiTuning;
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::combat::ai::appraisal::tests::{default_memory, snap, make_ctx};
 
     #[test]
     fn reposition_high_when_engagement_gap_with_real_improvement() {
@@ -78,7 +87,10 @@ mod tests {
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         let signal = compute_reposition(&ctx);
-        assert!(signal >= 0.5, "idle AP boost should push reposition ≥ 0.5, got {signal}");
+        assert!(
+            signal >= 0.5,
+            "idle AP boost should push reposition ≥ 0.5, got {signal}"
+        );
     }
 
     #[test]
@@ -123,6 +135,9 @@ mod tests {
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         let signal = compute_reposition(&ctx);
         // No engagement gap, no position gain → only curve eval(0) which is ≈ 0.
-        assert!(signal < 0.1, "expected near 0 when engaged with no position gain, got {signal}");
+        assert!(
+            signal < 0.1,
+            "expected near 0 when engaged with no position gain, got {signal}"
+        );
     }
 }

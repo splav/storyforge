@@ -1,22 +1,24 @@
 #![allow(clippy::type_complexity)]
-use crate::content::content_view::ActiveContent;
 use super::render::{
-    HexBorder, HexCellLink, HexGridOffset, HexHover, HexManaLabel, HexMaterials, HexNameLabel,
-    HexHpLabel,
+    HexBorder, HexCellLink, HexGridOffset, HexHover, HexHpLabel, HexManaLabel, HexMaterials,
+    HexNameLabel,
 };
+use crate::combat::engine_bridge::CombatStateRes;
 use crate::content::abilities::{AoEShape, TargetType};
+use crate::content::content_view::ActiveContent;
 use crate::game::components::{
-    ActionPoints, ActiveCombatant, Dead, Energy, Faction, HexCombatantQ, Mana, Rage,
-    Team, UnitToken, Vital,
+    ActionPoints, ActiveCombatant, Dead, Energy, Faction, HexCombatantQ, Mana, Rage, Team,
+    UnitToken, Vital,
 };
 use crate::game::hex::{hex_circle, hex_line, Hex, LAYOUT};
-use crate::game::pathfinding::{reach_from, MovementEnv};
 use crate::game::hex_map::HexMap;
-use crate::combat::engine_bridge::CombatStateRes;
-use crate::game::resources::{HexCorpses, HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags};
+use crate::game::pathfinding::{reach_from, MovementEnv};
+use crate::game::resources::{
+    HexCorpses, HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
+};
 use crate::ui::animation::MovePath;
-use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 use std::collections::HashSet;
 
 // ── System: UI dirty bridge ───────────────────────────────────────────────────
@@ -158,26 +160,61 @@ pub struct HexLabelParams<'w, 's> {
     pub borders: Query<
         'w,
         's,
-        (&'static mut Visibility, &'static mut MeshMaterial2d<ColorMaterial>),
-        (With<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>, Without<HexManaLabel>),
+        (
+            &'static mut Visibility,
+            &'static mut MeshMaterial2d<ColorMaterial>,
+        ),
+        (
+            With<HexBorder>,
+            Without<HexNameLabel>,
+            Without<HexHpLabel>,
+            Without<HexManaLabel>,
+        ),
     >,
     pub name_labels: Query<
         'w,
         's,
-        (&'static HexCellLink, &'static mut Text2d, &'static mut Visibility),
-        (With<HexNameLabel>, Without<HexBorder>, Without<HexHpLabel>, Without<HexManaLabel>),
+        (
+            &'static HexCellLink,
+            &'static mut Text2d,
+            &'static mut Visibility,
+        ),
+        (
+            With<HexNameLabel>,
+            Without<HexBorder>,
+            Without<HexHpLabel>,
+            Without<HexManaLabel>,
+        ),
     >,
     pub hp_labels: Query<
         'w,
         's,
-        (&'static HexCellLink, &'static mut Text2d, &'static mut Visibility),
-        (With<HexHpLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexManaLabel>),
+        (
+            &'static HexCellLink,
+            &'static mut Text2d,
+            &'static mut Visibility,
+        ),
+        (
+            With<HexHpLabel>,
+            Without<HexBorder>,
+            Without<HexNameLabel>,
+            Without<HexManaLabel>,
+        ),
     >,
     pub mana_labels: Query<
         'w,
         's,
-        (&'static HexCellLink, &'static mut Text2d, &'static mut Visibility),
-        (With<HexManaLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>),
+        (
+            &'static HexCellLink,
+            &'static mut Text2d,
+            &'static mut Visibility,
+        ),
+        (
+            With<HexManaLabel>,
+            Without<HexBorder>,
+            Without<HexNameLabel>,
+            Without<HexHpLabel>,
+        ),
     >,
 }
 
@@ -199,22 +236,27 @@ pub fn update_hex_visuals(
     mut overlay: Local<CachedOverlay>,
 ) {
     let flags = dirty.0;
-    if !flags.intersects(UiDirtyFlags::OVERLAY | UiDirtyFlags::HEX_FILL | UiDirtyFlags::LABELS | UiDirtyFlags::TOOLTIP) {
+    if !flags.intersects(
+        UiDirtyFlags::OVERLAY
+            | UiDirtyFlags::HEX_FILL
+            | UiDirtyFlags::LABELS
+            | UiDirtyFlags::TOOLTIP,
+    ) {
         return;
     }
 
     if flags.contains(UiDirtyFlags::OVERLAY) {
         overlay.range = if !sel.move_mode {
-            let info = active_q
-                .single()
-                .ok()
-                .and_then(|e| map.position_of(e))
-                .zip(
-                    sel.selected_ability
-                        .as_ref()
-                        .and_then(|id| content.abilities.get(id))
-                        .filter(|ab| ab.is_actively_castable() && ab.target_type != TargetType::Myself && ab.range.max > 0),
-                );
+            let info = active_q.single().ok().and_then(|e| map.position_of(e)).zip(
+                sel.selected_ability
+                    .as_ref()
+                    .and_then(|id| content.abilities.get(id))
+                    .filter(|ab| {
+                        ab.is_actively_castable()
+                            && ab.target_type != TargetType::Myself
+                            && ab.range.max > 0
+                    }),
+            );
             if let Some((actor_pos, ab)) = info {
                 // LOS filter: for abilities that require line-of-sight, exclude
                 // cells the hex-line algorithm would block via `state.blocked_hexes`.
@@ -246,16 +288,16 @@ pub fn update_hex_visuals(
 
         // Disadvantage zone: cells within max range but below min range.
         overlay.disadvantage = if !sel.move_mode {
-            let info = active_q
-                .single()
-                .ok()
-                .and_then(|e| map.position_of(e))
-                .zip(
-                    sel.selected_ability
-                        .as_ref()
-                        .and_then(|id| content.abilities.get(id))
-                        .filter(|ab| ab.is_actively_castable() && ab.target_type != TargetType::Myself && ab.range.min > 0),
-                );
+            let info = active_q.single().ok().and_then(|e| map.position_of(e)).zip(
+                sel.selected_ability
+                    .as_ref()
+                    .and_then(|id| content.abilities.get(id))
+                    .filter(|ab| {
+                        ab.is_actively_castable()
+                            && ab.target_type != TargetType::Myself
+                            && ab.range.min > 0
+                    }),
+            );
             if let Some((actor_pos, ab)) = info {
                 cells
                     .iter()
@@ -274,9 +316,7 @@ pub fn update_hex_visuals(
 
         overlay.movement = if sel.move_mode {
             if let Ok(actor) = active_q.single() {
-                if let (Some(actor_pos), Ok(ap)) =
-                    (map.position_of(actor), ap_q.get(actor))
-                {
+                if let (Some(actor_pos), Ok(ap)) = (map.position_of(actor), ap_q.get(actor)) {
                     let enemy_positions: HashSet<Hex> = map
                         .iter_living()
                         .filter(|(&e, _)| {
@@ -314,15 +354,20 @@ pub fn update_hex_visuals(
     if flags.intersects(UiDirtyFlags::TOOLTIP | UiDirtyFlags::OVERLAY) {
         overlay.aoe_preview = if let Some(hovered) = hover.0 {
             let actor_pos = active_q.single().ok().and_then(|e| map.position_of(e));
-            let aoe_def = sel.selected_ability
+            let aoe_def = sel
+                .selected_ability
                 .as_ref()
                 .and_then(|id| content.abilities.get(id))
                 .filter(|ab| ab.aoe != AoEShape::None);
             if let (Some(a_pos), Some(ab)) = (actor_pos, aoe_def) {
                 match ab.aoe {
                     AoEShape::None => HashSet::new(),
-                    AoEShape::Circle { radius } => hex_circle(hovered, radius).into_iter().collect(),
-                    AoEShape::Line { length } => hex_line(a_pos, hovered, length).into_iter().collect(),
+                    AoEShape::Circle { radius } => {
+                        hex_circle(hovered, radius).into_iter().collect()
+                    }
+                    AoEShape::Line { length } => {
+                        hex_line(a_pos, hovered, length).into_iter().collect()
+                    }
                 }
             } else {
                 HashSet::new()
@@ -353,7 +398,10 @@ pub fn update_hex_visuals(
         let fill_entity = map.any_at(pos);
 
         let is_obstacle = engine_state.0.blocked_hexes.contains(&pos);
-        let is_revealed_trap = engine_state.0.environment.iter()
+        let is_revealed_trap = engine_state
+            .0
+            .environment
+            .iter()
             .any(|e| e.hex == pos && e.visible_to(Team::Player));
 
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
@@ -420,8 +468,8 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut labels.name_labels {
-        if let Some(c) = super::render::label_occupant(link, &cells, &map)
-            .and_then(|e| combatant_q.get(e).ok())
+        if let Some(c) =
+            super::render::label_occupant(link, &cells, &map).and_then(|e| combatant_q.get(e).ok())
         {
             let n = c.name.as_str();
             text.0 = if n.chars().count() > 8 {
@@ -436,8 +484,8 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut labels.hp_labels {
-        if let Some(c) = super::render::label_occupant(link, &cells, &map)
-            .and_then(|e| combatant_q.get(e).ok())
+        if let Some(c) =
+            super::render::label_occupant(link, &cells, &map).and_then(|e| combatant_q.get(e).ok())
         {
             text.0 = format!("{}/{}", c.vital.hp, c.vital.max_hp);
             *vis = Visibility::Visible;
@@ -447,8 +495,8 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut labels.mana_labels {
-        if let Some(c) = super::render::label_occupant(link, &cells, &map)
-            .and_then(|e| combatant_q.get(e).ok())
+        if let Some(c) =
+            super::render::label_occupant(link, &cells, &map).and_then(|e| combatant_q.get(e).ok())
         {
             if let Some(m) = c.mana {
                 text.0 = format!("M:{}/{}", m.current, m.max);

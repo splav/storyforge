@@ -1,16 +1,18 @@
-use bevy::prelude::Entity;
+use super::kinds::{IntentKind, IntentReason, TacticalIntent};
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::config::tuning::AiTuning;
-use crate::combat::ai::scoring::factors::ScoredStep;
+use crate::combat::ai::memory::AiMemory;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
+use crate::combat::ai::scoring::factors::ScoredStep;
+use crate::combat::ai::scoring::target_selection::{
+    highest_priority_enemy, target_selection_score,
+};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::game::hex::Hex;
-use super::kinds::{IntentKind, IntentReason, TacticalIntent};
-use crate::combat::ai::memory::AiMemory;
+use bevy::prelude::Entity;
 
 // ── Intent selection result ─────────────────────────────────────────────────
 
@@ -59,9 +61,7 @@ pub(crate) fn select_intent_normal(
             && memory.last_intent == Some(intent.kind())
         {
             let stickiness_factor = match intent.kind() {
-                IntentKind::FocusTarget | IntentKind::ApplyCC => {
-                    need_signals.continue_commitment
-                }
+                IntentKind::FocusTarget | IntentKind::ApplyCC => need_signals.continue_commitment,
                 _ => 1.0,
             };
             s += t.stickiness_bonus * stickiness_factor;
@@ -96,14 +96,21 @@ pub(crate) fn select_intent_normal(
     let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
     let killable = snap
         .enemies_of(active.team)
-        .filter(|_| active.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) > 0)
+        .filter(|_| {
+            active.pools[combat_engine::PoolKind::Ap]
+                .map(|(c, _)| c)
+                .unwrap_or(0)
+                > 0
+        })
         .filter(|e| active.cache.threat >= e.eff_hp() as f32)
         .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
         .min_by_key(|e| e.eff_hp());
     if let Some(target) = killable {
         let kill_score = 1.2 + need_signals.finish_target * 0.3;
         consider(
-            TacticalIntent::FocusTarget { target: target.entity() },
+            TacticalIntent::FocusTarget {
+                target: target.entity(),
+            },
             kill_score,
             IntentReason::Killable {
                 threat: active.cache.threat,
@@ -115,7 +122,9 @@ pub(crate) fn select_intent_normal(
     } else if let Some(target) = highest_priority_enemy(active, snap) {
         let prio = target_selection_score(active, target, snap);
         consider(
-            TacticalIntent::FocusTarget { target: target.entity() },
+            TacticalIntent::FocusTarget {
+                target: target.entity(),
+            },
             0.5 + prio * 0.3,
             IntentReason::BestPriority { priority: prio },
         );
@@ -135,7 +144,9 @@ pub(crate) fn select_intent_normal(
             let dpr = crate::combat::ai::scoring::horizon_avg(target);
             let cc_score = 0.8 + dpr * 0.1;
             consider(
-                TacticalIntent::ApplyCC { target: target.entity() },
+                TacticalIntent::ApplyCC {
+                    target: target.entity(),
+                },
                 cc_score,
                 IntentReason::ApplyCc { dpr },
             );
@@ -145,17 +156,23 @@ pub(crate) fn select_intent_normal(
     // SetupAOE: enemies clustered.
     if active.cache.tags.contains(AiTags::HAS_AOE) {
         let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
-        let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
-            enemies[*i + 1..]
-                .iter()
-                .any(|b| a.pos.unsigned_distance_to(b.pos) <= 2)
-        }).count();
+        let cluster_count = enemies
+            .iter()
+            .enumerate()
+            .filter(|(i, a)| {
+                enemies[*i + 1..]
+                    .iter()
+                    .any(|b| a.pos.unsigned_distance_to(b.pos) <= 2)
+            })
+            .count();
         if cluster_count > 0 {
             let aoe_score = 0.7 + cluster_count as f32 * 0.2;
             consider(
                 TacticalIntent::SetupAOE,
                 aoe_score,
-                IntentReason::SetupAoe { clustered_pairs: cluster_count },
+                IntentReason::SetupAoe {
+                    clustered_pairs: cluster_count,
+                },
             );
         }
     }
@@ -194,8 +211,10 @@ pub(crate) fn select_intent_normal(
 ///
 /// Remaining callers: unit tests in this module (testing internal scoring properties).
 /// Will be removed in step 12.
-#[deprecated(note = "use assign_band → build_agenda flow; direct callers should migrate to \
-                     select_intent_normal for NormalTactical. Removal in step 12.")]
+#[deprecated(
+    note = "use assign_band → build_agenda flow; direct callers should migrate to \
+                     select_intent_normal for NormalTactical. Removal in step 12."
+)]
 #[allow(clippy::too_many_arguments)]
 pub fn select_intent(
     active: UnitView<'_>,
@@ -228,9 +247,7 @@ pub fn select_intent(
             && memory.last_intent == Some(intent.kind())
         {
             let stickiness_factor = match intent.kind() {
-                IntentKind::FocusTarget | IntentKind::ApplyCC => {
-                    need_signals.continue_commitment
-                }
+                IntentKind::FocusTarget | IntentKind::ApplyCC => need_signals.continue_commitment,
                 _ => 1.0,
             };
             s += t.stickiness_bonus * stickiness_factor;
@@ -289,7 +306,10 @@ pub fn select_intent(
         consider(
             TacticalIntent::ProtectSelf,
             urgency,
-            IntentReason::Urgency { self_preserve: need_signals.self_preserve, danger },
+            IntentReason::Urgency {
+                self_preserve: need_signals.self_preserve,
+                danger,
+            },
         );
     }
 
@@ -310,7 +330,9 @@ pub fn select_intent(
             let ally_pct = ally.hp_pct();
             let urgency = 1.0 - ally_pct;
             consider(
-                TacticalIntent::ProtectAlly { ally: ally.entity() },
+                TacticalIntent::ProtectAlly {
+                    ally: ally.entity(),
+                },
                 urgency,
                 IntentReason::ProtectAlly {
                     ally_hp_pct: ally_pct,
@@ -325,7 +347,8 @@ pub fn select_intent(
     // to that enemy only. Restrict FocusTarget/ApplyCC to the taunter so we don't
     // pick an unreachable "priority" target and then fall back through the viability
     // guard — that produced confusing "Priority target: X … fallback to Y" logs.
-    let taunter = snap.enemies_of(active.team)
+    let taunter = snap
+        .enemies_of(active.team)
         .find(|e| e.forces_targeting(status_tags));
 
     if let Some(t) = taunter {
@@ -352,10 +375,16 @@ pub fn select_intent(
         // FocusTarget: killable enemy scores highest, otherwise best priority target.
         // "Killable" requires BOTH: (a) effective HP within threat (armor-aware),
         // (b) reachable this turn (dist ≤ speed + max attack range).
-        let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
+        let reach_budget =
+            (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
         let killable = snap
             .enemies_of(active.team)
-            .filter(|_| active.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) > 0)
+            .filter(|_| {
+                active.pools[combat_engine::PoolKind::Ap]
+                    .map(|(c, _)| c)
+                    .unwrap_or(0)
+                    > 0
+            })
             .filter(|e| active.cache.threat >= e.eff_hp() as f32)
             .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
             .min_by_key(|e| e.eff_hp());
@@ -367,7 +396,9 @@ pub fn select_intent(
             // finish_target reflects the best killable opportunity overall.
             let kill_score = 1.2 + need_signals.finish_target * 0.3;
             consider(
-                TacticalIntent::FocusTarget { target: target.entity() },
+                TacticalIntent::FocusTarget {
+                    target: target.entity(),
+                },
                 kill_score,
                 IntentReason::Killable {
                     threat: active.cache.threat,
@@ -379,7 +410,9 @@ pub fn select_intent(
         } else if let Some(target) = highest_priority_enemy(active, snap) {
             let prio = target_selection_score(active, target, snap);
             consider(
-                TacticalIntent::FocusTarget { target: target.entity() },
+                TacticalIntent::FocusTarget {
+                    target: target.entity(),
+                },
                 0.5 + prio * 0.3,
                 IntentReason::BestPriority { priority: prio },
             );
@@ -403,7 +436,9 @@ pub fn select_intent(
                 let dpr = crate::combat::ai::scoring::horizon_avg(target);
                 let cc_score = 0.8 + dpr * 0.1;
                 consider(
-                    TacticalIntent::ApplyCC { target: target.entity() },
+                    TacticalIntent::ApplyCC {
+                        target: target.entity(),
+                    },
                     cc_score,
                     IntentReason::ApplyCc { dpr },
                 );
@@ -414,17 +449,23 @@ pub fn select_intent(
     // SetupAOE: enemies clustered.
     if active.cache.tags.contains(AiTags::HAS_AOE) {
         let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
-        let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
-            enemies[*i + 1..]
-                .iter()
-                .any(|b| a.pos.unsigned_distance_to(b.pos) <= 2)
-        }).count();
+        let cluster_count = enemies
+            .iter()
+            .enumerate()
+            .filter(|(i, a)| {
+                enemies[*i + 1..]
+                    .iter()
+                    .any(|b| a.pos.unsigned_distance_to(b.pos) <= 2)
+            })
+            .count();
         if cluster_count > 0 {
             let aoe_score = 0.7 + cluster_count as f32 * 0.2;
             consider(
                 TacticalIntent::SetupAOE,
                 aoe_score,
-                IntentReason::SetupAoe { clustered_pairs: cluster_count },
+                IntentReason::SetupAoe {
+                    clustered_pairs: cluster_count,
+                },
             );
         }
     }
@@ -553,10 +594,8 @@ pub fn update_memory(
     // Step 3.0: track inputs for need layer (read in step 3.1 producer).
     let hp_pct = active.hp_pct();
     memory.hp_ratio_at_last_turn = Some(hp_pct);
-    memory.last_turn_was_defensive = matches!(
-        kind,
-        IntentKind::ProtectSelf | IntentKind::LastStand
-    );
+    memory.last_turn_was_defensive =
+        matches!(kind, IntentKind::ProtectSelf | IntentKind::LastStand);
     if hp_pct < tuning.thresholds.low_hp_zone_threshold {
         memory.turns_in_low_hp = memory.turns_in_low_hp.saturating_add(1);
     } else {
@@ -573,9 +612,9 @@ mod tests {
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::config::tuning::AiTuning;
-    
-    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::world::tags::StatusTagCache;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -608,7 +647,16 @@ mod tests {
         let tuning = AiTuning::default();
         let need_signals = NeedSignals::default();
         let actor_view = snap.unit(actor.entity).expect("actor in snap");
-        let choice = select_intent(actor_view, &snap, &maps, &memory, &difficulty, &tuning, &need_signals, &StatusTagCache::default());
+        let choice = select_intent(
+            actor_view,
+            &snap,
+            &maps,
+            &memory,
+            &difficulty,
+            &tuning,
+            &need_signals,
+            &StatusTagCache::default(),
+        );
 
         assert!(
             !matches!(choice.reason, IntentReason::Killable { .. }),
@@ -648,7 +696,9 @@ mod tests {
             .build();
 
         // E2: full HP 10, so eff_hp=10 > actor threat=2 → not killable.
-        let e2 = UnitBuilder::new(2, Team::Player, e2_pos).full_hp(10).build();
+        let e2 = UnitBuilder::new(2, Team::Player, e2_pos)
+            .full_hp(10)
+            .build();
         let e2_entity = e2.entity;
 
         let snap = snapshot_from(vec![actor.clone(), e2], 1);
@@ -679,8 +729,16 @@ mod tests {
             ..NeedSignals::default()
         };
         let actor_view = snap.unit(actor.entity).expect("actor in snap");
-        let choice_high =
-            select_intent(actor_view, &snap, &maps, &memory, &difficulty, &tuning, &ns_high, &StatusTagCache::default());
+        let choice_high = select_intent(
+            actor_view,
+            &snap,
+            &maps,
+            &memory,
+            &difficulty,
+            &tuning,
+            &ns_high,
+            &StatusTagCache::default(),
+        );
         assert!(
             matches!(choice_high.intent, TacticalIntent::FocusTarget { target } if target == e2_entity),
             "commitment=1.0 → stickiness tips FocusTarget above ProtectSelf; got {:?}",
@@ -694,8 +752,16 @@ mod tests {
             self_preserve: 0.80,
             ..NeedSignals::default()
         };
-        let choice_low =
-            select_intent(actor_view, &snap, &maps, &memory, &difficulty, &tuning, &ns_low, &StatusTagCache::default());
+        let choice_low = select_intent(
+            actor_view,
+            &snap,
+            &maps,
+            &memory,
+            &difficulty,
+            &tuning,
+            &ns_low,
+            &StatusTagCache::default(),
+        );
         assert!(
             matches!(choice_low.intent, TacticalIntent::ProtectSelf),
             "commitment=0.0 → no stickiness, ProtectSelf beats FocusTarget; got {:?}",

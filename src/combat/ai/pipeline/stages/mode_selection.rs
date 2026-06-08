@@ -27,9 +27,9 @@
 //! purposes so the semantic change is benign; it is documented here for
 //! clarity.
 
+use crate::combat::ai::adapt::select_evaluation_modes;
 use crate::combat::ai::outcome::AdaptationData;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::adapt::select_evaluation_modes;
 
 pub struct ModeSelectionStage;
 
@@ -42,12 +42,8 @@ impl PlanStage for ModeSelectionStage {
         // Collect read-only views for mode selection.
         let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
 
-        let adaptation = select_evaluation_modes(
-            &pool.plans,
-            &raw_factors,
-            &ctx.intent,
-            ctx.scoring,
-        );
+        let adaptation =
+            select_evaluation_modes(&pool.plans, &raw_factors, &ctx.intent, ctx.scoring);
 
         // Write adaptation annotations — do NOT touch ann.score or ann.factors.
         for (i, ann) in pool.annotations.iter_mut().enumerate() {
@@ -69,10 +65,10 @@ impl PlanStage for ModeSelectionStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder, empty_plan};
+    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
+    use crate::combat::ai::test_helpers::{empty_plan, PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -98,7 +94,10 @@ mod tests {
     fn mode_selection_does_not_mutate_score() {
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![empty_plan(), empty_plan()];
         let pre_scores = [0.7_f32, 0.3_f32];
         let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
@@ -134,7 +133,10 @@ mod tests {
     fn mode_selection_writes_adaptation_for_laststand_plans() {
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(10)
+            .max_hp(20)
+            .build();
         // ProtectSelf with no defensive options → all plans get LastStand.
         let plans = vec![empty_plan(), move_plan(hex_from_offset(1, 0))];
         let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
@@ -170,7 +172,10 @@ mod tests {
     fn mode_selection_records_original_score() {
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![empty_plan(), empty_plan()];
         let pre_scores = [0.5_f32, 0.4_f32];
         let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
@@ -209,7 +214,10 @@ mod tests {
         // ProtectSelf intent with no defensive plans → adaptation fires with
         // ProtectSelfNoDefensive reason stored directly in ann.adaptation.reason.
         let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(10)
+            .max_hp(20)
+            .build();
         let plans = vec![empty_plan()];
         let raw = vec![pfv_survival(0.0)];
 
@@ -218,10 +226,7 @@ mod tests {
         h.intent = TacticalIntent::ProtectSelf;
 
         // ── 3. Pool ──
-        let mut pool = PoolBuilder::new(plans)
-            .scores(&[0.5])
-            .factors(raw)
-            .build();
+        let mut pool = PoolBuilder::new(plans).scores(&[0.5]).factors(raw).build();
 
         // ── 4. Act ──
         h.run(|ctx| ModeSelectionStage.apply(&mut pool, ctx));
@@ -250,7 +255,10 @@ mod tests {
     fn mode_selection_no_adaptation_when_no_trigger() {
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(20)
+            .max_hp(20)
+            .build();
         let plans = vec![move_plan(hex_from_offset(1, 0))];
 
         // ── 2. Harness ──

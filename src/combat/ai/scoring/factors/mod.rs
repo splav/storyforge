@@ -38,24 +38,24 @@ pub use plan::tempo_gain::compute_plan_tempo_gain;
 
 // ── Aggregate re-exports ─────────────────────────────────────────────────────
 pub use aggregate::{
-    build_summon_dpr_cache, compute_plan_factors, compute_plan_factors_sans_intent,
-    compute_plan_intent_sum, factor_contribution, aggregate_factors_to_score, rescore_with_intent,
-    rescore_with_per_plan_modes, score_plans_with_raw, worst_path_danger,
+    aggregate_factors_to_score, build_summon_dpr_cache, compute_plan_factors,
+    compute_plan_factors_sans_intent, compute_plan_intent_sum, factor_contribution,
+    rescore_with_intent, rescore_with_per_plan_modes, score_plans_with_raw, worst_path_danger,
 };
 pub use terminal_state::terminal_state_score;
 
 // ── Registry re-exports (commit 1) ───────────────────────────────────────────
 pub use plan::PlanFactor;
-pub use registry::{BatchStats, NeedAxis, default_norm};
+pub use registry::{default_norm, BatchStats, NeedAxis};
 pub use step::StepFactor;
 pub use terminal::{TerminalFactor, TerminalScore as FactorTerminalScore};
 
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
-use crate::combat::ai::orchestration::ScoringCtx;
-use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
+use combat_engine::AbilityId;
 
 // ── Scored step ─────────────────────────────────────────────────────────────
 
@@ -112,7 +112,11 @@ impl<'a> ScoredStep<'a> {
     /// destination so position factors see the endpoint.
     pub fn from_plan_step(step: &'a PlanStep, pre_step_pos: Hex) -> Self {
         match step {
-            PlanStep::Cast { ability, target, target_pos } => Self::Cast {
+            PlanStep::Cast {
+                ability,
+                target,
+                target_pos,
+            } => Self::Cast {
                 ability,
                 target: *target,
                 target_pos: *target_pos,
@@ -131,14 +135,25 @@ impl<'a> ScoredStep<'a> {
         // Bundling rule comes from `TurnPlan::committed_prefix` — one source
         // of truth shared with `commit_plan` and `committed_step_count`.
         match plan.committed_prefix() {
-            CommittedPrefix::EndTurn => Self::Move { caster_tile: actor_pos },
-            CommittedPrefix::Cast { ability, target, target_pos } => Self::Cast {
+            CommittedPrefix::EndTurn => Self::Move {
+                caster_tile: actor_pos,
+            },
+            CommittedPrefix::Cast {
+                ability,
+                target,
+                target_pos,
+            } => Self::Cast {
                 ability,
                 target,
                 target_pos,
                 caster_tile: actor_pos,
             },
-            CommittedPrefix::MoveThenCast { path, ability, target, target_pos } => {
+            CommittedPrefix::MoveThenCast {
+                path,
+                ability,
+                target,
+                target_pos,
+            } => {
                 let dest = path.last().copied().unwrap_or(actor_pos);
                 Self::Cast {
                     ability,
@@ -176,7 +191,12 @@ pub(crate) fn compute_offensive_for_step(
     outcome: &ActionOutcomeEstimate,
 ) -> OffensiveFactors {
     let mut off = match step {
-        ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
+        ScoredStep::Cast {
+            ability,
+            target_pos,
+            target,
+            caster_tile,
+        } => {
             offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, ctx, outcome)
         }
         ScoredStep::Move { .. } => OffensiveFactors::default(),
@@ -184,7 +204,6 @@ pub(crate) fn compute_offensive_for_step(
     adjustments::apply_reservation_adjustments(step, &mut off, ctx);
     off
 }
-
 
 // Normalization tests used to live here but only exercised inlined copies
 // of the formula, not production code. The real batch-normalisation contract
@@ -310,7 +329,15 @@ mod tests {
         let step_names: Vec<_> = StepFactor::iter().map(|f| f.name()).collect();
         assert_eq!(
             step_names,
-            ["damage", "kill_now", "kill_promised", "cc", "heal", "scarcity", "saturation"]
+            [
+                "damage",
+                "kill_now",
+                "kill_promised",
+                "cc",
+                "heal",
+                "scarcity",
+                "saturation"
+            ]
         );
         // signed flags
         assert!(!StepFactor::Damage.signed());

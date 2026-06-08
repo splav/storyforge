@@ -36,14 +36,11 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use combat_engine::{
-    DiceRng, TomlContentView,
     event::Event,
     state::CombatState,
     step::step,
-    trace::{
-        InitLine, StepLine, SCHEMA_VERSION,
-        parse_init, parse_step, post_state_hash_hex,
-    },
+    trace::{parse_init, parse_step, post_state_hash_hex, InitLine, StepLine, SCHEMA_VERSION},
+    DiceRng, TomlContentView,
 };
 
 // ── Args ──────────────────────────────────────────────────────────────────────
@@ -56,7 +53,10 @@ struct Args {
 
 fn parse_args() -> Args {
     let argv: Vec<String> = std::env::args().collect();
-    let prog = argv.first().map(|s| s.as_str()).unwrap_or("replay_engine_trace");
+    let prog = argv
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("replay_engine_trace");
 
     let usage = format!(
         "USAGE: {prog} <path> [--strict-content] [--tolerance <eps>]\n\
@@ -108,7 +108,11 @@ fn parse_args() -> Args {
         std::process::exit(1);
     });
 
-    Args { path, strict_content, tolerance }
+    Args {
+        path,
+        strict_content,
+        tolerance,
+    }
 }
 
 // ── Path resolution ───────────────────────────────────────────────────────────
@@ -125,12 +129,7 @@ fn resolve_engine_jsonl(path: &Path) -> PathBuf {
 // ── State reconstruction ──────────────────────────────────────────────────────
 
 fn state_from_init(init: &InitLine) -> CombatState {
-    let mut state = CombatState::new(
-        init.units.clone(),
-        init.round,
-        init.phase,
-        init.rng_seed,
-    );
+    let mut state = CombatState::new(init.units.clone(), init.round, init.phase, init.rng_seed);
     state.set_turn_queue(init.turn_queue.order.clone(), init.turn_queue.index);
     state.set_next_synthetic_uid(init.next_synthetic_uid);
     state
@@ -145,11 +144,7 @@ fn state_from_init(init: &InitLine) -> CombatState {
 ///
 /// Forward-compat stub: the engine currently produces no other f32 fields.
 /// If that changes, extend this function.
-fn events_match_within(
-    recorded: &[Event],
-    live: &[Event],
-    eps: f32,
-) -> Result<(), String> {
+fn events_match_within(recorded: &[Event], live: &[Event], eps: f32) -> Result<(), String> {
     if recorded.len() != live.len() {
         return Err(format!(
             "event count mismatch: recorded={} live={}",
@@ -169,8 +164,22 @@ fn events_match_within(
             // All other variants and all other fields require strict equality.
             match (rec, liv) {
                 (
-                    Event::UnitDamaged { target: rt, source: rs, raw: rr, mitigation: rm, pierces: rp, amount: ra },
-                    Event::UnitDamaged { target: lt, source: ls, raw: lr, mitigation: lm, pierces: lp, amount: la },
+                    Event::UnitDamaged {
+                        target: rt,
+                        source: rs,
+                        raw: rr,
+                        mitigation: rm,
+                        pierces: rp,
+                        amount: ra,
+                    },
+                    Event::UnitDamaged {
+                        target: lt,
+                        source: ls,
+                        raw: lr,
+                        mitigation: lm,
+                        pierces: lp,
+                        amount: la,
+                    },
                 ) => {
                     let raw_ok = (rr - lr).abs() <= eps;
                     if rt != lt || rs != ls || !raw_ok || rm != lm || rp != lp || ra != la {
@@ -215,7 +224,10 @@ fn check_content_hash(recorded_hash: &str) -> Result<(), String> {
     };
     // Sort for determinism (hash_content also sorts, but we need refs to &str).
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
-    let ref_pairs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let ref_pairs: Vec<(&str, &str)> = pairs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
 
     let digest = content_hash::hash_content(&ref_pairs);
     let live_hash = content_hash::format_hex(&digest);
@@ -274,7 +286,9 @@ fn main() {
     let data_dir = Path::new("assets/data");
     let content = TomlContentView::load_from_dir(data_dir).unwrap_or_else(|e| {
         eprintln!("warning: cannot load content from assets/data: {e}");
-        eprintln!("         falling back to empty content (abilities/statuses will all be unknown)");
+        eprintln!(
+            "         falling back to empty content (abilities/statuses will all be unknown)"
+        );
         TomlContentView::empty()
     });
 
@@ -309,18 +323,14 @@ fn main() {
             }
         };
 
-        let (live_events, live_ctx) = match step(
-            &mut state,
-            recorded.action.clone(),
-            &mut rng,
-            &content,
-        ) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("error: step {idx} failed during replay: {e:?}");
-                std::process::exit(3);
-            }
-        };
+        let (live_events, live_ctx) =
+            match step(&mut state, recorded.action.clone(), &mut rng, &content) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("error: step {idx} failed during replay: {e:?}");
+                    std::process::exit(3);
+                }
+            };
 
         // 6a. Compare events.
         if let Err(msg) = events_match_within(&recorded.events, &live_events, args.tolerance) {
@@ -352,9 +362,7 @@ fn main() {
 
     // 7. Success.
     let final_hash = post_state_hash_hex(&state);
-    println!(
-        "OK: {n_steps} step(s) replayed — all events, rng_calls, and state hashes match."
-    );
+    println!("OK: {n_steps} step(s) replayed — all events, rng_calls, and state hashes match.");
     println!("    session_id={}", init.session_id);
     println!("    final_hash={final_hash}");
 }

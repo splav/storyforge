@@ -96,9 +96,7 @@ pub fn derive_ability_tags<L: StatusTagLookup>(
     }
 
     // Rescue: heal effect targeted at a single ally.
-    if def.target_type == TargetType::SingleAlly
-        && matches!(def.effect, EffectDef::Heal { .. })
-    {
+    if def.target_type == TargetType::SingleAlly && matches!(def.effect, EffectDef::Heal { .. }) {
         s.insert_tag(AbilityTag::Rescue);
     }
 
@@ -117,7 +115,10 @@ pub fn derive_ability_tags<L: StatusTagLookup>(
         let is_protected_target = sa.on == StatusOn::MySelf
             || (sa.on == StatusOn::Target && def.target_type == TargetType::SingleAlly)
             || (sa.on == StatusOn::Target && def.target_type == TargetType::Myself);
-        is_protected_target && status_lookup.get_tags(&sa.status).contains_tag(StatusTag::Buff)
+        is_protected_target
+            && status_lookup
+                .get_tags(&sa.status)
+                .contains_tag(StatusTag::Buff)
     });
     if applies_buff_to_protected {
         s.insert_tag(AbilityTag::Defensive);
@@ -128,7 +129,10 @@ pub fn derive_ability_tags<L: StatusTagLookup>(
         if sa.on != StatusOn::Target {
             return false;
         }
-        if !matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground) {
+        if !matches!(
+            def.target_type,
+            TargetType::SingleEnemy | TargetType::Ground
+        ) {
             return false;
         }
         let tags = status_lookup.get_tags(&sa.status);

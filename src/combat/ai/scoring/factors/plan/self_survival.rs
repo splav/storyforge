@@ -16,8 +16,8 @@ pub const NAME: &str = "self_survival";
 pub const SIGNED: bool = false;
 
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::content::abilities::{EffectDef, StatusOn, TargetType};
 use crate::game::hex::Hex;
 
@@ -57,33 +57,38 @@ pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
         if idx >= prefix_len {
             break; // phantom tail — stop aggregating
         }
-        let PlanStep::Cast { ability, target, .. } = step else { continue };
+        let PlanStep::Cast {
+            ability, target, ..
+        } = step
+        else {
+            continue;
+        };
         // Only self-directed casts (actor targets themselves).
         if *target != active.entity() {
             continue;
         }
-        let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
+        let Some(def) = ctx.world.content.abilities.get(ability) else {
+            continue;
+        };
         if !matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
             continue;
         }
 
         // Self-heal: expected heal amount / max_hp.
         if let EffectDef::Heal { dice } = &def.effect {
-            let ev = (dice.expected()
-                + caster.int_mod as f32
-                + caster.spell_power as f32)
-                .max(0.0);
+            let ev = (dice.expected() + caster.int_mod as f32 + caster.spell_power as f32).max(0.0);
             heal_sum += ev / max_hp;
         }
 
         // Self-armor-buff: armor_bonus × 3 (turns) / max_hp.
         for sa in &def.statuses {
-            let is_on_self = sa.on == StatusOn::MySelf
-                || sa.on == StatusOn::Target; // target == active.entity (checked above)
+            let is_on_self = sa.on == StatusOn::MySelf || sa.on == StatusOn::Target; // target == active.entity (checked above)
             if !is_on_self {
                 continue;
             }
-            let Some(sdef) = ctx.world.content.statuses.get(&sa.status) else { continue };
+            let Some(sdef) = ctx.world.content.statuses.get(&sa.status) else {
+                continue;
+            };
             if sdef.bonuses.armor_bonus > 0 {
                 armor_sum += sdef.bonuses.armor_bonus as f32 * 3.0 / max_hp;
             }
@@ -120,14 +125,20 @@ fn committed_prefix_final_pos(plan: &TurnPlan, actor_pos: Hex) -> Hex {
 mod tests {
     use super::*;
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
-    fn build_plan(steps: Vec<PlanStep>, final_pos: crate::game::hex::Hex, snap: &BattleSnapshot) -> TurnPlan {
+    fn build_plan(
+        steps: Vec<PlanStep>,
+        final_pos: crate::game::hex::Hex,
+        snap: &BattleSnapshot,
+    ) -> TurnPlan {
         let len = steps.len();
         TurnPlan {
             steps,
@@ -191,10 +202,11 @@ mod tests {
 
         // A plan that does NOT target self (cast targeting someone else)
         let other_entity = snapshot_from(
-            vec![UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build()], 1
+            vec![UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build()],
+            1,
         );
         let _ = other_entity; // just to note the plan targets actor itself but with non-heal
-        // Use an empty plan (EndTurn) — most direct test for "no survival improvement"
+                              // Use an empty plan (EndTurn) — most direct test for "no survival improvement"
         let empty_plan = TurnPlan {
             steps: Vec::new(),
             final_pos: actor_pos,
@@ -228,7 +240,9 @@ mod tests {
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
         let plan = build_plan(
-            vec![PlanStep::Move { path: vec![safe_pos] }],
+            vec![PlanStep::Move {
+                path: vec![safe_pos],
+            }],
             safe_pos,
             &snap,
         );
@@ -358,7 +372,9 @@ mod tests {
                     target: enemy.entity,
                     target_pos: enemy_pos,
                 },
-                PlanStep::Move { path: vec![retreat_pos] },
+                PlanStep::Move {
+                    path: vec![retreat_pos],
+                },
             ],
             retreat_pos, // plan.final_pos (the old code would use this)
             &snap,
@@ -538,7 +554,9 @@ mod tests {
         // Two different intents should produce identical self_survival.
         let dummy_target = Entity::from_raw_u32(99).unwrap();
         let intent_a = TacticalIntent::Reposition;
-        let intent_b = TacticalIntent::FocusTarget { target: dummy_target };
+        let intent_b = TacticalIntent::FocusTarget {
+            target: dummy_target,
+        };
 
         let score_a = compute(&plan, &intent_a, &ctx);
         let score_b = compute(&plan, &intent_b, &ctx);

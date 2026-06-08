@@ -18,8 +18,7 @@ use storyforge::combat_engine::{
     content::{AuraDef, ContentView, StatusBonuses, TeamRelation},
     legality::{ActionState, ActorView, IllegalReason, LegalAction, ProposedAction},
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
-    AbilityDef, AbilityId, AbilityRange, StatusDef, StatusId, TagId,
-    TargetType, UnitTemplate,
+    AbilityDef, AbilityId, AbilityRange, StatusDef, StatusId, TagId, TargetType, UnitTemplate,
 };
 
 // ── Minimal ContentView stub ──────────────────────────────────────────────────
@@ -38,8 +37,12 @@ impl ContentView for TagContent {
     fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
         Some(&self.status_def)
     }
-    fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { self.status_def.bonuses }
+    fn unit_template(&self, _: &str) -> Option<UnitTemplate> {
+        None
+    }
+    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses {
+        self.status_def.bonuses
+    }
 }
 
 // ── EngineCheckState wrapper (mirrors step.rs pattern) ────────────────────────
@@ -79,15 +82,21 @@ impl<'a> ActionState for StubState<'a> {
             is_alive: u.is_alive(),
         })
     }
-    fn actor_knows_ability(&self, _: UnitId, _: &AbilityId) -> bool { true }
+    fn actor_knows_ability(&self, _: UnitId, _: &AbilityId) -> bool {
+        true
+    }
     fn is_target_alive(&self, target: UnitId) -> Option<bool> {
         self.state.unit(target).map(|u| u.is_alive())
     }
     fn target_team(&self, target: UnitId) -> Option<Team> {
         self.state.unit(target).map(|u| u.team)
     }
-    fn taunters_for(&self, _: Team) -> Vec<UnitId> { vec![] }
-    fn is_in_bounds(&self, _: Hex) -> bool { true }
+    fn taunters_for(&self, _: Team) -> Vec<UnitId> {
+        vec![]
+    }
+    fn is_in_bounds(&self, _: Hex) -> bool {
+        true
+    }
     fn has_tags(
         &self,
         target: UnitId,
@@ -102,10 +111,18 @@ impl<'a> ActionState for StubState<'a> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn tag(s: &str) -> TagId { TagId::from(s) }
-fn tags(v: &[&str]) -> BTreeSet<TagId> { v.iter().map(|s| tag(s)).collect() }
-fn aid(s: &str) -> AbilityId { AbilityId::from(s) }
-fn uid(n: u64) -> UnitId { UnitId(n) }
+fn tag(s: &str) -> TagId {
+    TagId::from(s)
+}
+fn tags(v: &[&str]) -> BTreeSet<TagId> {
+    v.iter().map(|s| tag(s)).collect()
+}
+fn aid(s: &str) -> AbilityId {
+    AbilityId::from(s)
+}
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
 
 fn unit_with_tags(id: u64, team: Team, t: BTreeSet<TagId>) -> Unit {
     let mut u = crate::common::engine_unit::EngineUnitBuilder::new(id)
@@ -149,7 +166,11 @@ fn make_content(id: &str, def: AbilityDef) -> TagContent {
     }
 }
 
-fn propose<'a>(actor: UnitId, ability: &'a AbilityId, target: UnitId) -> ProposedAction<'a, UnitId> {
+fn propose<'a>(
+    actor: UnitId,
+    ability: &'a AbilityId,
+    target: UnitId,
+) -> ProposedAction<'a, UnitId> {
     ProposedAction {
         actor,
         ability,
@@ -177,10 +198,15 @@ fn requires_tags_met_is_legal() {
     let state = make_state_two(actor, target);
     let ab_id = aid("atk");
     let content = make_content("atk", enemy_ability(tags(&["symbiote"]), BTreeSet::new()));
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     assert_eq!(
         check_legality(propose(uid(1), &ab_id, uid(2)), &s),
-        Ok(LegalAction { disadvantage: false })
+        Ok(LegalAction {
+            disadvantage: false
+        })
     );
 }
 
@@ -191,7 +217,10 @@ fn requires_tags_missing_returns_wrong_target_tags() {
     let state = make_state_two(actor, target);
     let ab_id = aid("atk");
     let content = make_content("atk", enemy_ability(tags(&["symbiote"]), BTreeSet::new()));
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     assert_eq!(
         check_legality(propose(uid(1), &ab_id, uid(2)), &s),
         Err(IllegalReason::WrongTargetTags)
@@ -205,7 +234,10 @@ fn excludes_tags_present_returns_wrong_target_tags() {
     let state = make_state_two(actor, target);
     let ab_id = aid("atk");
     let content = make_content("atk", enemy_ability(BTreeSet::new(), tags(&["living"])));
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     assert_eq!(
         check_legality(propose(uid(1), &ab_id, uid(2)), &s),
         Err(IllegalReason::WrongTargetTags)
@@ -220,10 +252,15 @@ fn excludes_tags_absent_is_legal() {
     let ab_id = aid("atk");
     // excludes "living" but target has "undead" only → legal
     let content = make_content("atk", enemy_ability(BTreeSet::new(), tags(&["living"])));
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     assert_eq!(
         check_legality(propose(uid(1), &ab_id, uid(2)), &s),
-        Ok(LegalAction { disadvantage: false })
+        Ok(LegalAction {
+            disadvantage: false
+        })
     );
 }
 
@@ -234,10 +271,15 @@ fn single_ally_with_requires_tags_legal() {
     let state = make_state_two(actor, ally);
     let ab_id = aid("heal");
     let content = make_content("heal", ally_ability(tags(&["blessed"]), BTreeSet::new()));
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     assert_eq!(
         check_legality(propose(uid(1), &ab_id, uid(2)), &s),
-        Ok(LegalAction { disadvantage: false })
+        Ok(LegalAction {
+            disadvantage: false
+        })
     );
 }
 
@@ -248,7 +290,10 @@ fn single_ally_missing_required_tag_is_wrong() {
     let state = make_state_two(actor, ally);
     let ab_id = aid("heal");
     let content = make_content("heal", ally_ability(tags(&["blessed"]), BTreeSet::new()));
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     assert_eq!(
         check_legality(propose(uid(1), &ab_id, uid(2)), &s),
         Err(IllegalReason::WrongTargetTags)
@@ -267,7 +312,10 @@ fn ground_ability_ignores_tags() {
         ..AbilityDef::default()
     };
     let content = make_content("ground", def);
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     // Ground skips tag check entirely — should be Ok
     assert!(check_legality(propose(uid(1), &ab_id, uid(2)), &s).is_ok());
 }
@@ -285,7 +333,10 @@ fn myself_ability_ignores_tags() {
         ..AbilityDef::default()
     };
     let content = make_content("self_cast", def);
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     // Myself cast on actor itself — passes regardless of requires_tags
     let actor_proposal = ProposedAction {
         actor: uid(1),
@@ -304,10 +355,15 @@ fn empty_tags_on_both_sides_is_always_legal() {
     let state = make_state_two(actor, target);
     let ab_id = aid("atk");
     let content = make_content("atk", enemy_ability(BTreeSet::new(), BTreeSet::new()));
-    let s = StubState { state: &state, content: &content };
+    let s = StubState {
+        state: &state,
+        content: &content,
+    };
     assert_eq!(
         check_legality(propose(uid(1), &ab_id, uid(2)), &s),
-        Ok(LegalAction { disadvantage: false })
+        Ok(LegalAction {
+            disadvantage: false
+        })
     );
 }
 
@@ -325,7 +381,11 @@ fn aura_content_with_tags(_affects_tags: BTreeSet<TagId>) -> TagContent {
             blocks_mana_abilities: false,
             forces_targeting: false,
             skips_turn: false,
-            bonuses: StatusBonuses { speed_bonus: 5, armor_bonus: 0, damage_taken_bonus: 0 },
+            bonuses: StatusBonuses {
+                speed_bonus: 5,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
             hp_percent_dot: 0,
             heal_per_tick: 0,
         },
@@ -368,11 +428,17 @@ fn aura_with_affects_tags_applies_only_to_tagged_target() {
 
     // Tagged target receives aura speed bonus
     let fx_tagged = state.aura_effects_on(uid(2), &content);
-    assert_eq!(fx_tagged.speed_bonus, 5, "tagged target should receive speed bonus");
+    assert_eq!(
+        fx_tagged.speed_bonus, 5,
+        "tagged target should receive speed bonus"
+    );
 
     // Untagged target receives nothing
     let fx_untagged = state.aura_effects_on(uid(3), &content);
-    assert_eq!(fx_untagged.speed_bonus, 0, "untagged target should not receive bonus");
+    assert_eq!(
+        fx_untagged.speed_bonus, 0,
+        "untagged target should not receive bonus"
+    );
 }
 
 #[test]
@@ -388,7 +454,10 @@ fn aura_empty_affects_tags_applies_to_all_targets() {
     let content = aura_content_with_tags(BTreeSet::new());
 
     let fx = state.aura_effects_on(uid(2), &content);
-    assert_eq!(fx.speed_bonus, 5, "empty affects_tags should apply to all targets");
+    assert_eq!(
+        fx.speed_bonus, 5,
+        "empty affects_tags should apply to all targets"
+    );
 }
 
 #[test]
@@ -412,8 +481,14 @@ fn aura_membership_set_respects_affects_tags() {
     let membership = state.aura_membership_set(&content);
     let status = StatusId::from("aura_s");
 
-    assert!(membership.contains(&(uid(2), uid(1), status.clone())), "tagged target in membership");
-    assert!(!membership.contains(&(uid(3), uid(1), status)), "untagged target not in membership");
+    assert!(
+        membership.contains(&(uid(2), uid(1), status.clone())),
+        "tagged target in membership"
+    );
+    assert!(
+        !membership.contains(&(uid(3), uid(1), status)),
+        "untagged target not in membership"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -529,7 +604,12 @@ chest = "cloth"
 legs = "cloth"
 feet = "cloth"
 "#;
-    let encs = load_encounters_from_str("test_scenario", "test.toml", toml, &std::collections::HashMap::new());
+    let encs = load_encounters_from_str(
+        "test_scenario",
+        "test.toml",
+        toml,
+        &std::collections::HashMap::new(),
+    );
     let enc = encs.iter().find(|e| e.id == "test_enc").unwrap();
     let enemy = &enc.enemies[0];
     assert!(enemy.tags.contains(&TagId::from("symbiote")));
@@ -577,7 +657,12 @@ radius = 3
 affects = "enemies"
 affects_tags = ["symbiote"]
 "#;
-    let encs = load_encounters_from_str("test_scenario", "test.toml", toml, &std::collections::HashMap::new());
+    let encs = load_encounters_from_str(
+        "test_scenario",
+        "test.toml",
+        toml,
+        &std::collections::HashMap::new(),
+    );
     let enc = encs.iter().find(|e| e.id == "test_enc").unwrap();
     let enemy = &enc.enemies[0];
     let aura = enemy.aura.as_ref().unwrap();

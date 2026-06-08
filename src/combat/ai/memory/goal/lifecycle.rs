@@ -2,16 +2,15 @@
 //! orchestrator (`enemy_turn.rs`). Not wired into the plan pipeline
 //! (see §7.3 plan: lifecycle = explicit module, not a stage).
 
-use crate::combat::ai::memory::AiMemory;
-use crate::combat::ai::repair::{
-    ContinuationSeverity, classify_continuation_outcome,
-    is_abandoned_outcome, FreshDecisionKind,
-};
 use super::context::extract_goal_context;
+use crate::combat::ai::config::tuning::AiTuning;
+use crate::combat::ai::memory::AiMemory;
+use crate::combat::ai::orchestration::{AiDecision, ChosenInfo};
+use crate::combat::ai::repair::{
+    classify_continuation_outcome, is_abandoned_outcome, ContinuationSeverity, FreshDecisionKind,
+};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::StatusTagCache;
-use crate::combat::ai::config::tuning::AiTuning;
-use crate::combat::ai::orchestration::{AiDecision, ChosenInfo};
 
 /// Pre-tick: TTL decay + clear stale goals (TTL expired or Invalidating severity).
 /// Called by the orchestrator BEFORE `pick_action`. Idempotent on stale memory.
@@ -105,15 +104,15 @@ pub fn post_tick(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::Entity;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-    use crate::combat::ai::plan::types::{TurnPlan, PlanStep};
     use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::test_helpers::{ent, snapshot_from};
     use crate::combat::ai::orchestration::ChosenInfo;
-    use crate::game::hex::hex_from_offset;
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::test_helpers::{ent, snapshot_from};
+    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+    use bevy::prelude::Entity;
 
     fn make_actor(id: u32) -> crate::combat::ai::world::snapshot::UnitSnapshot {
         crate::combat::ai::test_helpers::UnitBuilder::new(id, Team::Enemy, hex_from_offset(0, 0))
@@ -201,7 +200,10 @@ mod tests {
         };
         let tags = empty_status_tags();
         pre_tick(&mut memory, &snap, actor, &tags);
-        assert!(memory.last_goal.is_none(), "TTL-expired goal must be cleared");
+        assert!(
+            memory.last_goal.is_none(),
+            "TTL-expired goal must be cleared"
+        );
     }
 
     #[test]
@@ -223,7 +225,10 @@ mod tests {
         };
         let tags = empty_status_tags();
         pre_tick(&mut memory, &snap, actor, &tags);
-        assert!(memory.last_goal.is_none(), "Invalidating goal (target gone) must be cleared");
+        assert!(
+            memory.last_goal.is_none(),
+            "Invalidating goal (target gone) must be cleared"
+        );
     }
 
     #[test]
@@ -234,9 +239,11 @@ mod tests {
         // Target hp dropped (Relevant) — should NOT clear.
         let actor_unit = make_actor(1);
         let target_unit = crate::combat::ai::test_helpers::UnitBuilder::new(
-            2, Team::Player, hex_from_offset(2, 0),
+            2,
+            Team::Player,
+            hex_from_offset(2, 0),
         )
-        .hp(5)   // lower than stored target_hp_at_store=8 → Relevant
+        .hp(5) // lower than stored target_hp_at_store=8 → Relevant
         .build();
         let snap = make_snap_with_units(vec![actor_unit, target_unit], 1);
         let actor = snap.unit(ent(1)).unwrap();
@@ -253,7 +260,10 @@ mod tests {
         };
         let tags = empty_status_tags();
         pre_tick(&mut memory, &snap, actor, &tags);
-        assert!(memory.last_goal.is_some(), "Relevant mismatch must NOT clear the goal");
+        assert!(
+            memory.last_goal.is_some(),
+            "Relevant mismatch must NOT clear the goal"
+        );
     }
 
     // ── post_tick ─────────────────────────────────────────────────────────────
@@ -275,7 +285,16 @@ mod tests {
         let c = chosen_move(target, dest);
         let mut memory = AiMemory::default();
 
-        post_tick(&mut memory, &decision, Some(&c), &snap, actor, 1, &tuning, &tags);
+        post_tick(
+            &mut memory,
+            &decision,
+            Some(&c),
+            &snap,
+            actor,
+            1,
+            &tuning,
+            &tags,
+        );
         // extract_goal_context may return None for FocusTarget if no target in snap,
         // but the call should at least not panic and be a no-op (None stored).
         // To confirm the store path ran, check that the call didn't clear anything.
@@ -302,7 +321,16 @@ mod tests {
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, None, &snap, actor, 1, &tuning, &tags);
+        post_tick(
+            &mut memory,
+            &decision,
+            None,
+            &snap,
+            actor,
+            1,
+            &tuning,
+            &tags,
+        );
         assert!(memory.last_goal.is_none(), "CastInPlace must clear goal");
     }
 
@@ -326,7 +354,16 @@ mod tests {
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, None, &snap, actor, 1, &tuning, &tags);
+        post_tick(
+            &mut memory,
+            &decision,
+            None,
+            &snap,
+            actor,
+            1,
+            &tuning,
+            &tags,
+        );
         assert!(memory.last_goal.is_none(), "MoveAndCast must clear goal");
     }
 
@@ -336,7 +373,9 @@ mod tests {
         let target = ent(2);
         let actor_unit = make_actor(1);
         let target_unit = crate::combat::ai::test_helpers::UnitBuilder::new(
-            2, Team::Player, hex_from_offset(2, 0),
+            2,
+            Team::Player,
+            hex_from_offset(2, 0),
         )
         .hp(8)
         .build();
@@ -362,8 +401,20 @@ mod tests {
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, Some(&c), &snap, actor, 1, &tuning, &tags);
-        assert!(memory.last_goal.is_some(), "In-transit goal must be preserved on EndTurn");
+        post_tick(
+            &mut memory,
+            &decision,
+            Some(&c),
+            &snap,
+            actor,
+            1,
+            &tuning,
+            &tags,
+        );
+        assert!(
+            memory.last_goal.is_some(),
+            "In-transit goal must be preserved on EndTurn"
+        );
     }
 
     #[test]
@@ -372,7 +423,9 @@ mod tests {
         let target = ent(2);
         let actor_unit = make_actor(1);
         let target_unit = crate::combat::ai::test_helpers::UnitBuilder::new(
-            2, Team::Player, hex_from_offset(2, 0),
+            2,
+            Team::Player,
+            hex_from_offset(2, 0),
         )
         .hp(8)
         .build();
@@ -390,16 +443,25 @@ mod tests {
         };
         let decision = AiDecision::EndTurn;
         // Different intent → voluntary abandon
-        let c = chosen_endturn(
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-        );
+        let c = chosen_endturn(TacticalIntent::Reposition, IntentReason::NoRuleDefault);
         let mut memory = AiMemory {
             last_goal: Some(stored),
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, Some(&c), &snap, actor, 1, &tuning, &tags);
-        assert!(memory.last_goal.is_none(), "Voluntary abandon on EndTurn must clear goal");
+        post_tick(
+            &mut memory,
+            &decision,
+            Some(&c),
+            &snap,
+            actor,
+            1,
+            &tuning,
+            &tags,
+        );
+        assert!(
+            memory.last_goal.is_none(),
+            "Voluntary abandon on EndTurn must clear goal"
+        );
     }
 }

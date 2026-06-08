@@ -37,7 +37,11 @@ pub fn hex_to_offset(hex: Hex) -> [i32; 2] {
 
 /// Odd rows are one cell longer (protrude on both sides); even rows have GRID_COLS-1 cells.
 pub fn row_cols(r: i32) -> i32 {
-    if r & 1 == 0 { GRID_COLS - 1 } else { GRID_COLS }
+    if r & 1 == 0 {
+        GRID_COLS - 1
+    } else {
+        GRID_COLS
+    }
 }
 
 pub fn in_bounds(hex: Hex) -> bool {
@@ -60,10 +64,7 @@ pub fn can_stop_on(cell: Hex, occupants: &HashSet<Hex>, self_pos: Option<Hex>) -
 
 /// All in-bounds cells within hex-distance ≤ radius from center.
 pub fn hex_circle(center: Hex, radius: u32) -> Vec<Hex> {
-    center
-        .range(radius)
-        .filter(|&h| in_bounds(h))
-        .collect()
+    center.range(radius).filter(|&h| in_bounds(h)).collect()
 }
 
 /// Line of `length` cells starting at `target` and extending in the direction
@@ -81,11 +82,7 @@ pub fn hex_line(from: Hex, target: Hex, length: u32) -> Vec<Hex> {
 }
 
 /// All in-bounds cells within hex-distance ≤ `radius` that have LOS from `from`.
-pub fn visible_cells(
-    from: Hex,
-    radius: u32,
-    blocks_los: impl Fn(Hex) -> bool,
-) -> Vec<Hex> {
+pub fn visible_cells(from: Hex, radius: u32, blocks_los: impl Fn(Hex) -> bool) -> Vec<Hex> {
     hex_circle(from, radius)
         .into_iter()
         .filter(|&h| has_los(from, h, &blocks_los))

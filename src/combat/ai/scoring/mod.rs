@@ -18,6 +18,6 @@ pub mod trade;
 // `crate::combat::ai::scoring::{applies_cc, …}` continue to work
 // without path changes.
 pub use horizon::{
-    applies_cc, estimate_damage_horizon, estimate_st_damage, horizon_avg,
-    horizon_window_sum, status_applications, stun_denial_value,
+    applies_cc, estimate_damage_horizon, estimate_st_damage, horizon_avg, horizon_window_sum,
+    status_applications, stun_denial_value,
 };

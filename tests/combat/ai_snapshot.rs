@@ -7,7 +7,7 @@
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
-use crate::common::{fixtures::*, apps::engine::*};
+use crate::common::{apps::engine::*, fixtures::*};
 use storyforge::combat::ai::config::difficulty::DifficultyProfile;
 use storyforge::combat::ai::config::role::AxisProfile;
 use storyforge::combat::ai::world::snapshot::build_snapshot;
@@ -19,7 +19,9 @@ use storyforge::game::resources::{HexCorpses, HexPositions};
 
 fn spawn_at(app: &mut App, pos: hexx::Hex, bundle: impl Bundle, name: &'static str) -> Entity {
     let e = app.world_mut().spawn((Name::new(name), bundle)).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(e, pos);
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(e, pos);
     e
 }
 
@@ -30,15 +32,30 @@ fn build_snapshot_includes_dead_combatant() {
     let mut app = movement_app();
 
     // Spawn a living and a dead enemy.
-    let living = spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "Living");
-    let dead   = spawn_at(&mut app, hex_from_offset(4, 3), test_enemy(base_stats()), "Dead");
+    let living = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "Living",
+    );
+    let dead = spawn_at(
+        &mut app,
+        hex_from_offset(4, 3),
+        test_enemy(base_stats()),
+        "Dead",
+    );
 
     // Mark `dead` as dead: insert Dead component, move to HexCorpses, clear from HexPositions.
     app.world_mut().entity_mut(dead).insert(Dead);
-    app.world_mut().get_mut::<storyforge::game::components::Vital>(dead).unwrap().hp = 0;
+    app.world_mut()
+        .get_mut::<storyforge::game::components::Vital>(dead)
+        .unwrap()
+        .hp = 0;
     {
         let pos = app.world().resource::<HexPositions>().get(&dead).unwrap();
-        app.world_mut().resource_mut::<HexCorpses>().insert(dead, pos);
+        app.world_mut()
+            .resource_mut::<HexCorpses>()
+            .insert(dead, pos);
         app.world_mut().resource_mut::<HexPositions>().remove(&dead);
     }
 
@@ -51,18 +68,23 @@ fn build_snapshot_includes_dead_combatant() {
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
-        statuses:   Query<&StatusEffects>,
-        hex_map:    HexMap,
-        roles:      Query<&AxisProfile>,
-        content:    Res<storyforge::content::content_view::ActiveContent>,
+        statuses: Query<&StatusEffects>,
+        hex_map: HexMap,
+        roles: Query<&AxisProfile>,
+        content: Res<storyforge::content::content_view::ActiveContent>,
         difficulty: Res<DifficultyProfile>,
-        state_res:  Res<CombatStateRes>,
-        id_map:     Res<UnitIdMap>,
+        state_res: Res<CombatStateRes>,
+        id_map: Res<UnitIdMap>,
     ) -> Vec<Entity> {
         let keep_alive_entities = std::collections::HashSet::new();
         let snap = build_snapshot(
-            1, &combatants, &statuses, &hex_map, &roles,
-            &content, &difficulty,
+            1,
+            &combatants,
+            &statuses,
+            &hex_map,
+            &roles,
+            &content,
+            &difficulty,
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
@@ -99,33 +121,56 @@ fn build_snapshot_maps_ai_behavior_override_to_forced_mode() {
     let mut app = movement_app();
     app.insert_resource(DifficultyProfile::default());
 
-    let plain   = spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "Plain");
-    let fleeing = spawn_at(&mut app, hex_from_offset(4, 3), test_enemy(base_stats()), "Fleeing");
-    app.world_mut().entity_mut(fleeing).insert(AiBehaviorOverride { kind: AiBehaviorKind::Flee });
+    let plain = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "Plain",
+    );
+    let fleeing = spawn_at(
+        &mut app,
+        hex_from_offset(4, 3),
+        test_enemy(base_stats()),
+        "Fleeing",
+    );
+    app.world_mut()
+        .entity_mut(fleeing)
+        .insert(AiBehaviorOverride {
+            kind: AiBehaviorKind::Flee,
+        });
 
     init_engine_state(&mut app);
 
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
-        statuses:   Query<&StatusEffects>,
-        hex_map:    HexMap,
-        roles:      Query<&AxisProfile>,
-        content:    Res<storyforge::content::content_view::ActiveContent>,
+        statuses: Query<&StatusEffects>,
+        hex_map: HexMap,
+        roles: Query<&AxisProfile>,
+        content: Res<storyforge::content::content_view::ActiveContent>,
         difficulty: Res<DifficultyProfile>,
-        state_res:  Res<CombatStateRes>,
-        id_map:     Res<UnitIdMap>,
+        state_res: Res<CombatStateRes>,
+        id_map: Res<UnitIdMap>,
     ) -> Vec<(Entity, Option<EvaluationMode>)> {
         let keep_alive_entities = std::collections::HashSet::new();
         let snap = build_snapshot(
-            1, &combatants, &statuses, &hex_map, &roles,
-            &content, &difficulty,
+            1,
+            &combatants,
+            &statuses,
+            &hex_map,
+            &roles,
+            &content,
+            &difficulty,
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
             combat_engine::state::Team::Enemy,
         );
-        snap.cache.units.iter().map(|u| (u.entity, u.forced_mode)).collect()
+        snap.cache
+            .units
+            .iter()
+            .map(|u| (u.entity, u.forced_mode))
+            .collect()
     }
 
     let modes: Vec<(Entity, Option<EvaluationMode>)> = app
@@ -133,10 +178,21 @@ fn build_snapshot_maps_ai_behavior_override_to_forced_mode() {
         .run_system_once(snapshot_system)
         .expect("snapshot_system failed");
 
-    let plain_mode   = modes.iter().find(|(e, _)| *e == plain).expect("plain in cache").1;
-    let fleeing_mode = modes.iter().find(|(e, _)| *e == fleeing).expect("fleeing in cache").1;
+    let plain_mode = modes
+        .iter()
+        .find(|(e, _)| *e == plain)
+        .expect("plain in cache")
+        .1;
+    let fleeing_mode = modes
+        .iter()
+        .find(|(e, _)| *e == fleeing)
+        .expect("fleeing in cache")
+        .1;
 
-    assert_eq!(plain_mode, None, "unit without AiBehaviorOverride must have forced_mode == None");
+    assert_eq!(
+        plain_mode, None,
+        "unit without AiBehaviorOverride must have forced_mode == None"
+    );
     assert_eq!(
         fleeing_mode,
         Some(EvaluationMode::Flee),
@@ -157,8 +213,18 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
     let mut app = movement_app();
     app.insert_resource(DifficultyProfile::default());
 
-    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
-    spawn_at(&mut app, hex_from_offset(4, 3), test_enemy(base_stats()), "B");
+    spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "A",
+    );
+    spawn_at(
+        &mut app,
+        hex_from_offset(4, 3),
+        test_enemy(base_stats()),
+        "B",
+    );
     init_engine_state(&mut app);
 
     // Seed engine state with one hidden (enemy-owned, not revealed to enemy) and
@@ -173,7 +239,7 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
                 kind: EnvKind::Hazard,
                 ability: combat_engine::AbilityId::from("spike_trap"),
                 owner: None,
-                revealed_to: TeamSet::EMPTY,  // hidden — must NOT appear in snapshot
+                revealed_to: TeamSet::EMPTY, // hidden — must NOT appear in snapshot
             },
             EnvObject {
                 id: EnvId(1),
@@ -193,19 +259,24 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
     #[allow(clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
-        statuses:   Query<&StatusEffects>,
-        hex_map:    HexMap,
-        roles:      Query<&AxisProfile>,
-        content:    Res<storyforge::content::content_view::ActiveContent>,
+        statuses: Query<&StatusEffects>,
+        hex_map: HexMap,
+        roles: Query<&AxisProfile>,
+        content: Res<storyforge::content::content_view::ActiveContent>,
         difficulty: Res<DifficultyProfile>,
-        state_res:  Res<CombatStateRes>,
-        id_map:     Res<UnitIdMap>,
+        state_res: Res<CombatStateRes>,
+        id_map: Res<UnitIdMap>,
     ) -> usize {
         use combat_engine::state::Team;
         let keep_alive_entities = std::collections::HashSet::new();
         let snap = build_snapshot(
-            1, &combatants, &statuses, &hex_map, &roles,
-            &content, &difficulty,
+            1,
+            &combatants,
+            &statuses,
+            &hex_map,
+            &roles,
+            &content,
+            &difficulty,
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
@@ -240,43 +311,65 @@ fn build_snapshot_includes_minimal_npc() {
     app.insert_resource(DifficultyProfile::default());
 
     // A normal enemy so the scenario is non-trivial.
-    let normal = spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "Normal");
+    let normal = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "Normal",
+    );
 
     // A minimal NPC: Faction + Vital only (no Abilities / CombatStats / Equipment).
-    let vital = Vital::new(&storyforge::game::components::CombatStats {
-        max_hp: 5,
-        strength: 5,
-        dexterity: 5,
-        constitution: 5,
-        intelligence: 0,
-        wisdom: 5,
-        charisma: 5,
-    }, 0);
-    let npc = spawn_at(&mut app, hex_from_offset(4, 3), npc_bundle(Team::Player, vital), "MinimalNpc");
+    let vital = Vital::new(
+        &storyforge::game::components::CombatStats {
+            max_hp: 5,
+            strength: 5,
+            dexterity: 5,
+            constitution: 5,
+            intelligence: 0,
+            wisdom: 5,
+            charisma: 5,
+        },
+        0,
+    );
+    let npc = spawn_at(
+        &mut app,
+        hex_from_offset(4, 3),
+        npc_bundle(Team::Player, vital),
+        "MinimalNpc",
+    );
 
     init_engine_state(&mut app);
 
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn snapshot_system(
         combatants: Query<AiCombatantQ, With<Combatant>>,
-        statuses:   Query<&StatusEffects>,
-        hex_map:    HexMap,
-        roles:      Query<&AxisProfile>,
-        content:    Res<storyforge::content::content_view::ActiveContent>,
+        statuses: Query<&StatusEffects>,
+        hex_map: HexMap,
+        roles: Query<&AxisProfile>,
+        content: Res<storyforge::content::content_view::ActiveContent>,
         difficulty: Res<DifficultyProfile>,
-        state_res:  Res<CombatStateRes>,
-        id_map:     Res<UnitIdMap>,
+        state_res: Res<CombatStateRes>,
+        id_map: Res<UnitIdMap>,
     ) -> Vec<(Entity, f32, Vec<combat_engine::AbilityId>)> {
         let keep_alive_entities = std::collections::HashSet::new();
         let snap = build_snapshot(
-            1, &combatants, &statuses, &hex_map, &roles,
-            &content, &difficulty,
+            1,
+            &combatants,
+            &statuses,
+            &hex_map,
+            &roles,
+            &content,
+            &difficulty,
             state_res.0.clone(),
             &id_map,
             &keep_alive_entities,
             combat_engine::state::Team::Enemy,
         );
-        snap.cache.units.iter().map(|u| (u.entity, u.threat, u.abilities.clone())).collect()
+        snap.cache
+            .units
+            .iter()
+            .map(|u| (u.entity, u.threat, u.abilities.clone()))
+            .collect()
     }
 
     let entries: Vec<(Entity, f32, Vec<combat_engine::AbilityId>)> = app
@@ -286,19 +379,31 @@ fn build_snapshot_includes_minimal_npc() {
 
     let entities: Vec<Entity> = entries.iter().map(|(e, _, _)| *e).collect();
 
-    assert!(entities.contains(&normal), "normal enemy must be in snapshot");
-    assert!(entities.contains(&npc),    "minimal NPC must be in snapshot (was silently dropped before this fix)");
+    assert!(
+        entities.contains(&normal),
+        "normal enemy must be in snapshot"
+    );
+    assert!(
+        entities.contains(&npc),
+        "minimal NPC must be in snapshot (was silently dropped before this fix)"
+    );
 
     // NPC has no abilities — threat must be 0 and abilities list empty.
     let npc_entry = entries.iter().find(|(e, _, _)| *e == npc).unwrap();
     assert_eq!(npc_entry.1, 0.0, "minimal NPC threat must be 0");
-    assert!(npc_entry.2.is_empty(), "minimal NPC abilities must be empty");
+    assert!(
+        npc_entry.2.is_empty(),
+        "minimal NPC abilities must be empty"
+    );
 }
 
 // ── T3: build_snapshot ai_team visibility filter ─────────────────────────────
 
 fn seed_env(app: &mut App, envs: Vec<combat_engine::state::EnvObject>) {
-    app.world_mut().resource_mut::<CombatStateRes>().0.environment = envs;
+    app.world_mut()
+        .resource_mut::<CombatStateRes>()
+        .0
+        .environment = envs;
 }
 
 fn env_count_for_team(app: &mut App, team: combat_engine::state::Team) -> usize {
@@ -311,17 +416,25 @@ fn env_count_for_team(app: &mut App, team: combat_engine::state::Team) -> usize 
             #[allow(clippy::too_many_arguments)]
             fn sys(
                 combatants: Query<AiCombatantQ, With<Combatant>>,
-                statuses:   Query<&StatusEffects>,
-                hex_map:    HexMap,
-                roles:      Query<&AxisProfile>,
-                content:    Res<storyforge::content::content_view::ActiveContent>,
+                statuses: Query<&StatusEffects>,
+                hex_map: HexMap,
+                roles: Query<&AxisProfile>,
+                content: Res<storyforge::content::content_view::ActiveContent>,
                 difficulty: Res<DifficultyProfile>,
-                state_res:  Res<CombatStateRes>,
-                id_map:     Res<UnitIdMap>,
+                state_res: Res<CombatStateRes>,
+                id_map: Res<UnitIdMap>,
             ) -> usize {
                 let snap = build_snapshot(
-                    1, &combatants, &statuses, &hex_map, &roles, &content, &difficulty,
-                    state_res.0.clone(), &id_map, &std::collections::HashSet::new(),
+                    1,
+                    &combatants,
+                    &statuses,
+                    &hex_map,
+                    &roles,
+                    &content,
+                    &difficulty,
+                    state_res.0.clone(),
+                    &id_map,
+                    &std::collections::HashSet::new(),
                     combat_engine::state::Team::Player,
                 );
                 snap.state.environment.len()
@@ -332,17 +445,25 @@ fn env_count_for_team(app: &mut App, team: combat_engine::state::Team) -> usize 
             #[allow(clippy::too_many_arguments)]
             fn sys(
                 combatants: Query<AiCombatantQ, With<Combatant>>,
-                statuses:   Query<&StatusEffects>,
-                hex_map:    HexMap,
-                roles:      Query<&AxisProfile>,
-                content:    Res<storyforge::content::content_view::ActiveContent>,
+                statuses: Query<&StatusEffects>,
+                hex_map: HexMap,
+                roles: Query<&AxisProfile>,
+                content: Res<storyforge::content::content_view::ActiveContent>,
                 difficulty: Res<DifficultyProfile>,
-                state_res:  Res<CombatStateRes>,
-                id_map:     Res<UnitIdMap>,
+                state_res: Res<CombatStateRes>,
+                id_map: Res<UnitIdMap>,
             ) -> usize {
                 let snap = build_snapshot(
-                    1, &combatants, &statuses, &hex_map, &roles, &content, &difficulty,
-                    state_res.0.clone(), &id_map, &std::collections::HashSet::new(),
+                    1,
+                    &combatants,
+                    &statuses,
+                    &hex_map,
+                    &roles,
+                    &content,
+                    &difficulty,
+                    state_res.0.clone(),
+                    &id_map,
+                    &std::collections::HashSet::new(),
                     combat_engine::state::Team::Enemy,
                 );
                 snap.state.environment.len()
@@ -358,17 +479,31 @@ fn snapshot_includes_own_team_owned_traps() {
     use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
     let mut app = movement_app();
     app.insert_resource(DifficultyProfile::default());
-    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "A",
+    );
     init_engine_state(&mut app);
 
-    seed_env(&mut app, vec![EnvObject {
-        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
-        ability: combat_engine::AbilityId::from("t"),
-        owner: Some(Team::Enemy), revealed_to: TeamSet::EMPTY,
-    }]);
+    seed_env(
+        &mut app,
+        vec![EnvObject {
+            id: EnvId(0),
+            hex: hex_from_offset(1, 1),
+            kind: EnvKind::Hazard,
+            ability: combat_engine::AbilityId::from("t"),
+            owner: Some(Team::Enemy),
+            revealed_to: TeamSet::EMPTY,
+        }],
+    );
 
-    assert_eq!(env_count_for_team(&mut app, Team::Enemy), 1,
-               "enemy-owned trap must appear in enemy snapshot");
+    assert_eq!(
+        env_count_for_team(&mut app, Team::Enemy),
+        1,
+        "enemy-owned trap must appear in enemy snapshot"
+    );
 }
 
 /// Enemy-owned traps that the player hasn't discovered are absent from the
@@ -378,17 +513,31 @@ fn snapshot_excludes_enemy_owned_unrevealed_traps() {
     use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
     let mut app = movement_app();
     app.insert_resource(DifficultyProfile::default());
-    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "A",
+    );
     init_engine_state(&mut app);
 
-    seed_env(&mut app, vec![EnvObject {
-        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
-        ability: combat_engine::AbilityId::from("t"),
-        owner: Some(Team::Enemy), revealed_to: TeamSet::EMPTY,
-    }]);
+    seed_env(
+        &mut app,
+        vec![EnvObject {
+            id: EnvId(0),
+            hex: hex_from_offset(1, 1),
+            kind: EnvKind::Hazard,
+            ability: combat_engine::AbilityId::from("t"),
+            owner: Some(Team::Enemy),
+            revealed_to: TeamSet::EMPTY,
+        }],
+    );
 
-    assert_eq!(env_count_for_team(&mut app, Team::Player), 0,
-               "enemy-owned unrevealed trap must be absent from player snapshot");
+    assert_eq!(
+        env_count_for_team(&mut app, Team::Player),
+        0,
+        "enemy-owned unrevealed trap must be absent from player snapshot"
+    );
 }
 
 /// A trap revealed to the AI's team appears in the snapshot.
@@ -397,19 +546,33 @@ fn snapshot_includes_trap_revealed_to_ai_team() {
     use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
     let mut app = movement_app();
     app.insert_resource(DifficultyProfile::default());
-    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "A",
+    );
     init_engine_state(&mut app);
 
     let mut revealed_to = TeamSet::EMPTY;
     revealed_to.insert(Team::Enemy);
-    seed_env(&mut app, vec![EnvObject {
-        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
-        ability: combat_engine::AbilityId::from("t"),
-        owner: None, revealed_to,
-    }]);
+    seed_env(
+        &mut app,
+        vec![EnvObject {
+            id: EnvId(0),
+            hex: hex_from_offset(1, 1),
+            kind: EnvKind::Hazard,
+            ability: combat_engine::AbilityId::from("t"),
+            owner: None,
+            revealed_to,
+        }],
+    );
 
-    assert_eq!(env_count_for_team(&mut app, Team::Enemy), 1,
-               "trap revealed to enemy must appear in enemy snapshot");
+    assert_eq!(
+        env_count_for_team(&mut app, Team::Enemy),
+        1,
+        "trap revealed to enemy must appear in enemy snapshot"
+    );
 }
 
 /// A neutral unrevealed trap is absent from both teams' snapshots.
@@ -418,17 +581,34 @@ fn snapshot_neutral_unrevealed_absent_for_both_teams() {
     use combat_engine::state::{EnvId, EnvKind, EnvObject, Team, TeamSet};
     let mut app = movement_app();
     app.insert_resource(DifficultyProfile::default());
-    spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "A");
+    spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_enemy(base_stats()),
+        "A",
+    );
     init_engine_state(&mut app);
 
-    seed_env(&mut app, vec![EnvObject {
-        id: EnvId(0), hex: hex_from_offset(1, 1), kind: EnvKind::Hazard,
-        ability: combat_engine::AbilityId::from("t"),
-        owner: None, revealed_to: TeamSet::EMPTY,
-    }]);
+    seed_env(
+        &mut app,
+        vec![EnvObject {
+            id: EnvId(0),
+            hex: hex_from_offset(1, 1),
+            kind: EnvKind::Hazard,
+            ability: combat_engine::AbilityId::from("t"),
+            owner: None,
+            revealed_to: TeamSet::EMPTY,
+        }],
+    );
 
-    assert_eq!(env_count_for_team(&mut app, Team::Player), 0,
-               "neutral unrevealed trap absent from player snapshot");
-    assert_eq!(env_count_for_team(&mut app, Team::Enemy), 0,
-               "neutral unrevealed trap absent from enemy snapshot");
+    assert_eq!(
+        env_count_for_team(&mut app, Team::Player),
+        0,
+        "neutral unrevealed trap absent from player snapshot"
+    );
+    assert_eq!(
+        env_count_for_team(&mut app, Team::Enemy),
+        0,
+        "neutral unrevealed trap absent from enemy snapshot"
+    );
 }

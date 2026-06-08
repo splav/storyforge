@@ -15,11 +15,7 @@
 //! Engine purity (D12): this file uses only `std::fs`, `std::path`, `toml`, and
 //! `serde` — no `bevy::`, no `SystemTime`, no `std::env`.
 
-use std::{
-    collections::HashMap,
-    fmt,
-    path::Path,
-};
+use std::{collections::HashMap, fmt, path::Path};
 
 use serde::Deserialize;
 
@@ -37,8 +33,14 @@ use crate::{
 /// Errors that can occur while loading content from TOML files.
 #[derive(Debug)]
 pub enum LoadError {
-    Io { path: String, source: std::io::Error },
-    Parse { path: String, message: String },
+    Io {
+        path: String,
+        source: std::io::Error,
+    },
+    Parse {
+        path: String,
+        message: String,
+    },
 }
 
 impl fmt::Display for LoadError {
@@ -85,7 +87,11 @@ impl TomlContentView {
         // Abilities are needed to detect AoO-eligible templates (melee WeaponAttack).
         let unit_templates = load_unit_templates(data_dir, &weapons, &armor, &abilities)?;
 
-        Ok(Self { abilities, statuses, unit_templates })
+        Ok(Self {
+            abilities,
+            statuses,
+            unit_templates,
+        })
     }
 
     /// Empty view — returns `None` / defaults for every query.
@@ -185,8 +191,12 @@ struct CostRecord {
     amount: i32,
 }
 
-fn default_range() -> u32 { 1 }
-fn default_cost_ap() -> i32 { 1 }
+fn default_range() -> u32 {
+    1
+}
+fn default_cost_ap() -> i32 {
+    1
+}
 
 // ---- statuses ----------------------------------------------------------------
 
@@ -341,10 +351,12 @@ fn read_toml_optional(path: &Path) -> Result<Option<String>, LoadError> {
     if !path.exists() {
         return Ok(None);
     }
-    std::fs::read_to_string(path).map(Some).map_err(|e| LoadError::Io {
-        path: path.display().to_string(),
-        source: e,
-    })
+    std::fs::read_to_string(path)
+        .map(Some)
+        .map_err(|e| LoadError::Io {
+            path: path.display().to_string(),
+            source: e,
+        })
 }
 
 // ── Abilities ─────────────────────────────────────────────────────────────────
@@ -389,16 +401,27 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
     let effect = match r.effect.as_str() {
         "" | "none" => EffectDef::None,
         "weapon_attack" => EffectDef::WeaponAttack,
-        "damage" => EffectDef::Damage { dice: need_dice(r.dice_count, r.dice_sides) },
-        "spell_damage" => EffectDef::SpellDamage { dice: need_dice(r.dice_count, r.dice_sides) },
-        "heal" => EffectDef::Heal { dice: need_dice(r.dice_count, r.dice_sides) },
-        "grant_movement" => EffectDef::GrantMovement { distance: r.distance },
+        "damage" => EffectDef::Damage {
+            dice: need_dice(r.dice_count, r.dice_sides),
+        },
+        "spell_damage" => EffectDef::SpellDamage {
+            dice: need_dice(r.dice_count, r.dice_sides),
+        },
+        "heal" => EffectDef::Heal {
+            dice: need_dice(r.dice_count, r.dice_sides),
+        },
+        "grant_movement" => EffectDef::GrantMovement {
+            distance: r.distance,
+        },
         "restore_resources" => EffectDef::RestoreResources,
         // toggle_move_mode is UI-only; no engine effect.
         "toggle_move_mode" => EffectDef::None,
         "summon" => EffectDef::Summon {
             template_id: r.summon_template.clone().unwrap_or_else(|| {
-                panic!("{path}: ability '{}' effect=summon missing summon_template", r.id)
+                panic!(
+                    "{path}: ability '{}' effect=summon missing summon_template",
+                    r.id
+                )
             }),
             max_active: r.summon_max_active,
         },
@@ -415,11 +438,18 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
         other => panic!("{path}: ability '{}' unknown effect '{other}'", r.id),
     };
 
-    let passive: Vec<PassiveTrigger> = r.passive.iter().map(|tok| match tok.as_str() {
-        "turn_start" => PassiveTrigger::TurnStart,
-        "on_move" => PassiveTrigger::OnMove,
-        other => panic!("{path}: ability '{}' unknown passive trigger '{other}'", r.id),
-    }).collect();
+    let passive: Vec<PassiveTrigger> = r
+        .passive
+        .iter()
+        .map(|tok| match tok.as_str() {
+            "turn_start" => PassiveTrigger::TurnStart,
+            "on_move" => PassiveTrigger::OnMove,
+            other => panic!(
+                "{path}: ability '{}' unknown passive trigger '{other}'",
+                r.id
+            ),
+        })
+        .collect();
 
     let target_type = match r.target_type.as_str() {
         "single_enemy" => TargetType::SingleEnemy,
@@ -430,35 +460,52 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
         other => panic!("{path}: ability '{}' unknown target_type '{other}'", r.id),
     };
 
-    let costs: Vec<Cost> = r.costs.into_iter().map(|c| {
-        let resource = match c.resource.as_str() {
-            "hp" => ResourceKind::Hp,
-            "mana" => ResourceKind::Mana,
-            "rage" => ResourceKind::Rage,
-            "energy" => ResourceKind::Energy,
-            other => panic!("{path}: ability '{}' unknown resource '{other}'", r.id),
-        };
-        Cost { resource, amount: c.amount }
-    }).collect();
+    let costs: Vec<Cost> = r
+        .costs
+        .into_iter()
+        .map(|c| {
+            let resource = match c.resource.as_str() {
+                "hp" => ResourceKind::Hp,
+                "mana" => ResourceKind::Mana,
+                "rage" => ResourceKind::Rage,
+                "energy" => ResourceKind::Energy,
+                other => panic!("{path}: ability '{}' unknown resource '{other}'", r.id),
+            };
+            Cost {
+                resource,
+                amount: c.amount,
+            }
+        })
+        .collect();
 
-    let statuses: Vec<StatusApplication> = r.statuses.into_iter().map(|s| {
-        let on = match s.on.as_str() {
-            "target" => StatusOn::Target,
-            "self" => StatusOn::MySelf,
-            other => panic!("{path}: ability '{}' unknown status 'on' value '{other}'", r.id),
-        };
-        StatusApplication {
-            status: StatusId::from(s.id.as_str()),
-            duration_rounds: s.duration,
-            on,
-        }
-    }).collect();
+    let statuses: Vec<StatusApplication> = r
+        .statuses
+        .into_iter()
+        .map(|s| {
+            let on = match s.on.as_str() {
+                "target" => StatusOn::Target,
+                "self" => StatusOn::MySelf,
+                other => panic!(
+                    "{path}: ability '{}' unknown status 'on' value '{other}'",
+                    r.id
+                ),
+            };
+            StatusApplication {
+                status: StatusId::from(s.id.as_str()),
+                duration_rounds: s.duration,
+                on,
+            }
+        })
+        .collect();
 
     AbilityDef {
         key: r.key,
         cost_ap: r.cost_ap,
         costs,
-        range: AbilityRange { min: r.min_range, max: r.range },
+        range: AbilityRange {
+            min: r.min_range,
+            max: r.range,
+        },
         target_type,
         aoe,
         friendly_fire: r.friendly_fire,
@@ -466,10 +513,14 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
         statuses,
         requires_los: r.requires_los,
         passive,
-        requires_tags: r.requires_tags.iter()
+        requires_tags: r
+            .requires_tags
+            .iter()
             .map(|s| crate::TagId::from(s.as_str()))
             .collect(),
-        excludes_tags: r.excludes_tags.iter()
+        excludes_tags: r
+            .excludes_tags
+            .iter()
             .map(|s| crate::TagId::from(s.as_str()))
             .collect(),
     }
@@ -529,12 +580,15 @@ fn load_weapons(data_dir: &Path) -> Result<HashMap<String, WeaponStats>, LoadErr
         } else {
             None
         };
-        map.insert(r.id.clone(), WeaponStats {
-            armor: r.armor,
-            max_hp: r.max_hp,
-            dice,
-            spell_power: r.spell_power,
-        });
+        map.insert(
+            r.id.clone(),
+            WeaponStats {
+                armor: r.armor,
+                max_hp: r.max_hp,
+                dice,
+                spell_power: r.spell_power,
+            },
+        );
     }
     Ok(map)
 }
@@ -553,10 +607,13 @@ fn load_armor_file(path: &Path) -> Result<HashMap<String, ArmorStats>, LoadError
 
     let mut map = HashMap::new();
     for r in file.items {
-        map.insert(r.id.clone(), ArmorStats {
-            armor: r.armor,
-            max_hp: r.max_hp,
-        });
+        map.insert(
+            r.id.clone(),
+            ArmorStats {
+                armor: r.armor,
+                max_hp: r.max_hp,
+            },
+        );
     }
     Ok(map)
 }
@@ -630,7 +687,10 @@ fn convert_template(
     let main_hand_stats = weapons.get(r.equipment.main_hand.as_str());
 
     // Weapons: main_hand + optional off_hand.
-    for weapon_id in [Some(&r.equipment.main_hand), r.equipment.off_hand.as_ref()].into_iter().flatten() {
+    for weapon_id in [Some(&r.equipment.main_hand), r.equipment.off_hand.as_ref()]
+        .into_iter()
+        .flatten()
+    {
         if let Some(w) = weapons.get(weapon_id.as_str()) {
             max_hp += w.max_hp;
             equipment_armor += w.armor;
@@ -674,11 +734,7 @@ fn convert_template(
     });
     let aoo_dice = if has_melee {
         weapon_dice.map(|core_dice| {
-            DiceExpr::new(
-                core_dice.count,
-                core_dice.sides,
-                core_dice.bonus + str_mod,
-            )
+            DiceExpr::new(core_dice.count, core_dice.sides, core_dice.bonus + str_mod)
         })
     } else {
         None
@@ -704,7 +760,8 @@ fn convert_template(
             crate::PoolKind::Ap     => crate::RegenRule::RefillToMax,
             crate::PoolKind::Mp     => crate::RegenRule::RefillToMax,
         },
-        initial_statuses: r.initial_statuses
+        initial_statuses: r
+            .initial_statuses
             .into_iter()
             .map(|s| crate::StatusId::from(s.as_str()))
             .collect(),

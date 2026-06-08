@@ -22,8 +22,8 @@
 
 #![allow(dead_code)]
 
+pub mod apps;
 pub mod bin;
 pub mod engine_unit;
 pub mod fixtures;
-pub mod apps;
 pub mod scenarios;

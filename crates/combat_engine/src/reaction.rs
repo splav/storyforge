@@ -37,10 +37,15 @@ pub enum Reaction {
 pub fn unit_aoo_dice(unit: &Unit, content: &dyn ContentView) -> Option<DiceExpr> {
     let dice = unit.aoo_dice?;
     // Stun check: if any active status has skips_turn = true, no AoO.
-    let stunned = unit.statuses.iter().any(|s| {
-        content.status_def(&s.id).is_some_and(|d| d.skips_turn)
-    });
-    if stunned { None } else { Some(dice) }
+    let stunned = unit
+        .statuses
+        .iter()
+        .any(|s| content.status_def(&s.id).is_some_and(|d| d.skips_turn));
+    if stunned {
+        None
+    } else {
+        Some(dice)
+    }
 }
 
 /// Scan for AoO reactions triggered when `mover` steps from `prev_pos` to

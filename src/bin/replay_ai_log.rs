@@ -28,21 +28,21 @@ use std::path::PathBuf;
 
 use bevy::prelude::Entity;
 
+use combat_engine::DiceRng;
 use storyforge::combat::ai::config::difficulty::DifficultyProfile;
-use storyforge::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::intent::AiMemory;
 use storyforge::combat::ai::log::{
     parse_actor_tick, ActorTickEvent, LogError, LoggedDecision, LoggedPlan,
 };
+use storyforge::combat::ai::orchestration::{pick_action, AiDecision, AiWorld};
 use storyforge::combat::ai::plan::PlanStep;
 use storyforge::combat::ai::replay::{
     assert_v28_log_file, default_overlay_path, print_assertion_failure, AssertResult, GoldenRecord,
 };
+use storyforge::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::world::reservations::Reservations;
 use storyforge::combat::ai::world::tags::cache::build_caches;
-use storyforge::combat::ai::orchestration::{AiDecision, AiWorld, pick_action};
 use storyforge::content::content_view::ContentView;
-use combat_engine::DiceRng;
 use storyforge::game::hex::Hex;
 
 // ── Regression metrics ──────────────────────────────────────────────────────
@@ -79,27 +79,49 @@ impl Metrics {
         println!("\n=== Regression Metrics Summary ===\n");
 
         let pct = |n: usize, d: usize| -> f64 {
-            if d > 0 { n as f64 / d as f64 * 100.0 } else { 0.0 }
+            if d > 0 {
+                n as f64 / d as f64 * 100.0
+            } else {
+                0.0
+            }
         };
 
-        println!("Move-only wasted rate: {} / {} ({:.1}%)",
-            self.move_only_wasted, self.move_only_total,
-            pct(self.move_only_wasted, self.move_only_total));
-        println!("Repeated-tile rate:    {} / {} ({:.1}%)",
-            self.repeated_tile_plans, self.plans_with_moves,
-            pct(self.repeated_tile_plans, self.plans_with_moves));
-        println!("Zero-net-move rate:    {} / {} ({:.1}%)",
-            self.zero_net_move_plans, self.plans_with_moves,
-            pct(self.zero_net_move_plans, self.plans_with_moves));
-        println!("Post-cast retreat rate: {} / {} ({:.1}%)",
-            self.post_cast_retreat_plans, self.plans_with_post_cast_move,
-            pct(self.post_cast_retreat_plans, self.plans_with_post_cast_move));
-        println!("Phantom-tail rate:     {} / {} ({:.1}%)",
-            self.phantom_tail_chosen, self.chosen_with_cast_total,
-            pct(self.phantom_tail_chosen, self.chosen_with_cast_total));
-        println!("  flip-committed:      {} / {} ({:.1}%)",
-            self.phantom_tail_flips_committed, self.phantom_tail_chosen,
-            pct(self.phantom_tail_flips_committed, self.phantom_tail_chosen));
+        println!(
+            "Move-only wasted rate: {} / {} ({:.1}%)",
+            self.move_only_wasted,
+            self.move_only_total,
+            pct(self.move_only_wasted, self.move_only_total)
+        );
+        println!(
+            "Repeated-tile rate:    {} / {} ({:.1}%)",
+            self.repeated_tile_plans,
+            self.plans_with_moves,
+            pct(self.repeated_tile_plans, self.plans_with_moves)
+        );
+        println!(
+            "Zero-net-move rate:    {} / {} ({:.1}%)",
+            self.zero_net_move_plans,
+            self.plans_with_moves,
+            pct(self.zero_net_move_plans, self.plans_with_moves)
+        );
+        println!(
+            "Post-cast retreat rate: {} / {} ({:.1}%)",
+            self.post_cast_retreat_plans,
+            self.plans_with_post_cast_move,
+            pct(self.post_cast_retreat_plans, self.plans_with_post_cast_move)
+        );
+        println!(
+            "Phantom-tail rate:     {} / {} ({:.1}%)",
+            self.phantom_tail_chosen,
+            self.chosen_with_cast_total,
+            pct(self.phantom_tail_chosen, self.chosen_with_cast_total)
+        );
+        println!(
+            "  flip-committed:      {} / {} ({:.1}%)",
+            self.phantom_tail_flips_committed,
+            self.phantom_tail_chosen,
+            pct(self.phantom_tail_flips_committed, self.phantom_tail_chosen)
+        );
     }
 }
 
@@ -188,16 +210,26 @@ fn decision_fields(
     plans: &[storyforge::combat::ai::plan::TurnPlan],
     best_idx: usize,
 ) -> (String, Option<String>, Option<u64>, [i32; 2]) {
-    let end_pos = plans.get(best_idx).map(|p| [p.final_pos.x, p.final_pos.y]).unwrap_or([0, 0]);
+    let end_pos = plans
+        .get(best_idx)
+        .map(|p| [p.final_pos.x, p.final_pos.y])
+        .unwrap_or([0, 0]);
     match decision {
         AiDecision::EndTurn => ("EndTurn".to_owned(), None, None, end_pos),
-        AiDecision::CastInPlace { ability, target, .. } => (
+        AiDecision::CastInPlace {
+            ability, target, ..
+        } => (
             "CastInPlace".to_owned(),
             Some(ability.0.clone()),
             Some(target.to_bits()),
             end_pos,
         ),
-        AiDecision::MoveAndCast { ability, target, path, .. } => (
+        AiDecision::MoveAndCast {
+            ability,
+            target,
+            path,
+            ..
+        } => (
             "MoveAndCast".to_owned(),
             Some(ability.0.clone()),
             Some(target.to_bits()),
@@ -222,7 +254,9 @@ fn plan_shape_v29(steps: &[PlanStep]) -> String {
                 let last = path.last().copied().unwrap_or(Hex::ZERO);
                 out.push(format!("Move→({},{})", last.x, last.y));
             }
-            PlanStep::Cast { ability, target, .. } => {
+            PlanStep::Cast {
+                ability, target, ..
+            } => {
                 out.push(format!("Cast({}→{})", ability.0, target.to_bits()));
             }
         }
@@ -236,12 +270,16 @@ fn plan_shape_v29(steps: &[PlanStep]) -> String {
 /// comparison with a re-picked `AiDecision`. Returns `(kind, ability, target)`.
 fn logged_decision_key(d: &LoggedDecision) -> (String, Option<String>, Option<u64>) {
     match d {
-        LoggedDecision::Cast { ability, target, .. } => {
-            ("Cast".to_owned(), Some(ability.clone()), Some(*target))
-        }
-        LoggedDecision::MoveAndCast { ability, target, .. } => {
-            ("MoveAndCast".to_owned(), Some(ability.clone()), Some(*target))
-        }
+        LoggedDecision::Cast {
+            ability, target, ..
+        } => ("Cast".to_owned(), Some(ability.clone()), Some(*target)),
+        LoggedDecision::MoveAndCast {
+            ability, target, ..
+        } => (
+            "MoveAndCast".to_owned(),
+            Some(ability.clone()),
+            Some(*target),
+        ),
         LoggedDecision::Move { .. } => ("Move".to_owned(), None, None),
         LoggedDecision::EndTurn => ("EndTurn".to_owned(), None, None),
         LoggedDecision::Skip { .. } => ("Skip".to_owned(), None, None),
@@ -251,12 +289,20 @@ fn logged_decision_key(d: &LoggedDecision) -> (String, Option<String>, Option<u6
 fn ai_decision_key(d: &AiDecision) -> (String, Option<String>, Option<u64>) {
     match d {
         AiDecision::EndTurn => ("EndTurn".to_owned(), None, None),
-        AiDecision::CastInPlace { ability, target, .. } => {
-            ("Cast".to_owned(), Some(ability.0.clone()), Some(target.to_bits()))
-        }
-        AiDecision::MoveAndCast { ability, target, .. } => {
-            ("MoveAndCast".to_owned(), Some(ability.0.clone()), Some(target.to_bits()))
-        }
+        AiDecision::CastInPlace {
+            ability, target, ..
+        } => (
+            "Cast".to_owned(),
+            Some(ability.0.clone()),
+            Some(target.to_bits()),
+        ),
+        AiDecision::MoveAndCast {
+            ability, target, ..
+        } => (
+            "MoveAndCast".to_owned(),
+            Some(ability.0.clone()),
+            Some(target.to_bits()),
+        ),
         AiDecision::Move { .. } => ("Move".to_owned(), None, None),
     }
 }
@@ -291,8 +337,12 @@ fn main() {
             "--metrics-summary" => metrics_summary = true,
             "--phase7-prototype" => _phase7_prototype = true,
             "--phase7-p2" => _phase7_p2 = true,
-            "--campaign" => { campaign_override = iter.next().map(PathBuf::from); }
-            "--scenario" => { scenario_override = iter.next().map(PathBuf::from); }
+            "--campaign" => {
+                campaign_override = iter.next().map(PathBuf::from);
+            }
+            "--scenario" => {
+                scenario_override = iter.next().map(PathBuf::from);
+            }
             "--assert" => {
                 assert_mode = true;
                 if let Some(next) = iter.peek() {
@@ -340,25 +390,28 @@ fn main() {
             std::process::exit(2);
         }
         if golden_active && assert_mode {
-            eprintln!("error: --capture-golden / --compare-golden cannot be combined with --assert");
+            eprintln!(
+                "error: --capture-golden / --compare-golden cannot be combined with --assert"
+            );
             std::process::exit(2);
         }
     }
 
     // Resolve content dirs.
     let global = std::path::Path::new("assets/data");
-    let (campaign_dir, scenario_dir) = if let (Some(c), Some(s)) = (&campaign_override, &scenario_override) {
-        (c.clone(), s.clone())
-    } else if let Some((c, s)) = paths.first().and_then(|p| infer_content_dirs(p)) {
-        (c, s)
-    } else {
-        eprintln!(
-            "warning: could not infer campaign/scenario from filename; \
+    let (campaign_dir, scenario_dir) =
+        if let (Some(c), Some(s)) = (&campaign_override, &scenario_override) {
+            (c.clone(), s.clone())
+        } else if let Some((c, s)) = paths.first().and_then(|p| infer_content_dirs(p)) {
+            (c, s)
+        } else {
+            eprintln!(
+                "warning: could not infer campaign/scenario from filename; \
              loading global content only (assets/data). \
              Pass --campaign <dir> --scenario <dir> to override."
-        );
-        (global.to_path_buf(), global.to_path_buf())
-    };
+            );
+            (global.to_path_buf(), global.to_path_buf())
+        };
     let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
     // Step 9.A/9.B: pre-build tag caches once for all replay entries.
     let (status_tag_cache, ability_tag_cache) = build_caches(&content);
@@ -367,8 +420,7 @@ fn main() {
     // ── Assert mode ──────────────────────────────────────────────────────────
     if assert_mode {
         let jsonl_path = &paths[0];
-        let overlay_path =
-            assert_overlay_path.unwrap_or_else(|| default_overlay_path(jsonl_path));
+        let overlay_path = assert_overlay_path.unwrap_or_else(|| default_overlay_path(jsonl_path));
 
         let outcome = match assert_v28_log_file(jsonl_path, &overlay_path, &content, &inf_cfg) {
             Ok(o) => o,
@@ -426,7 +478,11 @@ fn main() {
                 let rec = match golden_from_v28_event(event, &path_str, &content, &inf_cfg) {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!("error on actor_id={} in {}: {e}", event.actor_id, path.display());
+                        eprintln!(
+                            "error on actor_id={} in {}: {e}",
+                            event.actor_id,
+                            path.display()
+                        );
                         std::process::exit(2);
                     }
                 };
@@ -464,11 +520,14 @@ fn main() {
                     eprintln!("error reading {}: {e}", baseline_path.display());
                     std::process::exit(2);
                 });
-                if line.trim().is_empty() { continue; }
+                if line.trim().is_empty() {
+                    continue;
+                }
                 let rec: GoldenRecord = serde_json::from_str(&line).unwrap_or_else(|e| {
                     eprintln!(
                         "error: cannot parse golden record at line {} in {}: {e}",
-                        lineno + 1, baseline_path.display()
+                        lineno + 1,
+                        baseline_path.display()
                     );
                     std::process::exit(2);
                 });
@@ -494,7 +553,11 @@ fn main() {
                 let rec = match golden_from_v28_event(event, &path_str, &content, &inf_cfg) {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!("error on actor_id={} in {}: {e}", event.actor_id, path.display());
+                        eprintln!(
+                            "error on actor_id={} in {}: {e}",
+                            event.actor_id,
+                            path.display()
+                        );
                         std::process::exit(2);
                     }
                 };
@@ -525,22 +588,36 @@ fn main() {
                     }
                     let mut case_diverged = false;
                     if cur.decision_kind != base.decision_kind {
-                        eprintln!("case {i} diverged: decision_kind = {:?} vs {:?}", cur.decision_kind, base.decision_kind);
+                        eprintln!(
+                            "case {i} diverged: decision_kind = {:?} vs {:?}",
+                            cur.decision_kind, base.decision_kind
+                        );
                         case_diverged = true;
                     }
                     if cur.cast_ability != base.cast_ability {
-                        eprintln!("case {i} diverged: cast_ability = {:?} vs {:?}", cur.cast_ability, base.cast_ability);
+                        eprintln!(
+                            "case {i} diverged: cast_ability = {:?} vs {:?}",
+                            cur.cast_ability, base.cast_ability
+                        );
                         case_diverged = true;
                     }
                     if cur.cast_target != base.cast_target {
-                        eprintln!("case {i} diverged: cast_target = {:?} vs {:?}", cur.cast_target, base.cast_target);
+                        eprintln!(
+                            "case {i} diverged: cast_target = {:?} vs {:?}",
+                            cur.cast_target, base.cast_target
+                        );
                         case_diverged = true;
                     }
                     if cur.end_position != base.end_position {
-                        eprintln!("case {i} diverged: end_position = {:?} vs {:?}", cur.end_position, base.end_position);
+                        eprintln!(
+                            "case {i} diverged: end_position = {:?} vs {:?}",
+                            cur.end_position, base.end_position
+                        );
                         case_diverged = true;
                     }
-                    if case_diverged { diverged += 1; }
+                    if case_diverged {
+                        diverged += 1;
+                    }
                 }
                 (None, None) => {}
             }
@@ -574,9 +651,14 @@ fn main() {
         for line in reader.lines() {
             let line = match line {
                 Ok(l) => l,
-                Err(e) => { eprintln!("read error: {e}"); continue; }
+                Err(e) => {
+                    eprintln!("read error: {e}");
+                    continue;
+                }
             };
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
 
             // Pre-filter: only `actor_tick` events. Other event types
             // (e.g. `combat_log_header` from Phase 5d) are silently skipped.
@@ -591,14 +673,21 @@ fn main() {
             // with `UnsupportedSchema`).
             let event: ActorTickEvent = match parse_actor_tick(&line) {
                 Ok(e) => e,
-                Err(LogError::UnsupportedSchema { found, required, hint }) => {
+                Err(LogError::UnsupportedSchema {
+                    found,
+                    required,
+                    hint,
+                }) => {
                     eprintln!(
                         "error: schema v{found} unsupported, v{required} required (file: {}): {hint}",
                         path.display()
                     );
                     std::process::exit(1);
                 }
-                Err(e) => { eprintln!("parse error: {e}"); continue; }
+                Err(e) => {
+                    eprintln!("parse error: {e}");
+                    continue;
+                }
             };
 
             // Skip events: actor had no AP/MP, no pick_action to replay.
@@ -611,7 +700,10 @@ fn main() {
 
             let actor = match Entity::try_from_bits(event.actor_id) {
                 Some(e) => e,
-                None => { eprintln!("invalid actor_id {}, skipping", event.actor_id); continue; }
+                None => {
+                    eprintln!("invalid actor_id {}, skipping", event.actor_id);
+                    continue;
+                }
             };
             let Some(active) = event.snapshot.unit(actor) else {
                 eprintln!("actor not found in snapshot, skipping");
@@ -653,8 +745,12 @@ fn main() {
                 let fresh_key = ai_decision_key(&result.decision);
                 println!(
                     "CHANGED r{} {} HP={}/{}: logged={:?} -> fresh={:?}",
-                    event.round, event.actor_name, active.hp(), active.max_hp(),
-                    logged_key, fresh_key,
+                    event.round,
+                    event.actor_name,
+                    active.hp(),
+                    active.max_hp(),
+                    logged_key,
+                    fresh_key,
                 );
                 if verbose {
                     print_event_plans(&event);
@@ -663,7 +759,11 @@ fn main() {
                 let key = logged_decision_key(&event.decision);
                 println!(
                     "=  r{} {} HP={}/{}: {:?}",
-                    event.round, event.actor_name, active.hp(), active.max_hp(), key,
+                    event.round,
+                    event.actor_name,
+                    active.hp(),
+                    active.max_hp(),
+                    key,
                 );
             }
         }
@@ -687,15 +787,17 @@ pub fn read_v29_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, St
     use std::io::BufRead;
     use storyforge::combat::ai::log::parse_actor_tick;
 
-    let file = std::fs::File::open(path)
-        .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let file =
+        std::fs::File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     let reader = std::io::BufReader::new(file);
     let mut events = Vec::new();
 
     for line in reader.lines() {
         let line = line.map_err(|e| format!("I/O error: {e}"))?;
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         // Skip non-actor_tick lines (e.g. other event types).
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
@@ -704,8 +806,8 @@ pub fn read_v29_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, St
             }
         }
 
-        let event = parse_actor_tick(line)
-            .map_err(|e| format!("error in {}: {e}", path.display()))?;
+        let event =
+            parse_actor_tick(line).map_err(|e| format!("error in {}: {e}", path.display()))?;
         events.push(event);
     }
 
@@ -724,9 +826,18 @@ fn collect_metrics_from_event(
     let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) else {
         return;
     };
-    let chosen_final_pos = chosen.steps.iter().rev().find_map(|s| {
-        if let PlanStep::Move { path } = s { path.last().copied() } else { None }
-    }).unwrap_or(active.pos);
+    let chosen_final_pos = chosen
+        .steps
+        .iter()
+        .rev()
+        .find_map(|s| {
+            if let PlanStep::Move { path } = s {
+                path.last().copied()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(active.pos);
 
     // Move-only wasted.
     let plan = storyforge::combat::ai::plan::TurnPlan {
@@ -748,7 +859,10 @@ fn collect_metrics_from_event(
     }
 
     // Move shape metrics.
-    let has_any_move = chosen.steps.iter().any(|s| matches!(s, PlanStep::Move { .. }));
+    let has_any_move = chosen
+        .steps
+        .iter()
+        .any(|s| matches!(s, PlanStep::Move { .. }));
     if has_any_move {
         metrics.plans_with_moves += 1;
 
@@ -765,14 +879,21 @@ fn collect_metrics_from_event(
                 }
             }
         }
-        if repeated { metrics.repeated_tile_plans += 1; }
+        if repeated {
+            metrics.repeated_tile_plans += 1;
+        }
 
         // Zero-net: final position == start position.
-        if chosen_final_pos == active.pos { metrics.zero_net_move_plans += 1; }
+        if chosen_final_pos == active.pos {
+            metrics.zero_net_move_plans += 1;
+        }
     }
 
     // Post-cast move metrics.
-    let has_cast_step = chosen.steps.iter().any(|s| matches!(s, PlanStep::Cast { .. }));
+    let has_cast_step = chosen
+        .steps
+        .iter()
+        .any(|s| matches!(s, PlanStep::Cast { .. }));
     if has_cast_step {
         metrics.chosen_with_cast_total += 1;
 
@@ -781,8 +902,13 @@ fn collect_metrics_from_event(
             let mut seen_cast = false;
             let mut has_post = false;
             for s in &chosen.steps {
-                if matches!(s, PlanStep::Cast { .. }) { seen_cast = true; }
-                if seen_cast && matches!(s, PlanStep::Move { .. }) { has_post = true; break; }
+                if matches!(s, PlanStep::Cast { .. }) {
+                    seen_cast = true;
+                }
+                if seen_cast && matches!(s, PlanStep::Move { .. }) {
+                    has_post = true;
+                    break;
+                }
             }
             has_post
         };
@@ -791,11 +917,21 @@ fn collect_metrics_from_event(
             metrics.plans_with_post_cast_move += 1;
             // Retreat = final pos farther from closest enemy than cast position.
             // Approximate: check if final pos is farther from actor's start.
-            let cast_pos = chosen.steps.iter().find_map(|s| {
-                if let PlanStep::Cast { target_pos, .. } = s { Some(*target_pos) } else { None }
-            }).unwrap_or(active.pos);
+            let cast_pos = chosen
+                .steps
+                .iter()
+                .find_map(|s| {
+                    if let PlanStep::Cast { target_pos, .. } = s {
+                        Some(*target_pos)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(active.pos);
             let dist_cast_to_final = cast_pos.distance_to(chosen_final_pos);
-            if dist_cast_to_final > 0 { metrics.post_cast_retreat_plans += 1; }
+            if dist_cast_to_final > 0 {
+                metrics.post_cast_retreat_plans += 1;
+            }
 
             metrics.phantom_tail_chosen += 1;
         }
@@ -840,7 +976,10 @@ fn print_score_trace_breakdown(plan: &LoggedPlan) {
             Some(MultiplierDetail::Critic { critic, .. }) => format!("[{critic:?}]"),
             None => String::new(),
         };
-        println!("          multiplier    {:?}{}  × {:.4}", m.kind, detail_str, m.value);
+        println!(
+            "          multiplier    {:?}{}  × {:.4}",
+            m.kind, detail_str, m.value
+        );
     }
     for a in &trace.addends {
         println!("          addend        {:<20} {:+.4}", a.name, a.value);
@@ -851,21 +990,53 @@ fn print_score_trace_breakdown(plan: &LoggedPlan) {
             .original_score
             .map(|s| format!(" (was {:+.4})", s))
             .unwrap_or_default();
-        println!("          mask          {:?}  source={}{}", m.kind, m.source, orig_str);
+        println!(
+            "          mask          {:?}  source={}{}",
+            m.kind, m.source, orig_str
+        );
     }
     for g in &trace.gates {
-        println!("          gate          {:?}  source={}", g.outcome, g.source);
+        println!(
+            "          gate          {:?}  source={}",
+            g.outcome, g.source
+        );
     }
     // Re-derive the final score from trace fields (Phase 3 Step 3: always finite).
     let computed: f32 = {
         let mut s = trace.base;
-        for m in &trace.multipliers { s *= m.value; }
-        for a in &trace.addends { s += a.value; }
+        for m in &trace.multipliers {
+            s *= m.value;
+        }
+        for a in &trace.addends {
+            s += a.value;
+        }
         s
     };
-    let masked_flag = if trace.masks.iter().any(|m| matches!(m.kind, MaskKind::Poison)) { " [MASKED]" } else { "" };
-    let gated_flag = if trace.gates.iter().any(|g| matches!(g.outcome, GateOutcome::Reject)) { " [GATED]" } else { "" };
-    println!("          computed      = {:+.4}{}{} (ann.score = {:+.4})", computed, masked_flag, gated_flag, plan.annotation.score());
+    let masked_flag = if trace
+        .masks
+        .iter()
+        .any(|m| matches!(m.kind, MaskKind::Poison))
+    {
+        " [MASKED]"
+    } else {
+        ""
+    };
+    let gated_flag = if trace
+        .gates
+        .iter()
+        .any(|g| matches!(g.outcome, GateOutcome::Reject))
+    {
+        " [GATED]"
+    } else {
+        ""
+    };
+    println!(
+        "          computed      = {:+.4}{}{} (ann.score = {:+.4})",
+        computed,
+        masked_flag,
+        gated_flag,
+        plan.annotation.score()
+    );
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -887,7 +1058,9 @@ mod tests {
             actor_name: "test".to_owned(),
             snapshot: BattleSnapshot::default(),
             plans: vec![],
-            decision: LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
+            decision: LoggedDecision::Skip {
+                reason: "no_ap_no_mp".to_owned(),
+            },
             continuation: None,
             intent_reason: None,
             evaluation_mode_reason: None,
@@ -902,12 +1075,18 @@ mod tests {
     #[test]
     fn skip_decision_does_not_match_any_ai_decision() {
         // Skip is not a valid AiDecision — it must never be compared.
-        assert!(matches!(make_skip_event().decision, LoggedDecision::Skip { .. }));
+        assert!(matches!(
+            make_skip_event().decision,
+            LoggedDecision::Skip { .. }
+        ));
     }
 
     #[test]
     fn decisions_match_end_turn() {
-        assert!(decisions_match(&LoggedDecision::EndTurn, &AiDecision::EndTurn));
+        assert!(decisions_match(
+            &LoggedDecision::EndTurn,
+            &AiDecision::EndTurn
+        ));
     }
 
     #[test]

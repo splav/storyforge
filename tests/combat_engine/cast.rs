@@ -9,11 +9,12 @@
 
 use std::collections::HashMap;
 
+use storyforge::combat_engine::StatusDef;
 use storyforge::combat_engine::{
     action::{Action, ActionError},
     content::{
-        AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusApplication,
-        StatusOn, TargetType, UnitTemplate,
+        AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusApplication, StatusOn,
+        TargetType, UnitTemplate,
     },
     dice::{DiceExpr, DiceRng, ExpectedValue},
     effect::SpawnBlockedReason,
@@ -23,7 +24,6 @@ use storyforge::combat_engine::{
     step::step,
     AbilityId, StatusId,
 };
-use storyforge::combat_engine::StatusDef;
 use storyforge::game::hex::hex_from_offset;
 
 // ── StubContent ───────────────────────────────────────────────────────────────
@@ -36,13 +36,21 @@ struct StubContent {
 
 impl StubContent {
     fn empty() -> Self {
-        Self { abilities: HashMap::new(), caster_ctx: HashMap::new(), templates: HashMap::new() }
+        Self {
+            abilities: HashMap::new(),
+            caster_ctx: HashMap::new(),
+            templates: HashMap::new(),
+        }
     }
 
     fn with_ability(id: &str, def: AbilityDef) -> Self {
         let mut abilities = HashMap::new();
         abilities.insert(AbilityId::from(id), def);
-        Self { abilities, caster_ctx: HashMap::new(), templates: HashMap::new() }
+        Self {
+            abilities,
+            caster_ctx: HashMap::new(),
+            templates: HashMap::new(),
+        }
     }
 
     /// Record a per-unit CasterContext to be applied to the CombatState.
@@ -72,8 +80,12 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> { self.abilities.get(id) }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
+    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+        self.abilities.get(id)
+    }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
+        None
+    }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
         self.templates.get(id).cloned()
     }
@@ -103,12 +115,14 @@ fn single_enemy_ability() -> AbilityDef {
         target_type: TargetType::SingleEnemy,
         aoe: AoEShape::None,
         friendly_fire: false,
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     }
 }
 
@@ -128,13 +142,23 @@ fn step_cast_returns_err_illegal_for_unknown_ability() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let err = step(&mut state, action, &mut ExpectedValue, &StubContent::empty())
-        .map(|(ev, _)| ev)
-        .expect_err("unknown ability should be rejected");
+    let err = step(
+        &mut state,
+        action,
+        &mut ExpectedValue,
+        &StubContent::empty(),
+    )
+    .map(|(ev, _)| ev)
+    .expect_err("unknown ability should be rejected");
 
     assert_eq!(err, ActionError::Illegal(IllegalReason::UnknownAbility));
     // State must be unchanged (rollback).
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2);
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        2
+    );
 }
 
 /// `step(Cast)` targeting a dead unit (hp=0) → `Illegal(TargetDead)`.
@@ -160,7 +184,12 @@ fn step_cast_returns_err_illegal_for_dead_target() {
 
     assert_eq!(err, ActionError::Illegal(IllegalReason::TargetDead));
     // State must be unchanged (rollback).
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2);
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        2
+    );
 }
 
 /// `step(Cast)` when the cast is fully legal and the ability has no damage effect →
@@ -188,17 +217,31 @@ fn step_cast_returns_ok_when_legal() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    let (events, _ctx) =
+        step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
     // Exactly ActionStarted + ActionFinished — no effect events.
-    assert_eq!(events.len(), 2, "expected exactly [ActionStarted, ActionFinished]");
+    assert_eq!(
+        events.len(),
+        2,
+        "expected exactly [ActionStarted, ActionFinished]"
+    );
     assert!(matches!(events[0], Event::ActionStarted { .. }));
     assert!(matches!(events[1], Event::ActionFinished { .. }));
 
     // State is unchanged — no AP spent, no HP lost.
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2, "actor AP unchanged");
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target HP unchanged");
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        2,
+        "actor AP unchanged"
+    );
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        10,
+        "target HP unchanged"
+    );
 }
 
 // ── Step 6c tests: cost payment ───────────────────────────────────────────────
@@ -225,10 +268,16 @@ fn cast_legal_pays_ap_cost() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    let (events, _ctx) =
+        step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP decremented by 1");
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        1,
+        "AP decremented by 1"
+    );
     assert!(matches!(events.last(), Some(Event::ActionFinished { .. })));
 }
 
@@ -246,7 +295,10 @@ fn cast_legal_pays_mana_cost() {
     let mut state = state_with(vec![actor, target]);
     let ability = AbilityDef {
         cost_ap: 1,
-        costs: vec![Cost { resource: ResourceKind::Mana, amount: 3 }],
+        costs: vec![Cost {
+            resource: ResourceKind::Mana,
+            amount: 3,
+        }],
         effect: EffectDef::None,
         ..single_enemy_ability()
     };
@@ -259,12 +311,21 @@ fn cast_legal_pays_mana_cost() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
     let u = state.unit(UnitId(1)).unwrap();
-    assert_eq!(u.pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP decremented by 1");
-    assert_eq!(u.pools[storyforge::combat_engine::PoolKind::Mana], Some((7, 10)), "mana decremented by 3");
+    assert_eq!(
+        u.pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        1,
+        "AP decremented by 1"
+    );
+    assert_eq!(
+        u.pools[storyforge::combat_engine::PoolKind::Mana],
+        Some((7, 10)),
+        "mana decremented by 3"
+    );
 }
 
 // ── Step 6d tests: damage fanout ─────────────────────────────────────────────
@@ -276,7 +337,7 @@ fn cast_damage_hits_target_with_str_mod() {
     use storyforge::combat_engine::CasterContext;
 
     let actor = make_unit(1, Team::Player, 0, 0); // action_points=2
-    let target = make_unit(2, Team::Enemy, 1, 0);  // hp=10, armor=0
+    let target = make_unit(2, Team::Enemy, 1, 0); // hp=10, armor=0
 
     let mut state = state_with(vec![actor, target]);
 
@@ -284,11 +345,18 @@ fn cast_damage_hits_target_with_str_mod() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 6, 0),
+        },
         ..single_enemy_ability()
     };
-    let content = StubContent::with_ability("strike", ability)
-        .with_caster(UnitId(1), CasterContext { str_mod: 3, ..Default::default() });
+    let content = StubContent::with_ability("strike", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            str_mod: 3,
+            ..Default::default()
+        },
+    );
     content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
@@ -298,11 +366,21 @@ fn cast_damage_hits_target_with_str_mod() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    let (events, _ctx) =
+        step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 3, "hp = 10 - (4+3) = 3");
-    assert!(events.iter().any(|e| matches!(e, Event::UnitDamaged { target: UnitId(2), .. })));
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        3,
+        "hp = 10 - (4+3) = 3"
+    );
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::UnitDamaged {
+            target: UnitId(2),
+            ..
+        }
+    )));
 }
 
 /// Spell damage pierces armor: raw = roll(1d4) + int_mod + spell_power = 3+2+1 = 6.
@@ -321,11 +399,19 @@ fn cast_spell_damage_pierces_armor() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::SpellDamage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
-    let content = StubContent::with_ability("firebolt", ability)
-        .with_caster(UnitId(1), CasterContext { int_mod: 2, spell_power: 1, ..Default::default() });
+    let content = StubContent::with_ability("firebolt", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            int_mod: 2,
+            spell_power: 1,
+            ..Default::default()
+        },
+    );
     content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
@@ -335,11 +421,14 @@ fn cast_spell_damage_pierces_armor() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
     // Armor ignored (pierces=true) → hp = 10 - 6 = 4.
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 4, "piercing spell ignores armor=10");
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        4,
+        "piercing spell ignores armor=10"
+    );
 }
 
 /// WeaponAttack: raw = roll(1d8) + str_mod = 5 + 2 = 7. Target hp = 10-7 = 3.
@@ -359,12 +448,14 @@ fn cast_weapon_attack_uses_weapon_dice() {
         effect: EffectDef::WeaponAttack,
         ..single_enemy_ability()
     };
-    let content = StubContent::with_ability("melee", ability)
-        .with_caster(UnitId(1), CasterContext {
+    let content = StubContent::with_ability("melee", ability).with_caster(
+        UnitId(1),
+        CasterContext {
             str_mod: 2,
             weapon_dice: Some(DiceExpr::new(1, 8, 0)),
             ..Default::default()
-        });
+        },
+    );
     content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
@@ -374,10 +465,13 @@ fn cast_weapon_attack_uses_weapon_dice() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 3, "hp = 10 - (5+2) = 3");
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        3,
+        "hp = 10 - (5+2) = 3"
+    );
 }
 
 /// WeaponAttack with no weapon_dice → no Damage effect, target hp unchanged.
@@ -404,10 +498,13 @@ fn cast_weapon_attack_no_damage_when_no_weapon() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "no weapon → no damage");
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        10,
+        "no weapon → no damage"
+    );
 }
 
 /// AoE Circle radius=1, fixed dice (0d1+2 → raw=2), str_mod=0.
@@ -416,10 +513,7 @@ fn cast_weapon_attack_no_damage_when_no_weapon() {
 /// interleaving from a later target's derived effects.
 #[test]
 fn cast_aoe_damages_targets_in_per_target_order() {
-    use storyforge::combat_engine::{
-        content::{TargetType as Tt},
-        CasterContext,
-    };
+    use storyforge::combat_engine::{content::TargetType as Tt, CasterContext};
 
     let actor = make_unit(1, Team::Player, 0, 0);
     // AP is already 2 from make_unit; pool is canonical since Phase C-6.
@@ -451,15 +545,22 @@ fn cast_aoe_damages_targets_in_per_target_order() {
         target_type: Tt::Ground,
         aoe: AoEShape::Circle { radius: 1 },
         friendly_fire: false,
-        effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 2) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(0, 1, 2),
+        },
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
-    let content = StubContent::with_ability("fireball", ability)
-        .with_caster(UnitId(1), CasterContext { str_mod: 0, ..Default::default() });
+    let content = StubContent::with_ability("fireball", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            str_mod: 0,
+            ..Default::default()
+        },
+    );
     content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
@@ -485,9 +586,19 @@ excludes_tags: Default::default()
     // derived effects).  With no rage on enemies, derived effects are just
     // Death (none here), so the stream must contain exactly 3 UnitDamaged
     // events and they must not repeat the same target_id.
-    let damaged_ids: Vec<u64> = events.iter().filter_map(|e| {
-        if let Event::UnitDamaged { target: UnitId(id), .. } = e { Some(*id) } else { None }
-    }).collect();
+    let damaged_ids: Vec<u64> = events
+        .iter()
+        .filter_map(|e| {
+            if let Event::UnitDamaged {
+                target: UnitId(id), ..
+            } = e
+            {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .collect();
     assert_eq!(damaged_ids.len(), 3, "exactly 3 UnitDamaged events");
     // All three targets appear.
     for id in [10u64, 11, 12] {
@@ -520,8 +631,8 @@ fn cast_legal_pays_no_cost_when_zero() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    let (events, _ctx) =
+        step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
     // No DecrementAP or PayCost fired — both produce no event — so only
     // ActionStarted + ActionFinished should be present.
@@ -529,7 +640,13 @@ fn cast_legal_pays_no_cost_when_zero() {
     assert!(matches!(events[0], Event::ActionStarted { .. }));
     assert!(matches!(events[1], Event::ActionFinished { .. }));
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2, "AP unchanged for zero-cost");
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        2,
+        "AP unchanged for zero-cost"
+    );
 }
 
 // ── Step 6e tests: heal + status fanout ──────────────────────────────────────
@@ -555,15 +672,23 @@ fn cast_heal_restores_target_hp() {
         target_type: TargetType::SingleAlly,
         aoe: AoEShape::None,
         friendly_fire: false,
-        effect: EffectDef::Heal { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Heal {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
-    let content = StubContent::with_ability("heal", ability)
-        .with_caster(UnitId(1), CasterContext { int_mod: 2, spell_power: 1, ..Default::default() });
+    let content = StubContent::with_ability("heal", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            int_mod: 2,
+            spell_power: 1,
+            ..Default::default()
+        },
+    );
     content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
@@ -573,10 +698,13 @@ excludes_tags: Default::default()
         target_pos: hex_from_offset(1, 0),
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal heal cast should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal heal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 9, "hp = 3 + (3+2+1) = 9");
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        9,
+        "hp = 3 + (3+2+1) = 9"
+    );
 }
 
 /// AoE heal (fixed dice 0d1+4 = 4, int_mod=0, spell_power=0).
@@ -611,12 +739,14 @@ fn cast_aoe_heal_restores_multiple_targets() {
         target_type: TargetType::Ground,
         aoe: AoEShape::Circle { radius: 1 },
         friendly_fire: true, // include all units in AoE (allies)
-        effect: EffectDef::Heal { dice: DiceExpr::new(0, 1, 4) },
+        effect: EffectDef::Heal {
+            dice: DiceExpr::new(0, 1, 4),
+        },
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
     let content = StubContent::with_ability("group_heal", ability);
 
@@ -627,8 +757,7 @@ excludes_tags: Default::default()
         target_pos,
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal AoE heal should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal AoE heal should succeed");
 
     assert_eq!(state.unit(UnitId(10)).unwrap().hp(), 7, "a1 hp = 3 + 4 = 7");
     assert_eq!(state.unit(UnitId(11)).unwrap().hp(), 7, "a2 hp = 3 + 4 = 7");
@@ -664,8 +793,7 @@ fn cast_applies_status_to_target() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
     let target_unit = state.unit(UnitId(2)).unwrap();
     assert_eq!(target_unit.statuses.len(), 1, "exactly one status applied");
@@ -673,7 +801,10 @@ fn cast_applies_status_to_target() {
     assert_eq!(s.id, StatusId::from("poison"));
     assert_eq!(s.rounds_remaining, 3);
     assert_eq!(s.dot_per_tick, 0, "Phase 2: dot_per_tick always 0");
-    assert_eq!(s.applier, combat_engine::state::EffectSource::Unit(UnitId(1)));
+    assert_eq!(
+        s.applier,
+        combat_engine::state::EffectSource::Unit(UnitId(1))
+    );
 }
 
 /// Status with `on: MySelf` lands on the actor, not the targeted unit.
@@ -703,8 +834,8 @@ fn cast_applies_status_to_self_via_myself() {
         }],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
     let content = StubContent::with_ability("iron_skin", ability);
 
@@ -715,15 +846,18 @@ excludes_tags: Default::default()
         target_pos: caster_pos,
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("self-buff should succeed");
+    step(&mut state, action, &mut ExpectedValue, &content).expect("self-buff should succeed");
 
     let caster = state.unit(UnitId(1)).unwrap();
     assert_eq!(caster.statuses.len(), 1, "actor has one status");
     let s = &caster.statuses[0];
     assert_eq!(s.id, StatusId::from("iron_skin"));
     assert_eq!(s.rounds_remaining, 2);
-    assert_eq!(s.applier, combat_engine::state::EffectSource::Unit(UnitId(1)), "applier = caster");
+    assert_eq!(
+        s.applier,
+        combat_engine::state::EffectSource::Unit(UnitId(1)),
+        "applier = caster"
+    );
 }
 
 // ── Step 6f tests: crit-fail ─────────────────────────────────────────────────
@@ -734,18 +868,23 @@ fn cast_crit_fail_miss_skips_damage() {
     use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
 
     let actor = make_unit(1, Team::Player, 0, 0); // hp=10, ap=2
-    let target = make_unit(2, Team::Enemy, 1, 0);  // hp=10
+    let target = make_unit(2, Team::Enemy, 1, 0); // hp=10
 
     let mut state = state_with(vec![actor, target]);
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("strike", ability).with_caster(
         UnitId(1),
-        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+        CasterContext {
+            crit_fail_outcome: CritFailOutcome::Miss,
+            ..Default::default()
+        },
     );
     content.apply_caster_contexts(&mut state);
 
@@ -762,16 +901,26 @@ fn cast_crit_fail_miss_skips_damage() {
 
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target hp unchanged on miss crit-fail");
-    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP still paid");
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        10,
+        "target hp unchanged on miss crit-fail"
+    );
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        1,
+        "AP still paid"
+    );
 }
 
 /// d20 = 1 + DoubleCost outcome → mana cost doubled; no damage to target.
 #[test]
 fn cast_crit_fail_double_cost() {
-    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
     use storyforge::combat_engine::content::Cost;
     use storyforge::combat_engine::ResourceKind;
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
 
     let mut actor = make_unit(1, Team::Player, 0, 0);
     actor.pools[storyforge::combat_engine::PoolKind::Mana] = Some((10, 10));
@@ -781,13 +930,21 @@ fn cast_crit_fail_double_cost() {
     let mut state = state_with(vec![actor, target]);
     let ability = AbilityDef {
         cost_ap: 1,
-        costs: vec![Cost { resource: ResourceKind::Mana, amount: 3 }],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        costs: vec![Cost {
+            resource: ResourceKind::Mana,
+            amount: 3,
+        }],
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("fireball", ability).with_caster(
         UnitId(1),
-        CasterContext { crit_fail_outcome: CritFailOutcome::DoubleCost, ..Default::default() },
+        CasterContext {
+            crit_fail_outcome: CritFailOutcome::DoubleCost,
+            ..Default::default()
+        },
     );
     content.apply_caster_contexts(&mut state);
 
@@ -805,8 +962,16 @@ fn cast_crit_fail_double_cost() {
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     let actor_unit = state.unit(UnitId(1)).unwrap();
-    assert_eq!(actor_unit.pools[storyforge::combat_engine::PoolKind::Mana], Some((4, 10)), "mana = 10 - 3*2 = 4");
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target hp unchanged");
+    assert_eq!(
+        actor_unit.pools[storyforge::combat_engine::PoolKind::Mana],
+        Some((4, 10)),
+        "mana = 10 - 3*2 = 4"
+    );
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        10,
+        "target hp unchanged"
+    );
 }
 
 /// d20 = 1 + SelfDamage(0d1+3) → caster takes 3 raw damage; target unaffected.
@@ -815,13 +980,15 @@ fn cast_crit_fail_self_damage() {
     use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
 
     let actor = make_unit(1, Team::Player, 0, 0); // hp=10, armor=0
-    let target = make_unit(2, Team::Enemy, 1, 0);  // hp=10
+    let target = make_unit(2, Team::Enemy, 1, 0); // hp=10
 
     let mut state = state_with(vec![actor, target]);
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
     // SelfDamage(0d1+3): count=0 → zero dice rolls, bonus=3.
@@ -848,8 +1015,16 @@ fn cast_crit_fail_self_damage() {
 
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 7, "caster hp = 10 - 3 = 7");
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target hp unchanged");
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().hp(),
+        7,
+        "caster hp = 10 - 3 = 7"
+    );
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        10,
+        "target hp unchanged"
+    );
 }
 
 /// d20 = 1 + ApplyStatus("exhaustion") → caster gets exhaustion for 3 rounds.
@@ -864,7 +1039,9 @@ fn cast_crit_fail_apply_status() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("strike", ability).with_caster(
@@ -894,8 +1071,16 @@ fn cast_crit_fail_apply_status() {
     let s = &caster.statuses[0];
     assert_eq!(s.id, StatusId::from("exhaustion"));
     assert_eq!(s.rounds_remaining, 3, "fixed 3-round duration");
-    assert_eq!(s.applier, combat_engine::state::EffectSource::Unit(UnitId(1)), "applier = caster");
-    assert_eq!(state.unit(UnitId(2)).unwrap().statuses.len(), 0, "target unaffected");
+    assert_eq!(
+        s.applier,
+        combat_engine::state::EffectSource::Unit(UnitId(1)),
+        "applier = caster"
+    );
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().statuses.len(),
+        0,
+        "target unaffected"
+    );
 }
 
 /// d20 = 1 + any outcome → `Event::CritFailed` is emitted between ActionStarted and cost events.
@@ -910,12 +1095,17 @@ fn cast_crit_fail_emits_event() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("strike", ability).with_caster(
         UnitId(1),
-        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+        CasterContext {
+            crit_fail_outcome: CritFailOutcome::Miss,
+            ..Default::default()
+        },
     );
     content.apply_caster_contexts(&mut state);
 
@@ -932,16 +1122,41 @@ fn cast_crit_fail_emits_event() {
     let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     let crit_failed = events.iter().any(|e| {
-        matches!(e, Event::CritFailed { actor: UnitId(1), outcome: CritFailOutcome::Miss })
+        matches!(
+            e,
+            Event::CritFailed {
+                actor: UnitId(1),
+                outcome: CritFailOutcome::Miss
+            }
+        )
     });
-    assert!(crit_failed, "CritFailed event must be present when d20=1; got: {:?}", events);
+    assert!(
+        crit_failed,
+        "CritFailed event must be present when d20=1; got: {:?}",
+        events
+    );
 
     // Ordering: CritFailed must come after ActionStarted, before ActionFinished.
-    let started_pos = events.iter().position(|e| matches!(e, Event::ActionStarted { .. })).unwrap();
-    let crit_pos = events.iter().position(|e| matches!(e, Event::CritFailed { .. })).unwrap();
-    let finished_pos = events.iter().position(|e| matches!(e, Event::ActionFinished { .. })).unwrap();
-    assert!(started_pos < crit_pos, "CritFailed must come after ActionStarted");
-    assert!(crit_pos < finished_pos, "CritFailed must come before ActionFinished");
+    let started_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::ActionStarted { .. }))
+        .unwrap();
+    let crit_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::CritFailed { .. }))
+        .unwrap();
+    let finished_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::ActionFinished { .. }))
+        .unwrap();
+    assert!(
+        started_pos < crit_pos,
+        "CritFailed must come after ActionStarted"
+    );
+    assert!(
+        crit_pos < finished_pos,
+        "CritFailed must come before ActionFinished"
+    );
 }
 
 /// d20 = 11 (no crit-fail) → `Event::CritFailed` is NOT emitted.
@@ -956,12 +1171,17 @@ fn cast_no_crit_fail_no_event_when_d20_non_one() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("strike", ability).with_caster(
         UnitId(1),
-        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+        CasterContext {
+            crit_fail_outcome: CritFailOutcome::Miss,
+            ..Default::default()
+        },
     );
     content.apply_caster_contexts(&mut state);
 
@@ -978,7 +1198,11 @@ fn cast_no_crit_fail_no_event_when_d20_non_one() {
     let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     let has_crit_failed = events.iter().any(|e| matches!(e, Event::CritFailed { .. }));
-    assert!(!has_crit_failed, "CritFailed must NOT be present when d20=11; got: {:?}", events);
+    assert!(
+        !has_crit_failed,
+        "CritFailed must NOT be present when d20=11; got: {:?}",
+        events
+    );
 }
 
 /// d20 = 11 (no crit-fail) → normal damage cast proceeds; target takes 3 damage.
@@ -993,12 +1217,17 @@ fn cast_proceeds_normally_when_d20_not_one() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        effect: EffectDef::Damage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("strike", ability).with_caster(
         UnitId(1),
-        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+        CasterContext {
+            crit_fail_outcome: CritFailOutcome::Miss,
+            ..Default::default()
+        },
     );
     content.apply_caster_contexts(&mut state);
 
@@ -1015,7 +1244,11 @@ fn cast_proceeds_normally_when_d20_not_one() {
 
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 7, "target hp = 10 - 3 = 7");
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        7,
+        "target hp = 10 - 3 = 7"
+    );
 }
 
 /// AoE status (on: Target, friendly_fire: false) applied to each enemy in range.
@@ -1052,8 +1285,8 @@ fn cast_applies_status_to_each_aoe_target() {
         }],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     };
     let content = StubContent::with_ability("flame_wave", ability);
 
@@ -1121,12 +1354,15 @@ fn summon_ability(max_active: Option<u32>) -> AbilityDef {
         target_type: TargetType::Myself,
         aoe: AoEShape::None,
         friendly_fire: false,
-        effect: EffectDef::Summon { template_id: "imp".to_string(), max_active },
+        effect: EffectDef::Summon {
+            template_id: "imp".to_string(),
+            max_active,
+        },
         statuses: vec![],
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     }
 }
 
@@ -1151,11 +1387,19 @@ fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
     let mut rng = DiceRng::with_seed(0);
     rng.script(&[11]);
 
-    let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("summon should succeed");
+    let (events, _ctx) =
+        step(&mut state, action, &mut rng, &content).expect("summon should succeed");
 
     // Event stream contains UnitSpawned.
     let spawned = events.iter().find_map(|e| {
-        if let Event::UnitSpawned { uid, summoner, template_id, team, .. } = e {
+        if let Event::UnitSpawned {
+            uid,
+            summoner,
+            template_id,
+            team,
+            ..
+        } = e
+        {
             Some((*uid, *summoner, template_id.clone(), *team))
         } else {
             None
@@ -1167,7 +1411,11 @@ fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
     assert_eq!(team, Team::Player, "new unit inherits summoner's team");
 
     // State now has 2 units.
-    assert_eq!(state.alive_units().count(), 2, "one summoner + one summoned");
+    assert_eq!(
+        state.alive_units().count(),
+        2,
+        "one summoner + one summoned"
+    );
 
     // New unit stats match the template.
     let new_unit = state.unit(new_uid).expect("new unit present in state");
@@ -1177,7 +1425,13 @@ fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
     assert_eq!(new_unit.summoner, Some(summoner_id));
 
     // Summoner paid AP.
-    assert_eq!(state.unit(summoner_id).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP decremented by 1");
+    assert_eq!(
+        state.unit(summoner_id).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        1,
+        "AP decremented by 1"
+    );
 }
 
 /// Crit-fail (d20=1, Miss outcome) on a Summon: cost paid, no spawn.
@@ -1191,10 +1445,13 @@ fn cast_summon_crit_fail_miss_skips_spawn_but_pays_cost() {
 
     let content = StubContent::with_ability("summon_imp", summon_ability(Some(3)))
         .with_template("imp", imp_template())
-        .with_caster(summoner_id, CasterContext {
-            crit_fail_outcome: CritFailOutcome::Miss,
-            ..Default::default()
-        });
+        .with_caster(
+            summoner_id,
+            CasterContext {
+                crit_fail_outcome: CritFailOutcome::Miss,
+                ..Default::default()
+            },
+        );
     content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
@@ -1210,12 +1467,30 @@ fn cast_summon_crit_fail_miss_skips_spawn_but_pays_cost() {
     let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     // AP still paid.
-    assert_eq!(state.unit(summoner_id).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP paid on crit-fail");
+    assert_eq!(
+        state.unit(summoner_id).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        1,
+        "AP paid on crit-fail"
+    );
     // Unit count unchanged.
-    assert_eq!(state.alive_units().count(), 1, "no unit spawned on crit-fail");
+    assert_eq!(
+        state.alive_units().count(),
+        1,
+        "no unit spawned on crit-fail"
+    );
     // CritFailed event present, no UnitSpawned.
-    assert!(events.iter().any(|e| matches!(e, Event::CritFailed { .. })), "CritFailed emitted");
-    assert!(!events.iter().any(|e| matches!(e, Event::UnitSpawned { .. })), "no UnitSpawned on crit-fail");
+    assert!(
+        events.iter().any(|e| matches!(e, Event::CritFailed { .. })),
+        "CritFailed emitted"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::UnitSpawned { .. })),
+        "no UnitSpawned on crit-fail"
+    );
 }
 
 /// Summon when max_active cap already reached → SpawnBlocked(MaxActiveReached); no new unit.
@@ -1246,13 +1521,24 @@ fn cast_summon_at_max_cap_emits_spawn_blocked() {
 
     // SpawnBlocked event with MaxActiveReached.
     let blocked = events.iter().find_map(|e| {
-        if let Event::SpawnBlocked { reason, .. } = e { Some(reason.clone()) } else { None }
+        if let Event::SpawnBlocked { reason, .. } = e {
+            Some(reason.clone())
+        } else {
+            None
+        }
     });
-    assert_eq!(blocked, Some(SpawnBlockedReason::MaxActiveReached), "SpawnBlocked(MaxActiveReached)");
+    assert_eq!(
+        blocked,
+        Some(SpawnBlockedReason::MaxActiveReached),
+        "SpawnBlocked(MaxActiveReached)"
+    );
     // Unit count unchanged — still 2 (summoner + existing summon).
-    assert_eq!(state.alive_units().count(), 2, "no new unit inserted when cap reached");
+    assert_eq!(
+        state.alive_units().count(),
+        2,
+        "no new unit inserted when cap reached"
+    );
 }
-
 
 // ── Phase B-α: lock-in tests (pre-S6 contract) ────────────────────────────────
 
@@ -1289,8 +1575,8 @@ fn cast_exhausting_ap_mp_self_advances_in_engine_s6() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
-        .expect("legal cast should succeed");
+    let (events, _ctx) =
+        step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
 
     // S6: engine MUST emit exactly one TurnEnded with cause ResourcesExhausted.
     use combat_engine::event::TurnEndCause;
@@ -1307,7 +1593,10 @@ fn cast_exhausting_ap_mp_self_advances_in_engine_s6() {
     assert!(
         matches!(
             turn_ended_events[0],
-            Event::TurnEnded { cause: TurnEndCause::ResourcesExhausted, .. }
+            Event::TurnEnded {
+                cause: TurnEndCause::ResourcesExhausted,
+                ..
+            }
         ),
         "TurnEnded cause must be ResourcesExhausted; got: {:?}",
         turn_ended_events[0],
@@ -1323,14 +1612,19 @@ fn cast_exhausting_ap_mp_self_advances_in_engine_s6() {
 
     // Sanity: TurnStarted for actor 2 is also in the stream.
     assert!(
-        events.iter().any(|e| matches!(e, Event::TurnStarted { actor: UnitId(2) })),
+        events
+            .iter()
+            .any(|e| matches!(e, Event::TurnStarted { actor: UnitId(2) })),
         "TurnStarted for actor 2 must be emitted; events: {:?}",
         events,
     );
 
     // Sanity: AP was actually consumed.
     assert!(
-        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) <= 0,
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0)
+            <= 0,
         "AP must be exhausted after the cast",
     );
 }

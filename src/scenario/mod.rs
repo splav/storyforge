@@ -91,11 +91,11 @@ pub fn enter_scenario_at(
 /// Returns true if the scene should be auto-skipped:
 /// - invisible story beat (lines = [], used for party changes between visible scenes), OR
 /// - flag-gated scene whose required flag is absent from `flags`.
-fn should_skip(scene: &crate::content::scenarios::SceneDef, flags: &std::collections::BTreeSet<String>) -> bool {
-    scene.is_invisible()
-        || scene
-            .requires_flag()
-            .is_some_and(|f| !flags.contains(f))
+fn should_skip(
+    scene: &crate::content::scenarios::SceneDef,
+    flags: &std::collections::BTreeSet<String>,
+) -> bool {
+    scene.is_invisible() || scene.requires_flag().is_some_and(|f| !flags.contains(f))
 }
 
 /// Walk forward past any scenes that should be skipped (invisible story beats
@@ -153,7 +153,13 @@ pub fn advance_scenario_system(
                 let camp = db.campaigns.get(&camp_state.campaign_id).unwrap();
                 if camp_state.scenario_index < camp.scenario_ids.len() {
                     let next_id = camp.scenario_ids[camp_state.scenario_index].clone();
-                    enter_scenario(&mut commands, &db, &mut next_state, &next_id, Some(&camp_state.flags));
+                    enter_scenario(
+                        &mut commands,
+                        &db,
+                        &mut next_state,
+                        &next_id,
+                        Some(&camp_state.flags),
+                    );
                     write_autosave(
                         paths.as_deref(),
                         settings.current_slot,
@@ -224,7 +230,10 @@ pub fn write_victory_flags(
         return;
     };
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
-    if let SceneDef::Combat { on_victory_flags, .. } = &scen.scenes[scenario.scene_index] {
+    if let SceneDef::Combat {
+        on_victory_flags, ..
+    } = &scen.scenes[scenario.scene_index]
+    {
         for flag in on_victory_flags {
             campaign.flags.insert(flag.clone());
         }
@@ -269,10 +278,16 @@ pub fn write_objective_flags(
         .iter()
         .any(|(v, f)| v.is_alive() && f.0 == Team::Enemy);
     let is_named_alive = |name: &str| -> bool {
-        named_vitals.iter().any(|(n, v)| n.as_str() == name && v.is_alive())
+        named_vitals
+            .iter()
+            .any(|(n, v)| n.as_str() == name && v.is_alive())
     };
     for obj in &enc.objectives {
-        if crate::combat::advance_turn::objective_met(&obj.condition, enemies_alive, &is_named_alive) {
+        if crate::combat::advance_turn::objective_met(
+            &obj.condition,
+            enemies_alive,
+            &is_named_alive,
+        ) {
             campaign.flags.insert(obj.id.clone());
         }
     }
@@ -297,7 +312,9 @@ pub fn current_on_defeat(db: &GameDb, scenario: &ScenarioState) -> OnDefeat {
 mod tests {
     use super::*;
     use crate::content::content_view::ContentView;
-    use crate::content::encounters::{EncounterDef, ObjectiveDef, VictoryCondition, DEFAULT_TARGET_MARKER};
+    use crate::content::encounters::{
+        EncounterDef, ObjectiveDef, VictoryCondition, DEFAULT_TARGET_MARKER,
+    };
     use crate::content::scenarios::ScenarioDef;
     use crate::game::components::Vital;
     use std::collections::HashMap;
@@ -356,11 +373,19 @@ mod tests {
     }
 
     fn alive_vital() -> Vital {
-        Vital { hp: 10, max_hp: 10, armor: 0 }
+        Vital {
+            hp: 10,
+            max_hp: 10,
+            armor: 0,
+        }
     }
 
     fn dead_vital() -> Vital {
-        Vital { hp: 0, max_hp: 10, armor: 0 }
+        Vital {
+            hp: 0,
+            max_hp: 10,
+            armor: 0,
+        }
     }
 
     fn base_app(phase: CombatPhase, on_defeat: OnDefeat) -> App {
@@ -414,8 +439,14 @@ mod tests {
         app.update();
 
         let flags = &app.world().resource::<CampaignState>().flags;
-        assert!(flags.contains("found_token"), "found_token should be in flags");
-        assert!(flags.contains("kael_found"), "kael_found should be in flags");
+        assert!(
+            flags.contains("found_token"),
+            "found_token should be in flags"
+        );
+        assert!(
+            flags.contains("kael_found"),
+            "kael_found should be in flags"
+        );
         assert_eq!(flags.len(), 2);
     }
 
@@ -510,7 +541,10 @@ mod tests {
         app.update();
 
         let flags = &app.world().resource::<CampaignState>().flags;
-        assert!(flags.contains("boat_saved"), "proceed-defeat should record met objective");
+        assert!(
+            flags.contains("boat_saved"),
+            "proceed-defeat should record met objective"
+        );
     }
 
     /// Defeat + Retry + boat alive → flag NOT recorded (retry = combat restarts).
@@ -537,7 +571,10 @@ mod tests {
         let db = make_db(scenario);
         let mut app = App::new();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(CampaignState {
             campaign_id: "c".into(),
             scenario_index: 0,
@@ -558,7 +595,10 @@ mod tests {
     fn current_on_defeat_returns_proceed() {
         let scenario = scenario_with_objective(OnDefeat::Proceed);
         let db = make_db(scenario);
-        let state = ScenarioState { scenario_id: "s1".into(), scene_index: 0 };
+        let state = ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        };
         assert_eq!(current_on_defeat(&db, &state), OnDefeat::Proceed);
     }
 
@@ -567,7 +607,10 @@ mod tests {
     fn current_on_defeat_returns_retry_for_default() {
         let scenario = scenario_with_objective(OnDefeat::Retry);
         let db = make_db(scenario);
-        let state = ScenarioState { scenario_id: "s1".into(), scene_index: 0 };
+        let state = ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        };
         assert_eq!(current_on_defeat(&db, &state), OnDefeat::Retry);
     }
 
@@ -576,7 +619,10 @@ mod tests {
     fn current_on_defeat_unknown_scenario_returns_retry() {
         let scenario = scenario_with_objective(OnDefeat::Proceed);
         let db = make_db(scenario);
-        let state = ScenarioState { scenario_id: "no_such_scenario".into(), scene_index: 0 };
+        let state = ScenarioState {
+            scenario_id: "no_such_scenario".into(),
+            scene_index: 0,
+        };
         assert_eq!(current_on_defeat(&db, &state), OnDefeat::Retry);
     }
 
@@ -593,7 +639,10 @@ mod tests {
             requires_flag: None,
         }];
         let db = make_db(scenario);
-        let state = ScenarioState { scenario_id: "s1".into(), scene_index: 0 };
+        let state = ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        };
         assert_eq!(current_on_defeat(&db, &state), OnDefeat::Retry);
     }
 
@@ -603,7 +652,10 @@ mod tests {
         let mut scenario = scenario_with_objective(OnDefeat::Proceed);
         scenario.encounters.clear();
         let db = make_db(scenario);
-        let state = ScenarioState { scenario_id: "s1".into(), scene_index: 0 };
+        let state = ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        };
         assert_eq!(current_on_defeat(&db, &state), OnDefeat::Retry);
     }
 
@@ -634,16 +686,25 @@ mod tests {
         let mut app = App::new();
         app.add_message::<AdvanceScenario>();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(GameSettings::default());
         // advance_scenario_system needs NextState<AppState>; insert directly to avoid
         // requiring StatesPlugin (which needs DefaultPlugins).
         app.insert_resource(NextState::<AppState>::default());
         // Writer system runs before advance; fires one message each update.
-        app.add_systems(Update, (
-            |mut w: MessageWriter<AdvanceScenario>| { w.write(AdvanceScenario); },
-            advance_scenario_system,
-        ).chain());
+        app.add_systems(
+            Update,
+            (
+                |mut w: MessageWriter<AdvanceScenario>| {
+                    w.write(AdvanceScenario);
+                },
+                advance_scenario_system,
+            )
+                .chain(),
+        );
         app.update();
 
         let idx = app.world().resource::<ScenarioState>().scene_index;
@@ -742,7 +803,7 @@ mod tests {
     fn skip_skipped_hops_over_gated_scene() {
         let scen = scenario_from_scenes(vec![
             gated_story(Some("secret")), // index 0: gated
-            gated_story(None),            // index 1: always visible
+            gated_story(None),           // index 1: always visible
         ]);
         // Without flag: index 0 skipped, lands on 1.
         assert_eq!(skip_skipped(&scen, 0, &flags(&[])), Some(1));
@@ -753,10 +814,7 @@ mod tests {
     /// skip_skipped returns None when ALL remaining scenes are gated and flag absent.
     #[test]
     fn skip_skipped_all_gated_returns_none() {
-        let scen = scenario_from_scenes(vec![
-            gated_story(Some("x")),
-            gated_story(Some("x")),
-        ]);
+        let scen = scenario_from_scenes(vec![gated_story(Some("x")), gated_story(Some("x"))]);
         assert_eq!(skip_skipped(&scen, 0, &flags(&[])), None);
         // With flag: first scene is reachable.
         assert_eq!(skip_skipped(&scen, 0, &flags(&["x"])), Some(0));
@@ -825,7 +883,12 @@ mod tests {
         // We verify by running advance from a notional scene "-1" via index wrapping:
         // easier approach — just assert skip_skipped logic directly.
         let f_flee = flags(&["flee"]); // "fight" flag NOT present
-        let scen2 = app.world().resource::<GameDb>().scenarios.get("s1").unwrap();
+        let scen2 = app
+            .world()
+            .resource::<GameDb>()
+            .scenarios
+            .get("s1")
+            .unwrap();
         // From index 0 with flee flag: should land on scene 1 (story), skipping combat.
         assert_eq!(skip_skipped(scen2, 0, &f_flee), Some(1));
 
@@ -833,7 +896,10 @@ mod tests {
         // the scenario state would be set to scene 1, not scene 0.
         // (write_victory_flags reads scen.scenes[scene_index].on_victory_flags; if
         // scene_index == 1 it finds no on_victory_flags, so flags stay empty.)
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 1 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 1,
+        });
         app.insert_resource(CampaignState {
             campaign_id: "c".into(),
             scenario_index: 0,
@@ -867,20 +933,32 @@ mod tests {
         let mut app = App::new();
         app.add_message::<AdvanceScenario>();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(GameSettings::default());
         app.insert_resource(NextState::<AppState>::default());
         // No CampaignState → non-campaign scenario, flags = empty.
-        app.add_systems(Update, (
-            |mut w: MessageWriter<AdvanceScenario>| { w.write(AdvanceScenario); },
-            advance_scenario_system,
-        ).chain());
+        app.add_systems(
+            Update,
+            (
+                |mut w: MessageWriter<AdvanceScenario>| {
+                    w.write(AdvanceScenario);
+                },
+                advance_scenario_system,
+            )
+                .chain(),
+        );
         app.update();
 
         // scene_index was 0; after advance: 0+1=1, gated → skip → None → finish.
         // ScenarioState.scene_index is set to scenes.len() == 2 on finish.
         let idx = app.world().resource::<ScenarioState>().scene_index;
-        assert_eq!(idx, 2, "scene_index should be past end (= scenes.len()) after finish");
+        assert_eq!(
+            idx, 2,
+            "scene_index should be past end (= scenes.len()) after finish"
+        );
     }
 
     // ── enter_scenario_at: gated tail is graceful (no panic) ─────────────────
@@ -926,7 +1004,7 @@ mod tests {
     fn enter_scenario_at_flag_resolves_correctly() {
         let scen = scenario_from_scenes(vec![
             gated_story(Some("secret")), // index 0: gated
-            gated_story(None),            // index 1: always visible
+            gated_story(None),           // index 1: always visible
         ]);
         let db = make_db(scen);
 
@@ -936,7 +1014,14 @@ mod tests {
             let world = bevy::ecs::world::World::new();
             let mut commands = Commands::new(&mut commands_queue, &world);
             let mut next_state = NextState::<AppState>::default();
-            enter_scenario_at(&mut commands, &db, &mut next_state, "s1", 0, Some(&flags(&["secret"])));
+            enter_scenario_at(
+                &mut commands,
+                &db,
+                &mut next_state,
+                "s1",
+                0,
+                Some(&flags(&["secret"])),
+            );
             // If ScenarioState would be inserted with scene_index=0 we're correct;
             // we can verify by applying the queue.
             let mut world2 = bevy::ecs::world::World::new();
@@ -969,7 +1054,7 @@ mod tests {
 
         let scen = scenario_from_scenes(vec![
             gated_story(Some("x")), // index 0: gated, will be skipped
-            gated_story(None),       // index 1: always visible
+            gated_story(None),      // index 1: always visible
         ]);
         let db = make_db(scen);
 
@@ -977,7 +1062,10 @@ mod tests {
         app.add_message::<AdvanceScenario>();
         app.insert_resource(db);
         // Place at index 0; no CampaignState inserted.
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(GameSettings::default());
         app.insert_resource(NextState::<AppState>::default());
 

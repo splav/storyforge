@@ -11,11 +11,7 @@ use super::hex::{can_stop_on, in_bounds, is_passable};
 ///
 /// Returns `None` if goal is unreachable.
 /// Returns `Some(path)` — cells from start (exclusive) to goal (inclusive).
-pub fn find_path(
-    start: Hex,
-    goal: Hex,
-    is_passable: impl Fn(Hex) -> bool,
-) -> Option<Vec<Hex>> {
+pub fn find_path(start: Hex, goal: Hex, is_passable: impl Fn(Hex) -> bool) -> Option<Vec<Hex>> {
     if start == goal {
         return Some(vec![]);
     }
@@ -51,11 +47,7 @@ pub fn find_path(
     None
 }
 
-fn reconstruct(
-    start: Hex,
-    goal: Hex,
-    came_from: &HashMap<Hex, Hex>,
-) -> Vec<Hex> {
+fn reconstruct(start: Hex, goal: Hex, came_from: &HashMap<Hex, Hex>) -> Vec<Hex> {
     let mut path = vec![goal];
     let mut cur = goal;
     while let Some(&prev) = came_from.get(&cur) {
@@ -242,7 +234,10 @@ fn reweight_came_from(
         .collect();
     // Primary sort: distance; secondary: deterministic (x,y) to make the
     // processing order stable even though it doesn't affect correctness here.
-    nodes_by_dist.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| (a.1.x, a.1.y).cmp(&(b.1.x, b.1.y))));
+    nodes_by_dist.sort_unstable_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| (a.1.x, a.1.y).cmp(&(b.1.x, b.1.y)))
+    });
 
     // --- Step 2: compute min-penalty predecessor for each node ----------------
     // best_penalty[h] = minimum accumulated hazard penalty on any shortest path
@@ -381,9 +376,17 @@ mod tests {
         let beyond_ally = hex_from_offset(5, 3);
         let mut stop_only = HashSet::new();
         stop_only.insert(ally_tile);
-        let env = MovementEnv { enemy_positions: HashSet::new(), stop_blockers: stop_only, blocked_hexes: HashSet::new(), hazard_costs: HashMap::new() };
+        let env = MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: stop_only,
+            blocked_hexes: HashSet::new(),
+            hazard_costs: HashMap::new(),
+        };
         let reach = reach_from(start, 3, &env);
-        assert!(!reach.destinations.contains(&ally_tile), "cannot stop on ally");
+        assert!(
+            !reach.destinations.contains(&ally_tile),
+            "cannot stop on ally"
+        );
         assert!(
             reach.destinations.contains(&beyond_ally),
             "tiles past an ally must still be reachable (pass-through allowed)",
@@ -398,7 +401,12 @@ mod tests {
         enemies.insert(enemy_tile);
         let mut blockers = HashSet::new();
         blockers.insert(enemy_tile);
-        let env2 = MovementEnv { enemy_positions: enemies, stop_blockers: blockers, blocked_hexes: HashSet::new(), hazard_costs: HashMap::new() };
+        let env2 = MovementEnv {
+            enemy_positions: enemies,
+            stop_blockers: blockers,
+            blocked_hexes: HashSet::new(),
+            hazard_costs: HashMap::new(),
+        };
         let reach2 = reach_from(start, 2, &env2);
         assert!(!reach2.destinations.contains(&enemy_tile));
         assert!(
@@ -503,24 +511,44 @@ mod tests {
     fn probe_multiple_routes() {
         let start = hex_from_offset(3, 3);
         println!("start axial: ({}, {})", start.x, start.y);
-        let hop1: Vec<Hex> = start.all_neighbors()
-            .iter().copied()
+        let hop1: Vec<Hex> = start
+            .all_neighbors()
+            .iter()
+            .copied()
             .filter(|&h| in_bounds(h))
             .collect();
         println!("hop-1 in-bounds:");
-        for h in &hop1 { println!("  axial ({}, {})", h.x, h.y); }
+        for h in &hop1 {
+            println!("  axial ({}, {})", h.x, h.y);
+        }
         for h1 in &hop1 {
             for h2 in h1.all_neighbors() {
-                if h2 == start { continue; }
-                if hop1.contains(&h2) { continue; }
-                if !in_bounds(h2) { continue; }
-                let other_preds: Vec<_> = hop1.iter()
+                if h2 == start {
+                    continue;
+                }
+                if hop1.contains(&h2) {
+                    continue;
+                }
+                if !in_bounds(h2) {
+                    continue;
+                }
+                let other_preds: Vec<_> = hop1
+                    .iter()
                     .filter(|&&p| p != *h1 && p.all_neighbors().contains(&h2))
                     .collect();
                 if !other_preds.is_empty() {
-                    println!("  2-hop multi-route goal ({},{}) via ({},{}) and {}",
-                        h2.x, h2.y, h1.x, h1.y,
-                        other_preds.iter().map(|h| format!("({},{})", h.x, h.y)).collect::<Vec<_>>().join("/"));
+                    println!(
+                        "  2-hop multi-route goal ({},{}) via ({},{}) and {}",
+                        h2.x,
+                        h2.y,
+                        h1.x,
+                        h1.y,
+                        other_preds
+                            .iter()
+                            .map(|h| format!("({},{})", h.x, h.y))
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    );
                 }
             }
         }
@@ -547,12 +575,7 @@ mod tests {
         let max_steps = 3;
 
         // Plain BFS — the reference.
-        let legacy = reachable_with_paths(
-            start,
-            max_steps,
-            in_bounds,
-            in_bounds,
-        );
+        let legacy = reachable_with_paths(start, max_steps, in_bounds, in_bounds);
 
         // reach_from with empty hazard_costs must follow the same code path.
         let with_env = reach_from(start, max_steps, &open_env(HashMap::new()));
@@ -589,14 +612,17 @@ mod tests {
         let start = hex_from_offset(3, 3);
         let hazard_hex = hex_from_offset(4, 3); // axial (2,3) — one of two predecessors
         let clean_pred = hex_from_offset(4, 2); // axial (2,2) — the other predecessor
-        let goal = hex_from_offset(5, 2);       // axial (3,2) — 2-hop goal
+        let goal = hex_from_offset(5, 2); // axial (3,2) — 2-hop goal
 
         let mut costs = HashMap::new();
         costs.insert(hazard_hex, 10.0);
 
         let reach = reach_from(start, 3, &open_env(costs));
 
-        assert!(reach.destinations.contains(&goal), "goal must still be reachable");
+        assert!(
+            reach.destinations.contains(&goal),
+            "goal must still be reachable"
+        );
 
         let path = reach.path_to(goal).expect("path_to goal must exist");
         assert!(
@@ -618,7 +644,7 @@ mod tests {
     fn hazard_tile_still_reachable_when_only_option() {
         let start = hex_from_offset(3, 3);
         let hazard_hex = hex_from_offset(4, 3); // only open neighbour of start
-        let goal = hex_from_offset(5, 3);       // one step past the hazard
+        let goal = hex_from_offset(5, 3); // one step past the hazard
 
         // Block all neighbours of start except hazard_hex.
         let open_nbs: HashSet<Hex> = start
@@ -683,8 +709,8 @@ mod tests {
     #[test]
     fn equal_penalty_tie_is_deterministic() {
         let start = hex_from_offset(3, 3);
-        let goal = hex_from_offset(4, 4);       // axial (2,4)
-        let lex_pred = hex_from_offset(3, 4);   // axial (1,4) — lex-min predecessor
+        let goal = hex_from_offset(4, 4); // axial (2,4)
+        let lex_pred = hex_from_offset(3, 4); // axial (1,4) — lex-min predecessor
         let other_pred = hex_from_offset(4, 3); // axial (2,3) — the other predecessor
 
         // Put a cost only on the goal itself so both paths accumulate the same

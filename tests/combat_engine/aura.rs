@@ -22,7 +22,9 @@ use storyforge::combat_engine::{
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn uid(n: u64) -> UnitId { UnitId(n) }
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
 
 fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
     let hp = if alive { 10 } else { 0 };
@@ -74,7 +76,11 @@ impl AuraContent {
             blocks_mana_abilities: false,
             forces_targeting: false,
             skips_turn: stun,
-            bonuses: StatusBonuses { armor_bonus, damage_taken_bonus: 0, speed_bonus },
+            bonuses: StatusBonuses {
+                armor_bonus,
+                damage_taken_bonus: 0,
+                speed_bonus,
+            },
             hp_percent_dot: 0,
             heal_per_tick: 0,
         }
@@ -110,20 +116,34 @@ impl AuraContent {
 impl ContentView for AuraContent {
     fn status_bonuses(&self, id: &StatusId) -> StatusBonuses {
         if *id == self.status_id {
-            StatusBonuses { speed_bonus: self.speed_bonus, armor_bonus: self.armor_bonus, damage_taken_bonus: 0 }
+            StatusBonuses {
+                speed_bonus: self.speed_bonus,
+                armor_bonus: self.armor_bonus,
+                damage_taken_bonus: 0,
+            }
         } else {
             StatusBonuses::default()
         }
     }
 
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
-        -> Option<&storyforge::combat_engine::AbilityDef> { None }
-
-    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
-        if *id == self.status_id { Some(&self.cached_def) } else { None }
+    fn ability_def(
+        &self,
+        _: &storyforge::combat_engine::AbilityId,
+    ) -> Option<&storyforge::combat_engine::AbilityDef> {
+        None
     }
 
-    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
+        if *id == self.status_id {
+            Some(&self.cached_def)
+        } else {
+            None
+        }
+    }
+
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+        None
+    }
 }
 
 // ── aura_effects_on query ─────────────────────────────────────────────────────
@@ -209,7 +229,10 @@ fn ally_only_aura_affects_ally() {
         vec![src, tgt],
     );
     let fx = state.aura_effects_on(tgt, &content);
-    assert_eq!(fx.armor_bonus, 2, "ally-only aura must affect same-team units");
+    assert_eq!(
+        fx.armor_bonus, 2,
+        "ally-only aura must affect same-team units"
+    );
 }
 
 #[test]
@@ -225,7 +248,10 @@ fn enemy_aura_does_not_affect_same_team() {
         vec![src, tgt],
     );
     let fx = state.aura_effects_on(tgt, &content);
-    assert_eq!(fx.speed_bonus, 0, "enemy-targeted aura must not affect same-team unit");
+    assert_eq!(
+        fx.speed_bonus, 0,
+        "enemy-targeted aura must not affect same-team unit"
+    );
 }
 
 // ── aura-stun: skip via AdvanceTurn ──────────────────────────────────────────
@@ -256,11 +282,17 @@ fn aura_stun_causes_skip_on_advance_turn() {
     )
     .expect("EndTurn must succeed");
 
-    let skipped = events.iter().any(|e| matches!(
-        e,
-        Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == tgt
-    ));
-    assert!(skipped, "aura-stunned actor must be skipped; events: {:#?}", events);
+    let skipped = events.iter().any(|e| {
+        matches!(
+            e,
+            Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == tgt
+        )
+    });
+    assert!(
+        skipped,
+        "aura-stunned actor must be skipped; events: {:#?}",
+        events
+    );
 }
 
 // ── diff-on-move: AuraStatusGained / AuraStatusLost ──────────────────────────
@@ -284,15 +316,26 @@ fn aura_gained_when_mover_enters_radius() {
     let path = vec![Hex::new(-4, 0), Hex::new(-3, 0), Hex::new(-2, 0)];
     let mut state = state;
     let mut rng = ExpectedValue;
-    let (events, _ctx) = step(&mut state, Action::Move { actor: mover, path }, &mut rng, &content)
-        .expect("Move must succeed");
+    let (events, _ctx) = step(
+        &mut state,
+        Action::Move { actor: mover, path },
+        &mut rng,
+        &content,
+    )
+    .expect("Move must succeed");
 
-    let gained = events.iter().any(|e| matches!(
-        e,
-        Event::AuraStatusGained { target, source, status_id }
-        if *target == mover && *source == src && *status_id == StatusId("curse".to_string())
-    ));
-    assert!(gained, "AuraStatusGained expected when mover enters radius; events: {:#?}", events);
+    let gained = events.iter().any(|e| {
+        matches!(
+            e,
+            Event::AuraStatusGained { target, source, status_id }
+            if *target == mover && *source == src && *status_id == StatusId("curse".to_string())
+        )
+    });
+    assert!(
+        gained,
+        "AuraStatusGained expected when mover enters radius; events: {:#?}",
+        events
+    );
 }
 
 #[test]
@@ -314,15 +357,26 @@ fn aura_lost_when_mover_leaves_radius() {
     let path = vec![Hex::new(2, 0), Hex::new(3, 0)];
     let mut state = state;
     let mut rng = ExpectedValue;
-    let (events, _ctx) = step(&mut state, Action::Move { actor: mover, path }, &mut rng, &content)
-        .expect("Move must succeed");
+    let (events, _ctx) = step(
+        &mut state,
+        Action::Move { actor: mover, path },
+        &mut rng,
+        &content,
+    )
+    .expect("Move must succeed");
 
-    let lost = events.iter().any(|e| matches!(
-        e,
-        Event::AuraStatusLost { target, source, status_id }
-        if *target == mover && *source == src && *status_id == StatusId("curse".to_string())
-    ));
-    assert!(lost, "AuraStatusLost expected when mover leaves radius; events: {:#?}", events);
+    let lost = events.iter().any(|e| {
+        matches!(
+            e,
+            Event::AuraStatusLost { target, source, status_id }
+            if *target == mover && *source == src && *status_id == StatusId("curse".to_string())
+        )
+    });
+    assert!(
+        lost,
+        "AuraStatusLost expected when mover leaves radius; events: {:#?}",
+        events
+    );
 }
 
 #[test]
@@ -358,8 +412,13 @@ fn source_moves_out_emits_lost_for_multiple_targets() {
 
     let mut state = state;
     let mut rng = ExpectedValue;
-    let (events, _ctx) = step(&mut state, Action::Move { actor: src, path }, &mut rng, &content)
-        .expect("Move must succeed");
+    let (events, _ctx) = step(
+        &mut state,
+        Action::Move { actor: src, path },
+        &mut rng,
+        &content,
+    )
+    .expect("Move must succeed");
 
     let lost_count = events
         .iter()
@@ -394,7 +453,11 @@ fn source_death_removes_coverage_from_membership_set() {
 
     // Snapshot before death.
     let before = state.aura_membership_set(&content);
-    assert_eq!(before.len(), 2, "both targets in membership set before death");
+    assert_eq!(
+        before.len(),
+        2,
+        "both targets in membership set before death"
+    );
 
     // Kill source — set pool HP to 0.
     {
@@ -408,5 +471,9 @@ fn source_death_removes_coverage_from_membership_set() {
 
     // The diff (lost) covers both targets.
     let lost: Vec<_> = before.difference(&after).collect();
-    assert_eq!(lost.len(), 2, "two AuraStatusLost entries expected (one per target)");
+    assert_eq!(
+        lost.len(),
+        2,
+        "two AuraStatusLost entries expected (one per target)"
+    );
 }

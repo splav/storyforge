@@ -36,11 +36,11 @@ mod tests {
     use crate::combat::ai::pipeline::StageCtx;
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
-    
-    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::combat::ai::scoring::trade::unit_value;
+
     use crate::combat::ai::orchestration::AiWorld;
+    use crate::combat::ai::scoring::trade::unit_value;
+    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use std::collections::HashMap;
@@ -85,14 +85,25 @@ mod tests {
         };
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = combat_engine::DiceRng::default();
-        let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+        let stage = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
 
         // ── 3. ModifierCtx ──
         let actor_view = snap.unit(actor.entity).unwrap();
         let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
-        let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
+        let ctx = ModifierCtx {
+            stage: &stage,
+            summon_dpr: &summon_dpr,
+            actor_value,
+            repair_weights,
+        };
 
         // ── 4. Act ──
         let ann = crate::combat::ai::outcome::PlanAnnotation::default();
@@ -114,7 +125,10 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .role(crate::combat::ai::config::role::AxisProfile { support: 1.0, ..Default::default() })
+            .role(crate::combat::ai::config::role::AxisProfile {
+                support: 1.0,
+                ..Default::default()
+            })
             .threat(6.0)
             .build();
         let rat = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0))
@@ -137,14 +151,25 @@ mod tests {
         };
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = combat_engine::DiceRng::default();
-        let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+        let stage = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
 
         // ── 3. ModifierCtx ──
         let actor_view = snap.unit(actor.entity).unwrap();
         let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
-        let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
+        let ctx = ModifierCtx {
+            stage: &stage,
+            summon_dpr: &summon_dpr,
+            actor_value,
+            repair_weights,
+        };
 
         // ── 4. Act ──
         let ann = crate::combat::ai::outcome::PlanAnnotation::default();
@@ -157,14 +182,20 @@ mod tests {
             final_pos: pos,
             residual_ap: 1,
             residual_mp: 3,
-            outcomes: vec![StepOutcome { killed: vec![victim.entity], ..Default::default() }],
+            outcomes: vec![StepOutcome {
+                killed: vec![victim.entity],
+                ..Default::default()
+            }],
             ..TurnPlan::default()
         };
         let b_support = MODIFIER.modify(&mk_kill_plan(&support), &ann, &ctx);
         let b_rat = MODIFIER.modify(&mk_kill_plan(&rat), &ann, &ctx);
 
         // ── 5. Assert ──
-        assert!(b_support > 0.0, "kill-support bonus must be positive: {b_support}");
+        assert!(
+            b_support > 0.0,
+            "kill-support bonus must be positive: {b_support}"
+        );
         assert!(b_rat > 0.0, "kill-rat bonus must be positive: {b_rat}");
         assert!(
             b_support > b_rat,

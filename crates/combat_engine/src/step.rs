@@ -93,19 +93,17 @@ impl<'a> ActionState for EngineCheckState<'a> {
     fn actor_view(&self, actor: crate::state::UnitId) -> Option<ActorView> {
         let u = self.state.unit(actor)?;
         // Fold status flags from content lookups.
-        let (causes_disadvantage, blocks_mana_abilities) = u.statuses.iter().fold(
-            (false, false),
-            |(d, m), s| {
+        let (causes_disadvantage, blocks_mana_abilities) =
+            u.statuses.iter().fold((false, false), |(d, m), s| {
                 let def = self.content.status_def(&s.id);
                 (
                     d || def.is_some_and(|x| x.causes_disadvantage),
                     m || def.is_some_and(|x| x.blocks_mana_abilities),
                 )
-            },
-        );
+            });
         use crate::PoolKind;
-        let mana_cur   = u.pools[PoolKind::Mana].map(|(c, _)| c);
-        let rage_cur   = u.pools[PoolKind::Rage].map(|(c, _)| c);
+        let mana_cur = u.pools[PoolKind::Mana].map(|(c, _)| c);
+        let rage_cur = u.pools[PoolKind::Rage].map(|(c, _)| c);
         let energy_cur = u.pools[PoolKind::Energy].map(|(c, _)| c);
         let pools = enum_map::enum_map! {
             // Hp is not a resource-cost kind for legality checks; excluded.
@@ -212,8 +210,13 @@ impl<'a> crate::targeting::TargetState for EngineTargetState<'a> {
         self.state.unit(actor).map(|u| u.pos)
     }
 
-    fn unit_at_cell(&self, pos: hexx::Hex) -> Option<crate::targeting::TargetRef<crate::state::UnitId>> {
-        self.state.units().iter()
+    fn unit_at_cell(
+        &self,
+        pos: hexx::Hex,
+    ) -> Option<crate::targeting::TargetRef<crate::state::UnitId>> {
+        self.state
+            .units()
+            .iter()
             .find(|u| u.pos == pos)
             .map(|u| crate::targeting::TargetRef {
                 id: u.id,
@@ -243,22 +246,41 @@ fn effect_for_target(
 ) -> Option<Effect> {
     macro_rules! roll {
         ($dice:expr) => {
-            if disadvantage { rng.roll_disadvantage($dice) } else { rng.roll($dice) }
+            if disadvantage {
+                rng.roll_disadvantage($dice)
+            } else {
+                rng.roll($dice)
+            }
         };
     }
     match effect {
         EffectDef::Damage { dice } => {
             let raw = (roll!(*dice) + caster.str_mod) as f32;
-            Some(Effect::Damage { target, raw, source, pierces: false })
+            Some(Effect::Damage {
+                target,
+                raw,
+                source,
+                pierces: false,
+            })
         }
         EffectDef::SpellDamage { dice } => {
             let raw = (roll!(*dice) + caster.int_mod + caster.spell_power) as f32;
-            Some(Effect::Damage { target, raw, source, pierces: true })
+            Some(Effect::Damage {
+                target,
+                raw,
+                source,
+                pierces: true,
+            })
         }
         EffectDef::WeaponAttack => {
             let dice = caster.weapon_dice?;
             let raw = (roll!(dice) + caster.str_mod) as f32;
-            Some(Effect::Damage { target, raw, source, pierces: false })
+            Some(Effect::Damage {
+                target,
+                raw,
+                source,
+                pierces: false,
+            })
         }
         EffectDef::Heal { dice } => {
             let amount = (roll!(*dice) + caster.int_mod + caster.spell_power).max(0);
@@ -292,33 +314,33 @@ fn is_benign_move_event(ev: &crate::event::Event, mover: crate::state::UnitId) -
         Event::UnitMoved { actor, .. } if *actor == mover => true,
         // Aura membership changes driven purely by movement are benign.
         Event::AuraStatusGained { .. } => true,
-        Event::AuraStatusLost { .. }  => true,
+        Event::AuraStatusLost { .. } => true,
 
         // Every other variant is non-benign and halts remaining movement.
-        Event::UnitMoved { .. }       => false,
-        Event::ActionStarted { .. }   => false,
-        Event::UnitDamaged { .. }     => false,
-        Event::UnitHealed { .. }      => false,
-        Event::StatusApplied { .. }   => false,
-        Event::StatusRemoved { .. }   => false,
-        Event::StatusTicked { .. }    => false,
-        Event::DotDamaged { .. }      => false,
-        Event::HotHealed { .. }       => false,
-        Event::ReactionFired { .. }   => false,
-        Event::UnitDied { .. }        => false,
-        Event::CritFailed { .. }      => false,
-        Event::ActionFinished { .. }  => false,
-        Event::UnitSpawned { .. }     => false,
-        Event::SpawnBlocked { .. }    => false,
-        Event::TurnEnded { .. }       => false,
-        Event::TurnStarted { .. }     => false,
-        Event::TurnSkipped { .. }     => false,
-        Event::RoundStarted { .. }    => false,
-        Event::PhaseEntered { .. }    => false,
+        Event::UnitMoved { .. } => false,
+        Event::ActionStarted { .. } => false,
+        Event::UnitDamaged { .. } => false,
+        Event::UnitHealed { .. } => false,
+        Event::StatusApplied { .. } => false,
+        Event::StatusRemoved { .. } => false,
+        Event::StatusTicked { .. } => false,
+        Event::DotDamaged { .. } => false,
+        Event::HotHealed { .. } => false,
+        Event::ReactionFired { .. } => false,
+        Event::UnitDied { .. } => false,
+        Event::CritFailed { .. } => false,
+        Event::ActionFinished { .. } => false,
+        Event::UnitSpawned { .. } => false,
+        Event::SpawnBlocked { .. } => false,
+        Event::TurnEnded { .. } => false,
+        Event::TurnStarted { .. } => false,
+        Event::TurnSkipped { .. } => false,
+        Event::RoundStarted { .. } => false,
+        Event::PhaseEntered { .. } => false,
         Event::HazardTriggered { .. } => false,
-        Event::EnvRevealed { .. }     => false,
-        Event::PoolChanged { .. }        => false,
-        Event::InitiativeRolled { .. }   => false,
+        Event::EnvRevealed { .. } => false,
+        Event::PoolChanged { .. } => false,
+        Event::InitiativeRolled { .. } => false,
     }
 }
 
@@ -349,7 +371,11 @@ pub fn step(
 
     match result {
         Ok((events, interrupted)) => {
-            let ctx = ApplyCtx { rng_calls: after - before, interrupted, ..Default::default() };
+            let ctx = ApplyCtx {
+                rng_calls: after - before,
+                interrupted,
+                ..Default::default()
+            };
             Ok((events, ctx))
         }
         Err(e) => {
@@ -431,7 +457,12 @@ fn step_inner(
                 ));
             }
         }
-        Action::Cast { actor, ability, target, target_pos } => {
+        Action::Cast {
+            actor,
+            ability,
+            target,
+            target_pos,
+        } => {
             // Engine-side legality check.  Translates IllegalReason to
             // ActionError::Illegal so callers (bridge, sim) see the same
             // rejection vocabulary as Bevy `validate_action_system`.
@@ -454,7 +485,9 @@ fn step_inner(
 
     // ── Emit ActionStarted event ──────────────────────────────────────────────
 
-    events.push(Event::ActionStarted { action: action.clone() });
+    events.push(Event::ActionStarted {
+        action: action.clone(),
+    });
 
     // ── Expand action into initial effect queue ───────────────────────────────
 
@@ -463,24 +496,41 @@ fn step_inner(
             // Per-step MP: interleave DecrementMP{by:1} before each MovePosition
             // so that a halted move consumes only the MP for completed steps.
             for &hex in path {
-                effect_queue.push_back(Effect::DecrementMP { actor: *actor, by: 1 });
-                effect_queue.push_back(Effect::MovePosition { actor: *actor, to: hex });
+                effect_queue.push_back(Effect::DecrementMP {
+                    actor: *actor,
+                    by: 1,
+                });
+                effect_queue.push_back(Effect::MovePosition {
+                    actor: *actor,
+                    to: hex,
+                });
             }
         }
         Action::EndTurn { actor } => {
             // TurnEnded fires before the AdvanceTurn cascade so the stream
             // reads: outgoing ends → queue advances → skips/round → next starts.
-            events.push(Event::TurnEnded { actor: *actor, cause: crate::event::TurnEndCause::Manual });
+            events.push(Event::TurnEnded {
+                actor: *actor,
+                cause: crate::event::TurnEndCause::Manual,
+            });
             effect_queue.push_back(Effect::AdvanceTurn);
         }
-        Action::Cast { actor, ability, target, target_pos } => {
+        Action::Cast {
+            actor,
+            ability,
+            target,
+            target_pos,
+        } => {
             // Legality pre-validate (step 6b) already ran and confirmed the
             // actor can afford every cost.  We rebuild AbilityDef here from
             // ContentView; cheap and avoids carrying the def around.
             let def = content.ability_def(ability).expect(
                 "cast: ability_def returns Some — already verified by legality pre-validate",
             );
-            let caster = state.unit(*actor).map(|u| u.caster_context.clone()).unwrap_or_default();
+            let caster = state
+                .unit(*actor)
+                .map(|u| u.caster_context.clone())
+                .unwrap_or_default();
 
             // Re-run check_legality to capture the disadvantage flag.  The
             // pre-validate arm above already confirmed Ok, so this cannot fail;
@@ -513,8 +563,10 @@ fn step_inner(
 
             // Cost multiplier: DoubleCost crit-fail doubles resource costs.
             let cost_mult = if crit_fail
-                && matches!(caster.crit_fail_outcome, crate::content::CritFailOutcome::DoubleCost)
-            {
+                && matches!(
+                    caster.crit_fail_outcome,
+                    crate::content::CritFailOutcome::DoubleCost
+                ) {
                 2
             } else {
                 1
@@ -567,7 +619,11 @@ fn step_inner(
                 // Summon is per-actor; everything else is per-target fanout.
                 let mut affected: Vec<crate::state::UnitId> = Vec::new();
 
-                if let EffectDef::Summon { template_id, max_active } = &def.effect {
+                if let EffectDef::Summon {
+                    template_id,
+                    max_active,
+                } = &def.effect
+                {
                     effect_queue.push_back(Effect::Spawn {
                         summoner: *actor,
                         template_id: template_id.clone(),
@@ -578,7 +634,11 @@ fn step_inner(
                     // Step 6d: target enumeration + damage/heal fanout.
                     let target_state = EngineTargetState { state };
                     affected = crate::targeting::compute_affected_targets(
-                        *actor, def, *target, *target_pos, &target_state,
+                        *actor,
+                        def,
+                        *target,
+                        *target_pos,
+                        &target_state,
                     );
 
                     // Step 6d/6e: per-target effect fanout (damage or heal).
@@ -639,7 +699,9 @@ fn step_inner(
     // can tell the AoO scanner where the mover came from.
 
     let actor_id = match &action {
-        Action::Move { actor, .. } | Action::Cast { actor, .. } | Action::EndTurn { actor } => *actor,
+        Action::Move { actor, .. } | Action::Cast { actor, .. } | Action::EndTurn { actor } => {
+            *actor
+        }
     };
     // prev_pos starts as the actor's position before any effects are applied.
     let mut prev_pos = state.unit(actor_id).map(|u| u.pos).unwrap_or_default();
@@ -667,7 +729,12 @@ fn step_inner(
         // ── Halt guard: skip remaining move effects after an interrupt ────────
         // Non-move effects (none in a pure Move action, but safe for others)
         // still proceed so nothing structural is dropped.
-        if halt && matches!(&effect, Effect::MovePosition { .. } | Effect::DecrementMP { .. }) {
+        if halt
+            && matches!(
+                &effect,
+                Effect::MovePosition { .. } | Effect::DecrementMP { .. }
+            )
+        {
             continue;
         }
 
@@ -735,12 +802,20 @@ fn step_inner(
         // summon correctly skips its spawn round and acts starting the next round.
         if let Some(uid) = ctx.spawn_uid {
             let roll = rng.roll(DiceExpr::new(1, 20, 0));
-            let dex = state.unit(uid).map(|u| u.caster_context.dex_mod).unwrap_or(0);
+            let dex = state
+                .unit(uid)
+                .map(|u| u.caster_context.dex_mod)
+                .unwrap_or(0);
             let total = roll + dex;
             if let Some(u) = state.unit_mut(uid) {
                 u.initiative = Some(total);
             }
-            events.push(Event::InitiativeRolled { unit: uid, roll, dex_mod: dex, total });
+            events.push(Event::InitiativeRolled {
+                unit: uid,
+                roll,
+                dex_mod: dex,
+                total,
+            });
         }
 
         // Aura diff-on-move/death (4c): emit AuraStatusGained/Lost for delta.
@@ -798,7 +873,9 @@ fn step_inner(
                 // Expand into a sub-queue and resolve fully (incl. derived
                 // Damage→GainRage→Death) before pulling the next reaction.
                 let mut sub_queue: VecDeque<Effect> =
-                    expand_reaction(&reaction, state, content, rng).into_iter().collect();
+                    expand_reaction(&reaction, state, content, rng)
+                        .into_iter()
+                        .collect();
 
                 while let Some(sub_eff) = sub_queue.pop_front() {
                     // Strict failure check (decision 6.5) within sub-queue —
@@ -812,12 +889,9 @@ fn step_inner(
                         }
                     }
 
-                    let (sub_derived, mut sub_ctx) =
-                        apply_effect(state, &sub_eff, content);
+                    let (sub_derived, mut sub_ctx) = apply_effect(state, &sub_eff, content);
 
-                    if let Some(ev) =
-                        effect_to_event(&sub_eff, state, Some(pos_before), &sub_ctx)
-                    {
+                    if let Some(ev) = effect_to_event(&sub_eff, state, Some(pos_before), &sub_ctx) {
                         events.push(ev);
                     }
 
@@ -856,12 +930,15 @@ fn step_inner(
                     let trap_ability = trap.ability;
 
                     // Log/animation hook; damage/status events follow from the fanout.
-                    events.push(Event::HazardTriggered { env_id: trap_id, victim: mover_id });
+                    events.push(Event::HazardTriggered {
+                        env_id: trap_id,
+                        victim: mover_id,
+                    });
 
                     // Resolve the ability definition; skip defensively if missing.
                     if let Some(def) = content.ability_def(&trap_ability).cloned() {
                         let env_source = crate::state::EffectSource::Env(trap_id);
-                        let caster     = crate::content::CasterContext::default();
+                        let caster = crate::content::CasterContext::default();
 
                         // Build effects for the mover: damage component (if any)
                         // + StatusOn::Target statuses.  AoE / StatusOn::MySelf
@@ -870,7 +947,12 @@ fn step_inner(
                             std::collections::VecDeque::new();
 
                         if let Some(dmg_eff) = effect_for_target(
-                            &def.effect, env_source, mover_id, &caster, rng, false,
+                            &def.effect,
+                            env_source,
+                            mover_id,
+                            &caster,
+                            rng,
+                            false,
                         ) {
                             trap_sub.push_back(dmg_eff);
                         }
@@ -878,11 +960,11 @@ fn step_inner(
                         for status_app in &def.statuses {
                             if matches!(status_app.on, crate::content::StatusOn::Target) {
                                 trap_sub.push_back(Effect::ApplyStatus {
-                                    target:       mover_id,
-                                    status:       status_app.status.clone(),
-                                    rounds:       status_app.duration_rounds,
+                                    target: mover_id,
+                                    status: status_app.status.clone(),
+                                    rounds: status_app.duration_rounds,
                                     dot_per_tick: 0,
-                                    applier:      env_source,
+                                    applier: env_source,
                                 });
                             }
                         }
@@ -906,8 +988,7 @@ fn step_inner(
                                 return Err(ActionError::ReactionDepthExceeded);
                             }
 
-                            let (sub_derived, mut sub_ctx) =
-                                apply_effect(state, &sub_eff, content);
+                            let (sub_derived, mut sub_ctx) = apply_effect(state, &sub_eff, content);
 
                             if let Some(ev) =
                                 effect_to_event(&sub_eff, state, Some(pos_before), &sub_ctx)
@@ -990,8 +1071,12 @@ fn step_inner(
     // is the single authoritative source.
     if matches!(&action, Action::Cast { .. }) && initial_current == final_current {
         if let Some(actor_unit) = state.unit(actor_id) {
-            let ap_left = actor_unit.pools[crate::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
-            let mp_left = actor_unit.pools[crate::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+            let ap_left = actor_unit.pools[crate::PoolKind::Ap]
+                .map(|(c, _)| c)
+                .unwrap_or(0);
+            let mp_left = actor_unit.pools[crate::PoolKind::Mp]
+                .map(|(c, _)| c)
+                .unwrap_or(0);
             if ap_left <= 0 && mp_left <= 0 {
                 // Emit TurnEnded before the AdvanceTurn cascade.
                 events.push(Event::TurnEnded {

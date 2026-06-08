@@ -54,9 +54,9 @@ use storyforge::combat::ai::config::role::AxisProfile;
 use storyforge::combat::ai::world::snapshot::build_snapshot;
 use storyforge::combat::ai::world::tags::AbilityTagCache;
 use storyforge::combat::engine_bridge::{
-    bootstrap_combat_state, BridgeQueues, CombatStateRes, UnitIdMap,
     apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
-    process_action_system, project_state_to_ecs,
+    bootstrap_combat_state, process_action_system, project_state_to_ecs, BridgeQueues,
+    CombatStateRes, UnitIdMap,
 };
 use storyforge::combat::turn_order::build_turn_order;
 use storyforge::combat::DiceRngRes;
@@ -65,14 +65,14 @@ use storyforge::content::settings::GameSettings;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{
-    AiCombatantQ, Combatant, CombatStats, Equipment, StatusEffects,
+    AiCombatantQ, CombatStats, Combatant, Equipment, StatusEffects,
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::hex_map::HexMap;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative,
-    SelectionState, TurnQueue,
+    CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions,
+    PresetInitiative, SelectionState, TurnQueue,
 };
 use storyforge::ui::animation::AnimationQueue;
 use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
@@ -179,45 +179,110 @@ fn build_app() -> App {
 ///   P1 (2,3) 35HP, P2 (3,3) 18/30HP wounded,
 ///   E1 (7,3) 25HP, E2 (8,4) 25HP, E3 (5,2) corpse 0/20HP, E4 (9,5) 30HP.
 fn spawn_scenario(app: &mut App) {
-    let hero_stats   = CombatStats { max_hp: 35, ..base_stats() };
-    let hero2_stats  = CombatStats { max_hp: 30, ..base_stats() };
-    let enemy_stats  = CombatStats { max_hp: 25, ..base_stats() };
-    let enemy_stats2 = CombatStats { max_hp: 25, ..base_stats() };
-    let enemy4_stats = CombatStats { max_hp: 30, ..base_stats() };
+    let hero_stats = CombatStats {
+        max_hp: 35,
+        ..base_stats()
+    };
+    let hero2_stats = CombatStats {
+        max_hp: 30,
+        ..base_stats()
+    };
+    let enemy_stats = CombatStats {
+        max_hp: 25,
+        ..base_stats()
+    };
+    let enemy_stats2 = CombatStats {
+        max_hp: 25,
+        ..base_stats()
+    };
+    let enemy4_stats = CombatStats {
+        max_hp: 30,
+        ..base_stats()
+    };
 
     // Hero P1 — full HP melee bruiser.
-    let p1 = app.world_mut().spawn(hero_bundle(
-        hero_stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment(),
-    )).id();
+    let p1 = app
+        .world_mut()
+        .spawn(hero_bundle(
+            hero_stats,
+            0,
+            3,
+            vec![MELEE_ATTACK.into()],
+            test_equipment(),
+        ))
+        .id();
 
     // Hero P2 — wounded ranged.
-    let p2 = app.world_mut().spawn(hero_bundle(
-        hero2_stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment(),
-    )).id();
+    let p2 = app
+        .world_mut()
+        .spawn(hero_bundle(
+            hero2_stats,
+            0,
+            3,
+            vec![MELEE_ATTACK.into()],
+            test_equipment(),
+        ))
+        .id();
     // Reduce HP to simulate wound.
-    app.world_mut().get_mut::<storyforge::game::components::Vital>(p2).unwrap().hp = 18;
+    app.world_mut()
+        .get_mut::<storyforge::game::components::Vital>(p2)
+        .unwrap()
+        .hp = 18;
 
     // Enemy E1 — melee AoO-capable.
-    let e1 = app.world_mut().spawn(enemy_bundle(
-        enemy_stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment(),
-    )).id();
+    let e1 = app
+        .world_mut()
+        .spawn(enemy_bundle(
+            enemy_stats,
+            0,
+            3,
+            vec![MELEE_ATTACK.into()],
+            test_equipment(),
+        ))
+        .id();
 
     // Enemy E2 — melee AoO-capable.
-    let e2 = app.world_mut().spawn(enemy_bundle(
-        enemy_stats2, 0, 3, vec![MELEE_ATTACK.into()], test_equipment(),
-    )).id();
+    let e2 = app
+        .world_mut()
+        .spawn(enemy_bundle(
+            enemy_stats2,
+            0,
+            3,
+            vec![MELEE_ATTACK.into()],
+            test_equipment(),
+        ))
+        .id();
 
     // Enemy E3 — corpse (hp=0); stays in HexCorpses so build_snapshot includes it.
-    let e3 = app.world_mut().spawn(enemy_bundle(
-        CombatStats { max_hp: 20, ..base_stats() },
-        0, 3, vec![MELEE_ATTACK.into()], test_equipment(),
-    )).id();
-    app.world_mut().get_mut::<storyforge::game::components::Vital>(e3).unwrap().hp = 0;
+    let e3 = app
+        .world_mut()
+        .spawn(enemy_bundle(
+            CombatStats {
+                max_hp: 20,
+                ..base_stats()
+            },
+            0,
+            3,
+            vec![MELEE_ATTACK.into()],
+            test_equipment(),
+        ))
+        .id();
+    app.world_mut()
+        .get_mut::<storyforge::game::components::Vital>(e3)
+        .unwrap()
+        .hp = 0;
 
     // Enemy E4 — ranged.
-    let e4 = app.world_mut().spawn(enemy_bundle(
-        enemy4_stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment(),
-    )).id();
+    let e4 = app
+        .world_mut()
+        .spawn(enemy_bundle(
+            enemy4_stats,
+            0,
+            3,
+            vec![MELEE_ATTACK.into()],
+            test_equipment(),
+        ))
+        .id();
 
     // Insert positions.
     {
@@ -230,7 +295,9 @@ fn spawn_scenario(app: &mut App) {
     }
     // E3 is a corpse: lives in HexCorpses, not HexPositions.
     {
-        app.world_mut().entity_mut(e3).insert(storyforge::game::components::Dead);
+        app.world_mut()
+            .entity_mut(e3)
+            .insert(storyforge::game::components::Dead);
         let pos = hex_from_offset(5, 2);
         app.world_mut().resource_mut::<HexCorpses>().insert(e3, pos);
     }
@@ -266,8 +333,17 @@ fn bench_snapshot_rebuild_production(c: &mut Criterion) {
 
     c.bench_function("snapshot_rebuild_production", |b| {
         b.iter(|| {
-            let (combatants, statuses, hex_map, roles, content, difficulty, state_res, id_map, keep_alive_q) =
-                state.get(app.world());
+            let (
+                combatants,
+                statuses,
+                hex_map,
+                roles,
+                content,
+                difficulty,
+                state_res,
+                id_map,
+                keep_alive_q,
+            ) = state.get(app.world());
 
             let keep_alive_entities: std::collections::HashSet<bevy::prelude::Entity> =
                 keep_alive_q.iter().collect();

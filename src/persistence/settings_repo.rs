@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::{fs, io};
 
-use crate::content::settings::{GameSettings, SettingsFile, load_bundled_settings};
+use crate::content::settings::{load_bundled_settings, GameSettings, SettingsFile};
 use crate::persistence::paths::AppPaths;
 
 /// Layered load: user config overrides bundled defaults.
@@ -11,7 +11,10 @@ pub fn load_layered(paths: Option<&AppPaths>) -> GameSettings {
     let Some(paths) = paths else { return bundled };
     let file_path = paths.settings_file();
     if !file_path.exists() {
-        info!("no user settings at {}, using bundled defaults", file_path.display());
+        info!(
+            "no user settings at {}, using bundled defaults",
+            file_path.display()
+        );
         return bundled;
     }
     match fs::read_to_string(&file_path) {
@@ -43,8 +46,8 @@ pub fn load_layered(paths: Option<&AppPaths>) -> GameSettings {
 /// Persist current settings to the user config file.
 pub fn save(paths: &AppPaths, settings: &GameSettings) -> io::Result<()> {
     let file = settings.to_file();
-    let text = toml::to_string_pretty(&file)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let text =
+        toml::to_string_pretty(&file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let path = paths.settings_file();
     fs::write(&path, text)?;
     info!("saved user settings to {}", path.display());

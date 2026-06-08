@@ -1,15 +1,17 @@
 #![allow(clippy::too_many_arguments)]
-use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
-use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::config::role::AxisProfile;
+use crate::combat::ai::config::tuning::AiTuning;
+use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+use crate::combat::ai::orchestration::{AiDecision, PickMechanics};
+use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::{PlanFactorValues, ScoredStep};
+use crate::combat::ai::scoring::position_eval::evaluate_position;
+use crate::combat::ai::scoring::target_selection::{
+    highest_priority_enemy, target_selection_score,
+};
+use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
-use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
-use crate::combat::ai::scoring::factors::{PlanFactorValues, ScoredStep};
-use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::config::tuning::AiTuning;
-use crate::combat::ai::orchestration::{AiDecision, PickMechanics};
 use crate::game::hex::{hex_to_offset, Hex};
 use crate::game::resources::{UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
@@ -123,18 +125,18 @@ pub struct AiDebugSnapshot {
 
 /// One candidate that survived the similarity window and entered the sampling pool.
 pub struct PoolEntry {
-    pub label: String,   // "ability → target_name"
+    pub label: String, // "ability → target_name"
     pub score: f32,
 }
 
 /// Diagnostic for the final pick phase: top-K + mercy + similarity window.
 pub struct PickDebug {
-    pub top_k: usize,           // requested K from difficulty
-    pub window: f32,            // similarity window (noise_amp × 2)
-    pub mercy_margin: f32,      // mercy_margin at call time
-    pub mercy_applied: bool,    // did mercy rerank the window?
-    pub pool: Vec<PoolEntry>,   // candidates eligible for random pick
-    pub chosen_pos: usize,      // 0-based position in pool that won
+    pub top_k: usize,         // requested K from difficulty
+    pub window: f32,          // similarity window (noise_amp × 2)
+    pub mercy_margin: f32,    // mercy_margin at call time
+    pub mercy_applied: bool,  // did mercy rerank the window?
+    pub pool: Vec<PoolEntry>, // candidates eligible for random pick
+    pub chosen_pos: usize,    // 0-based position in pool that won
 }
 
 /// Resource: AI debug state.
@@ -203,7 +205,9 @@ pub fn toggle_debug_system(
 
 // ── Console print system ────────────────────────────────────────────────────
 
-const FACTOR_NAMES: [&str; 10] = ["dmg", "kn", "kp", "cc", "heal", "intent", "sca", "tempo", "sat", "surv"];
+const FACTOR_NAMES: [&str; 10] = [
+    "dmg", "kn", "kp", "cc", "heal", "intent", "sca", "tempo", "sat", "surv",
+];
 
 fn fmt_pos(p: [i32; 2]) -> String {
     format!("({},{})", p[0], p[1])
@@ -211,14 +215,32 @@ fn fmt_pos(p: [i32; 2]) -> String {
 
 fn fmt_tags(tags: AiTags) -> String {
     let mut v = Vec::new();
-    if tags.contains(AiTags::LOW_HP) { v.push("LOW_HP"); }
-    if tags.contains(AiTags::CAN_HEAL) { v.push("CAN_HEAL"); }
-    if tags.contains(AiTags::CAN_CC) { v.push("CAN_CC"); }
-    if tags.contains(AiTags::HAS_AOE) { v.push("HAS_AOE"); }
-    if tags.contains(AiTags::RANGED) { v.push("RANGED"); }
-    if tags.contains(AiTags::MELEE_ONLY) { v.push("MELEE"); }
-    if tags.contains(AiTags::OPPONENT_OBJECTIVE) { v.push("OPPONENT_OBJECTIVE"); }
-    if v.is_empty() { "none".into() } else { v.join("|") }
+    if tags.contains(AiTags::LOW_HP) {
+        v.push("LOW_HP");
+    }
+    if tags.contains(AiTags::CAN_HEAL) {
+        v.push("CAN_HEAL");
+    }
+    if tags.contains(AiTags::CAN_CC) {
+        v.push("CAN_CC");
+    }
+    if tags.contains(AiTags::HAS_AOE) {
+        v.push("HAS_AOE");
+    }
+    if tags.contains(AiTags::RANGED) {
+        v.push("RANGED");
+    }
+    if tags.contains(AiTags::MELEE_ONLY) {
+        v.push("MELEE");
+    }
+    if tags.contains(AiTags::OPPONENT_OBJECTIVE) {
+        v.push("OPPONENT_OBJECTIVE");
+    }
+    if v.is_empty() {
+        "none".into()
+    } else {
+        v.join("|")
+    }
 }
 
 fn fmt_influence(inf: &TileInfluence) -> String {
@@ -251,15 +273,18 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
     );
     println!(
         "  HP: {}/{} | threat: {:.1} | pos: {} | tags: {} | AP={}/{} mov={}",
-        a.hp, a.max_hp, a.threat, fmt_pos(a.pos), fmt_tags(a.tags),
-        a.action_points, a.max_ap, a.movement_points,
+        a.hp,
+        a.max_hp,
+        a.threat,
+        fmt_pos(a.pos),
+        fmt_tags(a.tags),
+        a.action_points,
+        a.max_ap,
+        a.movement_points,
     );
 
     // Intent reasoning.
-    println!(
-        "  Intent: {} [{}]",
-        snap.intent.intent, snap.intent.rule,
-    );
+    println!("  Intent: {} [{}]", snap.intent.intent, snap.intent.rule,);
 
     if let Some((name, score)) = &snap.priority_target {
         println!("  Priority target: {} ({:.2})", name, score);
@@ -287,17 +312,8 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
         } else {
             format!("{} {} at {}", c.ability, c.target_name, fmt_pos(c.tile))
         };
-        println!(
-            "  #{} {}  [{}] = {:.2}",
-            i + 1,
-            header,
-            factors,
-            c.total,
-        );
-        println!(
-            "     tile: {}",
-            fmt_influence(&c.tile_influence),
-        );
+        println!("  #{} {}  [{}] = {:.2}", i + 1, header, factors, c.total,);
+        println!("     tile: {}", fmt_influence(&c.tile_influence),);
     }
 
     // Pick phase: top-K + mercy + similarity window.
@@ -311,7 +327,11 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
             println!("    pool empty");
         } else {
             for (i, entry) in pick.pool.iter().enumerate() {
-                let mark = if i == pick.chosen_pos { " ← chosen" } else { "" };
+                let mark = if i == pick.chosen_pos {
+                    " ← chosen"
+                } else {
+                    ""
+                };
                 println!("    {} = {:.2}{}", entry.label, entry.score, mark);
             }
         }
@@ -356,8 +376,12 @@ fn map_stats(map: &InfluenceMap) -> String {
     let mut sum = 0.0f32;
     let mut count = 0u32;
     for (_, &v) in map.iter() {
-        if v < min { min = v; }
-        if v > max { max = v; }
+        if v < min {
+            min = v;
+        }
+        if v > max {
+            max = v;
+        }
         sum += v;
         count += 1;
     }
@@ -478,7 +502,9 @@ fn classify_move(actor_pos: Hex, tile: Hex, focus_pos: Option<Hex>) -> MoveKind 
     if tile == actor_pos {
         return MoveKind::Wait;
     }
-    let Some(fp) = focus_pos else { return MoveKind::Move };
+    let Some(fp) = focus_pos else {
+        return MoveKind::Move;
+    };
     let before = actor_pos.unsigned_distance_to(fp);
     let after = tile.unsigned_distance_to(fp);
     use std::cmp::Ordering;
@@ -489,7 +515,12 @@ fn classify_move(actor_pos: Hex, tile: Hex, focus_pos: Option<Hex>) -> MoveKind 
     }
 }
 
-fn tile_influence_at(hex: Hex, role: &AxisProfile, tuning: &AiTuning, maps: &InfluenceMaps) -> TileInfluence {
+fn tile_influence_at(
+    hex: Hex,
+    role: &AxisProfile,
+    tuning: &AiTuning,
+    maps: &InfluenceMaps,
+) -> TileInfluence {
     TileInfluence {
         danger: maps.danger.get(hex),
         ally_support: maps.ally_support.get(hex),
@@ -500,7 +531,10 @@ fn tile_influence_at(hex: Hex, role: &AxisProfile, tuning: &AiTuning, maps: &Inf
 }
 
 fn name_of(entity: Entity, names: &HashMap<Entity, String>) -> String {
-    names.get(&entity).cloned().unwrap_or_else(|| format!("{:?}", entity))
+    names
+        .get(&entity)
+        .cloned()
+        .unwrap_or_else(|| format!("{:?}", entity))
 }
 
 fn target_label(target: Entity, names: &HashMap<Entity, String>) -> String {
@@ -520,9 +554,15 @@ fn actor_debug(active: UnitView<'_>) -> ActorDebug {
         max_hp: active.max_hp(),
         threat: active.cache.threat,
         tags: active.cache.tags,
-        action_points: active.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
-        max_ap: active.pools[combat_engine::PoolKind::Ap].map(|(_, m)| m).unwrap_or(0),
-        movement_points: active.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0),
+        action_points: active.pools[combat_engine::PoolKind::Ap]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
+        max_ap: active.pools[combat_engine::PoolKind::Ap]
+            .map(|(_, m)| m)
+            .unwrap_or(0),
+        movement_points: active.pools[combat_engine::PoolKind::Mp]
+            .map(|(c, _)| c)
+            .unwrap_or(0),
     }
 }
 
@@ -531,8 +571,12 @@ fn priority_target_debug(
     snap: &BattleSnapshot,
     names: &HashMap<Entity, String>,
 ) -> Option<(String, f32)> {
-    highest_priority_enemy(active, snap)
-        .map(|t| (name_of(t.entity(), names), target_selection_score(active, t, snap)))
+    highest_priority_enemy(active, snap).map(|t| {
+        (
+            name_of(t.entity(), names),
+            target_selection_score(active, t, snap),
+        )
+    })
 }
 
 /// Build the AiDebugSnapshot for a normal (non-fallback) pick_action path.
@@ -570,9 +614,9 @@ pub fn build_debug_snapshot(
         .map(|&(i, total)| {
             let step = ScoredStep::from_plan_committed(&plans[i], actor_pos);
             let (ability_label, target_name, is_move_only) = match &step {
-                ScoredStep::Cast { ability, target, .. } => {
-                    (ability.0.clone(), target_label(*target, names), false)
-                }
+                ScoredStep::Cast {
+                    ability, target, ..
+                } => (ability.0.clone(), target_label(*target, names), false),
                 ScoredStep::Move { .. } => (String::new(), String::new(), true),
             };
             let tile = step.caster_tile();
@@ -606,7 +650,9 @@ pub fn build_debug_snapshot(
             .map(|&(idx, score)| {
                 let step = ScoredStep::from_plan_committed(&plans[idx], actor_pos);
                 let label = match &step {
-                    ScoredStep::Cast { ability, target, .. } => {
+                    ScoredStep::Cast {
+                        ability, target, ..
+                    } => {
                         format!("{} → {}", ability, target_label(*target, names))
                     }
                     ScoredStep::Move { caster_tile } => {
@@ -659,7 +705,15 @@ pub fn build_fallback_debug(
         priority_target: priority_target_debug(active, snap, names),
         top_candidates: vec![],
         pick: None,
-        decision: decision_debug(decision, actor_pos, Some(reason), active, tuning, maps, names),
+        decision: decision_debug(
+            decision,
+            actor_pos,
+            Some(reason),
+            active,
+            tuning,
+            maps,
+            names,
+        ),
         candidate_count: 0,
         plan_index: 0, // set by run_ai_turn before storing in AiDebugState
     }
@@ -675,7 +729,9 @@ fn decision_debug(
     names: &HashMap<Entity, String>,
 ) -> DecisionDebug {
     match decision {
-        AiDecision::CastInPlace { ability, target, .. } => DecisionDebug {
+        AiDecision::CastInPlace {
+            ability, target, ..
+        } => DecisionDebug {
             description: format!(
                 "CastInPlace: {} → {} (stay at {})",
                 ability,
@@ -685,7 +741,12 @@ fn decision_debug(
             dest_tile: None,
             dest_influence: None,
         },
-        AiDecision::MoveAndCast { path, ability, target, .. } => {
+        AiDecision::MoveAndCast {
+            path,
+            ability,
+            target,
+            ..
+        } => {
             let dest = path.last().copied().unwrap_or(actor_pos);
             DecisionDebug {
                 description: format!(

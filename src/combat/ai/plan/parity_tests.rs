@@ -17,13 +17,14 @@
 mod tests {
     use crate::combat::ai::plan::sim::SimState;
     use crate::combat::ai::plan::types::PlanStep;
-    use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
-    use combat_engine::final_damage_f32;
     use crate::combat::ai::sim::effects_outcome::{
         compute_ability_outcome, ExpectedValue, OutcomePrimary,
     };
     use crate::combat::ai::sim::effects_state::{compute_affected_targets, TargetRef, TargetState};
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder,
+    };
+    use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost,
         StatusApplication, StatusOn, TargetType,
@@ -31,10 +32,11 @@ mod tests {
     use crate::content::content_view::ContentView;
     use crate::content::races::CritFailEffect;
     use crate::content::statuses::StatusDef;
-    use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use bevy::prelude::Entity;
+    use combat_engine::final_damage_f32;
+    use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
 
     // ── Whitelist of known divergences between sim and production ─────────────
     //
@@ -65,7 +67,12 @@ mod tests {
     }
 
     fn zero_ctx() -> CasterContext {
-        CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None }
+        CasterContext {
+            str_mod: 0,
+            int_mod: 0,
+            spell_power: 0,
+            weapon_dice: None,
+        }
     }
 
     /// Minimal `AbilityDef` with sane defaults. Callers override only the
@@ -103,7 +110,11 @@ mod tests {
     }
 
     fn cast_step(ability_id: &AbilityId, target: Entity, pos: crate::game::hex::Hex) -> PlanStep {
-        PlanStep::Cast { ability: ability_id.clone(), target, target_pos: pos }
+        PlanStep::Cast {
+            ability: ability_id.clone(),
+            target,
+            target_pos: pos,
+        }
     }
 
     // ── Layer 1: focused invariants per OutcomePrimary variant ────────────────
@@ -115,7 +126,12 @@ mod tests {
     #[test]
     fn damage_hp_delta_matches_final_damage_formula() {
         // Engine reads caster_ctx from the unit snapshot.
-        let ctx = CasterContext { str_mod: 2, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let ctx = CasterContext {
+            str_mod: 2,
+            int_mod: 0,
+            spell_power: 0,
+            weapon_dice: None,
+        };
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .caster_ctx(ctx.clone())
             .build();
@@ -129,22 +145,32 @@ mod tests {
         let mut content = empty_content();
         let def = make_ability(
             "strike",
-            EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            EffectDef::Damage {
+                dice: DiceExpr::new(1, 6, 0),
+            },
             TargetType::SingleEnemy,
             1,
             vec![],
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &cast_step(&def.id, target_id, hex_from_offset(1, 0)),
+            &ctx,
+            &content,
+            false,
+        );
 
         let t = sim.unit(target_id).unwrap();
         // EV of 1d6 = 3.5 → ExpectedValue rounds to 4; raw = 4 + 2 = 6.
         let raw = DiceExpr::new(1, 6, 0).expected().round() as i32 + ctx.str_mod;
         let expected_armor = 2i32;
-        let dealt =
-            final_damage_f32(raw as f32, expected_armor as f32, 0.0, false);
+        let dealt = final_damage_f32(raw as f32, expected_armor as f32, 0.0, false);
         assert!(
             (t.hp() as f32 - (20.0 - dealt)).abs() < 0.01,
             "hp={} expected {}",
@@ -158,7 +184,12 @@ mod tests {
     #[test]
     fn spell_damage_ignores_armor() {
         // Engine reads caster_ctx from the unit snapshot.
-        let ctx = CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None };
+        let ctx = CasterContext {
+            str_mod: 0,
+            int_mod: 3,
+            spell_power: 0,
+            weapon_dice: None,
+        };
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .caster_ctx(ctx.clone())
             .build();
@@ -172,15 +203,26 @@ mod tests {
         let mut content = empty_content();
         let def = make_ability(
             "bolt",
-            EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+            EffectDef::SpellDamage {
+                dice: DiceExpr::new(1, 4, 0),
+            },
             TargetType::SingleEnemy,
             3,
             vec![],
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &cast_step(&def.id, target_id, hex_from_offset(1, 0)),
+            &ctx,
+            &content,
+            false,
+        );
 
         // EV of 1d4 = 2.5 → 3; bonus = int_mod 3; raw = 6; pierces → dealt = 6.
         let raw = DiceExpr::new(1, 4, 0).expected().round() as i32 + ctx.int_mod;
@@ -212,15 +254,26 @@ mod tests {
         // 3d6 EV = 10.5 → 11; no bonus; target missing 6.
         let def = make_ability(
             "cure",
-            EffectDef::Heal { dice: DiceExpr::new(3, 6, 0) },
+            EffectDef::Heal {
+                dice: DiceExpr::new(3, 6, 0),
+            },
             TargetType::SingleAlly,
             2,
             vec![],
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &zero_ctx(), &content, false);
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &cast_step(&def.id, target_id, hex_from_offset(1, 0)),
+            &zero_ctx(),
+            &content,
+            false,
+        );
 
         let t = sim.unit(target_id).unwrap();
         // Missing = 6; heal EV = 11; capped → +6.
@@ -232,7 +285,12 @@ mod tests {
     #[test]
     fn heal_hp_delta_accounts_for_dot_cleanse() {
         // Engine reads caster_ctx from the unit snapshot.
-        let ctx = CasterContext { str_mod: 0, int_mod: 2, spell_power: 0, weapon_dice: None };
+        let ctx = CasterContext {
+            str_mod: 0,
+            int_mod: 2,
+            spell_power: 0,
+            weapon_dice: None,
+        };
         let actor = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .caster_ctx(ctx.clone())
             .build();
@@ -250,27 +308,40 @@ mod tests {
         let target_id = target_unit.entity;
 
         let mut content = empty_content();
-        content.statuses.insert(
-            StatusId::from("poison"),
-            blank_status_def("poison"),
-        );
+        content
+            .statuses
+            .insert(StatusId::from("poison"), blank_status_def("poison"));
         // 1d6 EV = 3.5 → 4; int_mod = 2 → amount = 6.
         let def = make_ability(
             "mend",
-            EffectDef::Heal { dice: DiceExpr::new(1, 6, 0) },
+            EffectDef::Heal {
+                dice: DiceExpr::new(1, 6, 0),
+            },
             TargetType::SingleAlly,
             2,
             vec![],
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target_unit]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target_unit]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &cast_step(&def.id, target_id, hex_from_offset(1, 0)),
+            &ctx,
+            &content,
+            false,
+        );
 
         // amount = 4 + 2 = 6; dot_consumed = 4; remaining = 2; hp 10+2=12.
         let t = sim.unit(target_id).unwrap();
         assert_eq!(t.hp(), 12, "hp={}", t.hp());
-        assert!(t.statuses.iter().all(|s| s.id.0 != "poison"), "poison cleansed");
+        assert!(
+            t.statuses.iter().all(|s| s.id.0 != "poison"),
+            "poison cleansed"
+        );
     }
 
     /// `OutcomePrimary::GrantMovement` — engine defers MP-grant to Phase 3.
@@ -292,13 +363,31 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
+        let mut sim =
+            SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
+        sim.apply_step(
+            &cast_step(&def.id, actor_id, hex_from_offset(0, 0)),
+            &zero_ctx(),
+            &content,
+            false,
+        );
 
         let a = sim.unit(actor_id).unwrap();
         // Phase 3 TODO: once engine emits GrantMovement effect, assert a.movement_points == 3 + 5.
-        assert_eq!(a.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 3, "engine defers GrantMovement to Phase 3; MP unchanged");
-        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP cost still paid");
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Mp]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            3,
+            "engine defers GrantMovement to Phase 3; MP unchanged"
+        );
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Ap]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            0,
+            "AP cost still paid"
+        );
     }
 
     /// `OutcomePrimary::RestoreResources` — engine defers to Phase 3.
@@ -324,16 +413,44 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
+        let mut sim =
+            SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
+        sim.apply_step(
+            &cast_step(&def.id, actor_id, hex_from_offset(0, 0)),
+            &zero_ctx(),
+            &content,
+            false,
+        );
 
         let a = sim.unit(actor_id).unwrap();
         // Phase 3 TODO: once engine emits RestoreResources effect, assert +1 on each.
-        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP cost paid");
-        assert_eq!(a.hp(), 15, "engine defers RestoreResources to Phase 3; HP unchanged");
-        assert_eq!(a.pools[combat_engine::PoolKind::Mana], Some((3, 10)), "mana unchanged");
-        assert_eq!(a.pools[combat_engine::PoolKind::Rage], Some((1, 5)), "rage unchanged");
-        assert_eq!(a.pools[combat_engine::PoolKind::Energy], Some((0, 8)), "energy unchanged");
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Ap]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            0,
+            "AP cost paid"
+        );
+        assert_eq!(
+            a.hp(),
+            15,
+            "engine defers RestoreResources to Phase 3; HP unchanged"
+        );
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Mana],
+            Some((3, 10)),
+            "mana unchanged"
+        );
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Rage],
+            Some((1, 5)),
+            "rage unchanged"
+        );
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Energy],
+            Some((0, 8)),
+            "energy unchanged"
+        );
     }
 
     /// `OutcomePrimary::Summon` — sim does not spawn units; snapshot is unchanged
@@ -357,10 +474,13 @@ mod tests {
                 target_type: TargetType::Myself,
                 range: AbilityRange { min: 0, max: 0 },
                 effect: EffectDef::Summon {
-                template_id: "spirit".to_string(),
-                max_active: None,
-            },
-                costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+                    template_id: "spirit".to_string(),
+                    max_active: None,
+                },
+                costs: vec![ResourceCost {
+                    resource: ResourceKind::Mana,
+                    amount: 3,
+                }],
                 cost_ap: 1,
                 aoe: AoEShape::None,
                 friendly_fire: false,
@@ -376,13 +496,29 @@ mod tests {
 
         let before_count = 1usize;
         let before_mana = 5i32;
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
+        let mut sim =
+            SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
+        sim.apply_step(
+            &cast_step(&def.id, actor_id, hex_from_offset(0, 0)),
+            &zero_ctx(),
+            &content,
+            false,
+        );
 
         let a = sim.unit(actor_id).unwrap();
         // Costs deducted (AP + mana).
-        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP paid");
-        assert_eq!(a.pools[combat_engine::PoolKind::Mana], Some((before_mana - 3, 10)), "mana paid");
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Ap]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            0,
+            "AP paid"
+        );
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Mana],
+            Some((before_mana - 3, 10)),
+            "mana paid"
+        );
         // No new unit spawned.
         assert_eq!(
             sim.snapshot.state.units().len(),
@@ -410,26 +546,50 @@ mod tests {
             EffectDef::None,
             TargetType::SingleEnemy,
             1,
-            vec![ResourceCost { resource: ResourceKind::Rage, amount: 2 }],
+            vec![ResourceCost {
+                resource: ResourceKind::Rage,
+                amount: 2,
+            }],
         );
         def.statuses = vec![StatusApplication {
             status: StatusId::from("taunted"),
             duration_rounds: 1,
             on: StatusOn::Target,
         }];
-        content.statuses.insert(StatusId::from("taunted"), blank_status_def("taunted"));
+        content
+            .statuses
+            .insert(StatusId::from("taunted"), blank_status_def("taunted"));
         content.abilities.insert(def.id.clone(), def.clone());
 
         let before_hp = 20i32;
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
-        sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &zero_ctx(), &content, false);
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &cast_step(&def.id, target_id, hex_from_offset(1, 0)),
+            &zero_ctx(),
+            &content,
+            false,
+        );
 
         let a = sim.unit(actor_id).unwrap();
         let t = sim.unit(target_id).unwrap();
 
         // Costs deducted.
-        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP paid");
-        assert_eq!(a.pools[combat_engine::PoolKind::Rage], Some((2, 10)), "rage paid");
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Ap]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            0,
+            "AP paid"
+        );
+        assert_eq!(
+            a.pools[combat_engine::PoolKind::Rage],
+            Some((2, 10)),
+            "rage paid"
+        );
         // Primary has no HP effect on target.
         assert_eq!(t.hp(), before_hp, "target HP unchanged by None primary");
         // Status landed (non-None status is applied even with None primary).
@@ -458,7 +618,7 @@ mod tests {
 
         // Abilities skipped in the sweep (see KNOWN_DIVERGENCES whitelist).
         let sweep_skip: &[&str] = &[
-            "move",          // ToggleMoveMode: pure UI, never enters resolution pipeline
+            "move",                // ToggleMoveMode: pure UI, never enters resolution pipeline
             "summon_storm_spirit", // Summon: sim is a no-op by design (divergence #1)
         ];
         // Additional engine-phase skip: WeaponAttack requires weapon_dice on the
@@ -561,9 +721,21 @@ mod tests {
 
             // HP delta for each affected target.
             for &ent in &expected_outcome.affected {
-                let before_hp = units.iter().find(|u| u.entity == ent).map(|u| u.hp).unwrap_or(0);
-                let before_armor = units.iter().find(|u| u.entity == ent).map(|u| u.armor + u.armor_bonus).unwrap_or(0);
-                let before_dtb = units.iter().find(|u| u.entity == ent).map(|u| u.damage_taken_bonus).unwrap_or(0);
+                let before_hp = units
+                    .iter()
+                    .find(|u| u.entity == ent)
+                    .map(|u| u.hp)
+                    .unwrap_or(0);
+                let before_armor = units
+                    .iter()
+                    .find(|u| u.entity == ent)
+                    .map(|u| u.armor + u.armor_bonus)
+                    .unwrap_or(0);
+                let before_dtb = units
+                    .iter()
+                    .find(|u| u.entity == ent)
+                    .map(|u| u.damage_taken_bonus)
+                    .unwrap_or(0);
 
                 let after = sim.unit(ent);
 
@@ -650,9 +822,15 @@ mod tests {
                 // AP.
                 let expected_ap = (actor.action_points - def.cost_ap).max(0);
                 assert_eq!(
-                    actor_after.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), expected_ap,
+                    actor_after.pools[combat_engine::PoolKind::Ap]
+                        .map(|(c, _)| c)
+                        .unwrap_or(0),
+                    expected_ap,
                     "[{label}] AP after={} expected={}",
-                    actor_after.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), expected_ap,
+                    actor_after.pools[combat_engine::PoolKind::Ap]
+                        .map(|(c, _)| c)
+                        .unwrap_or(0),
+                    expected_ap,
                 );
                 // Per-resource costs.
                 for cost in &def.costs {
@@ -670,7 +848,11 @@ mod tests {
             // Lethal damage: killed units appear in StepOutcome AND have hp=0.
             // (We re-run apply_step here separately to capture the StepOutcome.)
             {
-                let mut sim2 = SimState::from_snapshot(&snapshot_from(units.clone(), 1), actor_id, empty_status_tag_cache());
+                let mut sim2 = SimState::from_snapshot(
+                    &snapshot_from(units.clone(), 1),
+                    actor_id,
+                    empty_status_tag_cache(),
+                );
                 let step_outcome = sim2.apply_step(
                     &PlanStep::Cast {
                         ability: ability_id.clone(),
@@ -682,11 +864,16 @@ mod tests {
                     false,
                 );
                 for &killed_ent in &step_outcome.killed {
-                    let corpse = sim2.snapshot.unit(killed_ent).expect("corpse stays in snapshot");
+                    let corpse = sim2
+                        .snapshot
+                        .unit(killed_ent)
+                        .expect("corpse stays in snapshot");
                     assert_eq!(
-                        corpse.hp(), 0,
+                        corpse.hp(),
+                        0,
                         "[{label}] killed entity {:?} has hp={}",
-                        killed_ent, corpse.hp(),
+                        killed_ent,
+                        corpse.hp(),
                     );
                     assert!(!corpse.is_alive(), "[{label}] killed entity still alive?");
                 }
@@ -717,7 +904,11 @@ mod tests {
     /// Build an actor with enough resources to afford any typical ability:
     /// large mana + rage + energy pools. AP = 2 so it can always pay at least 1.
     fn build_actor_for(def: &AbilityDef, pos: crate::game::hex::Hex) -> UnitSnapshot {
-        let mut b = UnitBuilder::new(1, Team::Enemy, pos).ap(2).speed(3).hp(20).max_hp(20);
+        let mut b = UnitBuilder::new(1, Team::Enemy, pos)
+            .ap(2)
+            .speed(3)
+            .hp(20)
+            .max_hp(20);
         // Determine required resources from costs and over-provision.
         for cost in &def.costs {
             let amount = cost.amount + 10;
@@ -733,12 +924,18 @@ mod tests {
 
     /// A generic enemy (opponent) target at a fixed position.
     fn build_target(pos: crate::game::hex::Hex) -> UnitSnapshot {
-        UnitBuilder::new(2, Team::Player, pos).hp(20).max_hp(20).build()
+        UnitBuilder::new(2, Team::Player, pos)
+            .hp(20)
+            .max_hp(20)
+            .build()
     }
 
     /// An ally (same team as actor = Enemy) target for SingleAlly abilities.
     fn build_ally(pos: crate::game::hex::Hex) -> UnitSnapshot {
-        UnitBuilder::new(2, Team::Enemy, pos).hp(14).max_hp(20).build()
+        UnitBuilder::new(2, Team::Enemy, pos)
+            .hp(14)
+            .max_hp(20)
+            .build()
     }
 
     /// Helper: get current resource amount from a unit snapshot.
@@ -754,12 +951,21 @@ mod tests {
     /// Helper: get current resource amount from a `UnitView` (engine `Unit` via Deref).
     /// Used post-U4 where post-step reads go through `snapshot.unit()` instead of
     /// `snapshot.unit_snapshot()` (which reads frozen `snap.units`).
-    fn resource_of_view(u: &crate::combat::ai::world::snapshot::UnitView<'_>, kind: ResourceKind) -> i32 {
+    fn resource_of_view(
+        u: &crate::combat::ai::world::snapshot::UnitView<'_>,
+        kind: ResourceKind,
+    ) -> i32 {
         match kind {
             ResourceKind::Hp => u.hp(),
-            ResourceKind::Mana => u.pools[combat_engine::PoolKind::Mana].map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Rage => u.pools[combat_engine::PoolKind::Rage].map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Energy => u.pools[combat_engine::PoolKind::Energy].map(|(c, _)| c).unwrap_or(0),
+            ResourceKind::Mana => u.pools[combat_engine::PoolKind::Mana]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            ResourceKind::Rage => u.pools[combat_engine::PoolKind::Rage]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
+            ResourceKind::Energy => u.pools[combat_engine::PoolKind::Energy]
+                .map(|(c, _)| c)
+                .unwrap_or(0),
         }
     }
 
@@ -793,7 +999,11 @@ mod tests {
         }
         fn unit_at_cell(&self, pos: crate::game::hex::Hex) -> Option<TargetRef> {
             let u = self.0.unit_at(pos)?;
-            Some(TargetRef { entity: u.entity(), team: u.team, alive: true })
+            Some(TargetRef {
+                entity: u.entity(),
+                team: u.team,
+                alive: true,
+            })
         }
         fn team_of(&self, entity: Entity) -> Option<Team> {
             self.0.unit(entity).map(|u| u.team)
@@ -818,19 +1028,29 @@ mod tests {
         use crate::combat::ai::plan::sim::SimState;
         use crate::combat::ai::plan::types::PlanStep;
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
-        use crate::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
         use crate::combat::ai::world::tags::cache::StatusBonuses;
-        use combat_engine::StatusId;
+        use crate::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
+        use crate::content::abilities::{
+            AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication,
+            StatusOn, TargetType,
+        };
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
-        use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn, TargetType};
         use combat_engine::AbilityId;
+        use combat_engine::StatusId;
 
         // Build a cache with "haste" → speed_bonus=+2.
         let mut cache = StatusTagCache::default();
         let haste_id = StatusId::from("haste");
         cache.map.insert(haste_id.clone(), StatusTagSet::empty());
-        cache.bonuses.insert(haste_id.clone(), StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 });
+        cache.bonuses.insert(
+            haste_id.clone(),
+            StatusBonuses {
+                speed_bonus: 2,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+            },
+        );
 
         // Build a self-haste ability.
         let haste_def = AbilityDef {
@@ -849,10 +1069,10 @@ mod tests {
                 aoe: AoEShape::None,
                 friendly_fire: false,
                 statuses: vec![StatusApplication {
-                status: haste_id.clone(),
-                duration_rounds: 2,
-                on: StatusOn::Target,
-            }],
+                    status: haste_id.clone(),
+                    duration_rounds: 2,
+                    on: StatusOn::Target,
+                }],
                 key: None,
                 requires_los: false,
                 passive: vec![],
@@ -872,7 +1092,11 @@ mod tests {
             ai_controlled: false,
             buff_class: None,
             engine: combat_engine::StatusDef {
-                bonuses: combat_engine::StatusBonuses { armor_bonus: 0, damage_taken_bonus: 0, speed_bonus: 2 },
+                bonuses: combat_engine::StatusBonuses {
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                    speed_bonus: 2,
+                },
                 skips_turn: false,
                 forces_targeting: false,
                 blocks_mana_abilities: false,
@@ -895,7 +1119,9 @@ mod tests {
             paths: HashMap::new(),
             ..ContentView::default()
         };
-        content.abilities.insert(haste_def.id.clone(), haste_def.clone());
+        content
+            .abilities
+            .insert(haste_def.id.clone(), haste_def.clone());
         content.statuses.insert(haste_id.clone(), haste_status);
 
         // Build cache from content so all bonuses are correct.
@@ -920,7 +1146,12 @@ mod tests {
                 target: actor_id,
                 target_pos: hex_from_offset(0, 0),
             },
-            &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+            &CasterContext {
+                str_mod: 0,
+                int_mod: 0,
+                spell_power: 0,
+                weapon_dice: None,
+            },
             &content,
             false,
         );
@@ -941,14 +1172,17 @@ mod tests {
         use crate::combat::ai::plan::sim::SimState;
         use crate::combat::ai::plan::types::PlanStep;
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
-        use combat_engine::final_damage_f32;
-        use combat_engine::StatusId;
+        use crate::content::abilities::{
+            AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication,
+            StatusOn, TargetType,
+        };
+        use crate::content::content_view::ContentView;
+        use crate::content::statuses::StatusDef;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
-        use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn, TargetType};
+        use combat_engine::final_damage_f32;
+        use combat_engine::StatusId;
         use combat_engine::{AbilityId, DiceExpr};
-        use crate::content::statuses::StatusDef;
-        use crate::content::content_view::ContentView;
         use std::collections::HashMap;
 
         let stone_skin_id = StatusId::from("stone_skin");
@@ -961,7 +1195,11 @@ mod tests {
             ai_controlled: false,
             buff_class: None,
             engine: combat_engine::StatusDef {
-                bonuses: combat_engine::StatusBonuses { armor_bonus: 5, damage_taken_bonus: 0, speed_bonus: 0 },
+                bonuses: combat_engine::StatusBonuses {
+                    armor_bonus: 5,
+                    damage_taken_bonus: 0,
+                    speed_bonus: 0,
+                },
                 skips_turn: false,
                 forces_targeting: false,
                 blocks_mana_abilities: false,
@@ -988,10 +1226,10 @@ mod tests {
                 aoe: AoEShape::None,
                 friendly_fire: false,
                 statuses: vec![StatusApplication {
-                status: stone_skin_id.clone(),
-                duration_rounds: 3,
-                on: StatusOn::Target,
-            }],
+                    status: stone_skin_id.clone(),
+                    duration_rounds: 3,
+                    on: StatusOn::Target,
+                }],
                 key: None,
                 requires_los: false,
                 passive: vec![],
@@ -1011,7 +1249,9 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 3 },
-                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                effect: EffectDef::Damage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
                 costs: Vec::new(),
                 cost_ap: 1,
                 aoe: AoEShape::None,
@@ -1038,9 +1278,15 @@ mod tests {
             paths: HashMap::new(),
             ..ContentView::default()
         };
-        content.abilities.insert(buff_def.id.clone(), buff_def.clone());
-        content.abilities.insert(atk_def.id.clone(), atk_def.clone());
-        content.statuses.insert(stone_skin_id.clone(), stone_skin_def);
+        content
+            .abilities
+            .insert(buff_def.id.clone(), buff_def.clone());
+        content
+            .abilities
+            .insert(atk_def.id.clone(), atk_def.clone());
+        content
+            .statuses
+            .insert(stone_skin_id.clone(), stone_skin_def);
 
         use crate::combat::ai::world::tags::cache::build_caches;
         let (status_tag_cache, _) = build_caches(&content);
@@ -1063,7 +1309,12 @@ mod tests {
             .ap(2)
             .max_attack_range(3)
             .abilities(vec![atk_def.id.clone()])
-            .caster_ctx(CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None })
+            .caster_ctx(CasterContext {
+                str_mod: 4,
+                int_mod: 0,
+                spell_power: 0,
+                weapon_dice: None,
+            })
             .build_pair();
 
         let buffer_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
@@ -1080,14 +1331,20 @@ mod tests {
                 target: target_id,
                 target_pos: hex_from_offset(1, 0),
             },
-            &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+            &CasterContext {
+                str_mod: 0,
+                int_mod: 0,
+                spell_power: 0,
+                weapon_dice: None,
+            },
             &content,
             false,
         );
 
         // Verify armor_bonus refreshed.
         assert_eq!(
-            sim.unit(target_id).unwrap().armor_bonus, 5,
+            sim.unit(target_id).unwrap().armor_bonus,
+            5,
             "target armor_bonus must be 5 after stone_skin",
         );
 
@@ -1099,7 +1356,12 @@ mod tests {
                 target: target_id,
                 target_pos: hex_from_offset(1, 0),
             },
-            &CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None },
+            &CasterContext {
+                str_mod: 4,
+                int_mod: 0,
+                spell_power: 0,
+                weapon_dice: None,
+            },
             &content,
             false,
         );
@@ -1114,8 +1376,13 @@ mod tests {
         );
 
         let target_hp = sim.unit(target_id).unwrap().hp();
-        assert_eq!(target_hp, 20 - expected_dealt as i32,
-            "target HP should be 20 - {} = {}", expected_dealt as i32, 20 - expected_dealt as i32);
+        assert_eq!(
+            target_hp,
+            20 - expected_dealt as i32,
+            "target HP should be 20 - {} = {}",
+            expected_dealt as i32,
+            20 - expected_dealt as i32
+        );
     }
 
     /// Parity check (12.2): sim AoO damage matches `final_damage_f32` formula.
@@ -1129,11 +1396,11 @@ mod tests {
         use crate::combat::ai::plan::types::PlanStep;
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::combat::ai::world::tags::StatusTagCache;
-        use combat_engine::final_damage_f32;
-        use crate::game::components::Team;
-        use crate::game::hex::hex_from_offset;
         use crate::content::abilities::CasterContext;
         use crate::content::content_view::ContentView;
+        use crate::game::components::Team;
+        use crate::game::hex::hex_from_offset;
+        use combat_engine::final_damage_f32;
 
         let raw_aoo = 6.0f32;
         let actor_armor = 2;
@@ -1159,7 +1426,9 @@ mod tests {
         let content = ContentView::default();
         let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
         let outcome = sim.apply_step(
-            &PlanStep::Move { path: vec![hex_from_offset(2, 3)] },
+            &PlanStep::Move {
+                path: vec![hex_from_offset(2, 3)],
+            },
             &CasterContext::default(),
             // content not needed for a Move step — pass empty.
             &content,
@@ -1184,10 +1453,10 @@ mod tests {
         use crate::combat::ai::plan::types::PlanStep;
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::combat::ai::world::tags::StatusTagCache;
+        use crate::content::abilities::CasterContext;
         use crate::content::content_view::ContentView;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
-        use crate::content::abilities::CasterContext;
 
         // actor: Enemy at (3,3), ap=1, mp=3, threat=0.0, max_attack_range=1
         let actor_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
@@ -1208,7 +1477,9 @@ mod tests {
         let content = ContentView::default();
         let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
         sim.apply_step(
-            &PlanStep::Move { path: vec![hex_from_offset(2, 3)] },
+            &PlanStep::Move {
+                path: vec![hex_from_offset(2, 3)],
+            },
             &CasterContext::default(),
             &content,
             false,
@@ -1234,15 +1505,20 @@ mod tests {
             AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
         };
         use crate::content::content_view::ContentView;
-        use combat_engine::{AbilityId, DiceExpr};
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
+        use combat_engine::{AbilityId, DiceExpr};
         use std::collections::HashMap;
 
         // attacker: Enemy at (0,0), rage=(5,10), ap=1, threat=5.0
         let attacker_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .rage(5, 10)
-            .caster_ctx(CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None })
+            .caster_ctx(CasterContext {
+                str_mod: 0,
+                int_mod: 0,
+                spell_power: 0,
+                weapon_dice: None,
+            })
             .build_pair();
         // defender: Player at (1,0), rage=(3,10), ap=0, mp=0, threat=0.0, max_attack_range=0
         let defender_pair = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
@@ -1266,7 +1542,9 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 1 },
-                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                effect: EffectDef::Damage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
                 costs: Vec::new(),
                 cost_ap: 1,
                 aoe: AoEShape::None,
@@ -1293,7 +1571,9 @@ mod tests {
             paths: HashMap::new(),
             ..ContentView::default()
         };
-        content.abilities.insert(strike_def.id.clone(), strike_def.clone());
+        content
+            .abilities
+            .insert(strike_def.id.clone(), strike_def.clone());
 
         let snap = snapshot_from_pairs(vec![attacker_pair, defender_pair], 1);
         let status_tags = StatusTagCache::default();
@@ -1305,7 +1585,12 @@ mod tests {
                 target: defender_id,
                 target_pos: hex_from_offset(1, 0),
             },
-            &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+            &CasterContext {
+                str_mod: 0,
+                int_mod: 0,
+                spell_power: 0,
+                weapon_dice: None,
+            },
             &content,
             false,
         );
@@ -1338,14 +1623,13 @@ mod tests {
             AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
         };
         use crate::content::content_view::ContentView;
-        use combat_engine::{AbilityId, DiceExpr};
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
+        use combat_engine::{AbilityId, DiceExpr};
         use std::collections::HashMap;
 
         let make_unit = |id: u32, team: Team, col: i32, rage: Option<(i32, i32)>| {
-            let mut b = UnitBuilder::new(id, team, hex_from_offset(col, 0))
-                .max_attack_range(5);
+            let mut b = UnitBuilder::new(id, team, hex_from_offset(col, 0)).max_attack_range(5);
             if let Some((cur, max)) = rage {
                 b = b.rage(cur, max);
             }
@@ -1376,7 +1660,9 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 5 },
-                effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+                effect: EffectDef::SpellDamage {
+                    dice: DiceExpr::new(1, 4, 0),
+                },
                 costs: Vec::new(),
                 cost_ap: 1,
                 aoe: AoEShape::Circle { radius: 1 },
@@ -1403,7 +1689,9 @@ mod tests {
             paths: HashMap::new(),
             ..ContentView::default()
         };
-        content.abilities.insert(blast_def.id.clone(), blast_def.clone());
+        content
+            .abilities
+            .insert(blast_def.id.clone(), blast_def.clone());
 
         let snap = snapshot_from_pairs(vec![attacker_pair, d1_pair, d2_pair, d3_pair], 1);
         let status_tags = StatusTagCache::default();
@@ -1415,12 +1703,20 @@ mod tests {
                 target: d1_id,
                 target_pos: hex_from_offset(3, 0),
             },
-            &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+            &CasterContext {
+                str_mod: 0,
+                int_mod: 0,
+                spell_power: 0,
+                weapon_dice: None,
+            },
             &content,
             false,
         );
 
-        assert_eq!(outcome.hits, 3, "AoE radius-1 at (3,0) should hit d1(3,0), d2(4,0), d3(2,0)");
+        assert_eq!(
+            outcome.hits, 3,
+            "AoE radius-1 at (3,0) should hit d1(3,0), d2(4,0), d3(2,0)"
+        );
 
         // Attacker gets +1 per damage event → +3 total.
         assert_eq!(
@@ -1429,9 +1725,21 @@ mod tests {
             "attacker rage (5/10) + 3 hits = (8/10)",
         );
         // Each defender gets +1.
-        assert_eq!(sim.unit(d1_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "d1 (0/10) → (1/10)");
-        assert_eq!(sim.unit(d2_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "d2 (0/10) → (1/10)");
-        assert_eq!(sim.unit(d3_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "d3 (0/10) → (1/10)");
+        assert_eq!(
+            sim.unit(d1_id).unwrap().pools[combat_engine::PoolKind::Rage],
+            Some((1, 10)),
+            "d1 (0/10) → (1/10)"
+        );
+        assert_eq!(
+            sim.unit(d2_id).unwrap().pools[combat_engine::PoolKind::Rage],
+            Some((1, 10)),
+            "d2 (0/10) → (1/10)"
+        );
+        assert_eq!(
+            sim.unit(d3_id).unwrap().pools[combat_engine::PoolKind::Rage],
+            Some((1, 10)),
+            "d3 (0/10) → (1/10)"
+        );
     }
 
     /// Parity check (12.3, AoO branch): when a Move provokes an AoO, the real
@@ -1471,14 +1779,20 @@ mod tests {
         let content = ContentView::default();
         let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
         sim.apply_step(
-            &PlanStep::Move { path: vec![hex_from_offset(2, 3)] },
+            &PlanStep::Move {
+                path: vec![hex_from_offset(2, 3)],
+            },
             &CasterContext::default(),
             &content,
             false,
         );
 
         // Both sides bumped by exactly 1, mirroring `for actor in [attacker, ev.actor]`.
-        assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((5, 10)), "victim 4 → 5");
+        assert_eq!(
+            sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage],
+            Some((5, 10)),
+            "victim 4 → 5"
+        );
         assert_eq!(
             sim.unit(enemy_id).unwrap().pools[combat_engine::PoolKind::Rage],
             Some((8, 10)),

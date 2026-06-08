@@ -40,11 +40,11 @@ impl AbilityTag {
         match self {
             Self::Offensive => "offensive",
             Self::Defensive => "defensive",
-            Self::Rescue    => "rescue",
-            Self::Summon    => "summon",
-            Self::Mobility  => "mobility",
-            Self::ApplyCC   => "apply_cc",
-            Self::Peel      => "peel",
+            Self::Rescue => "rescue",
+            Self::Summon => "summon",
+            Self::Mobility => "mobility",
+            Self::ApplyCC => "apply_cc",
+            Self::Peel => "peel",
         }
     }
 
@@ -52,11 +52,11 @@ impl AbilityTag {
         match s {
             "offensive" => Some(Self::Offensive),
             "defensive" => Some(Self::Defensive),
-            "rescue"    => Some(Self::Rescue),
-            "summon"    => Some(Self::Summon),
-            "mobility"  => Some(Self::Mobility),
-            "apply_cc"  => Some(Self::ApplyCC),
-            "peel"      => Some(Self::Peel),
+            "rescue" => Some(Self::Rescue),
+            "summon" => Some(Self::Summon),
+            "mobility" => Some(Self::Mobility),
+            "apply_cc" => Some(Self::ApplyCC),
+            "peel" => Some(Self::Peel),
             _ => None,
         }
     }
@@ -65,9 +65,15 @@ impl AbilityTag {
     /// Pinned by `ability_tag_set_iter_order_is_stable`.
     pub fn iter() -> impl Iterator<Item = Self> {
         [
-            Self::Offensive, Self::Defensive, Self::Rescue, Self::Summon,
-            Self::Mobility,  Self::ApplyCC,   Self::Peel,
-        ].into_iter()
+            Self::Offensive,
+            Self::Defensive,
+            Self::Rescue,
+            Self::Summon,
+            Self::Mobility,
+            Self::ApplyCC,
+            Self::Peel,
+        ]
+        .into_iter()
     }
 }
 
@@ -109,11 +115,11 @@ impl AbilityTagSet {
         match t {
             AbilityTag::Offensive => Self::OFFENSIVE,
             AbilityTag::Defensive => Self::DEFENSIVE,
-            AbilityTag::Rescue    => Self::RESCUE,
-            AbilityTag::Summon    => Self::SUMMON,
-            AbilityTag::Mobility  => Self::MOBILITY,
-            AbilityTag::ApplyCC   => Self::APPLY_CC,
-            AbilityTag::Peel      => Self::PEEL,
+            AbilityTag::Rescue => Self::RESCUE,
+            AbilityTag::Summon => Self::SUMMON,
+            AbilityTag::Mobility => Self::MOBILITY,
+            AbilityTag::ApplyCC => Self::APPLY_CC,
+            AbilityTag::Peel => Self::PEEL,
         }
     }
 }
@@ -171,23 +177,23 @@ pub enum StatusTag {
 impl StatusTag {
     pub fn name(self) -> &'static str {
         match self {
-            Self::HardCC    => "hard_cc",
-            Self::SoftCC    => "soft_cc",
-            Self::Dot       => "dot",
-            Self::Buff      => "buff",
+            Self::HardCC => "hard_cc",
+            Self::SoftCC => "soft_cc",
+            Self::Dot => "dot",
+            Self::Buff => "buff",
             Self::Compulsion => "compulsion",
-            Self::Cosmetic  => "cosmetic",
+            Self::Cosmetic => "cosmetic",
         }
     }
 
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
-            "hard_cc"    => Some(Self::HardCC),
-            "soft_cc"    => Some(Self::SoftCC),
-            "dot"        => Some(Self::Dot),
-            "buff"       => Some(Self::Buff),
+            "hard_cc" => Some(Self::HardCC),
+            "soft_cc" => Some(Self::SoftCC),
+            "dot" => Some(Self::Dot),
+            "buff" => Some(Self::Buff),
             "compulsion" => Some(Self::Compulsion),
-            "cosmetic"   => Some(Self::Cosmetic),
+            "cosmetic" => Some(Self::Cosmetic),
             _ => None,
         }
     }
@@ -195,7 +201,15 @@ impl StatusTag {
     /// Iteration order = bitset write order = JSON list order.
     /// Pinned by `status_tag_set_iter_order_is_stable`.
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::HardCC, Self::SoftCC, Self::Dot, Self::Buff, Self::Compulsion, Self::Cosmetic].into_iter()
+        [
+            Self::HardCC,
+            Self::SoftCC,
+            Self::Dot,
+            Self::Buff,
+            Self::Compulsion,
+            Self::Cosmetic,
+        ]
+        .into_iter()
     }
 }
 
@@ -235,12 +249,12 @@ impl StatusTagSet {
 
     fn tag_bit(t: StatusTag) -> Self {
         match t {
-            StatusTag::HardCC     => Self::HARD_CC,
-            StatusTag::SoftCC     => Self::SOFT_CC,
-            StatusTag::Dot        => Self::DOT,
-            StatusTag::Buff       => Self::BUFF,
+            StatusTag::HardCC => Self::HARD_CC,
+            StatusTag::SoftCC => Self::SOFT_CC,
+            StatusTag::Dot => Self::DOT,
+            StatusTag::Buff => Self::BUFF,
             StatusTag::Compulsion => Self::COMPULSION,
-            StatusTag::Cosmetic   => Self::COSMETIC,
+            StatusTag::Cosmetic => Self::COSMETIC,
         }
     }
 }
@@ -279,20 +293,34 @@ mod tests {
     #[test]
     fn ability_tag_set_iter_order_is_stable() {
         let tags: Vec<AbilityTag> = AbilityTag::iter().collect();
-        assert_eq!(tags, vec![
-            AbilityTag::Offensive, AbilityTag::Defensive, AbilityTag::Rescue,
-            AbilityTag::Summon,    AbilityTag::Mobility,  AbilityTag::ApplyCC,
-            AbilityTag::Peel,
-        ]);
+        assert_eq!(
+            tags,
+            vec![
+                AbilityTag::Offensive,
+                AbilityTag::Defensive,
+                AbilityTag::Rescue,
+                AbilityTag::Summon,
+                AbilityTag::Mobility,
+                AbilityTag::ApplyCC,
+                AbilityTag::Peel,
+            ]
+        );
     }
 
     #[test]
     fn status_tag_set_iter_order_is_stable() {
         let tags: Vec<StatusTag> = StatusTag::iter().collect();
-        assert_eq!(tags, vec![
-            StatusTag::HardCC, StatusTag::SoftCC, StatusTag::Dot,
-            StatusTag::Buff,   StatusTag::Compulsion, StatusTag::Cosmetic,
-        ]);
+        assert_eq!(
+            tags,
+            vec![
+                StatusTag::HardCC,
+                StatusTag::SoftCC,
+                StatusTag::Dot,
+                StatusTag::Buff,
+                StatusTag::Compulsion,
+                StatusTag::Cosmetic,
+            ]
+        );
     }
 
     #[test]
@@ -319,6 +347,9 @@ mod tests {
         let result: Result<AbilityTagSet, _> = serde_json::from_str(r#"["bogus_tag"]"#);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("unknown ability tag"), "error message was: {msg}");
+        assert!(
+            msg.contains("unknown ability tag"),
+            "error message was: {msg}"
+        );
     }
 }

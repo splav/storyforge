@@ -98,7 +98,10 @@ pub enum EffectDef {
     RestoreResources,
     /// Summon a unit from a content template.  Engine fans out `Effect::Spawn`.
     /// `max_active` caps live summons from the same summoner; `None` = no cap.
-    Summon { template_id: String, max_active: Option<u32> },
+    Summon {
+        template_id: String,
+        max_active: Option<u32>,
+    },
     /// Passive: reveal hidden hazards within `range` hexes of the caster.
     /// Used by the `scout_traps` ability (turn-start passive).
     /// No damage, no cost, no crit-fail, zero rng.
@@ -160,8 +163,12 @@ impl AbilityRange {
 pub enum AoEShape {
     #[default]
     None,
-    Circle { radius: u32 },
-    Line { length: u32 },
+    Circle {
+        radius: u32,
+    },
+    Line {
+        length: u32,
+    },
 }
 
 /// Engine-side minimal ability definition.  Legality + targeting fields;

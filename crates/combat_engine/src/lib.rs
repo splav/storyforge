@@ -82,9 +82,11 @@ pub enum ResourceKind {
 /// `Hp` is the first variant (HP-as-pool migration, completed Stage 3c).
 /// `pools[Hp]` is the **canonical source of truth** for HP — legacy
 /// `Unit.hp` / `Unit.max_hp` fields were removed in Stage 3c (v44).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, enum_map::Enum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, enum_map::Enum, serde::Serialize, serde::Deserialize,
+)]
 pub enum PoolKind {
-    Hp,       // Canonical HP pool since Stage 3c (v44); legacy fields removed.
+    Hp, // Canonical HP pool since Stage 3c (v44); legacy fields removed.
     Mana,
     Rage,
     Energy,
@@ -140,27 +142,33 @@ pub const PERMANENT_DURATION: u32 = u32::MAX;
 pub use enum_map;
 
 pub mod action;
-pub mod geom;
-pub mod toml_content_view;
 pub mod content;
 pub mod content_hash;
 pub mod dice;
 pub mod effect;
 pub mod event;
+pub mod geom;
 pub mod legality;
 pub mod reaction;
 pub mod state;
 pub mod step;
 pub mod targeting;
+pub mod toml_content_view;
 pub mod trace;
 pub mod turn_queue;
 
+pub use content::{
+    AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome,
+    EffectDef, PassiveTrigger, PhaseEntry, PhaseTransition, StatusApplication, StatusBonuses,
+    StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate,
+};
 pub use dice::{DiceExpr, DiceRng};
-pub use geom::has_los;
-pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PassiveTrigger, PhaseEntry, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
 pub use effect::{final_damage_f32, SpawnBlockedReason};
-pub use targeting::aoe_cells;
-pub use toml_content_view::{TomlContentView, LoadError};
-pub use legality::{check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction};
+pub use geom::has_los;
+pub use legality::{
+    check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction,
+};
 pub use step::EngineCheckState;
+pub use targeting::aoe_cells;
+pub use toml_content_view::{LoadError, TomlContentView};
 pub use turn_queue::TurnQueue;

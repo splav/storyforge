@@ -1,9 +1,11 @@
 //! Focused tests for `trace::post_state_hash` and `serialize_init` (Phase 5 step 5a).
 
-use storyforge::combat_engine::state::{CombatState, RoundPhase, Unit, UnitId};
-use storyforge::combat_engine::trace::{parse_init, post_state_hash, serialize_init, InitLine, SCHEMA_VERSION};
-use storyforge::combat_engine::TurnQueue;
 use hexx::Hex;
+use storyforge::combat_engine::state::{CombatState, RoundPhase, Unit, UnitId};
+use storyforge::combat_engine::trace::{
+    parse_init, post_state_hash, serialize_init, InitLine, SCHEMA_VERSION,
+};
+use storyforge::combat_engine::TurnQueue;
 
 use crate::common::engine_unit::EngineUnitBuilder;
 
@@ -33,7 +35,10 @@ fn post_state_hash_is_deterministic() {
     let state = make_state(vec![make_unit(1, 20), make_unit(2, 15)]);
     let h1 = post_state_hash(&state);
     let h2 = post_state_hash(&state);
-    assert_eq!(h1, h2, "hash must be identical across two calls on identical state");
+    assert_eq!(
+        h1, h2,
+        "hash must be identical across two calls on identical state"
+    );
 }
 
 #[test]
@@ -105,7 +110,10 @@ fn serialize_init_byte_equal_on_second_pass() {
         next_synthetic_uid: 500,
         round: 2,
         phase: RoundPhase::PreRound,
-        turn_queue: TurnQueue { order: vec![UnitId(5)], index: 0 },
+        turn_queue: TurnQueue {
+            order: vec![UnitId(5)],
+            index: 0,
+        },
         content_hash: "blake3:ff".to_string(),
     };
     let json1 = serialize_init(&init).unwrap();

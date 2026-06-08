@@ -16,11 +16,11 @@
 //! One cached severity value per `EnvId` is therefore valid for all consumers
 //! in the same decision cycle.
 
-use combat_engine::EffectDef;
-use combat_engine::AbilityId;
-use crate::content::content_view::ContentView;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::combat::ai::scoring::policy::status;
+use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::content::content_view::ContentView;
+use combat_engine::AbilityId;
+use combat_engine::EffectDef;
 
 /// Soft avoidance ranking weight for a trap whose trigger ability is `ability`.
 ///
@@ -55,15 +55,17 @@ pub fn severity(ability: &AbilityId, content: &ContentView, neutral_ref: &UnitSn
 #[cfg(test)]
 mod tests {
     use super::*;
-    use combat_engine::{AbilityId, DiceExpr, EffectDef, StatusApplication,
-                        AbilityDef as EngineAbilityDef, TargetType, AbilityRange, AoEShape};
+    use crate::combat::ai::scoring::policy::status;
+    use crate::combat::ai::test_helpers::UnitBuilder;
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::content::abilities::AbilityDef;
     use crate::content::content_view::ContentView;
-    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::combat::ai::scoring::policy::status;
+    use combat_engine::{
+        AbilityDef as EngineAbilityDef, AbilityId, AbilityRange, AoEShape, DiceExpr, EffectDef,
+        StatusApplication, TargetType,
+    };
 
     fn neutral() -> UnitSnapshot {
         UnitSnapshot::neutral_reference()
@@ -112,12 +114,20 @@ mod tests {
     fn severity_pure_damage_equals_dice_expected() {
         let mut content = empty_content();
         let ability_id = AbilityId::from("spike_2d6");
-        let def = make_ability("spike_2d6", EffectDef::Damage { dice: DiceExpr::new(2, 6, 0) }, vec![]);
+        let def = make_ability(
+            "spike_2d6",
+            EffectDef::Damage {
+                dice: DiceExpr::new(2, 6, 0),
+            },
+            vec![],
+        );
         insert_ability(&mut content, def);
 
         let s = severity(&ability_id, &content, &neutral());
-        assert!((s - 7.0).abs() < 1e-6,
-            "expected 7.0 (2d6 expected value), got {s}");
+        assert!(
+            (s - 7.0).abs() < 1e-6,
+            "expected 7.0 (2d6 expected value), got {s}"
+        );
     }
 
     // ── status-only ability ───────────────────────────────────────────────────
@@ -131,10 +141,10 @@ mod tests {
         let target = neutral();
 
         // Find any ability that has no direct damage but applies statuses.
-        let (ability_id, def) = content.abilities.iter()
-            .find(|(_, d)| {
-                matches!(d.effect, EffectDef::None) && !d.statuses.is_empty()
-            })
+        let (ability_id, def) = content
+            .abilities
+            .iter()
+            .find(|(_, d)| matches!(d.effect, EffectDef::None) && !d.statuses.is_empty())
             .expect("need at least one status-only ability in content");
 
         let expected = status::value(def, &target, &content);
@@ -157,7 +167,10 @@ mod tests {
         insert_ability(&mut content, def);
 
         let s = severity(&ability_id, &content, &neutral());
-        assert_eq!(s, 0.0, "non-damage/no-status ability should have severity 0.0");
+        assert_eq!(
+            s, 0.0,
+            "non-damage/no-status ability should have severity 0.0"
+        );
     }
 
     // ── unit-independence ─────────────────────────────────────────────────────
@@ -169,19 +182,31 @@ mod tests {
     fn severity_unit_independent() {
         let mut content = empty_content();
         let ability_id = AbilityId::from("spike_1d6");
-        let def = make_ability("spike_1d6", EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) }, vec![]);
+        let def = make_ability(
+            "spike_1d6",
+            EffectDef::Damage {
+                dice: DiceExpr::new(1, 6, 0),
+            },
+            vec![],
+        );
         insert_ability(&mut content, def);
 
         // Two actors with very different stat lines.
         let glass_cannon = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
-            .max_hp(5).threat(20.0).build();
+            .max_hp(5)
+            .threat(20.0)
+            .build();
         let tank = UnitBuilder::new(2, Team::Enemy, hex_from_offset(1, 0))
-            .max_hp(60).threat(2.0).build();
+            .max_hp(60)
+            .threat(2.0)
+            .build();
 
         let s1 = severity(&ability_id, &content, &glass_cannon);
         let s2 = severity(&ability_id, &content, &tank);
-        assert_eq!(s1, s2,
+        assert_eq!(
+            s1, s2,
             "severity must be unit-independent (pure Damage trap, no statuses): \
-             glass_cannon={s1}, tank={s2}");
+             glass_cannon={s1}, tank={s2}"
+        );
     }
 }

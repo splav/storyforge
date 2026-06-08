@@ -1,19 +1,22 @@
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use combat_engine::final_damage_f32;
-use crate::content::content_view::ContentView;
 use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, TargetType};
+use crate::content::content_view::ContentView;
 use crate::content::statuses::StatusDef;
-use combat_engine::ResourceKind;
 use crate::game::components::Abilities;
 use crate::game::hex::Hex;
+use combat_engine::final_damage_f32;
+use combat_engine::ResourceKind;
 
 /// True if the ability applies any status that skips the target's turn
 /// (stun, paralyse, sleep…). Single source of truth for "is this CC?".
 pub fn applies_cc(def: &AbilityDef, content: &ContentView) -> bool {
-    def.statuses
-        .iter()
-        .any(|sa| content.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn))
+    def.statuses.iter().any(|sa| {
+        content
+            .statuses
+            .get(&sa.status)
+            .is_some_and(|sd| sd.skips_turn)
+    })
 }
 
 /// Sum of projected damage denied to `target` by `def`'s stun-class statuses.
@@ -54,7 +57,6 @@ pub fn status_applications<'a, 'c: 'a>(
             .map(|sd| (sd, sa.duration_rounds as f32))
     })
 }
-
 
 /// Sum of projected damage over the first `duration` rounds of the
 /// target's damage horizon. Rounds-up fractional durations (a
@@ -98,7 +100,11 @@ pub fn horizon_avg(target: UnitView<'_>) -> f32 {
 /// Best single-target expected damage from one ability (before armor).
 /// Used to value stuns/kills: controlling a high-damage target is worth more.
 /// Does NOT capture AoE, healing, or utility — it's a damage-only estimate.
-pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, content: &ContentView) -> f32 {
+pub fn estimate_st_damage(
+    ctx: &CasterContext,
+    abilities: &Abilities,
+    content: &ContentView,
+) -> f32 {
     abilities
         .0
         .iter()
@@ -107,7 +113,12 @@ pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, content: &
         // Both produce per-cast damage; the `effect.calc` filter below
         // drops non-damaging variants (teleport/spawn Ground spells), so
         // the blanket include here is safe.
-        .filter(|def| matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground))
+        .filter(|def| {
+            matches!(
+                def.target_type,
+                TargetType::SingleEnemy | TargetType::Ground
+            )
+        })
         .filter_map(|def| def.effect.calc(ctx))
         .map(|calc| calc.expected().max(0.0))
         .fold(0.0f32, f32::max)
@@ -140,7 +151,7 @@ pub fn estimate_damage_horizon(
     abilities: &Abilities,
     content: &ContentView,
     max_ap_per_round: i32,
-    mana: Option<(i32, i32)>,    // (current, max)
+    mana: Option<(i32, i32)>, // (current, max)
     rage: Option<(i32, i32)>,
     energy: Option<(i32, i32)>,
     hp: i32,
@@ -160,10 +171,12 @@ pub fn estimate_damage_horizon(
         .0
         .iter()
         .filter_map(|id| content.abilities.get(id))
-        .filter(|def| matches!(
-            def.target_type,
-            TargetType::SingleEnemy | TargetType::Ground
-        ))
+        .filter(|def| {
+            matches!(
+                def.target_type,
+                TargetType::SingleEnemy | TargetType::Ground
+            )
+        })
         .filter(|def| def.cost_ap > 0)
         .filter_map(|def| {
             let calc = def.effect.calc(caster)?;
@@ -199,9 +212,15 @@ pub fn estimate_damage_horizon(
         // regen'd by engine `start_actor_turn`); subsequent rounds model the own-
         // turn restoration + in-combat rage trickle.
         if round > 0 {
-            if max_mana > 0 { pool_mana = (pool_mana + 1).min(max_mana); }
-            if max_rage > 0 { pool_rage = (pool_rage + 1).min(max_rage); }
-            if max_energy > 0 { pool_energy = (pool_energy + 1).min(max_energy); }
+            if max_mana > 0 {
+                pool_mana = (pool_mana + 1).min(max_mana);
+            }
+            if max_rage > 0 {
+                pool_rage = (pool_rage + 1).min(max_rage);
+            }
+            if max_energy > 0 {
+                pool_energy = (pool_energy + 1).min(max_energy);
+            }
         }
 
         let mut ap_left = max_ap_per_round;
@@ -248,11 +267,7 @@ pub fn estimate_damage_horizon(
 /// Retained for parity tests in `policy/status.rs`; will be deleted in step 4.12
 /// once all consumers have migrated to `policy::status::value`.
 #[allow(dead_code)]
-pub(crate) fn status_score(
-    def: &AbilityDef,
-    target: &UnitSnapshot,
-    content: &ContentView,
-) -> f32 {
+pub(crate) fn status_score(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
     // HP-equivalent scoring — counts BOTH signs of damage_taken_bonus /
     // armor_bonus (.abs()) because a buff on an ally and a debuff on an
     // enemy are both "value to the caster". For CC-denial scoring see
@@ -322,14 +337,19 @@ pub(crate) fn scan_aoo_hits_for_step(
         if e.reactions_left <= 0 {
             continue;
         }
-        let Some(raw) = e.cache.aoo_expected_damage else { continue };
+        let Some(raw) = e.cache.aoo_expected_damage else {
+            continue;
+        };
         // Walk the path: detect first transition that leaves adjacency with
         // this enemy (prev adjacent, next not). Each enemy triggers at most
         // once per step.
         let mut prev = start_pos;
         for &h in path {
             if prev.unsigned_distance_to(e.pos) == 1 && h.unsigned_distance_to(e.pos) != 1 {
-                hits.push(AooHit { enemy_idx, raw_damage: raw });
+                hits.push(AooHit {
+                    enemy_idx,
+                    raw_damage: raw,
+                });
                 break;
             }
             prev = h;
@@ -364,7 +384,9 @@ pub(crate) fn expected_aoo_damage(
     let mut aoo_used = vec![false; enemies.len()];
     let mut prev_pos = active.pos;
     for step in &plan.steps {
-        let PlanStep::Move { path } = step else { continue };
+        let PlanStep::Move { path } = step else {
+            continue;
+        };
         let hits = scan_aoo_hits_for_step(prev_pos, path, enemies);
         for hit in hits {
             if !aoo_used[hit.enemy_idx] {
@@ -447,7 +469,10 @@ mod tests {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 5 },
                 effect: EffectDef::Damage { dice },
-                costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: mana_cost }],
+                costs: vec![ResourceCost {
+                    resource: ResourceKind::Mana,
+                    amount: mana_cost,
+                }],
                 cost_ap,
                 aoe: AoEShape::None,
                 friendly_fire: false,
@@ -462,7 +487,10 @@ mod tests {
     }
 
     const ZERO: CasterContext = CasterContext {
-        str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
+        str_mod: 0,
+        int_mod: 0,
+        spell_power: 0,
+        weapon_dice: None,
     };
 
     /// Free-attack warrior: one ability, no cost, cost_ap=1. Horizon over 5
@@ -490,7 +518,17 @@ mod tests {
         let content = content_with(vec![spell.clone()]);
         let abilities = Abilities(vec![spell.id.clone()]);
 
-        let h = estimate_damage_horizon(&ZERO, &abilities, &content, 1, Some((10, 10)), None, None, 20, 5);
+        let h = estimate_damage_horizon(
+            &ZERO,
+            &abilities,
+            &content,
+            1,
+            Some((10, 10)),
+            None,
+            None,
+            20,
+            5,
+        );
         // First two rounds fire the spell, remaining rounds have no damage.
         assert!((h[0] - ev).abs() < 0.01, "round 0: {}", h[0]);
         assert!((h[1] - ev).abs() < 0.01, "round 1: {}", h[1]);
@@ -511,10 +549,24 @@ mod tests {
         let content = content_with(vec![spell.clone(), melee.clone()]);
         let abilities = Abilities(vec![spell.id.clone(), melee.id.clone()]);
 
-        let h = estimate_damage_horizon(&ZERO, &abilities, &content, 1, Some((10, 10)), None, None, 20, 5);
+        let h = estimate_damage_horizon(
+            &ZERO,
+            &abilities,
+            &content,
+            1,
+            Some((10, 10)),
+            None,
+            None,
+            20,
+            5,
+        );
         assert!((h[0] - spell_ev).abs() < 0.01);
         assert!((h[1] - spell_ev).abs() < 0.01);
-        assert!((h[2] - melee_ev).abs() < 0.01, "fell back to melee: {}", h[2]);
+        assert!(
+            (h[2] - melee_ev).abs() < 0.01,
+            "fell back to melee: {}",
+            h[2]
+        );
         assert!((h[3] - melee_ev).abs() < 0.01);
         assert!((h[4] - melee_ev).abs() < 0.01);
     }
@@ -576,13 +628,15 @@ mod tests {
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 
-        fn make_target(
-            id: u32, threat: f32, horizon: Vec<f32>,
-        ) -> UnitSnapshot {
+        fn make_target(id: u32, threat: f32, horizon: Vec<f32>) -> UnitSnapshot {
             UnitSnapshot {
                 entity: bevy::prelude::Entity::from_raw_u32(id).unwrap(),
                 team: Team::Player,
-                role: AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() },
+                role: AxisProfile {
+                    tank: 0.5,
+                    melee: 0.5,
+                    ..Default::default()
+                },
                 pos: hex_from_offset(0, 0),
                 hp: 20,
                 max_hp: 20,
@@ -649,7 +703,15 @@ mod tests {
 
         // Start pool = cost exactly; max = 10 so regen isn't capped at cost.
         let h = estimate_damage_horizon(
-            &ZERO, &abilities, &content, 1, Some((2, 10)), None, None, 20, 5,
+            &ZERO,
+            &abilities,
+            &content,
+            1,
+            Some((2, 10)),
+            None,
+            None,
+            20,
+            5,
         );
         // Round 0: pool=2 → cast, pool=0.
         // Round 1: +1 → pool=1, can't cast.
@@ -657,7 +719,11 @@ mod tests {
         // Round 3: +1 → pool=1, can't.
         // Round 4: +1 → pool=2, cast.
         let cast_sum = h.iter().filter(|&&d| d > 0.0).count();
-        assert_eq!(cast_sum, 3, "regen should allow 3 casts in 5 rounds, horizon={:?}", h);
+        assert_eq!(
+            cast_sum, 3,
+            "regen should allow 3 casts in 5 rounds, horizon={:?}",
+            h
+        );
         for i in [0, 2, 4] {
             assert!((h[i] - ev).abs() < 0.01, "round {i}: {}", h[i]);
         }

@@ -7,17 +7,26 @@
 
 use bevy::prelude::*;
 
-use crate::common::{fixtures::*, apps::engine::*};
-use storyforge::combat::engine_bridge::{bootstrap_combat_state, apply_bridge_queues_pre_projection};
+use crate::common::{apps::engine::*, fixtures::*};
+use storyforge::combat::engine_bridge::{
+    apply_bridge_queues_pre_projection, bootstrap_combat_state,
+};
 use storyforge::combat::turn_order::build_turn_order;
 use storyforge::game::components::ActiveCombatant;
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::HexPositions;
 
-fn spawn_at(app: &mut App, pos: impl Into<storyforge::game::hex::Hex>, bundle: impl Bundle, name: &'static str) -> Entity {
+fn spawn_at(
+    app: &mut App,
+    pos: impl Into<storyforge::game::hex::Hex>,
+    bundle: impl Bundle,
+    name: &'static str,
+) -> Entity {
     let e = app.world_mut().spawn((Name::new(name), bundle)).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(e, pos.into());
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(e, pos.into());
     e
 }
 
@@ -28,23 +37,47 @@ fn spawn_at(app: &mut App, pos: impl Into<storyforge::game::hex::Hex>, bundle: i
 fn exactly_one_active_combatant_after_mid_round_handoff() {
     let mut app = movement_app();
 
-    let hero = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()), "Hero");
-    let _enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
+    let _enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
 
     // Hero is the first actor.
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
 
     // Sanity: one active combatant before the handoff.
-    let before = app.world_mut().query::<&ActiveCombatant>().iter(app.world()).count();
-    assert_eq!(before, 1, "expected 1 ActiveCombatant before EndTurn, got {before}");
+    let before = app
+        .world_mut()
+        .query::<&ActiveCombatant>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        before, 1,
+        "expected 1 ActiveCombatant before EndTurn, got {before}"
+    );
 
     // Player ends their turn — engine emits TurnEnded + TurnStarted.
     write_message(&mut app, ActionInput::EndTurn { actor: hero });
     app.update();
 
-    let after = app.world_mut().query::<&ActiveCombatant>().iter(app.world()).count();
-    assert_eq!(after, 1, "exactly one ActiveCombatant after mid-round handoff, got {after}");
+    let after = app
+        .world_mut()
+        .query::<&ActiveCombatant>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        after, 1,
+        "exactly one ActiveCombatant after mid-round handoff, got {after}"
+    );
 }
 
 /// Regression test: when the first actor by initiative is dead at round start,
@@ -75,8 +108,18 @@ fn build_turn_order_skips_dead_first_initiative() {
         .0
         .insert("Hero".into(), 5);
 
-    let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
-    let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
+    let enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
 
     // Mark the enemy dead before the round starts:
     // - Set hp=0 in Vital (engine from_ecs checks this)
@@ -84,24 +127,42 @@ fn build_turn_order_skips_dead_first_initiative() {
     // - Add Dead component (bridge queries may check this)
     {
         use storyforge::game::resources::HexCorpses;
-        app.world_mut().get_mut::<storyforge::game::components::Vital>(enemy).unwrap().hp = 0;
-        let pos = app.world().resource::<storyforge::game::resources::HexPositions>().get(&enemy)
+        app.world_mut()
+            .get_mut::<storyforge::game::components::Vital>(enemy)
+            .unwrap()
+            .hp = 0;
+        let pos = app
+            .world()
+            .resource::<storyforge::game::resources::HexPositions>()
+            .get(&enemy)
             .unwrap_or_default();
-        app.world_mut().resource_mut::<HexCorpses>().insert(enemy, pos);
-        app.world_mut().entity_mut(enemy).insert(storyforge::game::components::Dead);
+        app.world_mut()
+            .resource_mut::<HexCorpses>()
+            .insert(enemy, pos);
+        app.world_mut()
+            .entity_mut(enemy)
+            .insert(storyforge::game::components::Dead);
     }
 
     // Reset ctx.round: movement_app → enter_await_command transitions through
     // StartRound with no combatants (ctx.round becomes 1). Reset to 0 so the
     // next build_turn_order call sees first_round=true and applies the preset.
-    app.world_mut().resource_mut::<storyforge::game::resources::CombatContext>().round = 0;
+    app.world_mut()
+        .resource_mut::<storyforge::game::resources::CombatContext>()
+        .round = 0;
 
     // Run the StartRound chain: build_turn_order → bootstrap → drain queues.
     // bootstrap calls settle_round_start which pushes the settled actor into
     // insert_active; apply_bridge_queues_pre_projection drains it to set ActiveCombatant.
-    app.world_mut().run_system_once(build_turn_order).expect("build_turn_order failed");
-    app.world_mut().run_system_once(bootstrap_combat_state).expect("bootstrap_combat_state failed");
-    app.world_mut().run_system_once(apply_bridge_queues_pre_projection).expect("apply_bridge_queues failed");
+    app.world_mut()
+        .run_system_once(build_turn_order)
+        .expect("build_turn_order failed");
+    app.world_mut()
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap_combat_state failed");
+    app.world_mut()
+        .run_system_once(apply_bridge_queues_pre_projection)
+        .expect("apply_bridge_queues failed");
 
     let queue = app.world().resource::<TurnQueue>();
     // Dead enemy should be first in order (highest initiative).
@@ -156,8 +217,18 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
         .0
         .insert("Enemy".into(), 5);
 
-    let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
-    let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
+    let enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
 
     // Wave 3: engine owns turn order via roll_initiative_for_all + reconcile_turn_order
     // in bootstrap_combat_state. Presets above guarantee hero first, enemy second.
@@ -192,7 +263,10 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
         .query::<&ActiveCombatant>()
         .iter(app.world())
         .count();
-    assert_eq!(active_count, 1, "exactly one ActiveCombatant expected in round 2, got {active_count}");
+    assert_eq!(
+        active_count, 1,
+        "exactly one ActiveCombatant expected in round 2, got {active_count}"
+    );
 
     // The current actor (whoever won initiative in round 2) must have full AP/MP.
     // Both hero and enemy had their AP/MP drained before ending their round-1 turns.
@@ -253,8 +327,18 @@ fn status_does_not_tick_twice_per_turn() {
         .0
         .insert("Enemy".into(), 5);
 
-    let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
-    let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
+    let enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
 
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     // Attach a StatusEffects component with a 3-round status.
@@ -262,12 +346,14 @@ fn status_does_not_tick_twice_per_turn() {
     // One full turn cycle (hero EndTurn + enemy EndTurn) wraps the round →
     // start_actor_turn(hero) fires again → tick 2→1.
     // A spurious extra tick would land at 0.
-    app.world_mut().entity_mut(hero).insert(StatusEffects(vec![ActiveStatus {
-        id: "test_buff".into(),
-        rounds_remaining: 3,
-        dot_per_tick: 0,
-        applier: Some(hero),  // applier == hero → ticks on hero's start_actor_turn
-    }]));
+    app.world_mut()
+        .entity_mut(hero)
+        .insert(StatusEffects(vec![ActiveStatus {
+            id: "test_buff".into(),
+            rounds_remaining: 3,
+            dot_per_tick: 0,
+            applier: Some(hero), // applier == hero → ticks on hero's start_actor_turn
+        }]));
 
     init_engine_state(&mut app); // bootstrap: start_actor_turn(hero) → tick 3→2
 
@@ -323,19 +409,25 @@ fn current_actor_dies_mid_move_settles_on_next() {
 
     // Geometry: hero at (4,3), enemy at (3,3) — adjacent in even-r layout.
     // Enemy will move to (1,3) — not adjacent to hero → leaves adjacency → AoO fires.
-    let hero_pos  = hex_from_offset(4, 3);
+    let hero_pos = hex_from_offset(4, 3);
     let enemy_pos = hex_from_offset(3, 3);
-    let away_hex  = hex_from_offset(1, 3);
+    let away_hex = hex_from_offset(1, 3);
 
-    let hero  = spawn_at(&mut app, hero_pos,  test_hero(base_stats()),  "Hero");
+    let hero = spawn_at(&mut app, hero_pos, test_hero(base_stats()), "Hero");
     let enemy = spawn_at(&mut app, enemy_pos, test_enemy(base_stats()), "Enemy");
 
     // Enemy is the current (active) actor — give it highest initiative via preset.
     // Wave 3: engine owns turn order so we must use PresetInitiative, not queue.order.
     {
         use storyforge::game::resources::PresetInitiative;
-        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Enemy".into(), 20);
-        app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero".into(),   5);
+        app.world_mut()
+            .resource_mut::<PresetInitiative>()
+            .0
+            .insert("Enemy".into(), 20);
+        app.world_mut()
+            .resource_mut::<PresetInitiative>()
+            .0
+            .insert("Hero".into(), 5);
     }
     app.world_mut().entity_mut(enemy).insert(ActiveCombatant);
 
@@ -351,10 +443,13 @@ fn current_actor_dies_mid_move_settles_on_next() {
     init_engine_state(&mut app);
 
     // Enemy moves away from hero — triggers AoO → lethal.
-    write_message(&mut app, ActionInput::Move {
-        actor: enemy,
-        path: vec![away_hex],
-    });
+    write_message(
+        &mut app,
+        ActionInput::Move {
+            actor: enemy,
+            path: vec![away_hex],
+        },
+    );
     app.update();
 
     // ── Assertions ───────────────────────────────────────────────────────────
@@ -398,8 +493,18 @@ fn combat_2_starts_clean_after_combat_1() {
 
     let mut app = movement_app();
 
-    let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
-    let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
+    let enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
 
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
@@ -407,9 +512,15 @@ fn combat_2_starts_clean_after_combat_1() {
     // Sanity: engine mirrors are populated after init.
     {
         let state = app.world().resource::<CombatStateRes>();
-        assert!(state.0.units().len() >= 2, "engine must have units after init");
+        assert!(
+            state.0.units().len() >= 2,
+            "engine must have units after init"
+        );
         let id_map = app.world().resource::<UnitIdMap>();
-        assert!(!id_map.entity_to_id.is_empty(), "id_map must be populated after init");
+        assert!(
+            !id_map.entity_to_id.is_empty(),
+            "id_map must be populated after init"
+        );
     }
 
     // Seed BridgeQueues.phases with a fake entry.
@@ -442,7 +553,8 @@ fn combat_2_starts_clean_after_combat_1() {
 
     let queues = app.world().resource::<BridgeQueues>();
     assert!(
-        queues.phases.is_empty() && queues.deaths.is_empty()
+        queues.phases.is_empty()
+            && queues.deaths.is_empty()
             && queues.animations.is_empty()
             && queues.turn_lifecycle.remove_active.is_empty()
             && queues.turn_lifecycle.insert_active.is_empty()
@@ -479,13 +591,27 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
     let mut app = movement_app();
 
     // ── Combat 1: spawn 2 units, bootstrap, verify engine mirrors. ────────────
-    let hero1  = spawn_at(&mut app, hex_from_offset(2, 2), test_hero(base_stats()),  "Hero1");
-    let enemy1 = spawn_at(&mut app, hex_from_offset(5, 2), test_enemy(base_stats()), "Enemy1");
+    let hero1 = spawn_at(
+        &mut app,
+        hex_from_offset(2, 2),
+        test_hero(base_stats()),
+        "Hero1",
+    );
+    let enemy1 = spawn_at(
+        &mut app,
+        hex_from_offset(5, 2),
+        test_enemy(base_stats()),
+        "Enemy1",
+    );
     app.world_mut().entity_mut(hero1).insert(ActiveCombatant);
     init_engine_state(&mut app);
     {
         let state = &app.world().resource::<CombatStateRes>().0;
-        assert_eq!(state.units().len(), 2, "combat 1: engine must have 2 units after bootstrap");
+        assert_eq!(
+            state.units().len(),
+            2,
+            "combat 1: engine must have 2 units after bootstrap"
+        );
     }
 
     // ── Mutate engine state: hero EndTurns once. ──────────────────────────────
@@ -498,7 +624,10 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
         .expect("reset_engine_mirrors_on_exit_combat failed");
     {
         let cs = app.world().resource::<CombatStateRes>();
-        assert!(cs.0.units().is_empty(), "engine units must be cleared by teardown");
+        assert!(
+            cs.0.units().is_empty(),
+            "engine units must be cleared by teardown"
+        );
         let id_map = app.world().resource::<UnitIdMap>();
         assert!(
             id_map.entity_to_id.is_empty() && id_map.id_to_entity.is_empty(),
@@ -509,13 +638,29 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
     // ── Combat 2: despawn old entities, spawn fresh ones. ─────────────────────
     app.world_mut().entity_mut(hero1).despawn();
     app.world_mut().entity_mut(enemy1).despawn();
-    let hero2  = spawn_at(&mut app, hex_from_offset(1, 1), test_hero(base_stats()),  "Hero2");
-    let enemy2 = spawn_at(&mut app, hex_from_offset(4, 4), test_enemy(base_stats()), "Enemy2");
+    let hero2 = spawn_at(
+        &mut app,
+        hex_from_offset(1, 1),
+        test_hero(base_stats()),
+        "Hero2",
+    );
+    let enemy2 = spawn_at(
+        &mut app,
+        hex_from_offset(4, 4),
+        test_enemy(base_stats()),
+        "Enemy2",
+    );
 
     // Use presets to make hero2 first — engine rolls in UnitId order (Wave 2)
     // so without preset the order is non-deterministic across test runs.
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero2".into(),  20);
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Enemy2".into(),  5);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Hero2".into(), 20);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Enemy2".into(), 5);
 
     app.world_mut().entity_mut(hero2).insert(ActiveCombatant);
 
@@ -523,12 +668,16 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
     init_engine_state(&mut app);
     {
         let state = &app.world().resource::<CombatStateRes>().0;
-        assert_eq!(state.units().len(), 2, "combat 2: exactly 2 units, no stale tombstones");
+        assert_eq!(
+            state.units().len(),
+            2,
+            "combat 2: exactly 2 units, no stale tombstones"
+        );
 
         // Engine owns the order after Wave 3.  Verify both units are present and
         // hero2 is first (highest initiative via preset).
         let id_map = app.world().resource::<UnitIdMap>();
-        let hero2_uid  = id_map.get_id(hero2).expect("hero2 must be in id_map");
+        let hero2_uid = id_map.get_id(hero2).expect("hero2 must be in id_map");
         let enemy2_uid = id_map.get_id(enemy2).expect("enemy2 must be in id_map");
 
         assert!(
@@ -573,8 +722,8 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
 ///    Bevy queries.
 #[test]
 fn entity_for_uid_lookup_works_for_summoned_units() {
-    use storyforge::combat::ai::world::snapshot::BattleSnapshot;
     use combat_engine::state::{CombatState, UnitId};
+    use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 
     // Build a minimal engine state with one regular unit.
     let regular_entity = {
@@ -737,25 +886,46 @@ fn summoned_unit_can_act_in_ai_turn() {
 #[test]
 fn stunned_first_initiative_skipped_on_round_1() {
     use bevy::ecs::system::RunSystemOnce;
-    use storyforge::game::components::{ActiveCombatant, ActiveStatus, StatusEffects};
     use storyforge::game::combat_log::{CombatEvent, CombatLog};
+    use storyforge::game::components::{ActiveCombatant, ActiveStatus, StatusEffects};
     use storyforge::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 
     let mut app = movement_app();
 
     // Enemy wins initiative; hero is second.
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Enemy".into(), 20);
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero".into(),  5);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Enemy".into(), 20);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Hero".into(), 5);
 
-    let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
-    let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
+    let enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
 
     // Stun the enemy — it wins initiative but must be skipped.
     app.world_mut()
         .get_mut::<StatusEffects>(enemy)
         .unwrap()
         .0
-        .push(ActiveStatus { id: "stunned".into(), rounds_remaining: 1, applier: None, dot_per_tick: 0 });
+        .push(ActiveStatus {
+            id: "stunned".into(),
+            rounds_remaining: 1,
+            applier: None,
+            dot_per_tick: 0,
+        });
 
     // Reset ctx.round (movement_app runs StartRound once with no combatants → round=1).
     app.world_mut().resource_mut::<CombatContext>().round = 0;
@@ -763,25 +933,51 @@ fn stunned_first_initiative_skipped_on_round_1() {
     // Run the StartRound chain: build_turn_order → bootstrap → drain queues.
     // bootstrap calls settle_round_start which advances past the stunned enemy and
     // pushes the hero into insert_active; apply_bridge_queues_pre_projection sets ActiveCombatant.
-    app.world_mut().run_system_once(build_turn_order).expect("build_turn_order");
-    app.world_mut().run_system_once(bootstrap_combat_state).expect("bootstrap");
-    app.world_mut().run_system_once(apply_bridge_queues_pre_projection).expect("apply_bridge_queues");
+    app.world_mut()
+        .run_system_once(build_turn_order)
+        .expect("build_turn_order");
+    app.world_mut()
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap");
+    app.world_mut()
+        .run_system_once(apply_bridge_queues_pre_projection)
+        .expect("apply_bridge_queues");
 
     // Verify: enemy sorted first (highest initiative) but NOT active.
     let queue = app.world().resource::<TurnQueue>();
-    assert_eq!(queue.order.first().copied(), Some(enemy), "enemy must be first in order");
+    assert_eq!(
+        queue.order.first().copied(),
+        Some(enemy),
+        "enemy must be first in order"
+    );
 
-    assert!(app.world().get::<ActiveCombatant>(hero).is_some(),  "hero must be ActiveCombatant");
-    assert!(app.world().get::<ActiveCombatant>(enemy).is_none(), "stunned enemy must NOT be ActiveCombatant");
+    assert!(
+        app.world().get::<ActiveCombatant>(hero).is_some(),
+        "hero must be ActiveCombatant"
+    );
+    assert!(
+        app.world().get::<ActiveCombatant>(enemy).is_none(),
+        "stunned enemy must NOT be ActiveCombatant"
+    );
 
     // Exactly one holder.
-    let count = app.world_mut().query::<&ActiveCombatant>().iter(app.world()).count();
+    let count = app
+        .world_mut()
+        .query::<&ActiveCombatant>()
+        .iter(app.world())
+        .count();
     assert_eq!(count, 1, "exactly one ActiveCombatant, got {count}");
 
     // TurnSkipped must be logged for the enemy.
     let log = app.world().resource::<CombatLog>();
-    let skipped = log.0.iter().any(|e| matches!(e, CombatEvent::TurnSkipped { actor, .. } if *actor == enemy));
-    assert!(skipped, "CombatLog must contain TurnSkipped for stunned enemy");
+    let skipped = log
+        .0
+        .iter()
+        .any(|e| matches!(e, CombatEvent::TurnSkipped { actor, .. } if *actor == enemy));
+    assert!(
+        skipped,
+        "CombatLog must contain TurnSkipped for stunned enemy"
+    );
 }
 
 /// Round 2+: after a full round, a stunned unit at position 0 of the new round's
@@ -800,29 +996,62 @@ fn stunned_first_initiative_skipped_on_round_2() {
     let mut app = movement_app();
 
     // Enemy wins initiative in all rounds (preset consumed round 1, reused round 2+).
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Enemy".into(), 20);
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero".into(),   5);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Enemy".into(), 20);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Hero".into(), 5);
 
-    let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
-    let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
+    let enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
 
     // Stun the enemy for 2 rounds — still stunned when round 2 starts.
     app.world_mut()
         .get_mut::<StatusEffects>(enemy)
         .unwrap()
         .0
-        .push(ActiveStatus { id: "stunned".into(), rounds_remaining: 2, applier: None, dot_per_tick: 0 });
+        .push(ActiveStatus {
+            id: "stunned".into(),
+            rounds_remaining: 2,
+            applier: None,
+            dot_per_tick: 0,
+        });
 
     // Reset round counter (movement_app already ran StartRound once with no combatants).
     app.world_mut().resource_mut::<CombatContext>().round = 0;
 
     // ── Round 1: run StartRound chain manually ────────────────────────────────
-    app.world_mut().run_system_once(build_turn_order).expect("build_turn_order r1");
-    app.world_mut().run_system_once(bootstrap_combat_state).expect("bootstrap r1");
-    app.world_mut().run_system_once(apply_bridge_queues_pre_projection).expect("apply_bridge_queues r1");
+    app.world_mut()
+        .run_system_once(build_turn_order)
+        .expect("build_turn_order r1");
+    app.world_mut()
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap r1");
+    app.world_mut()
+        .run_system_once(apply_bridge_queues_pre_projection)
+        .expect("apply_bridge_queues r1");
 
-    assert!(app.world().get::<ActiveCombatant>(hero).is_some(),  "hero active round 1");
-    assert!(app.world().get::<ActiveCombatant>(enemy).is_none(), "enemy skipped round 1");
+    assert!(
+        app.world().get::<ActiveCombatant>(hero).is_some(),
+        "hero active round 1"
+    );
+    assert!(
+        app.world().get::<ActiveCombatant>(enemy).is_none(),
+        "enemy skipped round 1"
+    );
 
     // Hero ends turn → engine skips stunned enemy → BumpRound → RoundStarted →
     // apply_bridge_queues_pre_projection schedules StartRound next frame.
@@ -832,11 +1061,24 @@ fn stunned_first_initiative_skipped_on_round_2() {
     app.update(); // AwaitCommand entry — ensure state settled
 
     // ── Round 2 assertions ────────────────────────────────────────────────────
-    assert!(app.world().get::<ActiveCombatant>(hero).is_some(),  "hero active round 2");
-    assert!(app.world().get::<ActiveCombatant>(enemy).is_none(), "enemy skipped round 2");
+    assert!(
+        app.world().get::<ActiveCombatant>(hero).is_some(),
+        "hero active round 2"
+    );
+    assert!(
+        app.world().get::<ActiveCombatant>(enemy).is_none(),
+        "enemy skipped round 2"
+    );
 
-    let count = app.world_mut().query::<&ActiveCombatant>().iter(app.world()).count();
-    assert_eq!(count, 1, "exactly one ActiveCombatant in round 2, got {count}");
+    let count = app
+        .world_mut()
+        .query::<&ActiveCombatant>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        count, 1,
+        "exactly one ActiveCombatant in round 2, got {count}"
+    );
 }
 
 /// Regression: a normal no-stun roster → `ActiveCombatant` == highest-initiative
@@ -849,23 +1091,55 @@ fn no_stun_active_combatant_is_highest_initiative() {
 
     let mut app = movement_app();
 
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Hero".into(),  20);
-    app.world_mut().resource_mut::<PresetInitiative>().0.insert("Enemy".into(),  5);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Hero".into(), 20);
+    app.world_mut()
+        .resource_mut::<PresetInitiative>()
+        .0
+        .insert("Enemy".into(), 5);
 
-    let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
-    let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
+    let hero = spawn_at(
+        &mut app,
+        hex_from_offset(3, 3),
+        test_hero(base_stats()),
+        "Hero",
+    );
+    let enemy = spawn_at(
+        &mut app,
+        hex_from_offset(5, 3),
+        test_enemy(base_stats()),
+        "Enemy",
+    );
 
     // Reset round counter (movement_app → enter_await_command already ran StartRound once).
     app.world_mut().resource_mut::<CombatContext>().round = 0;
 
-    app.world_mut().run_system_once(build_turn_order).expect("build_turn_order");
-    app.world_mut().run_system_once(bootstrap_combat_state).expect("bootstrap");
-    app.world_mut().run_system_once(apply_bridge_queues_pre_projection).expect("apply_bridge_queues");
+    app.world_mut()
+        .run_system_once(build_turn_order)
+        .expect("build_turn_order");
+    app.world_mut()
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap");
+    app.world_mut()
+        .run_system_once(apply_bridge_queues_pre_projection)
+        .expect("apply_bridge_queues");
 
     // Hero has highest initiative (20) and is alive → must be active.
-    assert!(app.world().get::<ActiveCombatant>(hero).is_some(),  "hero (highest initiative) must be ActiveCombatant");
-    assert!(app.world().get::<ActiveCombatant>(enemy).is_none(), "enemy must NOT be ActiveCombatant");
+    assert!(
+        app.world().get::<ActiveCombatant>(hero).is_some(),
+        "hero (highest initiative) must be ActiveCombatant"
+    );
+    assert!(
+        app.world().get::<ActiveCombatant>(enemy).is_none(),
+        "enemy must NOT be ActiveCombatant"
+    );
 
-    let count = app.world_mut().query::<&ActiveCombatant>().iter(app.world()).count();
+    let count = app
+        .world_mut()
+        .query::<&ActiveCombatant>()
+        .iter(app.world())
+        .count();
     assert_eq!(count, 1, "exactly one ActiveCombatant, got {count}");
 }

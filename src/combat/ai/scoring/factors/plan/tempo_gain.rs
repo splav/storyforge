@@ -15,8 +15,8 @@ pub const NAME: &str = "tempo_gain";
 pub const SIGNED: bool = true;
 
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::content::abilities::TargetType;
 use crate::game::hex::Hex;
 
@@ -26,11 +26,7 @@ pub fn compute(plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f3
 
 /// Compute the plan-terminal `tempo_gain` for `plan` under `intent`.
 /// Returns 0.0 for intents without a spatial target.
-pub fn compute_plan_tempo_gain(
-    plan: &TurnPlan,
-    intent: &TacticalIntent,
-    ctx: &ScoringCtx,
-) -> f32 {
+pub fn compute_plan_tempo_gain(plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f32 {
     let Some(target) = intent.target().and_then(|t| ctx.snap.unit(t)) else {
         return 0.0;
     };
@@ -38,7 +34,14 @@ pub fn compute_plan_tempo_gain(
     let speed = ctx.active.speed.max(1);
     let max_attack_range = max_offensive_range(ctx);
 
-    step_tempo(actor_start, plan.final_pos, target.pos, speed, max_attack_range, ctx)
+    step_tempo(
+        actor_start,
+        plan.final_pos,
+        target.pos,
+        speed,
+        max_attack_range,
+        ctx,
+    )
 }
 
 /// Tempo value for a single step given ref → dest movement and target location.
@@ -71,12 +74,11 @@ fn step_tempo(
 /// self-targeted and ally-targeted abilities).
 fn max_offensive_range(ctx: &ScoringCtx) -> i32 {
     ctx.active
-        .cache.abilities
+        .cache
+        .abilities
         .iter()
         .filter_map(|id| ctx.world.content.abilities.get(id))
-        .filter(|def| {
-            !matches!(def.target_type, TargetType::Myself | TargetType::SingleAlly)
-        })
+        .filter(|def| !matches!(def.target_type, TargetType::Myself | TargetType::SingleAlly))
         .map(|def| def.range.max as i32)
         .max()
         .unwrap_or(1)
@@ -87,10 +89,12 @@ mod tests {
     use super::*;
     use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -124,18 +128,19 @@ mod tests {
         let maps = empty_maps();
         let reservations = Reservations::default();
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
-        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let intent = TacticalIntent::FocusTarget {
+            target: target.entity,
+        };
 
         // Move from (0,0) → (2,0): gets 2 hexes closer to target at (4,0).
         let dest = hex_from_offset(2, 0);
-        let plan = build_plan(
-            vec![PlanStep::Move { path: vec![dest] }],
-            dest,
-            &snap,
-        );
+        let plan = build_plan(vec![PlanStep::Move { path: vec![dest] }], dest, &snap);
 
         let tempo = compute_plan_tempo_gain(&plan, &intent, &scoring_ctx);
-        assert!(tempo > 0.0, "approaching target should give positive tempo, got {tempo}");
+        assert!(
+            tempo > 0.0,
+            "approaching target should give positive tempo, got {tempo}"
+        );
     }
 
     /// Real round-trip (start → away → start, final_pos = start) → tempo ≤ 0.
@@ -158,7 +163,9 @@ mod tests {
         let maps = empty_maps();
         let reservations = Reservations::default();
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
-        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let intent = TacticalIntent::FocusTarget {
+            target: target.entity,
+        };
 
         let plan = build_plan(
             vec![
@@ -196,7 +203,9 @@ mod tests {
         let maps = empty_maps();
         let reservations = Reservations::default();
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
-        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let intent = TacticalIntent::FocusTarget {
+            target: target.entity,
+        };
 
         // Wasteful: start → away → start → dest (3 steps, same net as direct)
         let long_plan = build_plan(
@@ -210,11 +219,7 @@ mod tests {
         );
 
         // Direct: start → dest (1 step)
-        let short_plan = build_plan(
-            vec![PlanStep::Move { path: vec![dest] }],
-            dest,
-            &snap,
-        );
+        let short_plan = build_plan(vec![PlanStep::Move { path: vec![dest] }], dest, &snap);
 
         let tempo_long = compute_plan_tempo_gain(&long_plan, &intent, &scoring_ctx);
         let tempo_short = compute_plan_tempo_gain(&short_plan, &intent, &scoring_ctx);
@@ -240,7 +245,9 @@ mod tests {
         let maps = empty_maps();
         let reservations = Reservations::default();
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
-        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let intent = TacticalIntent::FocusTarget {
+            target: target.entity,
+        };
 
         // Pure cast from actor_pos — no movement.
         let plan = build_plan(
@@ -271,6 +278,9 @@ mod tests {
         let dist = actor_pos.unsigned_distance_to(target.pos) as i32;
         // dist_before (actor_start) == dist_after (actor_start, since no move) → delta=0 → base=0
         let expected_base = ((dist - dist) as f32 / speed as f32).clamp(-1.0, 1.0);
-        assert_eq!(expected_base, 0.0, "movement delta must be zero for in-place cast");
+        assert_eq!(
+            expected_base, 0.0,
+            "movement delta must be zero for in-place cast"
+        );
     }
 }

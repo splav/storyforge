@@ -1,36 +1,34 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
-use crate::content::content_view::{ActiveContent, ContentView};
-use crate::combat::ai::log::debug::AiDebugState;
-use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
-use crate::combat::ai::intent::AiMemory;
-use crate::combat::ai::memory::goal::lifecycle as goal_lifecycle;
-use crate::combat::ai::log::{
-    AiLogger, ActorTickInput, CombatLogSession, PendingAiLogEntries,
-    build_actor_tick_event,
-};
-use crate::combat::ai::log::engine_trace::EngineTraceWriter;
-use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::config::role::AxisProfile;
-use crate::combat::ai::world::snapshot::build_snapshot;
 use crate::combat::ai::intent::update_memory;
+use crate::combat::ai::intent::AiMemory;
+use crate::combat::ai::log::debug::AiDebugState;
+use crate::combat::ai::log::engine_trace::EngineTraceWriter;
+use crate::combat::ai::log::{
+    build_actor_tick_event, ActorTickInput, AiLogger, CombatLogSession, PendingAiLogEntries,
+};
+use crate::combat::ai::memory::goal::lifecycle as goal_lifecycle;
+use crate::combat::ai::orchestration::{pick_action, AiDecision, AiWorld, ChosenInfo};
 use crate::combat::ai::pipeline::stages::pick_best::record_committed_reservations;
-use crate::combat::ai::orchestration::{
-    pick_action, AiDecision, AiWorld, ChosenInfo,
-};
-use crate::content::settings::GameSettings;
-use crate::combat::DiceRngRes;
-use combat_engine::DiceRng;
-use crate::game::components::{
-    ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, KeepAliveTarget, StatusEffects, Team,
-};
-use crate::game::messages::ActionInput;
-use crate::game::hex_map::HexMap;
-use crate::game::resources::CombatContext;
+use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
+use crate::combat::ai::world::reservations::Reservations;
+use crate::combat::ai::world::snapshot::build_snapshot;
+use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap};
+use crate::combat::DiceRngRes;
+use crate::content::content_view::{ActiveContent, ContentView};
+use crate::content::settings::GameSettings;
+use crate::game::components::{
+    ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, KeepAliveTarget, StatusEffects,
+    Team,
+};
+use crate::game::hex_map::HexMap;
+use crate::game::messages::ActionInput;
+use crate::game::resources::CombatContext;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use combat_engine::DiceRng;
 use std::collections::{HashMap, HashSet};
 
 // ── Bundled message writers (keeps system params under Bevy's 16-param limit) ──
@@ -83,15 +81,33 @@ pub fn enemy_ai_system(
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
-    if c.faction.0 != Team::Enemy || !c.vital.is_alive() || c.abilities.is_none_or(|a| a.0.is_empty()) {
+    if c.faction.0 != Team::Enemy
+        || !c.vital.is_alive()
+        || c.abilities.is_none_or(|a| a.0.is_empty())
+    {
         return;
     }
-    let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
+    let session_id = session
+        .as_ref()
+        .map(|s| s.session_id.as_str())
+        .unwrap_or("");
     let keep_alive_entities: HashSet<Entity> = keep_alive_q.iter().collect();
     run_ai_turn(
-        actor, &c, &env, &mut rng, &mut reservations,
-        &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
-        &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
+        actor,
+        &c,
+        &env,
+        &mut rng,
+        &mut reservations,
+        &mut logger,
+        &trace_writer,
+        &mut pending_ai_log,
+        &mut msgs,
+        &combatants,
+        &statuses,
+        &roles,
+        &mut memories,
+        &mut debug_state,
+        &names,
         session_id,
         &keep_alive_entities,
     );
@@ -142,7 +158,13 @@ fn run_ai_turn(
     // invalidating-clear must run before any early-return.
     let actor_team = c.faction.0;
     let snap = build_snapshot(
-        combat_ctx.round, combatants, statuses, &env.hex_map, roles, content, difficulty,
+        combat_ctx.round,
+        combatants,
+        statuses,
+        &env.hex_map,
+        roles,
+        content,
+        difficulty,
         env.combat_state.0.clone(),
         &env.id_map,
         keep_alive_entities,
@@ -172,7 +194,9 @@ fn run_ai_turn(
     // Replaces the inline FIXME(step 7) TTL clear on the early-return path.
     goal_lifecycle::pre_tick(memory_ref, &snap, actor_view, &env.status_tags);
 
-    if c.ap.is_none_or(|ap| ap.action_points <= 0 && !ap.can_move()) {
+    if c.ap
+        .is_none_or(|ap| ap.action_points <= 0 && !ap.can_move())
+    {
         // Step 7.5 / Phase 6c: push actor_tick for skip path (no AP/MP) to
         // pending queue. start_step == end_step — no engine steps advance for
         // this actor (zero-length range is correct semantics).
@@ -263,8 +287,16 @@ fn run_ai_turn(
     // update_memory runs AFTER pick_action so that select_intent inside
     // pick_action reads the pre-tick memory state (matching original semantics).
     let result = pick_action(
-        actor, actor_pos, &world, &snap, &maps, rng,
-        memory_ref, reservations, debug, &debug_names,
+        actor,
+        actor_pos,
+        &world,
+        &snap,
+        &maps,
+        rng,
+        memory_ref,
+        reservations,
+        debug,
+        &debug_names,
     );
 
     // Update memory with the intent chosen this tick. Must run after pick_action
@@ -298,7 +330,10 @@ fn run_ai_turn(
             session_id,
             round: combat_ctx.round,
             actor,
-            actor_name: debug_names.get(&actor).map(|s| s.as_str()).unwrap_or("unknown"),
+            actor_name: debug_names
+                .get(&actor)
+                .map(|s| s.as_str())
+                .unwrap_or("unknown"),
             snapshot: &snap,
             memory_pre: &memory_pre,
             decision: &decision,
@@ -318,9 +353,16 @@ fn run_ai_turn(
     // Reservations — record committed prefix for this tick.
     if !result.pool.is_empty() {
         let best_plan = &result.pool.plans[best_idx];
-        let (_, consumed) = crate::combat::ai::pipeline::stages::pick_best::commit_plan(best_plan, actor_pos);
+        let (_, consumed) =
+            crate::combat::ai::pipeline::stages::pick_best::commit_plan(best_plan, actor_pos);
         record_committed_reservations(
-            best_plan, consumed, actor_view, &world, &snap, reservations, actor_pos,
+            best_plan,
+            consumed,
+            actor_view,
+            &world,
+            &snap,
+            reservations,
+            actor_pos,
         );
     }
 
@@ -356,12 +398,31 @@ fn run_ai_turn(
 
     // Execute decision.
     match decision {
-        AiDecision::CastInPlace { ability, target, target_pos } => {
-            msgs.action_input.write(ActionInput::Cast { actor, ability, target, target_pos });
+        AiDecision::CastInPlace {
+            ability,
+            target,
+            target_pos,
+        } => {
+            msgs.action_input.write(ActionInput::Cast {
+                actor,
+                ability,
+                target,
+                target_pos,
+            });
         }
-        AiDecision::MoveAndCast { path, ability, target, target_pos } => {
+        AiDecision::MoveAndCast {
+            path,
+            ability,
+            target,
+            target_pos,
+        } => {
             msgs.action_input.write(ActionInput::Move { actor, path });
-            msgs.action_input.write(ActionInput::Cast { actor, ability, target, target_pos });
+            msgs.action_input.write(ActionInput::Cast {
+                actor,
+                ability,
+                target,
+                target_pos,
+            });
         }
         AiDecision::Move { path, .. } => {
             msgs.action_input.write(ActionInput::Move { actor, path });
@@ -374,9 +435,14 @@ fn run_ai_turn(
 
 // ── Pact AI: AI controls hero under pact_control status ───────────────────
 
-pub fn has_ai_control_status(entity: Entity, statuses: &Query<&StatusEffects>, content: &ContentView) -> bool {
+pub fn has_ai_control_status(
+    entity: Entity,
+    statuses: &Query<&StatusEffects>,
+    content: &ContentView,
+) -> bool {
     statuses.get(entity).is_ok_and(|se| {
-        se.0.iter().any(|s| content.statuses.get(&s.id).is_some_and(|d| d.ai_controlled))
+        se.0.iter()
+            .any(|s| content.statuses.get(&s.id).is_some_and(|d| d.ai_controlled))
     })
 }
 
@@ -401,20 +467,37 @@ pub fn pact_ai_system(
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
-    if c.faction.0 != Team::Player || !c.vital.is_alive() || c.abilities.is_none_or(|a| a.0.is_empty()) {
+    if c.faction.0 != Team::Player
+        || !c.vital.is_alive()
+        || c.abilities.is_none_or(|a| a.0.is_empty())
+    {
         return;
     }
     if !has_ai_control_status(actor, &statuses, &env.content) {
         return;
     }
-    let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
+    let session_id = session
+        .as_ref()
+        .map(|s| s.session_id.as_str())
+        .unwrap_or("");
     let keep_alive_entities: HashSet<Entity> = keep_alive_q.iter().collect();
     run_ai_turn(
-        actor, &c, &env, &mut rng, &mut reservations,
-        &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
-        &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
+        actor,
+        &c,
+        &env,
+        &mut rng,
+        &mut reservations,
+        &mut logger,
+        &trace_writer,
+        &mut pending_ai_log,
+        &mut msgs,
+        &combatants,
+        &statuses,
+        &roles,
+        &mut memories,
+        &mut debug_state,
+        &names,
         session_id,
         &keep_alive_entities,
     );
 }
-

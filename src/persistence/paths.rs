@@ -30,7 +30,12 @@ impl AppPaths {
             fs::create_dir_all(dir)?;
         }
 
-        Ok(Self { config_dir, data_dir, cache_dir, state_dir })
+        Ok(Self {
+            config_dir,
+            data_dir,
+            cache_dir,
+            state_dir,
+        })
     }
 
     pub fn settings_file(&self) -> PathBuf {

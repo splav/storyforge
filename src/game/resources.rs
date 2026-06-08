@@ -87,7 +87,10 @@ mod queue_tests {
 
     #[test]
     fn advance_wraps_around() {
-        let mut q = TurnQueue { order: vec![dummy(0), dummy(1)], index: 1 };
+        let mut q = TurnQueue {
+            order: vec![dummy(0), dummy(1)],
+            index: 1,
+        };
         q.advance();
         assert_eq!(q.index, 0);
     }
@@ -102,7 +105,10 @@ mod queue_tests {
     #[test]
     fn current_returns_active_entity() {
         let e = dummy(42);
-        let q = TurnQueue { order: vec![e], index: 0 };
+        let q = TurnQueue {
+            order: vec![e],
+            index: 0,
+        };
         assert_eq!(q.current(), Some(e));
     }
 }
@@ -124,8 +130,7 @@ pub struct GameDb {
 impl Default for GameDb {
     fn default() -> Self {
         let loaded = load_campaigns();
-        let campaign_order: Vec<String> =
-            loaded.campaigns.iter().map(|c| c.id.clone()).collect();
+        let campaign_order: Vec<String> = loaded.campaigns.iter().map(|c| c.id.clone()).collect();
         let db = Self {
             scenarios: loaded.scenarios,
             campaigns: loaded
@@ -172,7 +177,8 @@ fn validate_content(scen_id: &str, c: &ContentView) {
             assert!(
                 c.statuses.contains_key(&sa.status),
                 "scenario '{scen_id}' ability '{}' references unknown status '{}'",
-                id, sa.status,
+                id,
+                sa.status,
             );
         }
     }
@@ -199,9 +205,21 @@ fn validate_content(scen_id: &str, c: &ContentView) {
                 );
             }
         }
-        assert!(c.armor.contains_key(&cls.chest), "scenario '{scen_id}' class '{id}' unknown chest '{}'", cls.chest);
-        assert!(c.armor.contains_key(&cls.legs), "scenario '{scen_id}' class '{id}' unknown legs '{}'", cls.legs);
-        assert!(c.armor.contains_key(&cls.feet), "scenario '{scen_id}' class '{id}' unknown feet '{}'", cls.feet);
+        assert!(
+            c.armor.contains_key(&cls.chest),
+            "scenario '{scen_id}' class '{id}' unknown chest '{}'",
+            cls.chest
+        );
+        assert!(
+            c.armor.contains_key(&cls.legs),
+            "scenario '{scen_id}' class '{id}' unknown legs '{}'",
+            cls.legs
+        );
+        assert!(
+            c.armor.contains_key(&cls.feet),
+            "scenario '{scen_id}' class '{id}' unknown feet '{}'",
+            cls.feet
+        );
         for aid in &cls.abilities {
             assert!(
                 c.abilities.contains_key(aid),
@@ -213,22 +231,48 @@ fn validate_content(scen_id: &str, c: &ContentView) {
     // Unit templates.
     for (id, t) in &c.unit_templates {
         let label = format!("scenario '{scen_id}' unit_template '{id}'");
-        assert!(c.races.contains_key(&t.race), "{label}: unknown race '{}'", t.race);
+        assert!(
+            c.races.contains_key(&t.race),
+            "{label}: unknown race '{}'",
+            t.race
+        );
         if let Some(ref f) = t.faction {
             assert!(c.factions.contains_key(f), "{label}: unknown faction '{f}'");
         }
         if let Some(ref p) = t.path {
             assert!(c.paths.contains_key(p), "{label}: unknown path '{p}'");
         }
-        assert!(c.weapons.contains_key(&t.equipment.main_hand), "{label}: unknown weapon '{}'", t.equipment.main_hand);
+        assert!(
+            c.weapons.contains_key(&t.equipment.main_hand),
+            "{label}: unknown weapon '{}'",
+            t.equipment.main_hand
+        );
         if let Some(ref oh) = t.equipment.off_hand {
-            assert!(c.weapons.contains_key(oh), "{label}: unknown off-hand weapon '{oh}'");
+            assert!(
+                c.weapons.contains_key(oh),
+                "{label}: unknown off-hand weapon '{oh}'"
+            );
         }
-        assert!(c.armor.contains_key(&t.equipment.chest), "{label}: unknown chest '{}'", t.equipment.chest);
-        assert!(c.armor.contains_key(&t.equipment.legs), "{label}: unknown legs '{}'", t.equipment.legs);
-        assert!(c.armor.contains_key(&t.equipment.feet), "{label}: unknown feet '{}'", t.equipment.feet);
+        assert!(
+            c.armor.contains_key(&t.equipment.chest),
+            "{label}: unknown chest '{}'",
+            t.equipment.chest
+        );
+        assert!(
+            c.armor.contains_key(&t.equipment.legs),
+            "{label}: unknown legs '{}'",
+            t.equipment.legs
+        );
+        assert!(
+            c.armor.contains_key(&t.equipment.feet),
+            "{label}: unknown feet '{}'",
+            t.equipment.feet
+        );
         for aid in &t.ability_ids {
-            assert!(c.abilities.contains_key(aid), "{label}: unknown ability '{aid}'");
+            assert!(
+                c.abilities.contains_key(aid),
+                "{label}: unknown ability '{aid}'"
+            );
         }
     }
 }
@@ -265,7 +309,10 @@ fn validate_victory_names(
                 "{label} victory KeepAlive references '{target_name}' — \
                  must match an enemy or an active-party member; \
                  enemy names: {:?}; party names: {:?}",
-                enc.enemies.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+                enc.enemies
+                    .iter()
+                    .map(|e| e.name.as_str())
+                    .collect::<Vec<_>>(),
                 party_names,
             );
         }
@@ -288,38 +335,81 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                 crate::game::hex::in_bounds(enemy.hex_pos),
                 "{label} enemy '{}': spawn hex {:?} is outside the battlefield \
                  (even rows 0..6 → cols 0..6, odd rows → cols 0..7)",
-                enemy.name, crate::game::hex::hex_to_offset(enemy.hex_pos),
+                enemy.name,
+                crate::game::hex::hex_to_offset(enemy.hex_pos),
             );
-            assert!(c.races.contains_key(&enemy.race), "{label} enemy '{}': unknown race", enemy.name);
+            assert!(
+                c.races.contains_key(&enemy.race),
+                "{label} enemy '{}': unknown race",
+                enemy.name
+            );
             if let Some(ref fac) = enemy.faction {
-                assert!(c.factions.contains_key(fac), "{label} enemy '{}': unknown faction '{fac}'", enemy.name);
+                assert!(
+                    c.factions.contains_key(fac),
+                    "{label} enemy '{}': unknown faction '{fac}'",
+                    enemy.name
+                );
             }
             if let Some(ref p) = enemy.path {
-                assert!(c.paths.contains_key(p), "{label} enemy '{}': unknown path '{p}'", enemy.name);
+                assert!(
+                    c.paths.contains_key(p),
+                    "{label} enemy '{}': unknown path '{p}'",
+                    enemy.name
+                );
             }
-            assert!(c.weapons.contains_key(&enemy.main_hand), "{label} enemy '{}': unknown weapon '{}'", enemy.name, enemy.main_hand);
+            assert!(
+                c.weapons.contains_key(&enemy.main_hand),
+                "{label} enemy '{}': unknown weapon '{}'",
+                enemy.name,
+                enemy.main_hand
+            );
             if let Some(ref oh) = enemy.off_hand {
-                assert!(c.weapons.contains_key(oh), "{label} enemy '{}': unknown off-hand weapon '{oh}'", enemy.name);
+                assert!(
+                    c.weapons.contains_key(oh),
+                    "{label} enemy '{}': unknown off-hand weapon '{oh}'",
+                    enemy.name
+                );
             }
             if let Some(w) = c.weapons.get(&enemy.main_hand) {
                 if w.hand == crate::content::weapons::HandType::TwoHanded {
                     assert!(
                         enemy.off_hand.is_none(),
                         "{label} enemy '{}': weapon '{}' is two-handed but off_hand is set",
-                        enemy.name, enemy.main_hand,
+                        enemy.name,
+                        enemy.main_hand,
                     );
                 }
             }
-            assert!(c.armor.contains_key(&enemy.chest), "{label} enemy '{}': unknown chest", enemy.name);
-            assert!(c.armor.contains_key(&enemy.legs), "{label} enemy '{}': unknown legs", enemy.name);
-            assert!(c.armor.contains_key(&enemy.feet), "{label} enemy '{}': unknown feet", enemy.name);
+            assert!(
+                c.armor.contains_key(&enemy.chest),
+                "{label} enemy '{}': unknown chest",
+                enemy.name
+            );
+            assert!(
+                c.armor.contains_key(&enemy.legs),
+                "{label} enemy '{}': unknown legs",
+                enemy.name
+            );
+            assert!(
+                c.armor.contains_key(&enemy.feet),
+                "{label} enemy '{}': unknown feet",
+                enemy.name
+            );
             for aid in &enemy.ability_ids {
-                assert!(c.abilities.contains_key(aid), "{label} enemy '{}': unknown ability '{aid}'", enemy.name);
+                assert!(
+                    c.abilities.contains_key(aid),
+                    "{label} enemy '{}': unknown ability '{aid}'",
+                    enemy.name
+                );
             }
             for (i, ph) in enemy.phases.iter().enumerate() {
                 if let Some(ability_ids) = &ph.ability_ids {
                     for aid in ability_ids {
-                        assert!(c.abilities.contains_key(aid), "{label} enemy '{}' phase {i}: unknown ability '{aid}'", enemy.name);
+                        assert!(
+                            c.abilities.contains_key(aid),
+                            "{label} enemy '{}' phase {i}: unknown ability '{aid}'",
+                            enemy.name
+                        );
                     }
                 }
             }
@@ -327,7 +417,8 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                 assert!(
                     c.statuses.contains_key(&aura.status),
                     "{label} enemy '{}': aura references unknown status '{}'",
-                    enemy.name, aura.status,
+                    enemy.name,
+                    aura.status,
                 );
             }
         }
@@ -365,22 +456,40 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
     }
 
     // Party members (starting + party_add from story scenes).
-    let all_members = scen.party.iter().chain(scen.scenes.iter().flat_map(|s| match s {
-        crate::content::scenarios::SceneDef::Story { party_add, .. } => party_add.iter().collect::<Vec<_>>(),
-        _ => Vec::new(),
-    }));
+    let all_members = scen
+        .party
+        .iter()
+        .chain(scen.scenes.iter().flat_map(|s| match s {
+            crate::content::scenarios::SceneDef::Story { party_add, .. } => {
+                party_add.iter().collect::<Vec<_>>()
+            }
+            _ => Vec::new(),
+        }));
     for member in all_members {
         assert!(
             crate::game::hex::in_bounds(member.hex_pos),
             "scenario '{scen_id}' party '{}': spawn hex {:?} is outside the battlefield",
-            member.name, crate::game::hex::hex_to_offset(member.hex_pos),
+            member.name,
+            crate::game::hex::hex_to_offset(member.hex_pos),
         );
-        assert!(c.races.contains_key(&member.race), "scenario '{scen_id}' party '{}': unknown race", member.name);
+        assert!(
+            c.races.contains_key(&member.race),
+            "scenario '{scen_id}' party '{}': unknown race",
+            member.name
+        );
         if let Some(ref fac) = member.faction {
-            assert!(c.factions.contains_key(fac), "scenario '{scen_id}' party '{}': unknown faction", member.name);
+            assert!(
+                c.factions.contains_key(fac),
+                "scenario '{scen_id}' party '{}': unknown faction",
+                member.name
+            );
         }
         if let Some(ref p) = member.path {
-            assert!(c.paths.contains_key(p), "scenario '{scen_id}' party '{}': unknown path", member.name);
+            assert!(
+                c.paths.contains_key(p),
+                "scenario '{scen_id}' party '{}': unknown path",
+                member.name
+            );
         }
         if let Some(ref tpl) = member.template {
             // Template-based party member (e.g. non-acting NPC ally): stats /
@@ -394,7 +503,8 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
             assert!(
                 c.classes.contains_key(&member.class_id),
                 "scenario '{scen_id}' party '{}': unknown class '{}'",
-                member.name, member.class_id,
+                member.name,
+                member.class_id,
             );
         }
     }
@@ -472,9 +582,8 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                 // Victory name references — checked here so active_party is in scope.
                 let party_names: std::collections::HashSet<&str> =
                     party.iter().map(|m| m.name.as_str()).collect();
-                let vic_label = format!(
-                    "scenario '{scen_id}' scene {scene_idx} encounter '{encounter_id}'"
-                );
+                let vic_label =
+                    format!("scenario '{scen_id}' scene {scene_idx} encounter '{encounter_id}'");
                 validate_victory_names(&enc.victory, enc, &party_names, &vic_label);
 
                 // Phase victory_override validation: names + KillTarget self-reference guard.
@@ -485,7 +594,11 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                             // Marker-attachment guard: an overriding KillTarget MUST name
                             // the phasing enemy itself (its post-phase name), otherwise the
                             // VictoryTarget marker won't attach and the combat is unwinnable.
-                            if let crate::content::encounters::VictoryCondition::KillTarget { enemy_name, .. } = ov {
+                            if let crate::content::encounters::VictoryCondition::KillTarget {
+                                enemy_name,
+                                ..
+                            } = ov
+                            {
                                 let phase_name = ph.name.as_deref().unwrap_or(enemy.name.as_str());
                                 assert!(
                                     enemy_name == phase_name,
@@ -564,7 +677,10 @@ mod validate_party_status_tests {
     #[should_panic(expected = "not in the active party")]
     fn validate_status_add_unknown_unit_panics() {
         let db = scenario_with_status_ops(
-            vec![PartyStatusOp::Add { unit_name: "Nobody".into(), status_id: "injured".into() }],
+            vec![PartyStatusOp::Add {
+                unit_name: "Nobody".into(),
+                status_id: "injured".into(),
+            }],
             vec![member("Alice")],
         );
         db.validate();
@@ -576,7 +692,10 @@ mod validate_party_status_tests {
     #[should_panic(expected = "not in the active party")]
     fn validate_status_remove_unknown_unit_panics() {
         let db = scenario_with_status_ops(
-            vec![PartyStatusOp::Remove { unit_name: "Nobody".into(), status_id: "injured".into() }],
+            vec![PartyStatusOp::Remove {
+                unit_name: "Nobody".into(),
+                status_id: "injured".into(),
+            }],
             vec![member("Alice")],
         );
         db.validate();
@@ -588,7 +707,10 @@ mod validate_party_status_tests {
     #[should_panic(expected = "unknown status")]
     fn validate_status_add_unknown_status_id_panics() {
         let db = scenario_with_status_ops(
-            vec![PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "no_such_status".into() }],
+            vec![PartyStatusOp::Add {
+                unit_name: "Alice".into(),
+                status_id: "no_such_status".into(),
+            }],
             vec![member("Alice")],
         );
         db.validate();
@@ -599,7 +721,10 @@ mod validate_party_status_tests {
     #[test]
     fn validate_status_valid_passes() {
         let db = scenario_with_status_ops(
-            vec![PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() }],
+            vec![PartyStatusOp::Add {
+                unit_name: "Alice".into(),
+                status_id: "injured".into(),
+            }],
             vec![member("Alice")],
         );
         db.validate(); // must not panic
@@ -707,7 +832,9 @@ impl HexCorpses {
                 "HexCorpses: entity {entity:?} moved from {old_pos:?} to {pos:?} — \
                  corpses are stationary by design",
             );
-            self.by_pos.entry(old_pos).and_modify(|v| v.retain(|&e| e != entity));
+            self.by_pos
+                .entry(old_pos)
+                .and_modify(|v| v.retain(|&e| e != entity));
         }
         self.by_entity.insert(entity, pos);
         self.by_pos.entry(pos).or_default().push(entity);
@@ -716,7 +843,9 @@ impl HexCorpses {
 
     pub fn remove(&mut self, entity: &Entity) {
         if let Some(pos) = self.by_entity.remove(entity) {
-            self.by_pos.entry(pos).and_modify(|v| v.retain(|&e| &e != entity));
+            self.by_pos
+                .entry(pos)
+                .and_modify(|v| v.retain(|&e| &e != entity));
         }
         self.generation += 1;
     }
@@ -777,7 +906,7 @@ pub struct UiDirty(pub UiDirtyFlags);
 #[cfg(test)]
 mod validate_choice_tests {
     use crate::content::content_view::ContentView;
-    use crate::content::scenarios::{ChoiceOption, SceneDef, ScenarioDef};
+    use crate::content::scenarios::{ChoiceOption, ScenarioDef, SceneDef};
     use crate::game::resources::GameDb;
     use std::collections::HashMap;
 
@@ -827,8 +956,14 @@ mod validate_choice_tests {
     #[test]
     fn validate_choice_valid_passes() {
         let (db, _) = choice_scenario(vec![
-            ChoiceOption { label: "Help".into(), set_flag: "helped".into() },
-            ChoiceOption { label: "Ignore".into(), set_flag: "ignored".into() },
+            ChoiceOption {
+                label: "Help".into(),
+                set_flag: "helped".into(),
+            },
+            ChoiceOption {
+                label: "Ignore".into(),
+                set_flag: "ignored".into(),
+            },
         ]);
         db.validate(); // must not panic
     }

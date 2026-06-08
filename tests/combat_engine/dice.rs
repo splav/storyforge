@@ -16,11 +16,11 @@ fn monte_carlo_mean(expr: DiceExpr, n: u32, seed: u64) -> f32 {
 #[test]
 fn expected_matches_monte_carlo_within_1pct() {
     let cases = [
-        DiceExpr::new(1, 6, 0),   // 1d6:   E=3.5
-        DiceExpr::new(2, 6, 0),   // 2d6:   E=7.0
-        DiceExpr::new(1, 20, 0),  // 1d20:  E=10.5
-        DiceExpr::new(3, 8, 2),   // 3d8+2: E=15.5
-        DiceExpr::new(0, 6, 5),   // bonus-only: E=5.0
+        DiceExpr::new(1, 6, 0),  // 1d6:   E=3.5
+        DiceExpr::new(2, 6, 0),  // 2d6:   E=7.0
+        DiceExpr::new(1, 20, 0), // 1d20:  E=10.5
+        DiceExpr::new(3, 8, 2),  // 3d8+2: E=15.5
+        DiceExpr::new(0, 6, 5),  // bonus-only: E=5.0
     ];
     let ev = ExpectedValue;
     for expr in cases {

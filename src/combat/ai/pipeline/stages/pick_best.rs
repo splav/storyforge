@@ -47,20 +47,22 @@
 //! - Empty agenda or `per_item` empty → legacy single-score path.
 //! - All items `!eligible` → `ann.score` stays as-is (pipeline value), `ann.agenda_item = None`.
 
-use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, BatchStats, PlanFactor, PlanFactorValues, StepFactor};
+use crate::combat::ai::orchestration::{AiDecision, AiWorld, MoveOrigin};
 use crate::combat::ai::outcome::PickInfo;
-use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::pipeline::effects::SelectionKey;
-use crate::combat::ai::scoring::factors::aggregate::factor_contribution;
+use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::orchestration::{AiDecision, AiWorld, MoveOrigin};
+use crate::combat::ai::scoring::factors::aggregate::factor_contribution;
+use crate::combat::ai::scoring::factors::{
+    aoe_area, aoe_hits, BatchStats, PlanFactor, PlanFactorValues, StepFactor,
+};
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::abilities::{AoEShape, TargetType};
-use combat_engine::DiceRng;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
+use combat_engine::DiceRng;
 use std::hash::{Hash, Hasher};
 
 // ── Picker API (consolidated from planning/picker.rs) ─────────────────────────
@@ -99,12 +101,21 @@ pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
     let consumed = prefix.step_count();
     let decision = match prefix {
         CommittedPrefix::EndTurn => AiDecision::EndTurn,
-        CommittedPrefix::Cast { ability, target, target_pos } => AiDecision::CastInPlace {
+        CommittedPrefix::Cast {
+            ability,
+            target,
+            target_pos,
+        } => AiDecision::CastInPlace {
             ability: ability.clone(),
             target,
             target_pos,
         },
-        CommittedPrefix::MoveThenCast { path, ability, target, target_pos } => {
+        CommittedPrefix::MoveThenCast {
+            path,
+            ability,
+            target,
+            target_pos,
+        } => {
             // Degenerate bundle (empty move path) collapses to a bare cast.
             if path.is_empty() {
                 AiDecision::CastInPlace {
@@ -201,7 +212,13 @@ pub fn pick_best_plan(
             // Update ranked: keep SelectionKey selectable=true (mercy doesn't change bucket),
             // only the score field changes.
             for (slot, (idx, new_score)) in windowed.into_iter().enumerate() {
-                ranked[slot] = (idx, SelectionKey { selectable: true, score: new_score });
+                ranked[slot] = (
+                    idx,
+                    SelectionKey {
+                        selectable: true,
+                        score: new_score,
+                    },
+                );
             }
             mercy_applied = true;
         }
@@ -220,13 +237,21 @@ pub fn pick_best_plan(
     if pool.is_empty() {
         return (
             ranked[0].0,
-            make_mech(k_top, mercy_applied, vec![(ranked[0].0, ranked[0].1.score)], 0),
+            make_mech(
+                k_top,
+                mercy_applied,
+                vec![(ranked[0].0, ranked[0].1.score)],
+                0,
+            ),
         );
     }
     // `roll_d(N)` returns `1..=N`; shift to a 0-based index.
     let chosen_pos = (rng.roll_d(pool.len() as u32) - 1) as usize;
     let chosen_idx = pool[chosen_pos].0;
-    (chosen_idx, make_mech(k_top, mercy_applied, pool, chosen_pos))
+    (
+        chosen_idx,
+        make_mech(k_top, mercy_applied, pool, chosen_pos),
+    )
 }
 
 /// Record reservations for the **committed** prefix of the winning plan so
@@ -259,8 +284,17 @@ pub fn record_committed_reservations(
                 resting_tile = dest;
             }
         }
-        let PlanStep::Cast { ability, target, target_pos } = step else { continue };
-        let Some(def) = ctx.content.abilities.get(ability) else { continue };
+        let PlanStep::Cast {
+            ability,
+            target,
+            target_pos,
+        } = step
+        else {
+            continue;
+        };
+        let Some(def) = ctx.content.abilities.get(ability) else {
+            continue;
+        };
         let is_cc = applies_cc(def, ctx.content);
         let hits: Vec<Entity> = if def.aoe == AoEShape::None {
             vec![*target]
@@ -336,26 +370,42 @@ impl PlanStage for PickBestStage {
                     // This mirrors finalize_scores Pass 0 but only for the two
                     // plan factors needed for additive deltas. O(N) over pool.
                     let mut stats_intent = BatchStats { min: 0.0, max: 0.0 };
-                    let mut stats_tempo  = BatchStats { min: 0.0, max: 0.0 };
+                    let mut stats_tempo = BatchStats { min: 0.0, max: 0.0 };
 
                     for ann in pool.annotations.iter() {
                         let vi = ann.factors.get_plan(PlanFactor::Intent);
-                        if vi > stats_intent.max { stats_intent.max = vi; }
-                        if vi < stats_intent.min { stats_intent.min = vi; }
+                        if vi > stats_intent.max {
+                            stats_intent.max = vi;
+                        }
+                        if vi < stats_intent.min {
+                            stats_intent.min = vi;
+                        }
 
                         let vt = ann.factors.get_plan(PlanFactor::TempoGain);
-                        if vt > stats_tempo.max { stats_tempo.max = vt; }
-                        if vt < stats_tempo.min { stats_tempo.min = vt; }
+                        if vt > stats_tempo.max {
+                            stats_tempo.max = vt;
+                        }
+                        if vt < stats_tempo.min {
+                            stats_tempo.min = vt;
+                        }
                     }
 
                     // Also fold in per_item values so the batch range covers
                     // the full domain that composition will see.
                     for ann in pool.annotations.iter() {
                         for pi in ann.per_item.iter() {
-                            if pi.intent_factor > stats_intent.max { stats_intent.max = pi.intent_factor; }
-                            if pi.intent_factor < stats_intent.min { stats_intent.min = pi.intent_factor; }
-                            if pi.tempo_factor > stats_tempo.max  { stats_tempo.max = pi.tempo_factor; }
-                            if pi.tempo_factor < stats_tempo.min  { stats_tempo.min = pi.tempo_factor; }
+                            if pi.intent_factor > stats_intent.max {
+                                stats_intent.max = pi.intent_factor;
+                            }
+                            if pi.intent_factor < stats_intent.min {
+                                stats_intent.min = pi.intent_factor;
+                            }
+                            if pi.tempo_factor > stats_tempo.max {
+                                stats_tempo.max = pi.tempo_factor;
+                            }
+                            if pi.tempo_factor < stats_tempo.min {
+                                stats_tempo.min = pi.tempo_factor;
+                            }
                         }
                     }
 
@@ -372,11 +422,10 @@ impl PlanStage for PickBestStage {
                         world.difficulty.intent_commitment;
                     // Scarcity modulation doesn't affect Intent/TempoGain slots;
                     // included here only for completeness / future-proof.
-                    weights[StepFactor::Scarcity as usize] *=
-                        world.difficulty.resource_discipline;
+                    weights[StepFactor::Scarcity as usize] *= world.difficulty.resource_discipline;
 
                     let w_intent = weights[StepFactor::count() + PlanFactor::Intent as usize];
-                    let w_tempo  = weights[StepFactor::count() + PlanFactor::TempoGain as usize];
+                    let w_tempo = weights[StepFactor::count() + PlanFactor::TempoGain as usize];
 
                     for ann in pool.annotations.iter_mut() {
                         if ann.per_item.is_empty() {
@@ -385,20 +434,25 @@ impl PlanStage for PickBestStage {
 
                         // Primary intent/tempo values from the finalized factor columns.
                         let intent_primary = ann.factors.get_plan(PlanFactor::Intent);
-                        let tempo_primary  = ann.factors.get_plan(PlanFactor::TempoGain);
+                        let tempo_primary = ann.factors.get_plan(PlanFactor::TempoGain);
 
-                        let contrib_intent_primary =
-                            factor_contribution(intent_primary, &stats_intent, PlanFactor::Intent.signed(), w_intent);
-                        let contrib_tempo_primary =
-                            factor_contribution(tempo_primary, &stats_tempo, PlanFactor::TempoGain.signed(), w_tempo);
+                        let contrib_intent_primary = factor_contribution(
+                            intent_primary,
+                            &stats_intent,
+                            PlanFactor::Intent.signed(),
+                            w_intent,
+                        );
+                        let contrib_tempo_primary = factor_contribution(
+                            tempo_primary,
+                            &stats_tempo,
+                            PlanFactor::TempoGain.signed(),
+                            w_tempo,
+                        );
 
                         let mut best_composed: Option<(f32, u8)> = None;
 
-                        for (item_idx, (_item, per_item)) in agenda
-                            .items
-                            .iter()
-                            .zip(ann.per_item.iter())
-                            .enumerate()
+                        for (item_idx, (_item, per_item)) in
+                            agenda.items.iter().zip(ann.per_item.iter()).enumerate()
                         {
                             // Skip ineligible items (ProtectSelf / FocusTarget masking).
                             if !per_item.eligible {
@@ -406,13 +460,21 @@ impl PlanStage for PickBestStage {
                             }
 
                             // Additive intent delta: swap primary column with per-item column.
-                            let contrib_intent_item =
-                                factor_contribution(per_item.intent_factor, &stats_intent, PlanFactor::Intent.signed(), w_intent);
+                            let contrib_intent_item = factor_contribution(
+                                per_item.intent_factor,
+                                &stats_intent,
+                                PlanFactor::Intent.signed(),
+                                w_intent,
+                            );
                             let intent_delta = contrib_intent_item - contrib_intent_primary;
 
                             // Additive tempo delta: same pattern.
-                            let contrib_tempo_item =
-                                factor_contribution(per_item.tempo_factor, &stats_tempo, PlanFactor::TempoGain.signed(), w_tempo);
+                            let contrib_tempo_item = factor_contribution(
+                                per_item.tempo_factor,
+                                &stats_tempo,
+                                PlanFactor::TempoGain.signed(),
+                                w_tempo,
+                            );
                             let tempo_delta = contrib_tempo_item - contrib_tempo_primary;
 
                             // per_item.considerations is the composite:
@@ -427,7 +489,8 @@ impl PlanStage for PickBestStage {
                             let cdot = per_item.considerations.weighted_dot(&band_weights);
 
                             // composed = initial + intent_delta + tempo_delta + W × cdot
-                            let composed = ann.score_initial + intent_delta + tempo_delta + w_intent * cdot;
+                            let composed =
+                                ann.score_initial + intent_delta + tempo_delta + w_intent * cdot;
 
                             if best_composed.is_none_or(|(best, _)| composed > best) {
                                 best_composed = Some((composed, item_idx as u8));
@@ -438,18 +501,12 @@ impl PlanStage for PickBestStage {
                         // (serialised in schema v32 as considerations_per_item).
                         // Populated unconditionally so the log contains the full
                         // overlay even for non-chosen / ineligible items.
-                        ann.considerations_per_item = ann
-                            .per_item
-                            .iter()
-                            .map(|pi| pi.considerations)
-                            .collect();
+                        ann.considerations_per_item =
+                            ann.per_item.iter().map(|pi| pi.considerations).collect();
 
                         // Step 11.7: snapshot reject reasons alongside considerations.
-                        ann.reject_reasons_per_item = ann
-                            .per_item
-                            .iter()
-                            .map(|pi| pi.reject_reason)
-                            .collect();
+                        ann.reject_reasons_per_item =
+                            ann.per_item.iter().map(|pi| pi.reject_reason).collect();
 
                         if let Some((best_score, best_idx)) = best_composed {
                             ann.set_score(best_score);

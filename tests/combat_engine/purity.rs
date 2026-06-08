@@ -52,8 +52,8 @@ fn engine_src_has_no_forbidden_imports() {
     let mut violations: Vec<String> = Vec::new();
 
     for path in &files {
-        let content = fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("failed to read {:?}: {}", path, e));
+        let content =
+            fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {:?}: {}", path, e));
 
         for (line_no, line) in content.lines().enumerate() {
             // Skip pure comment lines — allows doc-comment references.

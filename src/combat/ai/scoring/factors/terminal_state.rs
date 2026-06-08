@@ -13,11 +13,11 @@
 //! The per-axis `compute_*` free functions remain here as `pub(crate)` helpers;
 //! they are used by the `factors::terminal` leaf modules.
 
-use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::world::tags::AiTags;
-use crate::combat::ai::orchestration::ScoringCtx;
 
 /// Compute the terminal-state score for a plan from its final sim snapshot.
 ///
@@ -29,14 +29,35 @@ pub fn terminal_state_score(
     ctx: &ScoringCtx,
 ) -> FactorTerminalScore {
     let mut out = FactorTerminalScore::default();
-    out.set(TerminalFactor::ExposureAtEnd,     compute_exposure_at_end(plan, ctx));
-    out.set(TerminalFactor::NextTurnLethality, compute_next_turn_lethality(plan, initial_snap, ctx));
-    out.set(TerminalFactor::SecureKill,        compute_secure_kill(plan));
-    out.set(TerminalFactor::AllyRescue,        compute_ally_rescue(plan, initial_snap, ctx));
-    out.set(TerminalFactor::BoardControlGain,  compute_board_control_gain(plan, ctx));
-    out.set(TerminalFactor::LineActionability, compute_line_actionability(plan, initial_snap, ctx));
-    out.set(TerminalFactor::DensityValue,      compute_density_value(plan, initial_snap, ctx));
-    out.set(TerminalFactor::PressureSpacingZone, compute_pressure_spacing_zone(plan, ctx));
+    out.set(
+        TerminalFactor::ExposureAtEnd,
+        compute_exposure_at_end(plan, ctx),
+    );
+    out.set(
+        TerminalFactor::NextTurnLethality,
+        compute_next_turn_lethality(plan, initial_snap, ctx),
+    );
+    out.set(TerminalFactor::SecureKill, compute_secure_kill(plan));
+    out.set(
+        TerminalFactor::AllyRescue,
+        compute_ally_rescue(plan, initial_snap, ctx),
+    );
+    out.set(
+        TerminalFactor::BoardControlGain,
+        compute_board_control_gain(plan, ctx),
+    );
+    out.set(
+        TerminalFactor::LineActionability,
+        compute_line_actionability(plan, initial_snap, ctx),
+    );
+    out.set(
+        TerminalFactor::DensityValue,
+        compute_density_value(plan, initial_snap, ctx),
+    );
+    out.set(
+        TerminalFactor::PressureSpacingZone,
+        compute_pressure_spacing_zone(plan, ctx),
+    );
     out
 }
 
@@ -104,8 +125,8 @@ pub(crate) fn compute_ally_rescue(
         if ally_initial.entity() == ctx.active.entity() {
             continue;
         }
-        let was_endangered = ally_initial.hp_pct() < 0.4
-            && ctx.maps.danger.get(ally_initial.pos) > 0.5;
+        let was_endangered =
+            ally_initial.hp_pct() < 0.4 && ctx.maps.danger.get(ally_initial.pos) > 0.5;
         if !was_endangered {
             continue;
         }
@@ -203,7 +224,8 @@ pub(crate) fn compute_line_actionability(
     // Max range across all abilities (mirrors snapshot build_snapshot logic,
     // but over all target types — we want "can I reach and hit anything?").
     let max_range: u32 = actor_at_end
-        .cache.abilities
+        .cache
+        .abilities
         .iter()
         .filter_map(|id| ctx.world.content.abilities.get(id))
         .map(|def| def.range.max)

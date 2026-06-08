@@ -163,8 +163,7 @@ pub fn post_state_hash(state: &CombatState) -> [u8; 32] {
         alive_units: alive,
     };
 
-    let json = serde_json::to_string(&snapshot)
-        .expect("StateSnapshot serialization is infallible");
+    let json = serde_json::to_string(&snapshot).expect("StateSnapshot serialization is infallible");
 
     let mut hasher = blake3::Hasher::new();
     hasher.update(json.as_bytes());

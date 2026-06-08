@@ -6,17 +6,19 @@
 //! 3. A second serialization of the decoded value is **byte-equal** to the first
 //!    (stable field order — §8 gotcha "Vec<Unit> final-state equality").
 
-use storyforge::combat_engine::{
-    AbilityId, AuraDef, AuraEffects, CritFailOutcome, DiceExpr, PhaseTransition, SpawnBlockedReason,
-    StatusBonuses, StatusId, TeamRelation, TurnQueue,
-};
+use serde::{de::DeserializeOwned, Serialize};
+use std::fmt::Debug;
 use storyforge::combat_engine::action::Action;
 use storyforge::combat_engine::effect::{ApplyCtx, DamageCtx, Effect};
 use storyforge::combat_engine::event::{Event, TurnSkipReason};
-use storyforge::combat_engine::state::{ActiveStatus, EffectSource, EnvId, RoundPhase, Team, Unit, UnitId};
+use storyforge::combat_engine::state::{
+    ActiveStatus, EffectSource, EnvId, RoundPhase, Team, Unit, UnitId,
+};
 use storyforge::combat_engine::trace::{InitLine, StepLine, SCHEMA_VERSION};
-use serde::{de::DeserializeOwned, Serialize};
-use std::fmt::Debug;
+use storyforge::combat_engine::{
+    AbilityId, AuraDef, AuraEffects, CritFailOutcome, DiceExpr, PhaseTransition,
+    SpawnBlockedReason, StatusBonuses, StatusId, TeamRelation, TurnQueue,
+};
 
 fn roundtrip<T: Serialize + DeserializeOwned + PartialEq + Debug>(value: T) {
     let json = serde_json::to_string(&value).unwrap();
@@ -28,9 +30,15 @@ fn roundtrip<T: Serialize + DeserializeOwned + PartialEq + Debug>(value: T) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn uid(n: u64) -> UnitId { UnitId(n) }
-fn sid(s: &str) -> StatusId { StatusId(s.to_string()) }
-fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
+fn uid(n: u64) -> UnitId {
+    UnitId(n)
+}
+fn sid(s: &str) -> StatusId {
+    StatusId(s.to_string())
+}
+fn abid(s: &str) -> AbilityId {
+    AbilityId(s.to_string())
+}
 
 use hexx::Hex;
 
@@ -116,27 +124,42 @@ fn event_unit_damaged() {
 
 #[test]
 fn event_unit_healed() {
-    roundtrip(Event::UnitHealed { target: uid(3), amount: 8 });
+    roundtrip(Event::UnitHealed {
+        target: uid(3),
+        amount: 8,
+    });
 }
 
 #[test]
 fn event_status_applied() {
-    roundtrip(Event::StatusApplied { target: uid(1), status: sid("stun") });
+    roundtrip(Event::StatusApplied {
+        target: uid(1),
+        status: sid("stun"),
+    });
 }
 
 #[test]
 fn event_status_removed() {
-    roundtrip(Event::StatusRemoved { target: uid(1), status: sid("stun") });
+    roundtrip(Event::StatusRemoved {
+        target: uid(1),
+        status: sid("stun"),
+    });
 }
 
 #[test]
 fn event_turn_skipped_dead() {
-    roundtrip(Event::TurnSkipped { actor: uid(4), reason: TurnSkipReason::Dead });
+    roundtrip(Event::TurnSkipped {
+        actor: uid(4),
+        reason: TurnSkipReason::Dead,
+    });
 }
 
 #[test]
 fn event_turn_skipped_stunned() {
-    roundtrip(Event::TurnSkipped { actor: uid(4), reason: TurnSkipReason::Stunned });
+    roundtrip(Event::TurnSkipped {
+        actor: uid(4),
+        reason: TurnSkipReason::Stunned,
+    });
 }
 
 #[test]
@@ -204,7 +227,11 @@ fn event_crit_failed_miss() {
 fn event_crit_failed_self_damage() {
     roundtrip(Event::CritFailed {
         actor: uid(2),
-        outcome: CritFailOutcome::SelfDamage(DiceExpr { count: 1, sides: 6, bonus: 0 }),
+        outcome: CritFailOutcome::SelfDamage(DiceExpr {
+            count: 1,
+            sides: 6,
+            bonus: 0,
+        }),
     });
 }
 
@@ -240,7 +267,10 @@ fn effect_damage_env_source() {
 
 #[test]
 fn effect_heal() {
-    roundtrip(Effect::Heal { target: uid(3), amount: 10 });
+    roundtrip(Effect::Heal {
+        target: uid(3),
+        amount: 10,
+    });
 }
 
 #[test]
@@ -276,12 +306,18 @@ fn effect_spawn() {
 
 #[test]
 fn effect_enter_phase() {
-    roundtrip(Effect::EnterPhase { unit: uid(10), phase_idx: 2 });
+    roundtrip(Effect::EnterPhase {
+        unit: uid(10),
+        phase_idx: 2,
+    });
 }
 
 #[test]
 fn effect_move_position() {
-    roundtrip(Effect::MovePosition { actor: uid(1), to: Hex::new(3, -1) });
+    roundtrip(Effect::MovePosition {
+        actor: uid(1),
+        to: Hex::new(3, -1),
+    });
 }
 
 #[test]
@@ -311,7 +347,7 @@ fn unit_all_none_fields() {
             .speed(3)
             .mp(3, 3)
             .reactions(0, 1)
-            .build()
+            .build(),
     );
 }
 
@@ -327,7 +363,10 @@ fn init_line_roundtrip() {
         next_synthetic_uid: 1000,
         round: 1,
         phase: RoundPhase::ActorTurn,
-        turn_queue: TurnQueue { order: vec![uid(1), uid(2)], index: 0 },
+        turn_queue: TurnQueue {
+            order: vec![uid(1), uid(2)],
+            index: 0,
+        },
         content_hash: "blake3:aabbcc".to_string(),
     };
     roundtrip(line);
@@ -423,7 +462,11 @@ fn crit_fail_outcome_double_cost() {
 
 #[test]
 fn status_bonuses_roundtrip() {
-    roundtrip(StatusBonuses { speed_bonus: 2, armor_bonus: -1, damage_taken_bonus: 0 });
+    roundtrip(StatusBonuses {
+        speed_bonus: 2,
+        armor_bonus: -1,
+        damage_taken_bonus: 0,
+    });
 }
 
 #[test]

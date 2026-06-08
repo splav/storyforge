@@ -1,5 +1,5 @@
-use combat_engine::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
+use combat_engine::{AbilityId, ArmorId, WeaponId};
 use serde::Deserialize;
 
 #[derive(Debug, Clone)]
@@ -60,8 +60,7 @@ pub fn load_classes() -> Vec<ClassDef> {
     if !std::path::Path::new(&path).is_file() {
         return Vec::new();
     }
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
     parse_classes(&path, &src)
 }
 

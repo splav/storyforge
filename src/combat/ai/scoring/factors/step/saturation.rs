@@ -12,14 +12,14 @@ pub const NAME: &str = "saturation";
 pub const SIGNED: bool = true;
 
 use crate::combat::ai::appraisal::NeedSignals;
-use crate::combat::ai::scoring::factors::ScoredStep;
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
+use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::content::abilities::StatusOn;
 use crate::content::content_view::ContentView;
-use combat_engine::AbilityId;
 use bevy::prelude::Entity;
+use combat_engine::AbilityId;
 
 const BUFF_REDUNDANCY_PENALTY: f32 = -0.4;
 
@@ -30,7 +30,9 @@ pub fn compute(
     _needs: &NeedSignals,
 ) -> f32 {
     match step {
-        ScoredStep::Cast { ability, target, .. } => {
+        ScoredStep::Cast {
+            ability, target, ..
+        } => {
             let caster = ctx.active.entity();
             let pre_snap = ctx.snap; // caller must have applied with_perspective
             buff_saturation_penalty(ability, *target, caster, pre_snap, ctx.world.content)
@@ -52,11 +54,15 @@ fn buff_saturation_penalty(
     pre_snap: &BattleSnapshot,
     content: &ContentView,
 ) -> f32 {
-    let Some(def) = content.abilities.get(ability) else { return 0.0 };
+    let Some(def) = content.abilities.get(ability) else {
+        return 0.0;
+    };
     let mut penalty = 0.0f32;
 
     for sa in &def.statuses {
-        let Some(sd) = content.statuses.get(&sa.status) else { continue };
+        let Some(sd) = content.statuses.get(&sa.status) else {
+            continue;
+        };
         let Some(bc) = &sd.buff_class else { continue };
 
         // Determine actual recipient entity based on StatusOn.
@@ -93,16 +99,18 @@ mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
-    use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, TargetType};
+    use crate::content::abilities::{
+        AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, TargetType,
+    };
     use crate::content::content_view::ContentView;
     use crate::content::statuses::{BuffClass, StatusDef};
-    use combat_engine::{AbilityId, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-
+    use combat_engine::{AbilityId, StatusId};
 
     fn make_unit(id: u32) -> UnitSnapshot {
-        crate::combat::ai::test_helpers::UnitBuilder::new(id, Team::Enemy, hex_from_offset(0, 0)).build()
+        crate::combat::ai::test_helpers::UnitBuilder::new(id, Team::Enemy, hex_from_offset(0, 0))
+            .build()
     }
 
     fn snap_with(units: Vec<UnitSnapshot>) -> BattleSnapshot {
@@ -117,7 +125,11 @@ mod tests {
             ai_controlled: false,
             buff_class: Some(BuffClass::ArmorBuff),
             engine: combat_engine::StatusDef {
-                bonuses: combat_engine::StatusBonuses { armor_bonus: 4, damage_taken_bonus: 0, speed_bonus: 0 },
+                bonuses: combat_engine::StatusBonuses {
+                    armor_bonus: 4,
+                    damage_taken_bonus: 0,
+                    speed_bonus: 0,
+                },
                 skips_turn: false,
                 forces_targeting: false,
                 blocks_mana_abilities: false,
@@ -145,10 +157,10 @@ mod tests {
                 aoe: AoEShape::None,
                 friendly_fire: false,
                 statuses: vec![StatusApplication {
-                status: StatusId::from(status_id),
-                duration_rounds: 2,
-                on,
-            }],
+                    status: StatusId::from(status_id),
+                    duration_rounds: 2,
+                    on,
+                }],
                 key: None,
                 requires_los: false,
                 passive: vec![],
@@ -205,10 +217,9 @@ mod tests {
         let ability = ability_applying("buff_armor", "defending", StatusOn::Target);
         let mut content = ContentView::default();
         content.abilities.insert(ability.id.clone(), ability);
-        content.statuses.insert(
-            StatusId::from("defending"),
-            armor_buff_status("defending"),
-        );
+        content
+            .statuses
+            .insert(StatusId::from("defending"), armor_buff_status("defending"));
         content.statuses.insert(
             StatusId::from("haste_buff"),
             StatusDef {
@@ -218,7 +229,11 @@ mod tests {
                 ai_controlled: false,
                 buff_class: Some(BuffClass::Haste),
                 engine: combat_engine::StatusDef {
-                    bonuses: combat_engine::StatusBonuses { armor_bonus: 0, damage_taken_bonus: 0, speed_bonus: 1 },
+                    bonuses: combat_engine::StatusBonuses {
+                        armor_bonus: 0,
+                        damage_taken_bonus: 0,
+                        speed_bonus: 1,
+                    },
                     skips_turn: false,
                     forces_targeting: false,
                     blocks_mana_abilities: false,
@@ -261,7 +276,10 @@ mod tests {
             &snap,
             &content,
         );
-        assert_eq!(penalty, -0.4, "self-buff on caster who already has class → -0.4");
+        assert_eq!(
+            penalty, -0.4,
+            "self-buff on caster who already has class → -0.4"
+        );
     }
 
     /// No status on target → no penalty even if ability applies tracked class.

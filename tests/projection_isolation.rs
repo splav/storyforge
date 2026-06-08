@@ -42,9 +42,7 @@ const ALLOWED_FILES: &[&str] = &[
 ];
 
 /// Subtrees skipped entirely (sim state, not ECS-projected).
-const SKIPPED_DIRS: &[&str] = &[
-    "src/combat/ai/",
-];
+const SKIPPED_DIRS: &[&str] = &["src/combat/ai/"];
 
 /// Substrings that indicate a mutation of an engine-projected field.
 /// Kept narrow to avoid false positives on field _reads_ or struct literals.
@@ -56,7 +54,9 @@ const FORBIDDEN_PATTERNS: &[(&str, &str)] = &[
 ];
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -69,7 +69,9 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 
 fn is_allowed(path: &Path) -> bool {
     let s = path.to_string_lossy();
-    ALLOWED_FILES.iter().any(|allowed| s.ends_with(allowed) || s.contains(allowed))
+    ALLOWED_FILES
+        .iter()
+        .any(|allowed| s.ends_with(allowed) || s.contains(allowed))
 }
 
 fn is_skipped(path: &Path) -> bool {
@@ -87,7 +89,9 @@ fn engine_projected_components_only_written_by_bridge() {
         if is_skipped(file) || is_allowed(file) {
             continue;
         }
-        let Ok(content) = fs::read_to_string(file) else { continue };
+        let Ok(content) = fs::read_to_string(file) else {
+            continue;
+        };
         for (lineno, line) in content.lines().enumerate() {
             // Skip comments — substring match catches them otherwise.
             let trimmed = line.trim_start();

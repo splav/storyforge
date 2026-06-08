@@ -58,7 +58,10 @@ fn classify_all_existing_codes_have_explicit_severity() {
         StatusId::from("stunned"),
         StatusTagSet::from_iter_tags([StatusTag::HardCC]),
     );
-    let hardcc_ctx = MismatchContext { status_delta: Some(&delta), status_tags: &hardcc_cache };
+    let hardcc_ctx = MismatchContext {
+        status_delta: Some(&delta),
+        status_tags: &hardcc_cache,
+    };
     assert_eq!(
         classify_mismatch("actor_status_changed", &hardcc_ctx),
         ContinuationSeverity::Invalidating,
@@ -202,7 +205,9 @@ fn classify_reactive_abandon_on_taunt() {
     );
     assert_eq!(
         outcome,
-        ContinuationOutcome::GoalAbandonedReactive { source: "taunt_forced".to_owned() }
+        ContinuationOutcome::GoalAbandonedReactive {
+            source: "taunt_forced".to_owned()
+        }
     );
 }
 
@@ -214,13 +219,19 @@ fn classify_reactive_abandon_on_protect_ally() {
         Some(&stored),
         TacticalIntent::ProtectAlly { ally: ent(3) },
         FreshDecisionKind::Move,
-        &IntentReason::ProtectAlly { ally_hp_pct: 0.2, threshold: 0.4, heal_identity: 1.0 },
+        &IntentReason::ProtectAlly {
+            ally_hp_pct: 0.2,
+            threshold: 0.4,
+            heal_identity: 1.0,
+        },
         None,
         0,
     );
     assert_eq!(
         outcome,
-        ContinuationOutcome::GoalAbandonedReactive { source: "protect_ally".to_owned() }
+        ContinuationOutcome::GoalAbandonedReactive {
+            source: "protect_ally".to_owned()
+        }
     );
 }
 
@@ -232,13 +243,18 @@ fn classify_reactive_abandon_on_urgency() {
         Some(&stored),
         TacticalIntent::ProtectSelf,
         FreshDecisionKind::Move,
-        &IntentReason::Urgency { self_preserve: 0.8, danger: 0.7 },
+        &IntentReason::Urgency {
+            self_preserve: 0.8,
+            danger: 0.7,
+        },
         None,
         0,
     );
     assert_eq!(
         outcome,
-        ContinuationOutcome::GoalAbandonedReactive { source: "urgency".to_owned() }
+        ContinuationOutcome::GoalAbandonedReactive {
+            source: "urgency".to_owned()
+        }
     );
 }
 
@@ -260,7 +276,9 @@ fn classify_reactive_abandon_on_killable() {
     );
     assert_eq!(
         outcome,
-        ContinuationOutcome::GoalAbandonedReactive { source: "killable".to_owned() }
+        ContinuationOutcome::GoalAbandonedReactive {
+            source: "killable".to_owned()
+        }
     );
 }
 
@@ -325,7 +343,10 @@ fn last_goal_preserved_across_endturn() {
         0, // age < ttl
     );
     assert_eq!(outcome, ContinuationOutcome::GoalPreservedInTransit);
-    assert!(!is_goal_obsolete(&outcome), "in-transit goal must not be cleared on EndTurn");
+    assert!(
+        !is_goal_obsolete(&outcome),
+        "in-transit goal must not be cleared on EndTurn"
+    );
 }
 
 /// CastInPlace is handled unconditionally in the decision-block (climax),
@@ -344,8 +365,11 @@ fn last_goal_cleared_after_cast_in_place() {
         None,
         0,
     );
-    assert_eq!(outcome, ContinuationOutcome::GoalPreservedMethodDelivered,
-        "cast delivering the goal should produce MethodDelivered, not an abandon");
+    assert_eq!(
+        outcome,
+        ContinuationOutcome::GoalPreservedMethodDelivered,
+        "cast delivering the goal should produce MethodDelivered, not an abandon"
+    );
     // The decision-block clears regardless of obsolete flag for Cast — see run_ai_turn.
     // goal_obsolete is NOT the clearing mechanism for Cast/MoveAndCast.
 }
@@ -382,7 +406,10 @@ fn stale_goal_cleared_when_ttl_expired() {
         2, // age == ttl → expired
     );
     assert_eq!(outcome, ContinuationOutcome::GoalAbandonedTtlExpired);
-    assert!(is_goal_obsolete(&outcome), "ttl-expired goal must be cleared");
+    assert!(
+        is_goal_obsolete(&outcome),
+        "ttl-expired goal must be cleared"
+    );
 }
 
 /// Invalidating severity → GoalAbandonedInvalidating → goal_obsolete = true.
@@ -398,15 +425,24 @@ fn stale_goal_cleared_when_invalidating() {
         0,
     );
     assert_eq!(outcome, ContinuationOutcome::GoalAbandonedInvalidating);
-    assert!(is_goal_obsolete(&outcome), "invalidating goal must be cleared");
+    assert!(
+        is_goal_obsolete(&outcome),
+        "invalidating goal must be cleared"
+    );
 }
 
 // ── StatusDelta tests (step 9.B commit 0) ────────────────────────────────
 
-fn sid(s: &str) -> StatusId { StatusId::from(s) }
+fn sid(s: &str) -> StatusId {
+    StatusId::from(s)
+}
 
 fn active_status(id: &str) -> ActiveStatusView {
-    ActiveStatusView { id: sid(id), rounds_remaining: 1, dot_per_tick: 0 }
+    ActiveStatusView {
+        id: sid(id),
+        rounds_remaining: 1,
+        dot_per_tick: 0,
+    }
 }
 
 /// New status present in `current` but not in `stored` → shows up in `added`.
@@ -446,7 +482,8 @@ use crate::combat::ai::world::tags::StatusTagSet;
 /// Build a StatusTagCache with a single entry.
 fn cache_single(id: &str, tag: StatusTag) -> StatusTagCache {
     let mut c = StatusTagCache::default();
-    c.map.insert(StatusId::from(id), StatusTagSet::from_iter_tags([tag]));
+    c.map
+        .insert(StatusId::from(id), StatusTagSet::from_iter_tags([tag]));
     c
 }
 
@@ -454,47 +491,82 @@ fn cache_single(id: &str, tag: StatusTag) -> StatusTagCache {
 #[test]
 fn classify_status_change_hardcc_set_invalidates() {
     let cache = cache_single("stunned", StatusTag::HardCC);
-    let delta = StatusDelta { added: vec![sid("stunned")], removed: vec![] };
-    assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Invalidating);
+    let delta = StatusDelta {
+        added: vec![sid("stunned")],
+        removed: vec![],
+    };
+    assert_eq!(
+        classify_status_change(&delta, &cache),
+        ContinuationSeverity::Invalidating
+    );
 }
 
 /// Compulsion added → Invalidating (actor is force-targeted / taunted).
 #[test]
 fn classify_status_change_compulsion_set_invalidates() {
     let cache = cache_single("taunted", StatusTag::Compulsion);
-    let delta = StatusDelta { added: vec![sid("taunted")], removed: vec![] };
-    assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Invalidating);
+    let delta = StatusDelta {
+        added: vec![sid("taunted")],
+        removed: vec![],
+    };
+    assert_eq!(
+        classify_status_change(&delta, &cache),
+        ContinuationSeverity::Invalidating
+    );
 }
 
 /// SoftCC added → Relevant (actor slowed/disoriented, goal still alive).
 #[test]
 fn classify_status_change_softcc_set_relevant() {
     let cache = cache_single("disoriented", StatusTag::SoftCC);
-    let delta = StatusDelta { added: vec![sid("disoriented")], removed: vec![] };
-    assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Relevant);
+    let delta = StatusDelta {
+        added: vec![sid("disoriented")],
+        removed: vec![],
+    };
+    assert_eq!(
+        classify_status_change(&delta, &cache),
+        ContinuationSeverity::Relevant
+    );
 }
 
 /// Buff removed → Relevant (actor lost protection, goal achievability changes).
 #[test]
 fn classify_status_change_buff_removed_relevant() {
     let cache = cache_single("defending", StatusTag::Buff);
-    let delta = StatusDelta { added: vec![], removed: vec![sid("defending")] };
-    assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Relevant);
+    let delta = StatusDelta {
+        added: vec![],
+        removed: vec![sid("defending")],
+    };
+    assert_eq!(
+        classify_status_change(&delta, &cache),
+        ContinuationSeverity::Relevant
+    );
 }
 
 /// Dot added (tagged as Dot, not HardCC/SoftCC/Buff) → Relevant.
 #[test]
 fn classify_status_change_dot_added_relevant() {
     let cache = cache_single("poisoned", StatusTag::Dot);
-    let delta = StatusDelta { added: vec![sid("poisoned")], removed: vec![] };
-    assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Relevant);
+    let delta = StatusDelta {
+        added: vec![sid("poisoned")],
+        removed: vec![],
+    };
+    assert_eq!(
+        classify_status_change(&delta, &cache),
+        ContinuationSeverity::Relevant
+    );
 }
 
 /// Pure tick: no added/removed statuses → Cosmetic.
 #[test]
 fn classify_status_change_pure_tick_cosmetic() {
     let cache = StatusTagCache::default();
-    let delta = StatusDelta { added: vec![], removed: vec![] };
-    assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Cosmetic);
+    let delta = StatusDelta {
+        added: vec![],
+        removed: vec![],
+    };
+    assert_eq!(
+        classify_status_change(&delta, &cache),
+        ContinuationSeverity::Cosmetic
+    );
 }
-

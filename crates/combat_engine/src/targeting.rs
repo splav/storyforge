@@ -103,7 +103,9 @@ pub fn compute_affected_targets<S: TargetState>(
     let cells = aoe_cells(def.aoe, actor_pos, target_pos);
     let mut out = Vec::new();
     for cell in cells {
-        let Some(r) = state.unit_at_cell(cell) else { continue };
+        let Some(r) = state.unit_at_cell(cell) else {
+            continue;
+        };
         if !r.alive {
             continue;
         }

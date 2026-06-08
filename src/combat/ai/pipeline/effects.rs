@@ -160,8 +160,8 @@ mod tests {
     };
     use crate::combat::ai::pipeline::stages::modifiers::ModifierContribution;
     use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
-    
-    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder, empty_plan};
+
+    use crate::combat::ai::test_helpers::{empty_plan, PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::Hex;
 
@@ -199,7 +199,10 @@ mod tests {
                 id: StageId::PlanModifiers,
                 effects: vec![EmittedEffect {
                     plan_index: 0,
-                    hit: ScoreHit::Addend(AddendHit { name: "test_bonus", value: addend_value }),
+                    hit: ScoreHit::Addend(AddendHit {
+                        name: "test_bonus",
+                        value: addend_value,
+                    }),
                     observability: Some(EffectObservation::Modifier(ModifierContribution {
                         name: "test_bonus".to_string(),
                         contribution: addend_value,
@@ -248,7 +251,11 @@ mod tests {
             apply_score_effect_stage(&stage, &mut pool, ctx);
 
             let ann = &pool.annotations[0];
-            assert_eq!(ann.score_trace.multipliers.len(), 1, "multiplier pushed to trace");
+            assert_eq!(
+                ann.score_trace.multipliers.len(),
+                1,
+                "multiplier pushed to trace"
+            );
             assert!(
                 (ann.score - 0.5).abs() < 1e-6,
                 "score == base * 0.5: got {}",
@@ -271,7 +278,11 @@ mod tests {
                 id: StageId::ProtectSelfMask,
                 effects: vec![EmittedEffect {
                     plan_index: 0,
-                    hit: ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, source: "test", original_score: None }),
+                    hit: ScoreHit::Mask(MaskHit {
+                        kind: MaskKind::Poison,
+                        source: "test",
+                        original_score: None,
+                    }),
                     observability: None,
                 }],
             };
@@ -280,9 +291,15 @@ mod tests {
 
             let ann = &pool.annotations[0];
             assert_eq!(ann.score_trace.masks.len(), 1, "mask pushed to trace");
-            assert!(ann.score_trace.is_masked(), "plan must be marked as masked in trace");
+            assert!(
+                ann.score_trace.is_masked(),
+                "plan must be marked as masked in trace"
+            );
             // score is now finite (compute() ignores masks)
-            assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
+            assert!(
+                ann.score.is_finite(),
+                "score is finite after Step 3 cutover"
+            );
             assert!(!ann.is_selectable(), "masked plan must not be selectable");
         });
     }
@@ -330,8 +347,14 @@ mod tests {
             assert!(ann.score_trace.is_masked(), "is_masked() == true");
             assert!(ann.score_trace.is_gated(), "is_gated() == true");
             // score is finite after Step 3 cutover
-            assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
-            assert!(!ann.is_selectable(), "masked+gated plan must not be selectable");
+            assert!(
+                ann.score.is_finite(),
+                "score is finite after Step 3 cutover"
+            );
+            assert!(
+                !ann.is_selectable(),
+                "masked+gated plan must not be selectable"
+            );
         });
     }
 
@@ -351,7 +374,10 @@ mod tests {
                 id: StageId::PlanModifiers,
                 effects: vec![EmittedEffect {
                     plan_index: 0,
-                    hit: ScoreHit::Addend(AddendHit { name: "bad", value: 0.1 }),
+                    hit: ScoreHit::Addend(AddendHit {
+                        name: "bad",
+                        value: 0.1,
+                    }),
                     observability: Some(EffectObservation::Sanity(SanityHit {
                         rule: SanityRule::RetreatTrap,
                         multiplier: 0.9,
@@ -367,19 +393,43 @@ mod tests {
 
     #[test]
     fn selection_key_selectable_beats_not_selectable() {
-        let s = SelectionKey { selectable: true, score: 0.1 };
-        let n = SelectionKey { selectable: false, score: 100.0 };
-        assert!(s > n, "selectable always beats not-selectable regardless of score");
+        let s = SelectionKey {
+            selectable: true,
+            score: 0.1,
+        };
+        let n = SelectionKey {
+            selectable: false,
+            score: 100.0,
+        };
+        assert!(
+            s > n,
+            "selectable always beats not-selectable regardless of score"
+        );
     }
 
     #[test]
     fn selection_key_within_bucket_orders_by_score_desc() {
-        let a = SelectionKey { selectable: true, score: 0.5 };
-        let b = SelectionKey { selectable: true, score: 0.3 };
+        let a = SelectionKey {
+            selectable: true,
+            score: 0.5,
+        };
+        let b = SelectionKey {
+            selectable: true,
+            score: 0.3,
+        };
         assert!(a > b, "within selectable bucket: higher score wins");
 
-        let c = SelectionKey { selectable: false, score: 0.5 };
-        let d = SelectionKey { selectable: false, score: 0.3 };
-        assert!(c > d, "within not-selectable bucket: higher score still wins");
+        let c = SelectionKey {
+            selectable: false,
+            score: 0.5,
+        };
+        let d = SelectionKey {
+            selectable: false,
+            score: 0.3,
+        };
+        assert!(
+            c > d,
+            "within not-selectable bucket: higher score still wins"
+        );
     }
 }

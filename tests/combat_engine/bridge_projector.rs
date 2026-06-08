@@ -8,18 +8,16 @@
 
 use bevy::prelude::*;
 
-use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
 use combat_engine::StatusId;
+use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::{
-    ActionPoints, ActiveStatus, Reactions, StatusEffects,
-    Team, Vital,
+    ActionPoints, ActiveStatus, Reactions, StatusEffects, Team, Vital,
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::resources::HexPositions;
 
 use super::common;
-
 
 /// Projector-isolation test: direct engine mutation flows to ECS without
 /// going through `process_action_system`.
@@ -89,7 +87,10 @@ fn projector_writes_engine_mutation_to_ecs() {
 
     {
         let mut res = app.world_mut().resource_mut::<CombatStateRes>();
-        let unit = res.0.unit_mut(new_actor_uid).expect("unit must be in engine state");
+        let unit = res
+            .0
+            .unit_mut(new_actor_uid)
+            .expect("unit must be in engine state");
         unit.pos = target_pos;
         // Mutate HP via the pool (pools[Hp] is the canonical source since Stage 3c).
         let max_hp = unit.max_hp();
@@ -107,26 +108,34 @@ fn projector_writes_engine_mutation_to_ecs() {
         .resource::<HexPositions>()
         .get(&new_actor)
         .expect("actor must have an ECS position");
-    assert_eq!(ecs_pos, target_pos, "HexPositions must match engine pos after projection");
+    assert_eq!(
+        ecs_pos, target_pos,
+        "HexPositions must match engine pos after projection"
+    );
 
     let entity_ref = app.world().entity(new_actor);
 
     let ecs_hp = entity_ref.get::<Vital>().expect("actor must have Vital").hp;
-    assert_eq!(ecs_hp, target_hp, "Vital.hp() must match engine hp after projection");
+    assert_eq!(
+        ecs_hp, target_hp,
+        "Vital.hp() must match engine hp after projection"
+    );
 
     let ecs_mp = entity_ref
         .get::<ActionPoints>()
         .expect("actor must have ActionPoints")
         .movement_points;
-    assert_eq!(ecs_mp, target_mp, "ActionPoints.movement_points must match engine after projection");
+    assert_eq!(
+        ecs_mp, target_mp,
+        "ActionPoints.movement_points must match engine after projection"
+    );
 
     let ecs_reactions = entity_ref
         .get::<Reactions>()
         .expect("actor must have Reactions")
         .remaining;
     assert_eq!(
-        ecs_reactions,
-        target_reactions as u8,
+        ecs_reactions, target_reactions as u8,
         "Reactions.remaining must match engine reactions_left after projection"
     );
 }
@@ -138,8 +147,8 @@ fn projector_writes_engine_mutation_to_ecs() {
 /// the ECS `Mana.current` must equal 4.
 #[test]
 fn projector_writes_mana_from_engine_state() {
-    use storyforge::game::components::Mana;
     use storyforge::combat_engine::state::{CombatState, RoundPhase};
+    use storyforge::game::components::Mana;
 
     let start = hex_from_offset(0, 0);
     let mut app = common::apps::bridge::projector_only_app();
@@ -147,12 +156,15 @@ fn projector_writes_mana_from_engine_state() {
     let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
 
     // Add Mana component — not part of CombatantBundle by default.
-    app.world_mut()
-        .entity_mut(actor)
-        .insert(Mana { current: 10, max: 10 });
+    app.world_mut().entity_mut(actor).insert(Mana {
+        current: 10,
+        max: 10,
+    });
 
     let actor_uid = entity_to_uid(actor);
-    app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
+    app.world_mut()
+        .resource_mut::<UnitIdMap>()
+        .insert(actor, actor_uid);
 
     // Seed engine state with mana pool at full.
     let unit = common::engine_unit::EngineUnitBuilder::new(actor_uid.0)
@@ -177,7 +189,10 @@ fn projector_writes_mana_from_engine_state() {
         .entity(actor)
         .get::<Mana>()
         .expect("Mana component must exist");
-    assert_eq!(mana.current, 4, "Mana.current must equal engine mana after projection");
+    assert_eq!(
+        mana.current, 4,
+        "Mana.current must equal engine mana after projection"
+    );
     assert_eq!(mana.max, 10, "Mana.max must remain unchanged");
 }
 
@@ -197,7 +212,9 @@ fn projector_writes_statuses_from_engine_state() {
     let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
 
     let actor_uid = entity_to_uid(actor);
-    app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
+    app.world_mut()
+        .resource_mut::<UnitIdMap>()
+        .insert(actor, actor_uid);
 
     // Seed engine state with no statuses yet.
     let unit = common::engine_unit::EngineUnitBuilder::new(actor_uid.0)
@@ -231,7 +248,11 @@ fn projector_writes_statuses_from_engine_state() {
     assert_eq!(s.id, StatusId::from("poison"), "status id must match");
     assert_eq!(s.rounds_remaining, 3, "rounds_remaining must match");
     assert_eq!(s.dot_per_tick, 2, "dot_per_tick must match");
-    assert_eq!(s.applier, Some(actor), "applier entity must resolve to actor");
+    assert_eq!(
+        s.applier,
+        Some(actor),
+        "applier entity must resolve to actor"
+    );
 }
 
 // Projector preserves aura-applied ECS statuses that the engine doesn't know about.
@@ -256,8 +277,12 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
 
     let actor_uid = entity_to_uid(actor);
     let aura_source_uid = entity_to_uid(aura_source);
-    app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
-    app.world_mut().resource_mut::<UnitIdMap>().insert(aura_source, aura_source_uid);
+    app.world_mut()
+        .resource_mut::<UnitIdMap>()
+        .insert(actor, actor_uid);
+    app.world_mut()
+        .resource_mut::<UnitIdMap>()
+        .insert(aura_source, aura_source_uid);
 
     // Pre-seed ECS: actor already has an aura-applied status (aura_buff from aura_source).
     app.world_mut()
@@ -284,7 +309,9 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             make_unit(actor_uid, EngineTeam::Player, start),
             make_unit(aura_source_uid, EngineTeam::Player, start2),
         ],
-        1, RoundPhase::ActorTurn, 0,
+        1,
+        RoundPhase::ActorTurn,
+        0,
     );
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
 
@@ -315,21 +342,32 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
 
     let ids: Vec<&str> = status_effects.0.iter().map(|s| s.id.0.as_str()).collect();
     assert!(ids.contains(&"aura_buff"), "aura_buff must be preserved");
-    assert!(ids.contains(&"burning"), "burning must be projected from engine");
+    assert!(
+        ids.contains(&"burning"),
+        "burning must be projected from engine"
+    );
 
     let aura_entry = status_effects
         .0
         .iter()
         .find(|s| s.id.0 == "aura_buff")
         .unwrap();
-    assert_eq!(aura_entry.applier, Some(aura_source), "aura_buff applier must be aura_source entity");
+    assert_eq!(
+        aura_entry.applier,
+        Some(aura_source),
+        "aura_buff applier must be aura_source entity"
+    );
 
     let burning_entry = status_effects
         .0
         .iter()
         .find(|s| s.id.0 == "burning")
         .unwrap();
-    assert_eq!(burning_entry.applier, Some(actor), "burning applier maps from actor_uid to actor entity");
+    assert_eq!(
+        burning_entry.applier,
+        Some(actor),
+        "burning applier maps from actor_uid to actor entity"
+    );
 }
 
 /// `from_ecs` (bootstrap round 1) aggregates `armor_bonus` and `speed_bonus` from
@@ -340,11 +378,13 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
 /// `agg.speed_bonus` must both be -1.
 #[test]
 fn from_ecs_round1_aggregates_preseeded_status_bonuses() {
-    use storyforge::combat::engine_bridge::{CombatStateRes, entity_to_uid};
+    use combat_engine::{
+        StatusBonuses, StatusDef as EngineStatusDef, StatusId, PERMANENT_DURATION,
+    };
+    use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
     use storyforge::content::content_view::ActiveContent;
     use storyforge::content::statuses::StatusDef;
     use storyforge::game::components::{ActiveStatus, StatusEffects};
-    use combat_engine::{StatusId, StatusDef as EngineStatusDef, StatusBonuses, PERMANENT_DURATION};
 
     let start = hex_from_offset(0, 0);
     let mut app = common::apps::bridge::bridge_app();
@@ -398,11 +438,20 @@ fn from_ecs_round1_aggregates_preseeded_status_bonuses() {
 
     let uid = entity_to_uid(hero);
     let state = app.world().resource::<CombatStateRes>();
-    let unit = state.0.unit(uid).expect("hero must be in engine state after bootstrap");
+    let unit = state
+        .0
+        .unit(uid)
+        .expect("hero must be in engine state after bootstrap");
 
     // from_ecs seeds speed = base_speed + speed_bonus from statuses.
     // Hero was spawned with speed=6 (bridge_stats default). injured adds -1 → effective speed=5.
-    assert_eq!(unit.armor_bonus, -1, "armor_bonus must be -1 from injured status");
-    assert_eq!(unit.speed, 6 - 1, "effective speed must be base(6) + injured speed_bonus(-1)");
+    assert_eq!(
+        unit.armor_bonus, -1,
+        "armor_bonus must be -1 from injured status"
+    );
+    assert_eq!(
+        unit.speed,
+        6 - 1,
+        "effective speed must be base(6) + injured speed_bonus(-1)"
+    );
 }
-

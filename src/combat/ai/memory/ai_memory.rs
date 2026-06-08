@@ -1,9 +1,12 @@
-use bevy::prelude::*;
-use crate::combat::ai::repair::{classify_mismatch, compute_status_delta_engine, MismatchContext, PlanContinuationCheck, StatusDelta};
+use crate::combat::ai::intent::IntentKind;
+use crate::combat::ai::repair::{
+    classify_mismatch, compute_status_delta_engine, MismatchContext, PlanContinuationCheck,
+    StatusDelta,
+};
 use crate::combat::ai::world::snapshot::UnitView;
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::game::hex::Hex;
-use crate::combat::ai::intent::IntentKind;
+use bevy::prelude::*;
 
 // ── Plan freeze: stored plan + invalidation snapshot ──────────────────────
 
@@ -38,7 +41,9 @@ impl PlanSnapshot {
     ) -> Self {
         Self {
             actor_hp: actor.hp(),
-            actor_rage: actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0),
+            actor_rage: actor.pools[combat_engine::PoolKind::Rage]
+                .map(|(r, _)| r)
+                .unwrap_or(0),
             actor_status_hash: status_hash_engine(&actor.statuses),
             actor_statuses_at_capture: actor.statuses.iter().map(|s| s.id.clone()).collect(),
             expected_actor_pos,
@@ -61,7 +66,11 @@ impl PlanSnapshot {
         if actor.hp() < self.actor_hp {
             return Some("actor_hp_drop");
         }
-        if actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0) != self.actor_rage {
+        if actor.pools[combat_engine::PoolKind::Rage]
+            .map(|(r, _)| r)
+            .unwrap_or(0)
+            != self.actor_rage
+        {
             return Some("actor_rage_changed");
         }
         if status_hash_engine(&actor.statuses) != self.actor_status_hash {
@@ -103,14 +112,24 @@ impl PlanSnapshot {
     ) -> Option<PlanContinuationCheck> {
         let code = self.mismatch(actor, target)?;
         let severity = if code == "actor_status_changed" {
-            let delta = compute_status_delta_engine(&self.actor_statuses_at_capture, &actor.statuses);
-            let ctx = MismatchContext { status_delta: Some(&delta), status_tags };
+            let delta =
+                compute_status_delta_engine(&self.actor_statuses_at_capture, &actor.statuses);
+            let ctx = MismatchContext {
+                status_delta: Some(&delta),
+                status_tags,
+            };
             classify_mismatch(code, &ctx)
         } else {
-            let ctx = MismatchContext { status_delta: None, status_tags };
+            let ctx = MismatchContext {
+                status_delta: None,
+                status_tags,
+            };
             classify_mismatch(code, &ctx)
         };
-        Some(PlanContinuationCheck { severity, reason_code: code })
+        Some(PlanContinuationCheck {
+            severity,
+            reason_code: code,
+        })
     }
 
     /// Returns `Some((code, Some(delta)))` when the mismatch is `actor_status_changed`,
@@ -125,7 +144,10 @@ impl PlanSnapshot {
     ) -> Option<(&'static str, Option<StatusDelta>)> {
         let code = self.mismatch(actor, target)?;
         let delta = if code == "actor_status_changed" {
-            Some(compute_status_delta_engine(&self.actor_statuses_at_capture, &actor.statuses))
+            Some(compute_status_delta_engine(
+                &self.actor_statuses_at_capture,
+                &actor.statuses,
+            ))
         } else {
             None
         };
@@ -137,11 +159,14 @@ impl PlanSnapshot {
 /// Changes when a status is applied, removed, or ticked down.
 /// Public for use by `StoredGoalContext::check_continuation` (step 6.6).
 pub fn status_hash(statuses: &[crate::combat::ai::world::snapshot::ActiveStatusView]) -> u64 {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
     let mut h = DefaultHasher::new();
     // Sort by id for a deterministic hash regardless of application order.
-    let mut pairs: Vec<_> = statuses.iter().map(|s| (&s.id, s.rounds_remaining)).collect();
+    let mut pairs: Vec<_> = statuses
+        .iter()
+        .map(|s| (&s.id, s.rounds_remaining))
+        .collect();
     pairs.sort_by_key(|(id, _)| id.0.as_str());
     for (id, rounds) in pairs {
         id.hash(&mut h);
@@ -154,10 +179,13 @@ pub fn status_hash(statuses: &[crate::combat::ai::world::snapshot::ActiveStatusV
 /// slices (e.g. via `UnitView::statuses()`). Produces identical hashes for
 /// the same logical status set — only the slice element type differs.
 pub fn status_hash_engine(statuses: &[combat_engine::state::ActiveStatus]) -> u64 {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
     let mut h = DefaultHasher::new();
-    let mut pairs: Vec<_> = statuses.iter().map(|s| (&s.id, s.rounds_remaining)).collect();
+    let mut pairs: Vec<_> = statuses
+        .iter()
+        .map(|s| (&s.id, s.rounds_remaining))
+        .collect();
     pairs.sort_by_key(|(id, _)| id.0.as_str());
     for (id, rounds) in pairs {
         id.hash(&mut h);
@@ -197,29 +225,35 @@ pub struct AiMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::test_helpers::{ent, snapshot_from, UnitBuilder};
     use crate::combat::ai::world::snapshot::ActiveStatusView;
-    use crate::combat::ai::test_helpers::{UnitBuilder, ent, snapshot_from};
-    use combat_engine::StatusId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::StatusId;
 
     fn make_status(id: &str, rounds: u32) -> ActiveStatusView {
-        ActiveStatusView { id: StatusId::from(id), rounds_remaining: rounds, dot_per_tick: 0 }
+        ActiveStatusView {
+            id: StatusId::from(id),
+            rounds_remaining: rounds,
+            dot_per_tick: 0,
+        }
     }
 
     #[test]
     fn snapshot_matches_unchanged_state() {
         let expected_pos = hex_from_offset(3, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, expected_pos).hp(10).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, expected_pos)
+            .hp(10)
+            .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0)).build();
         let snap = snapshot_from(vec![actor, target], 1);
 
-        let stored = PlanSnapshot::capture(
-            snap.unit(ent(1)).unwrap(),
-            snap.unit(ent(2)),
-            expected_pos,
+        let stored =
+            PlanSnapshot::capture(snap.unit(ent(1)).unwrap(), snap.unit(ent(2)), expected_pos);
+        assert_eq!(
+            stored.mismatch(snap.unit(ent(1)).unwrap(), snap.unit(ent(2))),
+            None
         );
-        assert_eq!(stored.mismatch(snap.unit(ent(1)).unwrap(), snap.unit(ent(2))), None);
     }
 
     #[test]
@@ -232,7 +266,10 @@ mod tests {
         let snap_after = snapshot_from(vec![actor_after], 1);
 
         let stored = PlanSnapshot::capture(snap_before.unit(ent(1)).unwrap(), None, pos);
-        assert_eq!(stored.mismatch(snap_after.unit(ent(1)).unwrap(), None), Some("actor_hp_drop"));
+        assert_eq!(
+            stored.mismatch(snap_after.unit(ent(1)).unwrap(), None),
+            Some("actor_hp_drop")
+        );
     }
 
     #[test]
@@ -246,7 +283,10 @@ mod tests {
         let snap_debuffed = snapshot_from(vec![actor_debuffed], 1);
 
         let stored = PlanSnapshot::capture(snap_clean.unit(ent(1)).unwrap(), None, pos);
-        assert_eq!(stored.mismatch(snap_debuffed.unit(ent(1)).unwrap(), None), Some("actor_status_changed"));
+        assert_eq!(
+            stored.mismatch(snap_debuffed.unit(ent(1)).unwrap(), None),
+            Some("actor_status_changed")
+        );
 
         // Inverse: had status, now expired.
         let mut actor_with_status = actor_clean;
@@ -257,7 +297,10 @@ mod tests {
         let snap_cured = snapshot_from(vec![actor_cured], 1);
 
         let stored2 = PlanSnapshot::capture(snap_with.unit(ent(1)).unwrap(), None, pos);
-        assert_eq!(stored2.mismatch(snap_cured.unit(ent(1)).unwrap(), None), Some("actor_status_changed"));
+        assert_eq!(
+            stored2.mismatch(snap_cured.unit(ent(1)).unwrap(), None),
+            Some("actor_status_changed")
+        );
     }
 
     #[test]
@@ -267,21 +310,24 @@ mod tests {
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).build();
         let snap = snapshot_from(vec![actor, target], 1);
 
-        let stored = PlanSnapshot::capture(
-            snap.unit(ent(1)).unwrap(),
-            snap.unit(ent(2)),
-            pos,
-        );
+        let stored = PlanSnapshot::capture(snap.unit(ent(1)).unwrap(), snap.unit(ent(2)), pos);
         // Target gone from snapshot (ally killed it between ticks).
-        assert_eq!(stored.mismatch(snap.unit(ent(1)).unwrap(), None), Some("target_gone"));
+        assert_eq!(
+            stored.mismatch(snap.unit(ent(1)).unwrap(), None),
+            Some("target_gone")
+        );
     }
 
     #[test]
     fn snapshot_detects_target_hp_drop() {
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let target_before = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).hp(10).build();
-        let target_after = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).hp(4).build();
+        let target_before = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
+            .hp(10)
+            .build();
+        let target_after = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
+            .hp(4)
+            .build();
 
         let snap_before = snapshot_from(vec![actor.clone(), target_before], 1);
         let snap_after = snapshot_from(vec![actor, target_after], 1);
@@ -309,6 +355,9 @@ mod tests {
 
         let stored = PlanSnapshot::capture(snap_expected.unit(ent(1)).unwrap(), None, expected);
         // Actor captured at expected pos, but now at actual (path truncated).
-        assert_eq!(stored.mismatch(snap_actual.unit(ent(1)).unwrap(), None), Some("actor_pos_mismatch"));
+        assert_eq!(
+            stored.mismatch(snap_actual.unit(ent(1)).unwrap(), None),
+            Some("actor_pos_mismatch")
+        );
     }
 }

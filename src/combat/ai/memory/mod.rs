@@ -10,6 +10,6 @@
 pub mod ai_memory;
 pub mod goal;
 
-pub use ai_memory::{AiMemory, PlanSnapshot, status_hash, status_hash_engine};
-pub use goal::{GoalKind, StoredGoalContext, extract_goal_context};
-pub use goal::{pre_tick, post_tick};
+pub use ai_memory::{status_hash, status_hash_engine, AiMemory, PlanSnapshot};
+pub use goal::{extract_goal_context, GoalKind, StoredGoalContext};
+pub use goal::{post_tick, pre_tick};

@@ -29,6 +29,7 @@ pub use overcommit_into_danger::{OvercommitIntoDanger, OvercommitSource};
 pub use rare_resource_for_low_impact::RareResourceForLowImpact;
 pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::effects::{
     apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
@@ -37,7 +38,6 @@ use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::orchestration::ScoringCtx;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -185,7 +185,9 @@ impl CriticsStage {
     /// Construct a stage with a single critic. Used by test helpers to run
     /// one critic in isolation via the full stage flow.
     pub(crate) fn single(critic: impl PlanCritic + 'static) -> Self {
-        Self { critics: vec![Box::new(critic)] }
+        Self {
+            critics: vec![Box::new(critic)],
+        }
     }
 }
 
@@ -196,7 +198,8 @@ impl ScoreEffectStage for CriticsStage {
 
     fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
         let mut emitted = Vec::new();
-        for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate() {
+        for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate()
+        {
             for c in &self.critics {
                 if let Some(hit) = c.evaluate(plan, ann, ctx.scoring) {
                     emitted.push(EmittedEffect {
@@ -230,19 +233,18 @@ impl PlanStage for CriticsStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+    use crate::combat::ai::orchestration::ScoringCtx;
+    use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, PoolBuilder,
         StageTestHarness, UnitBuilder,
-        snapshot_from,
     };
-    use crate::combat::ai::orchestration::ScoringCtx;
-    use combat_engine::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::DiceRng;
 
     // ── empty critics vec — no-op ──────────────────────────────────────────
 
@@ -268,12 +270,21 @@ mod tests {
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
-        assert_eq!(pool.annotations[0].score, 0.8, "score must not change with empty critics");
-        assert_eq!(pool.annotations[1].score, 0.5, "score must not change with empty critics");
+        assert_eq!(
+            pool.annotations[0].score, 0.8,
+            "score must not change with empty critics"
+        );
+        assert_eq!(
+            pool.annotations[1].score, 0.5,
+            "score must not change with empty critics"
+        );
         use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         for ann in &pool.annotations {
             assert!(
-                ann.score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
+                ann.score_trace
+                    .multipliers
+                    .iter()
+                    .all(|m| !matches!(m.kind, MultiplierKind::Critic)),
                 "no critic multipliers expected for empty stage",
             );
         }
@@ -333,17 +344,28 @@ mod tests {
         let ann = &pool.annotations[0];
         assert!(
             (ann.score - 0.5).abs() < 1e-6,
-            "expected score 0.5 after 0.5× multiplier, got {}", ann.score,
+            "expected score 0.5 after 0.5× multiplier, got {}",
+            ann.score,
         );
         use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
-        let critic_mults: Vec<_> = ann.score_trace.multipliers.iter()
+        let critic_mults: Vec<_> = ann
+            .score_trace
+            .multipliers
+            .iter()
             .filter(|m| matches!(m.kind, MultiplierKind::Critic))
             .collect();
-        assert_eq!(critic_mults.len(), 1, "expected exactly one critic multiplier in trace");
+        assert_eq!(
+            critic_mults.len(),
+            1,
+            "expected exactly one critic multiplier in trace"
+        );
         if let Some(MultiplierDetail::Critic { critic, .. }) = &critic_mults[0].detail {
             assert_eq!(*critic, CriticKind::OvercommitIntoDanger);
         } else {
-            panic!("critic multiplier must carry Critic detail, got {:?}", critic_mults[0].detail);
+            panic!(
+                "critic multiplier must carry Critic detail, got {:?}",
+                critic_mults[0].detail
+            );
         }
     }
 
@@ -377,7 +399,13 @@ mod tests {
         let reservations = crate::combat::ai::world::reservations::Reservations::default();
         let scoring = make_scoring_ctx(&world, snap, &maps, &reservations, actor);
         let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(&scoring, intent, IntentReason::NoRuleDefault, actor.pos, &mut rng);
+        let mut ctx = StageCtx::new(
+            &scoring,
+            intent,
+            IntentReason::NoRuleDefault,
+            actor.pos,
+            &mut rng,
+        );
 
         let mut pool = PoolBuilder::new(plans)
             .scores(&scores)
@@ -395,7 +423,9 @@ mod tests {
 
         // Apply mock critic.
         let stage = CriticsStage {
-            critics: vec![Box::new(AlwaysHitCritic { multiplier: critic_multiplier })],
+            critics: vec![Box::new(AlwaysHitCritic {
+                multiplier: critic_multiplier,
+            })],
         };
         stage.apply(&mut pool, &mut ctx);
 
@@ -420,7 +450,10 @@ mod tests {
 
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(10)
+            .max_hp(20)
+            .build();
         let snap = snapshot_from(vec![actor.clone()], 1);
 
         // Two plans: one with LastStand adaptation, one with Default (no adaptation).
@@ -469,14 +502,21 @@ mod tests {
         let stage = CriticsStage {
             critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
         };
-        let mut pool = PoolBuilder::new(plans).scores(&[1.0]).trace_base_eq_score().build();
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
 
         // ── 4. Act ──
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
         let trace = &pool.annotations[0].score_trace;
-        assert_eq!(trace.multipliers.len(), 1, "expected exactly one multiplier hit");
+        assert_eq!(
+            trace.multipliers.len(),
+            1,
+            "expected exactly one multiplier hit"
+        );
         assert_eq!(trace.multipliers[0].kind, MultiplierKind::Critic);
         assert!(
             (trace.multipliers[0].value - 0.5).abs() < 1e-6,
@@ -500,7 +540,10 @@ mod tests {
         let stage = CriticsStage {
             critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
         };
-        let mut pool = PoolBuilder::new(plans).scores(&[1.0]).trace_base_eq_score().build();
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
 
         // ── 4. Act ──
         h.run(|ctx| stage.apply(&mut pool, ctx));
@@ -570,7 +613,10 @@ mod tests {
                 Box::new(FixedMultiplierCritic { multiplier: 0.8 }),
             ],
         };
-        let mut pool = PoolBuilder::new(plans).scores(&[1.0]).trace_base_eq_score().build();
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
 
         // ── 4. Act ──
         h.run(|ctx| stage.apply(&mut pool, ctx));
@@ -580,14 +626,19 @@ mod tests {
         // 1.0 * 0.5 * 0.8 = 0.4
         assert!(
             (ann.score - 0.4).abs() < 1e-5,
-            "expected score 0.4 after two multipliers, got {}", ann.score
+            "expected score 0.4 after two multipliers, got {}",
+            ann.score
         );
         let computed = ann.score_trace.compute();
         assert!(
             (computed - 0.4).abs() < 1e-5,
             "trace.compute() must equal 0.4, got {computed}"
         );
-        assert_eq!(ann.score_trace.multipliers.len(), 2, "expected 2 multiplier hits");
+        assert_eq!(
+            ann.score_trace.multipliers.len(),
+            2,
+            "expected 2 multiplier hits"
+        );
         assert_eq!(ann.score_trace.multipliers[0].kind, MultiplierKind::Critic);
         assert!(
             (ann.score_trace.multipliers[0].value - 0.5).abs() < 1e-6,
@@ -645,7 +696,10 @@ mod tests {
         use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         let ann = PlanAnnotation::default();
         assert!(
-            ann.score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
+            ann.score_trace
+                .multipliers
+                .iter()
+                .all(|m| !matches!(m.kind, MultiplierKind::Critic)),
             "PlanAnnotation::default() must have no critic multipliers in trace",
         );
     }
@@ -672,9 +726,18 @@ mod tests {
     fn critic_reason_serde_round_trip() {
         use overcommit_into_danger::OvercommitSource;
         let reasons: Vec<CriticReason> = vec![
-            CriticReason::OvercommitIntoDanger { source: OvercommitSource::SurvivalPath, ratio: 0.5 },
-            CriticReason::OvercommitIntoDanger { source: OvercommitSource::AooBleed, ratio: 0.8 },
-            CriticReason::SelfLethalWithoutPayoff { self_dmg_ratio: 0.45, payoff_estimate: 0.1 },
+            CriticReason::OvercommitIntoDanger {
+                source: OvercommitSource::SurvivalPath,
+                ratio: 0.5,
+            },
+            CriticReason::OvercommitIntoDanger {
+                source: OvercommitSource::AooBleed,
+                ratio: 0.8,
+            },
+            CriticReason::SelfLethalWithoutPayoff {
+                self_dmg_ratio: 0.45,
+                payoff_estimate: 0.1,
+            },
             CriticReason::BlindspotRanged { enemies_visible: 0 },
             CriticReason::BuffIntoVoid {
                 ability: "buff_shield".into(),

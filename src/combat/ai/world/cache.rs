@@ -9,13 +9,13 @@
 //! (same pattern as `BattleSnapshot.by_entity`).
 
 use bevy::prelude::Entity;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::config::tuning::AiTuningOverride;
-use crate::content::races::CritFailEffect;
 use crate::combat::ai::world::tags::AiTags;
+use crate::content::races::CritFailEffect;
 use combat_engine::AbilityId;
 
 // ── AiTags serde helpers ──────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ fn default_ai_tags() -> AiTags {
 
 mod serde_ai_tags {
     use super::*;
-    use serde::{Serializer, Deserializer};
+    use serde::{Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(t: &AiTags, s: S) -> Result<S::Ok, S::Error> {
         t.bits().serialize(s)
@@ -41,15 +41,14 @@ mod serde_ai_tags {
 
 mod serde_entity {
     use super::*;
-    use serde::{Serializer, Deserializer};
+    use serde::{Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(e: &Entity, s: S) -> Result<S::Ok, S::Error> {
         e.to_bits().serialize(s)
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Entity, D::Error> {
         let bits = u64::deserialize(d)?;
-        Entity::try_from_bits(bits)
-            .ok_or_else(|| serde::de::Error::custom("invalid entity bits"))
+        Entity::try_from_bits(bits).ok_or_else(|| serde::de::Error::custom("invalid entity bits"))
     }
 }
 
@@ -119,7 +118,11 @@ impl AiCache {
     /// Build an `AiCache` from a vec of unit records, constructing the index
     /// eagerly.
     pub fn from_units(units: Vec<UnitAiCache>) -> Self {
-        let mut cache = Self { units, by_entity: HashMap::new(), env_severity: std::collections::HashMap::new() };
+        let mut cache = Self {
+            units,
+            by_entity: HashMap::new(),
+            env_severity: std::collections::HashMap::new(),
+        };
         cache.build_index();
         cache
     }
@@ -127,7 +130,8 @@ impl AiCache {
     /// (Re)build the entity → index map from the current `units` vec. Call
     /// after deserialization when O(1) access is needed.
     pub fn build_index(&mut self) {
-        self.by_entity = self.units
+        self.by_entity = self
+            .units
             .iter()
             .enumerate()
             .map(|(i, u)| (u.entity, i))
@@ -149,9 +153,9 @@ impl AiCache {
 #[cfg(test)]
 mod cache_parity_tests {
     use crate::game::components::Team;
-    
-    use crate::combat::ai::test_helpers::UnitBuilder;
+
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::game::hex::hex_from_offset;
 
     /// Verify that every field in `AiCache` matches its counterpart in
@@ -179,22 +183,47 @@ mod cache_parity_tests {
 
             assert_eq!(uc.entity, u.entity(), "entity mismatch");
             assert_eq!(uc.role, u.cache.role, "role mismatch for {:?}", entity);
-            assert_eq!(uc.threat, u.cache.threat, "threat mismatch for {:?}", entity);
+            assert_eq!(
+                uc.threat, u.cache.threat,
+                "threat mismatch for {:?}",
+                entity
+            );
             assert_eq!(uc.tags, u.cache.tags, "tags mismatch for {:?}", entity);
-            assert_eq!(uc.max_attack_range, u.cache.max_attack_range,
-                "max_attack_range mismatch for {:?}", entity);
-            assert_eq!(uc.aoo_expected_damage, u.cache.aoo_expected_damage,
-                "aoo_expected_damage mismatch for {:?}", entity);
-            assert_eq!(uc.damage_horizon, u.cache.damage_horizon,
-                "damage_horizon mismatch for {:?}", entity);
-            assert_eq!(uc.crit_fail_effect, u.cache.crit_fail_effect,
-                "crit_fail_effect mismatch for {:?}", entity);
-            assert_eq!(uc.ai_tuning_override, u.cache.ai_tuning_override,
-                "ai_tuning_override mismatch for {:?}", entity);
-            assert_eq!(uc.abilities, u.cache.abilities,
-                "abilities mismatch for {:?}", entity);
-            assert_eq!(uc.forced_mode, u.cache.forced_mode,
-                "forced_mode mismatch for {:?}", entity);
+            assert_eq!(
+                uc.max_attack_range, u.cache.max_attack_range,
+                "max_attack_range mismatch for {:?}",
+                entity
+            );
+            assert_eq!(
+                uc.aoo_expected_damage, u.cache.aoo_expected_damage,
+                "aoo_expected_damage mismatch for {:?}",
+                entity
+            );
+            assert_eq!(
+                uc.damage_horizon, u.cache.damage_horizon,
+                "damage_horizon mismatch for {:?}",
+                entity
+            );
+            assert_eq!(
+                uc.crit_fail_effect, u.cache.crit_fail_effect,
+                "crit_fail_effect mismatch for {:?}",
+                entity
+            );
+            assert_eq!(
+                uc.ai_tuning_override, u.cache.ai_tuning_override,
+                "ai_tuning_override mismatch for {:?}",
+                entity
+            );
+            assert_eq!(
+                uc.abilities, u.cache.abilities,
+                "abilities mismatch for {:?}",
+                entity
+            );
+            assert_eq!(
+                uc.forced_mode, u.cache.forced_mode,
+                "forced_mode mismatch for {:?}",
+                entity
+            );
         }
     }
 }

@@ -7,10 +7,10 @@
 /// state change as a reason to replan from scratch.
 // goal.rs and lifecycle.rs have moved to memory/goal/.
 // Re-export for backward-compat so existing callers (`repair::GoalKind`, etc.) continue to work.
-pub use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext, extract_goal_context};
+pub use crate::combat::ai::memory::goal::{extract_goal_context, GoalKind, StoredGoalContext};
 
 pub mod affinity;
-pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
+pub use affinity::{compute_repair_affinity, RepairAffinity, RepairWeights};
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::world::snapshot::ActiveStatusView;
@@ -61,7 +61,10 @@ pub struct MismatchContext<'a> {
 impl MismatchContext<'_> {
     /// Construct a minimal context for unit tests: no delta, empty cache.
     pub fn for_test(status_tags: &StatusTagCache) -> MismatchContext<'_> {
-        MismatchContext { status_delta: None, status_tags }
+        MismatchContext {
+            status_delta: None,
+            status_tags,
+        }
     }
 }
 
@@ -367,10 +370,7 @@ pub struct StatusDelta {
 ///
 /// The function compares **presence** only (not round counts / dot values),
 /// which is what matters for goal-validity classification.
-pub fn compute_status_delta(
-    stored: &[StatusId],
-    current: &[ActiveStatusView],
-) -> StatusDelta {
+pub fn compute_status_delta(stored: &[StatusId], current: &[ActiveStatusView]) -> StatusDelta {
     let added: Vec<StatusId> = current
         .iter()
         .filter(|av| !stored.contains(&av.id))

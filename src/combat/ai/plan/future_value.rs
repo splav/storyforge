@@ -10,19 +10,21 @@
 //! **Offline prototype only.** Production pipeline never calls this module.
 //! Single consumer: `replay_ai_log --phase7-prototype`.
 
-use crate::combat::ai::scoring::factors::aoe_hits;
-use crate::combat::ai::scoring::factors::aoe_area;
-use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::scoring::factors::aggregate::{compute_plan_factors, aggregate_factors_to_score};
-use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
-use crate::combat::ai::scoring::position_eval::evaluate_position;
-use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
-use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
+use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::orchestration::ScoringCtx;
+use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
+use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
+use crate::combat::ai::scoring::applies_cc;
+use crate::combat::ai::scoring::factors::aggregate::{
+    aggregate_factors_to_score, compute_plan_factors,
+};
+use crate::combat::ai::scoring::factors::aoe_area;
+use crate::combat::ai::scoring::factors::aoe_hits;
+use crate::combat::ai::scoring::position_eval::evaluate_position;
+use crate::combat::ai::scoring::target_selection::target_selection_score;
+use crate::combat::ai::world::influence::InfluenceMaps;
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
 
@@ -153,7 +155,12 @@ pub fn future_value_from_committed_state(
 }
 
 /// λ_pos: how good is `committed_pos` for this unit's role.
-fn position_component(active: UnitView<'_>, committed_pos: Hex, tuning: &AiTuning, maps: &InfluenceMaps) -> f32 {
+fn position_component(
+    active: UnitView<'_>,
+    committed_pos: Hex,
+    tuning: &AiTuning,
+    maps: &InfluenceMaps,
+) -> f32 {
     evaluate_position(committed_pos, &active.cache.role, tuning, maps)
 }
 
@@ -180,29 +187,48 @@ fn attack_component_intent(
 
     // Apply `policy::damage::value` to a hypothetical outcome for a single target.
     // Accepts `&Unit` (engine state) — `UnitView` derefs to `Unit`.
-    let damage_value = |def: &crate::content::abilities::AbilityDef, target: &combat_engine::state::Unit| -> f32 {
-        let h = estimate_hypothetical(def, target, &active.cache.caster_ctx, content);
-        let damage_progress = (h.enemy_damage / target.hp().max(1) as f32).min(1.0);
-        policy::damage::value(h.enemy_damage, damage_progress)
-    };
+    let damage_value =
+        |def: &crate::content::abilities::AbilityDef, target: &combat_engine::state::Unit| -> f32 {
+            let h = estimate_hypothetical(def, target, &active.cache.caster_ctx, content);
+            let damage_progress = (h.enemy_damage / target.hp().max(1) as f32).min(1.0);
+            policy::damage::value(h.enemy_damage, damage_progress)
+        };
 
     match intent {
-        TacticalIntent::FocusTarget { target: target_entity } => {
-            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
+        TacticalIntent::FocusTarget {
+            target: target_entity,
+        } => {
+            let Some(target) = snap.unit(*target_entity) else {
+                return 0.0;
+            };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
-            if dist > reach_budget { return 0.0; }
-            let best = active.cache.abilities.iter()
+            if dist > reach_budget {
+                return 0.0;
+            }
+            let best = active
+                .cache
+                .abilities
+                .iter()
                 .filter_map(|id| content.abilities.get(id))
                 .map(|def| damage_value(def, target.state))
                 .fold(0.0f32, f32::max);
             0.5 * best
         }
 
-        TacticalIntent::ApplyCC { target: target_entity } => {
-            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
+        TacticalIntent::ApplyCC {
+            target: target_entity,
+        } => {
+            let Some(target) = snap.unit(*target_entity) else {
+                return 0.0;
+            };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
-            if dist > reach_budget { return 0.0; }
-            let best = active.cache.abilities.iter()
+            if dist > reach_budget {
+                return 0.0;
+            }
+            let best = active
+                .cache
+                .abilities
+                .iter()
                 .filter_map(|id| content.abilities.get(id))
                 .filter(|def| applies_cc(def, content))
                 .map(|def| damage_value(def, target.state))
@@ -213,20 +239,30 @@ fn attack_component_intent(
         TacticalIntent::SetupAOE => {
             // Best AoE ability × position with the most enemies hit.
             let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
-            if enemies.is_empty() { return 0.0; }
+            if enemies.is_empty() {
+                return 0.0;
+            }
 
             let mut best: f32 = 0.0;
             for ability_id in &active.cache.abilities {
-                let Some(def) = content.abilities.get(ability_id) else { continue };
-                if def.aoe == AoEShape::None { continue }
+                let Some(def) = content.abilities.get(ability_id) else {
+                    continue;
+                };
+                if def.aoe == AoEShape::None {
+                    continue;
+                }
                 // Use each enemy's tile as a candidate AoE center.
                 for target in &enemies {
                     let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
-                    if dist > reach_budget { continue; }
+                    if dist > reach_budget {
+                        continue;
+                    }
                     let area = aoe_area(def, target.pos, committed_pos);
                     let hits = aoe_hits(&area, active, snap);
                     let hit_count = hits.enemies.len() as f32;
-                    if hit_count > best { best = hit_count; }
+                    if hit_count > best {
+                        best = hit_count;
+                    }
                 }
             }
             // Normalise by a soft cap of 4 enemies (analogous to the 0.5 scalar).
@@ -236,22 +272,32 @@ fn attack_component_intent(
         // Default: top-3 enemies by priority (original Phase 7 logic).
         _ => {
             let mut enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
-            if enemies.is_empty() { return 0.0; }
+            if enemies.is_empty() {
+                return 0.0;
+            }
             enemies.sort_by(|a, b| {
                 let score_b = target_selection_score(active, *b, snap);
                 let score_a = target_selection_score(active, *a, snap);
-                score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+                score_b
+                    .partial_cmp(&score_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
             let top_enemies = &enemies[..enemies.len().min(3)];
 
             let mut best: f32 = 0.0;
             for target in top_enemies {
                 let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
-                if dist > reach_budget { continue; }
+                if dist > reach_budget {
+                    continue;
+                }
                 for ability_id in &active.cache.abilities {
-                    let Some(def) = content.abilities.get(ability_id) else { continue };
+                    let Some(def) = content.abilities.get(ability_id) else {
+                        continue;
+                    };
                     let s = damage_value(def, target.state);
-                    if s > best { best = s; }
+                    if s > best {
+                        best = s;
+                    }
                 }
             }
             0.5 * best
@@ -347,16 +393,16 @@ pub fn score_plans_prototype(
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome};
+    use crate::combat::ai::test_helpers::{ent, snapshot_from};
+    use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::tags::AiTags;
-    use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
-    use crate::combat::ai::test_helpers::{ent, snapshot_from};
     use crate::content::abilities::CasterContext;
-    use combat_engine::DiceExpr;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
+    use combat_engine::DiceExpr;
 
     /// `CasterContext` with a weapon so `WeaponAttack` effect yields non-zero expected damage.
     fn melee_caster() -> CasterContext {
@@ -487,12 +533,18 @@ mod tests {
     #[test]
     fn deserialized_plan_sim_empty_stays_empty() {
         let p = plan_deserialized(
-            vec![make_move(hex_from_offset(1, 0)), make_move(hex_from_offset(2, 0))],
+            vec![
+                make_move(hex_from_offset(1, 0)),
+                make_move(hex_from_offset(2, 0)),
+            ],
             hex_from_offset(2, 0),
         );
         assert!(p.sim_snapshots.is_empty());
         let prefix = plan_prefix_only(&p);
-        assert!(prefix.sim_snapshots.is_empty(), "shape invariant: empty or len==steps.len()");
+        assert!(
+            prefix.sim_snapshots.is_empty(),
+            "shape invariant: empty or len==steps.len()"
+        );
         assert_eq!(prefix.steps.len(), 1);
     }
 
@@ -559,7 +611,11 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
 
         let result = attack_component_intent(
-            actor_view, actor.pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view,
+            actor.pos,
+            &snap,
+            &ctx,
+            &TacticalIntent::Reposition,
         );
         assert_eq!(result, 0.0, "no enemies → zero attack component");
     }
@@ -585,7 +641,11 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
 
         let with_nearby = attack_component_intent(
-            actor_view, committed_pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view,
+            committed_pos,
+            &snap,
+            &ctx,
+            &TacticalIntent::Reposition,
         );
         // Nearby enemy is reachable; far is not. Component should be positive.
         // Exact value depends on ability scoring, but must exceed no-enemy case.
@@ -604,13 +664,21 @@ mod tests {
         // Many blockers — reduced mobility.
         let mut units = vec![actor.clone()];
         for i in 0..8 {
-            let blocker = UnitBuilder::new(10 + i, Team::Player, hex_from_offset(5 + (i as i32 % 3) + 1, 5)).build();
+            let blocker = UnitBuilder::new(
+                10 + i,
+                Team::Player,
+                hex_from_offset(5 + (i as i32 % 3) + 1, 5),
+            )
+            .build();
             units.push(blocker);
         }
         let snap_blocked = snapshot_from(units, 1);
         let mob_blocked = mobility_component(pos, 3, &snap_blocked);
 
-        assert!(mob_free >= mob_blocked, "more blockers → lower mobility component");
+        assert!(
+            mob_free >= mob_blocked,
+            "more blockers → lower mobility component"
+        );
         assert!(mob_free > 0.0, "free board must have positive mobility");
     }
 
@@ -691,7 +759,9 @@ mod tests {
         let maps = crate::combat::ai::test_helpers::empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let intent = TacticalIntent::FocusTarget {
+            target: target.entity,
+        };
 
         let cast_step = make_cast("melee_attack", target.entity, target_pos);
 
@@ -702,10 +772,7 @@ mod tests {
         );
 
         // Plan B: Cast + phantom Move (retreat to start — zero displacement).
-        let plan_b = plan_deserialized(
-            vec![cast_step, make_move(actor_pos)],
-            actor_pos,
-        );
+        let plan_b = plan_deserialized(vec![cast_step, make_move(actor_pos)], actor_pos);
 
         let scores = score_plans_prototype(&[plan_a, plan_b], &intent, &ctx);
         assert_eq!(scores.len(), 2);
@@ -739,7 +806,9 @@ mod tests {
         let maps = crate::combat::ai::test_helpers::empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let intent = TacticalIntent::FocusTarget {
+            target: target.entity,
+        };
 
         // EndTurn plan (no steps).
         let end_turn = plan_deserialized(vec![], actor_pos);
@@ -754,13 +823,17 @@ mod tests {
 
         let scores = score_plans_prototype(&[end_turn, move_cast], &intent, &ctx);
         assert_eq!(scores.len(), 2);
-        assert!(scores.iter().all(|s| s.is_finite()), "all scores must be finite");
+        assert!(
+            scores.iter().all(|s| s.is_finite()),
+            "all scores must be finite"
+        );
         // scores[0] = end_turn (no steps), scores[1] = move+cast toward enemy.
         // The move+cast plan should outscore end-turn when the actor can reach and attack.
         assert!(
             scores[1] > scores[0],
             "move+cast score ({}) should exceed end-turn score ({}) when actor can attack",
-            scores[1], scores[0]
+            scores[1],
+            scores[0]
         );
     }
 
@@ -773,7 +846,7 @@ mod tests {
     fn focus_target_ignores_non_target_enemies() {
         let actor_pos = hex_from_offset(5, 5);
         let pos_a = hex_from_offset(10, 10); // far — outside reach_budget
-        let pos_b = hex_from_offset(6, 5);   // adjacent — reachable
+        let pos_b = hex_from_offset(6, 5); // adjacent — reachable
 
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ability_names(&["melee_attack"])
@@ -781,10 +854,7 @@ mod tests {
             .build();
         let enemy_a = UnitBuilder::new(2, Team::Player, pos_a).build();
         let enemy_b = UnitBuilder::new(3, Team::Player, pos_b).build();
-        let snap = snapshot_from(
-            vec![actor.clone(), enemy_a.clone(), enemy_b.clone()],
-            1,
-        );
+        let snap = snapshot_from(vec![actor.clone(), enemy_a.clone(), enemy_b.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
@@ -795,12 +865,24 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
 
         let fv_focus_a = future_value_from_committed_state(
-            actor_view, actor_pos, &snap, &maps, &ctx,
-            &TacticalIntent::FocusTarget { target: enemy_a.entity },
+            actor_view,
+            actor_pos,
+            &snap,
+            &maps,
+            &ctx,
+            &TacticalIntent::FocusTarget {
+                target: enemy_a.entity,
+            },
         );
         let fv_focus_b = future_value_from_committed_state(
-            actor_view, actor_pos, &snap, &maps, &ctx,
-            &TacticalIntent::FocusTarget { target: enemy_b.entity },
+            actor_view,
+            actor_pos,
+            &snap,
+            &maps,
+            &ctx,
+            &TacticalIntent::FocusTarget {
+                target: enemy_b.entity,
+            },
         );
 
         // FocusTarget{A}: A is far → attack_component = 0. FocusTarget{B}: B adjacent → > 0.
@@ -841,17 +923,31 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
 
         let fv_default = future_value_from_committed_state(
-            actor_view, actor_pos, &snap, &maps, &ctx, &TacticalIntent::Reposition,
+            actor_view,
+            actor_pos,
+            &snap,
+            &maps,
+            &ctx,
+            &TacticalIntent::Reposition,
         );
         let fv_protect = future_value_from_committed_state(
-            actor_view, actor_pos, &snap, &maps, &ctx, &TacticalIntent::ProtectSelf,
+            actor_view,
+            actor_pos,
+            &snap,
+            &maps,
+            &ctx,
+            &TacticalIntent::ProtectSelf,
         );
 
         // Under ProtectSelf: attack_component = 0 (enemy adjacent, but ignored).
         // pos_component is ×2 vs default ×1.
         // λ_mob is same for both.
         let attack_default = attack_component_intent(
-            actor_view, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view,
+            actor_pos,
+            &snap,
+            &ctx,
+            &TacticalIntent::Reposition,
         );
         let pos_default = position_component(actor_view, actor_pos, ctx.world.tuning, &maps);
         let mob = mobility_component(actor_pos, actor.speed, &snap);
@@ -898,15 +994,29 @@ mod tests {
         let actor_view = snap.unit(actor.entity).unwrap();
 
         let attack_cc = attack_component_intent(
-            actor_view, actor_pos, &snap, &ctx,
-            &TacticalIntent::ApplyCC { target: enemy.entity },
+            actor_view,
+            actor_pos,
+            &snap,
+            &ctx,
+            &TacticalIntent::ApplyCC {
+                target: enemy.entity,
+            },
         );
         let attack_default = attack_component_intent(
-            actor_view, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view,
+            actor_pos,
+            &snap,
+            &ctx,
+            &TacticalIntent::Reposition,
         );
 
-        assert_eq!(attack_cc, 0.0, "no CC abilities → ApplyCC attack_component = 0");
-        assert!(attack_default > 0.0, "sanity: melee_attack scores >0 in default path");
+        assert_eq!(
+            attack_cc, 0.0,
+            "no CC abilities → ApplyCC attack_component = 0"
+        );
+        assert!(
+            attack_default > 0.0,
+            "sanity: melee_attack scores >0 in default path"
+        );
     }
-
 }

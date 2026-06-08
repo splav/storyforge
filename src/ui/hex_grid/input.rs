@@ -1,12 +1,15 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
-use crate::content::content_view::ActiveContent;
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
 use crate::content::abilities::AoEShape;
-use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Dead, Energy, Faction, Mana, Rage, StatusEffects, Team, Vital};
+use crate::content::content_view::ActiveContent;
+use crate::game::components::{
+    ActionPoints, ActiveCombatant, Combatant, Dead, Energy, Faction, Mana, Rage, StatusEffects,
+    Team, Vital,
+};
 use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
+use crate::game::hex_map::HexMap;
 use crate::game::messages::ActionInput;
 use crate::game::pathfinding::find_path;
-use crate::game::hex_map::HexMap;
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 use std::collections::HashSet;
@@ -24,7 +27,9 @@ pub fn hex_hover_system(
         hover.0 = None;
         return;
     };
-    let Ok((camera, cam_transform)) = camera_q.single() else { return };
+    let Ok((camera, cam_transform)) = camera_q.single() else {
+        return;
+    };
     let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor) else {
         hover.0 = None;
         return;
@@ -59,7 +64,9 @@ pub fn update_hex_tooltip(
     if !dirty.0.contains(UiDirtyFlags::TOOLTIP) {
         return;
     }
-    let Ok((mut text, mut node, mut vis)) = tooltip_q.single_mut() else { return };
+    let Ok((mut text, mut node, mut vis)) = tooltip_q.single_mut() else {
+        return;
+    };
 
     let Some(hovered) = hover.0 else {
         *vis = Visibility::Hidden;
@@ -71,15 +78,23 @@ pub fn update_hex_tooltip(
         return;
     };
 
-    let Ok((name, vital, faction, statuses, mana, rage, energy, is_dead)) = combatant_q.get(entity) else {
+    let Ok((name, vital, faction, statuses, mana, rage, energy, is_dead)) = combatant_q.get(entity)
+    else {
         *vis = Visibility::Hidden;
         return;
     };
 
-    let team = if faction.0 == Team::Player { "союзник" } else { "враг" };
+    let team = if faction.0 == Team::Player {
+        "союзник"
+    } else {
+        "враг"
+    };
     let dead_str = if is_dead { " [мертв]" } else { "" };
     let mut lines = vec![format!("{} ({}){}", name.as_str(), team, dead_str)];
-    lines.push(format!("HP: {}/{}  ARM: {}", vital.hp, vital.max_hp, vital.armor));
+    lines.push(format!(
+        "HP: {}/{}  ARM: {}",
+        vital.hp, vital.max_hp, vital.armor
+    ));
     if let Some(m) = mana {
         lines.push(format!("Мана: {}/{}", m.current, m.max));
     }
@@ -94,7 +109,11 @@ pub fn update_hex_tooltip(
             .0
             .iter()
             .map(|s| {
-                let name = content.statuses.get(&s.id).map(|d| d.name.as_str()).unwrap_or("?");
+                let name = content
+                    .statuses
+                    .get(&s.id)
+                    .map(|d| d.name.as_str())
+                    .unwrap_or("?");
                 format!("{} ({} ход.)", name, s.rounds_remaining)
             })
             .collect();
@@ -134,7 +153,10 @@ pub fn hex_click_target(
     // UI element absorbed the click — don't propagate to hex grid.
     // Prevents popup overlay / ability buttons / end-turn button clicks
     // from being mis-interpreted as hex commands (bug #29).
-    if ui_interactions.iter().any(|i| !matches!(i, Interaction::None)) {
+    if ui_interactions
+        .iter()
+        .any(|i| !matches!(i, Interaction::None))
+    {
         return;
     }
     let Some(hovered) = hover.0 else { return };
@@ -144,7 +166,14 @@ pub fn hex_click_target(
     let now = time.elapsed_secs_f64();
 
     if sel.move_mode && occupant.is_none() {
-        if try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut action_input) {
+        if try_move(
+            hovered,
+            active,
+            &positions,
+            &move_query,
+            &combatant_q2,
+            &mut action_input,
+        ) {
             sel.move_mode = false;
         }
         last_click.pos = Some(hovered);
@@ -159,24 +188,40 @@ pub fn hex_click_target(
         .and_then(|id| content.abilities.get(id))
         .is_some_and(|def| def.aoe != AoEShape::None);
 
-    let is_double =
-        last_click.pos == Some(hovered) && (now - last_click.time) <= DOUBLE_CLICK_SECS;
+    let is_double = last_click.pos == Some(hovered) && (now - last_click.time) <= DOUBLE_CLICK_SECS;
 
     if let Some(entity) = occupant {
         sel.selected_target = Some(entity);
         if is_double {
             if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
                 let target_pos = positions.get(&entity).unwrap_or(hovered);
-                action_input.write(ActionInput::Cast { actor, ability, target: entity, target_pos });
+                action_input.write(ActionInput::Cast {
+                    actor,
+                    ability,
+                    target: entity,
+                    target_pos,
+                });
             }
         }
     } else if is_double && is_aoe {
         // AoE: double-click on empty cell fires ability at that cell.
         if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
-            action_input.write(ActionInput::Cast { actor, ability, target: actor, target_pos: hovered });
+            action_input.write(ActionInput::Cast {
+                actor,
+                ability,
+                target: actor,
+                target_pos: hovered,
+            });
         }
     } else if is_double {
-        try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut action_input);
+        try_move(
+            hovered,
+            active,
+            &positions,
+            &move_query,
+            &combatant_q2,
+            &mut action_input,
+        );
     }
 
     last_click.pos = Some(hovered);
@@ -194,11 +239,15 @@ fn try_move(
     action_input: &mut MessageWriter<ActionInput>,
 ) -> bool {
     let Some(actor) = active else { return false };
-    let Ok((faction, ap)) = move_query.get(actor) else { return false };
+    let Ok((faction, ap)) = move_query.get(actor) else {
+        return false;
+    };
     if faction.0 != Team::Player || !ap.can_move() {
         return false;
     }
-    let Some(actor_pos) = positions.get(&actor) else { return false };
+    let Some(actor_pos) = positions.get(&actor) else {
+        return false;
+    };
     let max_steps = ap.movement_points;
     let enemy_pos: HashSet<Hex> = positions
         .iter()

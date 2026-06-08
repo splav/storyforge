@@ -36,16 +36,14 @@ impl ActionState for SnapshotActionState<'_> {
         // Status flags are content-level — walk active statuses and OR the
         // flags off their definitions. Mirrors the Bevy side's fold; both
         // stay O(statuses) per lookup, and the list is tiny in practice.
-        let (causes_disadvantage, blocks_mana_abilities) = u.statuses().iter().fold(
-            (false, false),
-            |(d, m), s| {
+        let (causes_disadvantage, blocks_mana_abilities) =
+            u.statuses().iter().fold((false, false), |(d, m), s| {
                 let def = self.content.statuses.get(&s.id);
                 (
                     d || def.is_some_and(|x| x.causes_disadvantage),
                     m || def.is_some_and(|x| x.blocks_mana_abilities),
                 )
-            },
-        );
+            });
         use combat_engine::{enum_map, PoolKind};
         Some(ActorView {
             pos: u.pos,
@@ -97,7 +95,11 @@ impl ActionState for SnapshotActionState<'_> {
                         .get(&s.id)
                         .is_some_and(|sd| sd.engine.forces_targeting)
                 });
-                if has_taunt { Some(view.entity()) } else { None }
+                if has_taunt {
+                    Some(view.entity())
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -128,17 +130,17 @@ impl ActionState for SnapshotActionState<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
-    use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
-    use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
+    use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, TargetType,
     };
     use crate::content::statuses::StatusDef;
-    use combat_engine::{DiceExpr, ResourceKind, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
+    use combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
+    use combat_engine::{DiceExpr, ResourceKind, StatusId};
 
     fn attack_ability() -> AbilityDef {
         AbilityDef {
@@ -177,8 +179,13 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 3 },
-                effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
-                costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 5 }],
+                effect: EffectDef::SpellDamage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
+                costs: vec![ResourceCost {
+                    resource: ResourceKind::Mana,
+                    amount: 5,
+                }],
                 cost_ap: 1,
                 aoe: AoEShape::None,
                 friendly_fire: false,
@@ -210,7 +217,10 @@ mod tests {
         let def = attack_ability();
         content.abilities.insert(def.id.clone(), def);
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
 
         let ab = AbilityId::from("strike");
         let proposal = ProposedAction {
@@ -237,7 +247,10 @@ mod tests {
         let def = mana_spell();
         content.abilities.insert(def.id.clone(), def);
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
 
         let ab = AbilityId::from("mana_bolt");
         let proposal = ProposedAction {
@@ -290,7 +303,10 @@ mod tests {
             },
         );
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
 
         let ab = AbilityId::from("mana_bolt");
         let proposal = ProposedAction {
@@ -319,7 +335,10 @@ mod tests {
         let def = attack_ability();
         content.abilities.insert(def.id.clone(), def);
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
 
         let ab = AbilityId::from("strike");
         let proposal = ProposedAction {
@@ -370,7 +389,10 @@ mod tests {
             },
         );
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
 
         let ab = AbilityId::from("strike");
         let proposal = ProposedAction {
@@ -396,7 +418,10 @@ mod tests {
         let def = attack_ability();
         content.abilities.insert(def.id.clone(), def);
         let snap = snapshot_with(vec![actor.clone()]);
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
 
         let ab = AbilityId::from("strike");
         let proposal = ProposedAction {
@@ -427,7 +452,10 @@ mod tests {
         let def = attack_ability();
         content.abilities.insert(def.id.clone(), def);
         let snap = snapshot_with(vec![actor.clone(), corpse.clone()]);
-        let state = SnapshotActionState { content: &content, snap: &snap };
+        let state = SnapshotActionState {
+            content: &content,
+            snap: &snap,
+        };
 
         let ab = AbilityId::from("strike");
         let proposal = ProposedAction {
@@ -441,5 +469,4 @@ mod tests {
             Err(IllegalReason::TargetDead),
         );
     }
-
 }

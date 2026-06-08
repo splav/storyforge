@@ -46,9 +46,13 @@ fn run_assert(overlay_content: &str, extra_args: &[&str]) -> std::process::Outpu
 #[test]
 fn empty_overlay_exit_0() {
     let out = run_assert("", &[]);
-    assert_eq!(out.status.code(), Some(0), "expected exit 0\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "expected exit 0\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("PASS"), "expected PASS in stdout\n{stdout}");
 }
@@ -63,9 +67,13 @@ decision_kind = ["MoveAndCast"]
 "#,
         &[],
     );
-    assert_eq!(out.status.code(), Some(0), "expected exit 0\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "expected exit 0\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("PASS"), "stdout: {stdout}");
 }
@@ -80,12 +88,22 @@ decision_kind = ["EndTurn"]
 "#,
         &[],
     );
-    assert_eq!(out.status.code(), Some(1), "expected exit 1\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "expected exit 1\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("FAIL"), "stderr should contain FAIL\n{stderr}");
-    assert!(stderr.contains("decision_kind"), "stderr should mention field\n{stderr}");
+    assert!(
+        stderr.contains("FAIL"),
+        "stderr should contain FAIL\n{stderr}"
+    );
+    assert!(
+        stderr.contains("decision_kind"),
+        "stderr should mention field\n{stderr}"
+    );
 }
 
 /// any-of: MoveAndCast or CastInPlace → pass (actual is MoveAndCast).
@@ -98,9 +116,13 @@ decision_kind = ["CastInPlace", "MoveAndCast"]
 "#,
         &[],
     );
-    assert_eq!(out.status.code(), Some(0), "expected exit 0\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "expected exit 0\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// correct ability name → pass.
@@ -113,9 +135,13 @@ cast_ability = ["melee_attack"]
 "#,
         &[],
     );
-    assert_eq!(out.status.code(), Some(0), "expected exit 0\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "expected exit 0\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// wrong ability name → exit 1.
@@ -128,9 +154,13 @@ cast_ability = ["fireball"]
 "#,
         &[],
     );
-    assert_eq!(out.status.code(), Some(1), "expected exit 1\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "expected exit 1\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// Two variants: first wrong, second correct → pass (OR logic).
@@ -146,9 +176,13 @@ decision_kind = ["MoveAndCast"]
 "#,
         &[],
     );
-    assert_eq!(out.status.code(), Some(0), "expected exit 0\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "expected exit 0\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// Missing overlay file → exit 2.
@@ -160,9 +194,13 @@ fn missing_overlay_exit_2() {
         .arg("/nonexistent/path/overlay.expected.toml")
         .output()
         .expect("run");
-    assert_eq!(out.status.code(), Some(2), "expected exit 2\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// --verbose flag prints decision details even on pass.
@@ -175,9 +213,16 @@ decision_kind = ["MoveAndCast"]
 "#,
         &["--verbose"],
     );
-    assert_eq!(out.status.code(), Some(0), "expected exit 0\nstdout: {}\nstderr: {}",
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "expected exit 0\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("decision_kind"), "expected verbose output\n{stdout}");
+    assert!(
+        stdout.contains("decision_kind"),
+        "expected verbose output\n{stdout}"
+    );
 }

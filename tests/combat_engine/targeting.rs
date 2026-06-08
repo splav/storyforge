@@ -58,8 +58,8 @@ fn ability(aoe: AoEShape, target_type: TargetType, friendly_fire: bool) -> Abili
         statuses: Vec::<StatusApplication>::new(),
         requires_los: false,
         passive: vec![],
-requires_tags: Default::default(),
-excludes_tags: Default::default()
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     }
 }
 
@@ -121,13 +121,41 @@ fn aoe_circle_collects_enemies_in_radius_excludes_allies_when_no_friendly_fire()
 
     let mut units = HashMap::new();
     // Enemy at center → included.
-    units.insert(target_pos, TargetRef { id: Uid(10), team: Team::Enemy, alive: true });
+    units.insert(
+        target_pos,
+        TargetRef {
+            id: Uid(10),
+            team: Team::Enemy,
+            alive: true,
+        },
+    );
     // Enemy at first neighbor → included.
-    units.insert(neighbors[0], TargetRef { id: Uid(11), team: Team::Enemy, alive: true });
+    units.insert(
+        neighbors[0],
+        TargetRef {
+            id: Uid(11),
+            team: Team::Enemy,
+            alive: true,
+        },
+    );
     // Ally at second neighbor → excluded (friendly_fire = false).
-    units.insert(neighbors[1], TargetRef { id: Uid(12), team: Team::Player, alive: true });
+    units.insert(
+        neighbors[1],
+        TargetRef {
+            id: Uid(12),
+            team: Team::Player,
+            alive: true,
+        },
+    );
     // Dead enemy at third neighbor → excluded.
-    units.insert(neighbors[2], TargetRef { id: Uid(13), team: Team::Enemy, alive: false });
+    units.insert(
+        neighbors[2],
+        TargetRef {
+            id: Uid(13),
+            team: Team::Enemy,
+            alive: false,
+        },
+    );
 
     let state = StubState {
         actor: Uid(1),
@@ -135,7 +163,11 @@ fn aoe_circle_collects_enemies_in_radius_excludes_allies_when_no_friendly_fire()
         actor_team: Team::Player,
         units,
     };
-    let def = ability(AoEShape::Circle { radius: 1 }, TargetType::Ground, /* friendly_fire */ false);
+    let def = ability(
+        AoEShape::Circle { radius: 1 },
+        TargetType::Ground,
+        /* friendly_fire */ false,
+    );
 
     let mut out = compute_affected_targets(Uid(1), &def, Uid(10), target_pos, &state);
     out.sort_by_key(|u| u.0);
@@ -150,11 +182,32 @@ fn aoe_circle_with_friendly_fire_includes_allies_and_actor() {
 
     let mut units = HashMap::new();
     // Actor at center.
-    units.insert(actor_pos, TargetRef { id: Uid(1), team: Team::Player, alive: true });
+    units.insert(
+        actor_pos,
+        TargetRef {
+            id: Uid(1),
+            team: Team::Player,
+            alive: true,
+        },
+    );
     // Ally adjacent.
-    units.insert(neighbors[0], TargetRef { id: Uid(11), team: Team::Player, alive: true });
+    units.insert(
+        neighbors[0],
+        TargetRef {
+            id: Uid(11),
+            team: Team::Player,
+            alive: true,
+        },
+    );
     // Enemy adjacent.
-    units.insert(neighbors[1], TargetRef { id: Uid(12), team: Team::Enemy, alive: true });
+    units.insert(
+        neighbors[1],
+        TargetRef {
+            id: Uid(12),
+            team: Team::Enemy,
+            alive: true,
+        },
+    );
 
     let state = StubState {
         actor: Uid(1),
@@ -162,7 +215,11 @@ fn aoe_circle_with_friendly_fire_includes_allies_and_actor() {
         actor_team: Team::Player,
         units,
     };
-    let def = ability(AoEShape::Circle { radius: 1 }, TargetType::Ground, /* friendly_fire */ true);
+    let def = ability(
+        AoEShape::Circle { radius: 1 },
+        TargetType::Ground,
+        /* friendly_fire */ true,
+    );
 
     let mut out = compute_affected_targets(Uid(1), &def, Uid(1), target_pos, &state);
     out.sort_by_key(|u| u.0);

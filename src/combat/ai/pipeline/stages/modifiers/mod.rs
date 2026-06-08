@@ -34,16 +34,16 @@ pub mod repair_bonus;
 pub mod summon_bonus;
 pub mod trade_bonus;
 
+use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::effects::{
     apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
 };
 use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::AddendHit;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::scoring::factors::aggregate::build_summon_dpr_cache;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::repair::RepairWeights;
+use crate::combat::ai::scoring::factors::aggregate::build_summon_dpr_cache;
 use crate::combat::ai::scoring::trade::unit_value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -64,12 +64,7 @@ pub trait PlanModifier: Sync {
     /// Returns `0.0` when the modifier does not apply (e.g. no Summon steps,
     /// no stored goal). Positive values increase `ann.score`; negative values
     /// decrease it.
-    fn modify(
-        &self,
-        plan: &TurnPlan,
-        ann: &PlanAnnotation,
-        ctx: &ModifierCtx<'_, '_, '_>,
-    ) -> f32;
+    fn modify(&self, plan: &TurnPlan, ann: &PlanAnnotation, ctx: &ModifierCtx<'_, '_, '_>) -> f32;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -131,7 +126,12 @@ impl ScoreEffectStage for PlanModifiersStage {
         // Per-pool setup — migrated from the old apply() body.
         let summon_dpr = build_summon_dpr_cache(&pool.plans, ctx.scoring.world);
         let actor_value = unit_value(ctx.scoring.active, ctx.scoring.world.content);
-        let repair_weights = ctx.scoring.active.cache.role.repair_weights(ctx.scoring.world.tuning);
+        let repair_weights = ctx
+            .scoring
+            .active
+            .cache
+            .role
+            .repair_weights(ctx.scoring.world.tuning);
 
         let mctx = ModifierCtx {
             stage: ctx,
@@ -141,7 +141,8 @@ impl ScoreEffectStage for PlanModifiersStage {
         };
 
         let mut emitted = Vec::new();
-        for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate() {
+        for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate()
+        {
             // Skip plans masked by ProtectSelf / KillableGate.
             if !ann.is_selectable() {
                 continue;
@@ -150,7 +151,10 @@ impl ScoreEffectStage for PlanModifiersStage {
                 let contribution = m.modify(plan, ann, &mctx);
                 emitted.push(EmittedEffect {
                     plan_index,
-                    hit: ScoreHit::Addend(AddendHit { name: m.name(), value: contribution }),
+                    hit: ScoreHit::Addend(AddendHit {
+                        name: m.name(),
+                        value: contribution,
+                    }),
                     observability: Some(EffectObservation::Modifier(ModifierContribution {
                         name: m.name().into(),
                         contribution,
@@ -214,7 +218,8 @@ mod tests {
             );
             for (j, hit) in ann.score_trace.addends.iter().enumerate() {
                 assert_eq!(
-                    hit.name, PLAN_MODIFIERS[j].name(),
+                    hit.name,
+                    PLAN_MODIFIERS[j].name(),
                     "plan[{i}] addend[{j}].name mismatch"
                 );
             }
@@ -244,7 +249,11 @@ mod tests {
         //    This mirrors the post-ProtectSelfMaskStage / KillableGateStage state.
         let mut pool = PoolBuilder::new(plans)
             .customize(|anns| {
-                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test", original_score: None });
+                anns[0].score_trace.push_mask(MaskHit {
+                    kind: MaskKind::Poison,
+                    source: "test",
+                    original_score: None,
+                });
             })
             .build();
 
@@ -255,9 +264,18 @@ mod tests {
         let ann = &pool.annotations[0];
         assert!(ann.score_trace.is_masked(), "mask must remain in trace");
         assert!(!ann.is_selectable(), "masked plan must not be selectable");
-        assert_eq!(ann.score_trace.base, 0.0, "masked plan trace.base must stay 0");
-        assert!(ann.score_trace.addends.is_empty(), "masked plan trace.addends must stay empty");
+        assert_eq!(
+            ann.score_trace.base, 0.0,
+            "masked plan trace.base must stay 0"
+        );
+        assert!(
+            ann.score_trace.addends.is_empty(),
+            "masked plan trace.addends must stay empty"
+        );
         // score is finite after Step 3 cutover
-        assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
+        assert!(
+            ann.score.is_finite(),
+            "score is finite after Step 3 cutover"
+        );
     }
 }

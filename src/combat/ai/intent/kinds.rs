@@ -81,25 +81,54 @@ pub enum IntentReason {
     /// **Step 11.5**: routing equivalent is `BandReason::PanicOverride` in
     /// `CriticalSelfPreservation` band.  Kept for serialization compat (v31)
     /// and as `AgendaItem.reason` in `build_critical_self_preservation`.
-    PanicOverride { self_preserve: f32, self_preserve_threshold: f32, danger: f32, danger_threshold: f32 },
+    PanicOverride {
+        self_preserve: f32,
+        self_preserve_threshold: f32,
+        danger: f32,
+        danger_threshold: f32,
+    },
     /// Step 3.2: hp_pct field renamed to self_preserve. Schema v20 → v21.
-    Urgency { self_preserve: f32, danger: f32 },
-    ProtectAlly { ally_hp_pct: f32, threshold: f32, heal_identity: f32 },
+    Urgency {
+        self_preserve: f32,
+        danger: f32,
+    },
+    ProtectAlly {
+        ally_hp_pct: f32,
+        threshold: f32,
+        heal_identity: f32,
+    },
     /// **Step 11.5**: routing equivalent is `BandReason::TauntForced` in
     /// `ForcedTargeting` band.  Kept for serialization compat (v31) and as
     /// `AgendaItem.reason` in `build_forced_targeting`.
     TauntForced,
     /// **Step 11.5**: produced only by the deprecated `select_intent`.  Kept
     /// for serialization compat (v31); no longer emitted in production paths.
-    TauntCc { dpr: f32 },
+    TauntCc {
+        dpr: f32,
+    },
     /// Step 3.5: added `finish_target` field for diagnostics (add-only, no schema bump needed).
-    Killable { threat: f32, eff_hp: i32, reach_budget: u32, #[serde(default)] finish_target: f32 },
-    BestPriority { priority: f32 },
-    ApplyCc { dpr: f32 },
-    SetupAoe { clustered_pairs: usize },
+    Killable {
+        threat: f32,
+        eff_hp: i32,
+        reach_budget: u32,
+        #[serde(default)]
+        finish_target: f32,
+    },
+    BestPriority {
+        priority: f32,
+    },
+    ApplyCc {
+        dpr: f32,
+    },
+    SetupAoe {
+        clustered_pairs: usize,
+    },
     /// Step 3.4: fields migrated from raw pos_eval/threshold to
     /// need_signals.reposition/floor. Schema v21 → v22.
-    Reposition { reposition: f32, floor: f32 },
+    Reposition {
+        reposition: f32,
+        floor: f32,
+    },
     NoRuleDefault,
     MidpanicFallback {
         hp_pct: f32,

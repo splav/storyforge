@@ -77,7 +77,9 @@ pub struct ProfileSection {
 
 impl Default for ProfileSection {
     fn default() -> Self {
-        Self { current_slot: default_current_slot() }
+        Self {
+            current_slot: default_current_slot(),
+        }
     }
 }
 
@@ -97,7 +99,9 @@ pub struct DebugSection {
     pub ai_freeze_plan_after_move: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct DifficultySection {
@@ -137,7 +141,9 @@ impl GameSettings {
                 ai_log_path: self.ai_log_path.clone(),
                 ai_freeze_plan_after_move: self.ai_freeze_plan_after_move,
             },
-            profile: ProfileSection { current_slot: self.current_slot },
+            profile: ProfileSection {
+                current_slot: self.current_slot,
+            },
         }
     }
 }

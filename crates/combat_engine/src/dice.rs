@@ -27,7 +27,11 @@ pub struct DiceExpr {
 
 impl DiceExpr {
     pub fn new(count: u32, sides: u32, bonus: i32) -> Self {
-        Self { count, sides, bonus }
+        Self {
+            count,
+            sides,
+            bonus,
+        }
     }
 
     /// Analytical expected value: `N*(S+1)/2 + bonus`.
@@ -124,19 +128,29 @@ pub struct DiceRng {
 
 impl Default for DiceRng {
     fn default() -> Self {
-        Self { state: 0xDEAD_BEEF_CAFE_1337, scripted: std::collections::VecDeque::new(), call_count: 0 }
+        Self {
+            state: 0xDEAD_BEEF_CAFE_1337,
+            scripted: std::collections::VecDeque::new(),
+            call_count: 0,
+        }
     }
 }
 
 impl DiceRng {
     pub fn with_seed(seed: u64) -> Self {
-        Self { state: seed, scripted: std::collections::VecDeque::new(), call_count: 0 }
+        Self {
+            state: seed,
+            scripted: std::collections::VecDeque::new(),
+            call_count: 0,
+        }
     }
 
     /// Returns the current RNG state (= initial seed before any rolls).
     /// Useful for capturing the initial seed into an `InitLine` at combat
     /// start, before any roll has advanced the state.
-    pub fn seed(&self) -> u64 { self.state }
+    pub fn seed(&self) -> u64 {
+        self.state
+    }
 
     /// Queue scripted roll results. While non-empty, `roll_d` pops from here.
     pub fn script(&mut self, results: &[i32]) {

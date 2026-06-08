@@ -1,4 +1,4 @@
-use super::{AppraisalCtx};
+use super::AppraisalCtx;
 
 pub(super) fn compute_self_preserve(ctx: &AppraisalCtx<'_>) -> f32 {
     let active = ctx.active;
@@ -28,12 +28,12 @@ pub(super) fn compute_self_preserve(ctx: &AppraisalCtx<'_>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::appraisal::tests::{default_memory, make_ctx, snap};
+    use crate::combat::ai::config::tuning::AiTuning;
     use crate::combat::ai::memory::AiMemory;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
-    use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::combat::ai::appraisal::tests::{default_memory, snap, make_ctx};
 
     #[test]
     fn self_preserve_zero_at_full_hp() {
@@ -83,12 +83,24 @@ mod tests {
         let content = empty_content();
         let (st, at) = crate::combat::ai::test_helpers::empty_caches();
 
-        let memory_dmg = AiMemory { hp_ratio_at_last_turn: Some(0.9), ..default_memory() };
+        let memory_dmg = AiMemory {
+            hp_ratio_at_last_turn: Some(0.9),
+            ..default_memory()
+        };
         let ctx_dmg = make_ctx(&active, &s, &memory_dmg, &tuning, &maps, &content, &at, &st);
         let signal_with_damage = compute_self_preserve(&ctx_dmg);
 
         let memory_no_damage = default_memory();
-        let ctx_no = make_ctx(&active, &s, &memory_no_damage, &tuning, &maps, &content, &at, &st);
+        let ctx_no = make_ctx(
+            &active,
+            &s,
+            &memory_no_damage,
+            &tuning,
+            &maps,
+            &content,
+            &at,
+            &st,
+        );
         let signal_no_damage = compute_self_preserve(&ctx_no);
 
         assert!(
@@ -121,8 +133,26 @@ mod tests {
             hp_ratio_at_last_turn: Some(0.5),
             ..default_memory()
         };
-        let ctx_def = make_ctx(&active, &s, &memory_defensive, &tuning, &maps, &content, &at, &st);
-        let ctx_nor = make_ctx(&active, &s, &memory_normal, &tuning, &maps, &content, &at, &st);
+        let ctx_def = make_ctx(
+            &active,
+            &s,
+            &memory_defensive,
+            &tuning,
+            &maps,
+            &content,
+            &at,
+            &st,
+        );
+        let ctx_nor = make_ctx(
+            &active,
+            &s,
+            &memory_normal,
+            &tuning,
+            &maps,
+            &content,
+            &at,
+            &st,
+        );
         let signal_defensive = compute_self_preserve(&ctx_def);
         let signal_normal = compute_self_preserve(&ctx_nor);
 
