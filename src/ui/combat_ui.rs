@@ -429,6 +429,7 @@ mod tests {
                 encounter_id: "enc".into(),
                 location: None,
                 on_victory_flags: vec![],
+                requires_flag: None,
             }],
             content: ContentView::default(),
             encounters,

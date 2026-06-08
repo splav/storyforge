@@ -220,7 +220,8 @@ pub fn start_campaign_fresh(
         flags: Default::default(),
     };
     commands.insert_resource(campaign_state.clone());
-    enter_scenario(commands, db, next_state, &first_scenario);
+    // Fresh campaign has no flags yet; pass empty set so flag-gated scenes at index 0 skip.
+    enter_scenario(commands, db, next_state, &first_scenario, Some(&campaign_state.flags));
     if let Some(p) = paths {
         if let Err(e) = save_repo::record_progress(&p.0, slot, &campaign_state, &first_scenario, 0)
         {
@@ -245,10 +246,12 @@ pub fn validate_and_resume(
     if progress.scene_index >= scen.scenes.len() {
         return false;
     }
+    let flags: std::collections::BTreeSet<String> =
+        progress.flags.iter().cloned().collect();
     commands.insert_resource(CampaignState {
         campaign_id: campaign_id.to_string(),
         scenario_index: progress.scenario_index,
-        flags: progress.flags.iter().cloned().collect(),
+        flags: flags.clone(),
     });
     enter_scenario_at(
         commands,
@@ -256,6 +259,7 @@ pub fn validate_and_resume(
         next_state,
         &progress.scenario_id,
         progress.scene_index,
+        Some(&flags),
     );
     true
 }

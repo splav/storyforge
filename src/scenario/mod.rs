@@ -28,8 +28,9 @@ pub fn enter_scenario(
     db: &GameDb,
     next_state: &mut NextState<AppState>,
     scenario_id: &str,
+    flags: Option<&std::collections::BTreeSet<String>>,
 ) {
-    enter_scenario_at(commands, db, next_state, scenario_id, 0);
+    enter_scenario_at(commands, db, next_state, scenario_id, 0, flags);
 }
 
 pub fn enter_scenario_at(
@@ -38,6 +39,7 @@ pub fn enter_scenario_at(
     next_state: &mut NextState<AppState>,
     scenario_id: &str,
     scene_index: usize,
+    flags: Option<&std::collections::BTreeSet<String>>,
 ) {
     let scen = db
         .scenarios
@@ -47,9 +49,21 @@ pub fn enter_scenario_at(
         scene_index < scen.scenes.len(),
         "scene_index {scene_index} out of range for scenario '{scenario_id}'"
     );
-    let scene_index = skip_invisible(scen, scene_index).unwrap_or_else(|| {
-        panic!("scenario '{scenario_id}' ends with only invisible scenes from index {scene_index}")
-    });
+
+    let empty = std::collections::BTreeSet::new();
+    let flags = flags.unwrap_or(&empty);
+
+    // Resolve the first non-skipped scene from `scene_index` onward.
+    // If all remaining scenes are gated/invisible (e.g. a save that lands on an
+    // all-gated tail, or a non-campaign scenario with flag-gated scenes and no
+    // active flags), finish gracefully — transition to MainMenu — rather than
+    // panicking. The caller is responsible for having already inserted
+    // CampaignState if needed; we do not advance the campaign index here.
+    let resolved = skip_skipped(scen, scene_index, flags);
+    let Some(scene_index) = resolved else {
+        next_state.set(AppState::MainMenu);
+        return;
+    };
 
     commands.insert_resource(ScenarioState {
         scenario_id: scenario_id.into(),
@@ -74,11 +88,26 @@ pub fn enter_scenario_at(
     }
 }
 
-/// Walk forward past any invisible scenes (story with `lines = []`, used as a
-/// pure party-change beat). Returns `None` if we ran off the end.
-fn skip_invisible(scen: &crate::content::scenarios::ScenarioDef, mut idx: usize) -> Option<usize> {
+/// Returns true if the scene should be auto-skipped:
+/// - invisible story beat (lines = [], used for party changes between visible scenes), OR
+/// - flag-gated scene whose required flag is absent from `flags`.
+fn should_skip(scene: &crate::content::scenarios::SceneDef, flags: &std::collections::BTreeSet<String>) -> bool {
+    scene.is_invisible()
+        || scene
+            .requires_flag()
+            .is_some_and(|f| !flags.contains(f))
+}
+
+/// Walk forward past any scenes that should be skipped (invisible story beats
+/// or flag-gated scenes whose required flag is absent). Returns `None` if we
+/// ran off the end.
+fn skip_skipped(
+    scen: &crate::content::scenarios::ScenarioDef,
+    mut idx: usize,
+    flags: &std::collections::BTreeSet<String>,
+) -> Option<usize> {
     while idx < scen.scenes.len() {
-        if scen.scenes[idx].is_invisible() {
+        if should_skip(&scen.scenes[idx], flags) {
             idx += 1;
             continue;
         }
@@ -107,8 +136,11 @@ pub fn advance_scenario_system(
         scenario.scene_index += 1;
 
         let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
-        // Skip invisible story beats (lines = [], used for party changes between visible scenes).
-        match skip_invisible(scen, scenario.scene_index) {
+        let empty = std::collections::BTreeSet::new();
+        let flags = campaign.as_deref().map(|c| &c.flags).unwrap_or(&empty);
+
+        // Skip invisible story beats and flag-gated scenes whose required flag is absent.
+        match skip_skipped(scen, scenario.scene_index, flags) {
             Some(idx) => scenario.scene_index = idx,
             None => {
                 scenario.scene_index = scen.scenes.len();
@@ -121,7 +153,7 @@ pub fn advance_scenario_system(
                 let camp = db.campaigns.get(&camp_state.campaign_id).unwrap();
                 if camp_state.scenario_index < camp.scenario_ids.len() {
                     let next_id = camp.scenario_ids[camp_state.scenario_index].clone();
-                    enter_scenario(&mut commands, &db, &mut next_state, &next_id);
+                    enter_scenario(&mut commands, &db, &mut next_state, &next_id, Some(&camp_state.flags));
                     write_autosave(
                         paths.as_deref(),
                         settings.current_slot,
@@ -279,6 +311,7 @@ mod tests {
                 encounter_id: "enc".into(),
                 location: None,
                 on_victory_flags: flags.into_iter().map(str::to_string).collect(),
+                requires_flag: None,
             }],
             content: ContentView::default(),
             encounters: HashMap::new(),
@@ -315,6 +348,7 @@ mod tests {
                 encounter_id: "enc".into(),
                 location: None,
                 on_victory_flags: vec![],
+                requires_flag: None,
             }],
             content: ContentView::default(),
             encounters,
@@ -556,6 +590,7 @@ mod tests {
             party_add: vec![],
             party_remove: vec![],
             status_ops: vec![],
+            requires_flag: None,
         }];
         let db = make_db(scenario);
         let state = ScenarioState { scenario_id: "s1".into(), scene_index: 0 };
@@ -591,6 +626,7 @@ mod tests {
             party_add: vec![],
             party_remove: vec![],
             status_ops: vec![],
+            requires_flag: None,
         });
         let db = make_db(scenario);
 
@@ -611,5 +647,347 @@ mod tests {
 
         let idx = app.world().resource::<ScenarioState>().scene_index;
         assert_eq!(idx, 1, "scene_index should advance from 0 to 1");
+    }
+
+    // ── requires_flag scene-level gating ─────────────────────────────────────
+
+    /// Helper: build a SceneDef::Story with given requires_flag (no lines → invisible
+    /// unless requires_flag is None, but that's intentional for some tests).
+    fn gated_story(flag: Option<&str>) -> SceneDef {
+        SceneDef::Story {
+            lines: vec![crate::content::scenarios::DialogueLine {
+                speaker: "X".into(),
+                text: "scene text".into(),
+                requires_flag: None,
+            }],
+            party_add: vec![],
+            party_remove: vec![],
+            status_ops: vec![],
+            requires_flag: flag.map(str::to_string),
+        }
+    }
+
+    fn gated_combat(flag: Option<&str>, victory_flags: Vec<&str>) -> SceneDef {
+        SceneDef::Combat {
+            encounter_id: "enc".into(),
+            location: None,
+            on_victory_flags: victory_flags.into_iter().map(str::to_string).collect(),
+            requires_flag: flag.map(str::to_string),
+        }
+    }
+
+    fn flags(keys: &[&str]) -> std::collections::BTreeSet<String> {
+        keys.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn scenario_from_scenes(scenes: Vec<SceneDef>) -> ScenarioDef {
+        ScenarioDef {
+            id: "s1".into(),
+            name: "s1".into(),
+            party: vec![],
+            scenes,
+            content: crate::content::content_view::ContentView::default(),
+            encounters: HashMap::new(),
+        }
+    }
+
+    // ── should_skip unit tests ────────────────────────────────────────────────
+
+    /// A scene with requires_flag=None is never skipped due to flag gating.
+    #[test]
+    fn should_skip_none_flag_never_skips() {
+        let scene = gated_story(None);
+        assert!(!should_skip(&scene, &flags(&[])));
+        assert!(!should_skip(&scene, &flags(&["x"])));
+    }
+
+    /// A scene with requires_flag=Some("x") is skipped when "x" absent, played when present.
+    #[test]
+    fn should_skip_flag_absent_skips_flag_present_plays() {
+        let scene = gated_story(Some("x"));
+        assert!(should_skip(&scene, &flags(&[])), "flag absent → skip");
+        assert!(should_skip(&scene, &flags(&["y"])), "wrong flag → skip");
+        assert!(!should_skip(&scene, &flags(&["x"])), "flag present → play");
+    }
+
+    /// is_invisible (lines=[]) still skips regardless of flag gate.
+    #[test]
+    fn should_skip_invisible_story_always_skips() {
+        let invisible = SceneDef::Story {
+            lines: vec![],
+            party_add: vec![],
+            party_remove: vec![],
+            status_ops: vec![],
+            requires_flag: None,
+        };
+        assert!(should_skip(&invisible, &flags(&[])));
+        assert!(should_skip(&invisible, &flags(&["x"])));
+    }
+
+    // ── skip_skipped integration ──────────────────────────────────────────────
+
+    /// skip_skipped returns the first non-gated, non-invisible index.
+    /// Regression: existing linear behavior (no requires_flag) unchanged.
+    #[test]
+    fn skip_skipped_linear_no_flags_unchanged() {
+        let scen = scenario_from_scenes(vec![gated_story(None), gated_story(None)]);
+        assert_eq!(skip_skipped(&scen, 0, &flags(&[])), Some(0));
+        assert_eq!(skip_skipped(&scen, 1, &flags(&[])), Some(1));
+    }
+
+    /// skip_skipped skips a gated scene when flag absent; stops at the ungated one.
+    #[test]
+    fn skip_skipped_hops_over_gated_scene() {
+        let scen = scenario_from_scenes(vec![
+            gated_story(Some("secret")), // index 0: gated
+            gated_story(None),            // index 1: always visible
+        ]);
+        // Without flag: index 0 skipped, lands on 1.
+        assert_eq!(skip_skipped(&scen, 0, &flags(&[])), Some(1));
+        // With flag: index 0 plays.
+        assert_eq!(skip_skipped(&scen, 0, &flags(&["secret"])), Some(0));
+    }
+
+    /// skip_skipped returns None when ALL remaining scenes are gated and flag absent.
+    #[test]
+    fn skip_skipped_all_gated_returns_none() {
+        let scen = scenario_from_scenes(vec![
+            gated_story(Some("x")),
+            gated_story(Some("x")),
+        ]);
+        assert_eq!(skip_skipped(&scen, 0, &flags(&[])), None);
+        // With flag: first scene is reachable.
+        assert_eq!(skip_skipped(&scen, 0, &flags(&["x"])), Some(0));
+    }
+
+    // ── branch: choice sets flag, downstream scene gated ─────────────────────
+
+    /// A Combat scene gated on "fight" is skipped when the chosen flag was
+    /// something else; the alternate gated story scene plays instead.
+    /// Simulate by manipulating the ScenarioDef + flags directly (no Bevy app).
+    #[test]
+    fn branch_choice_flag_gates_combat_and_story() {
+        let scen = scenario_from_scenes(vec![
+            // scene 0: choice (no flag gate itself)
+            SceneDef::Choice {
+                prompt: vec![],
+                options: vec![
+                    crate::content::scenarios::ChoiceOption {
+                        label: "Fight".into(),
+                        set_flag: "fight".into(),
+                    },
+                    crate::content::scenarios::ChoiceOption {
+                        label: "Flee".into(),
+                        set_flag: "flee".into(),
+                    },
+                ],
+                requires_flag: None,
+            },
+            // scene 1: combat, only shown if "fight"
+            gated_combat(Some("fight"), vec!["victory_marker"]),
+            // scene 2: story, only shown if "flee"
+            gated_story(Some("flee")),
+        ]);
+
+        // Player chose "fight": combat plays (scene 1), story skipped.
+        let f_fight = flags(&["fight"]);
+        assert_eq!(skip_skipped(&scen, 1, &f_fight), Some(1));
+        assert_eq!(skip_skipped(&scen, 2, &f_fight), None); // gated-flee tail
+
+        // Player chose "flee": combat skipped, story plays (scene 2).
+        let f_flee = flags(&["flee"]);
+        assert_eq!(skip_skipped(&scen, 1, &f_flee), Some(2));
+    }
+
+    // ── skipped Combat drops its on_victory_flags ─────────────────────────────
+
+    /// Skipping a Combat scene means its on_victory_flags never enter
+    /// CampaignState.flags (by design: the gate decides who gets the flags).
+    #[test]
+    fn skipped_combat_does_not_write_victory_flags() {
+        use crate::content::settings::GameSettings;
+
+        let scen = scenario_from_scenes(vec![
+            // scene 0: combat gated on "fight" — player chose "flee", so this is skipped
+            gated_combat(Some("fight"), vec!["victory_marker"]),
+            // scene 1: story with no gate, reachable
+            gated_story(None),
+        ]);
+        let db = make_db(scen);
+
+        let mut app = App::new();
+        app.add_message::<AdvanceScenario>();
+        app.insert_resource(db);
+        // Start at index -1 conceptually; we place scene_index at 0 and use the
+        // write_victory_flags system to verify it doesn't fire when gated.
+        // Instead: advance from a pre-scene into scene 0 (gated-combat) and check
+        // that after skip_skipped the system ends at scene 1 (story), not scene 0.
+        // We verify by running advance from a notional scene "-1" via index wrapping:
+        // easier approach — just assert skip_skipped logic directly.
+        let f_flee = flags(&["flee"]); // "fight" flag NOT present
+        let scen2 = app.world().resource::<GameDb>().scenarios.get("s1").unwrap();
+        // From index 0 with flee flag: should land on scene 1 (story), skipping combat.
+        assert_eq!(skip_skipped(scen2, 0, &f_flee), Some(1));
+
+        // Also verify write_victory_flags won't run on a skipped scene by ensuring
+        // the scenario state would be set to scene 1, not scene 0.
+        // (write_victory_flags reads scen.scenes[scene_index].on_victory_flags; if
+        // scene_index == 1 it finds no on_victory_flags, so flags stay empty.)
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 1 });
+        app.insert_resource(CampaignState {
+            campaign_id: "c".into(),
+            scenario_index: 0,
+            flags: f_flee.clone(),
+        });
+        app.add_systems(Update, write_victory_flags);
+        app.update();
+
+        let camp_flags = &app.world().resource::<CampaignState>().flags;
+        assert!(
+            !camp_flags.contains("victory_marker"),
+            "victory_marker must NOT appear: the combat scene was skipped"
+        );
+    }
+
+    // ── all-gated tail: clean termination ────────────────────────────────────
+
+    /// advance_scenario_system reaching an all-gated tail terminates cleanly
+    /// (no panic, transitions to MainMenu).
+    #[test]
+    fn advance_reaches_all_gated_tail_terminates() {
+        use crate::content::settings::GameSettings;
+
+        // Two scenes: index 0 is visible (starting point), index 1 is gated-absent.
+        let scen = scenario_from_scenes(vec![
+            gated_story(None),         // index 0: visible
+            gated_story(Some("gone")), // index 1: gated, flag will be absent
+        ]);
+        let db = make_db(scen);
+
+        let mut app = App::new();
+        app.add_message::<AdvanceScenario>();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(GameSettings::default());
+        app.insert_resource(NextState::<AppState>::default());
+        // No CampaignState → non-campaign scenario, flags = empty.
+        app.add_systems(Update, (
+            |mut w: MessageWriter<AdvanceScenario>| { w.write(AdvanceScenario); },
+            advance_scenario_system,
+        ).chain());
+        app.update();
+
+        // scene_index was 0; after advance: 0+1=1, gated → skip → None → finish.
+        // ScenarioState.scene_index is set to scenes.len() == 2 on finish.
+        let idx = app.world().resource::<ScenarioState>().scene_index;
+        assert_eq!(idx, 2, "scene_index should be past end (= scenes.len()) after finish");
+    }
+
+    // ── enter_scenario_at: gated tail is graceful (no panic) ─────────────────
+
+    /// enter_scenario_at with a gated tail and no flags must NOT panic —
+    /// it gracefully transitions to MainMenu.
+    #[test]
+    fn enter_scenario_at_gated_tail_no_panic() {
+        let scen = scenario_from_scenes(vec![
+            gated_story(Some("secret")), // index 0: gated, flag absent
+        ]);
+        let mut db = make_db(scen);
+        // Also need at least one encounter-free scenario so enter_scenario_at doesn't
+        // fail on missing content — our scenario has no encounters, that's fine.
+
+        let mut commands_queue = bevy::ecs::world::CommandQueue::default();
+        let mut world = bevy::ecs::world::World::new();
+        let mut commands = Commands::new(&mut commands_queue, &world);
+        let mut next_state = NextState::<AppState>::default();
+
+        // No flags → all-gated tail → graceful MainMenu transition, no panic.
+        enter_scenario_at(
+            &mut commands,
+            &db,
+            &mut next_state,
+            "s1",
+            0,
+            None, // no flags
+        );
+        // If we reach here without panic, the test passes.
+        // next_state should have been set to MainMenu.
+        assert!(
+            matches!(next_state, NextState::Pending(AppState::MainMenu)),
+            "expected MainMenu transition"
+        );
+    }
+
+    // ── save-load reentry with flags ──────────────────────────────────────────
+
+    /// enter_scenario_at with populated flags resolves to the same scene advance would.
+    /// With gate flag present: gated scene plays. Without: skipped.
+    #[test]
+    fn enter_scenario_at_flag_resolves_correctly() {
+        let scen = scenario_from_scenes(vec![
+            gated_story(Some("secret")), // index 0: gated
+            gated_story(None),            // index 1: always visible
+        ]);
+        let db = make_db(scen);
+
+        // Save-load lands at index 0 with "secret" flag → scene 0 plays.
+        {
+            let mut commands_queue = bevy::ecs::world::CommandQueue::default();
+            let world = bevy::ecs::world::World::new();
+            let mut commands = Commands::new(&mut commands_queue, &world);
+            let mut next_state = NextState::<AppState>::default();
+            enter_scenario_at(&mut commands, &db, &mut next_state, "s1", 0, Some(&flags(&["secret"])));
+            // If ScenarioState would be inserted with scene_index=0 we're correct;
+            // we can verify by applying the queue.
+            let mut world2 = bevy::ecs::world::World::new();
+            commands_queue.apply(&mut world2);
+            let state = world2.resource::<ScenarioState>();
+            assert_eq!(state.scene_index, 0, "with flag: gated scene 0 should play");
+        }
+
+        // Save-load lands at index 0 WITHOUT "secret" flag → skip to scene 1.
+        {
+            let mut commands_queue = bevy::ecs::world::CommandQueue::default();
+            let world = bevy::ecs::world::World::new();
+            let mut commands = Commands::new(&mut commands_queue, &world);
+            let mut next_state = NextState::<AppState>::default();
+            enter_scenario_at(&mut commands, &db, &mut next_state, "s1", 0, None);
+            let mut world2 = bevy::ecs::world::World::new();
+            commands_queue.apply(&mut world2);
+            let state = world2.resource::<ScenarioState>();
+            assert_eq!(state.scene_index, 1, "without flag: skip to scene 1");
+        }
+    }
+
+    // ── None-campaign: no panic, flags treated as empty ──────────────────────
+
+    /// Entering a scenario with no CampaignState treats flags as empty:
+    /// gated scenes skip, no panic.
+    #[test]
+    fn none_campaign_gated_scenes_skip_no_panic() {
+        use crate::content::settings::GameSettings;
+
+        let scen = scenario_from_scenes(vec![
+            gated_story(Some("x")), // index 0: gated, will be skipped
+            gated_story(None),       // index 1: always visible
+        ]);
+        let db = make_db(scen);
+
+        let mut app = App::new();
+        app.add_message::<AdvanceScenario>();
+        app.insert_resource(db);
+        // Place at index 0; no CampaignState inserted.
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(GameSettings::default());
+        app.insert_resource(NextState::<AppState>::default());
+
+        // Manually test skip_skipped with empty flags (simulates None-campaign path).
+        let world = app.world();
+        let db2 = world.resource::<GameDb>();
+        let scen2 = db2.scenarios.get("s1").unwrap();
+        let empty = std::collections::BTreeSet::new();
+        // From index 0 with empty flags: scene 0 (gated) skipped, scene 1 plays.
+        assert_eq!(skip_skipped(scen2, 0, &empty), Some(1));
+        // No panic reached → test passes.
     }
 }

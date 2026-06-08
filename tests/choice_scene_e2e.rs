@@ -27,6 +27,7 @@ fn make_db_with_choice(options: Vec<ChoiceOption>) -> GameDb {
                     requires_flag: None,
                 }],
                 options,
+                requires_flag: None,
             },
             // A follow-up story scene whose line is gated behind the flag set by option 0.
             SceneDef::Story {
@@ -45,6 +46,7 @@ fn make_db_with_choice(options: Vec<ChoiceOption>) -> GameDb {
                 party_add: vec![],
                 party_remove: vec![],
                 status_ops: vec![],
+                requires_flag: None,
             },
         ],
         content: ContentView::default(),

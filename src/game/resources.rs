@@ -544,6 +544,7 @@ mod validate_party_status_tests {
                 party_add: vec![],
                 party_remove: vec![],
                 status_ops,
+                requires_flag: None,
             }],
             content: valid_content(),
             encounters: HashMap::new(),
@@ -788,6 +789,7 @@ mod validate_choice_tests {
             scenes: vec![SceneDef::Choice {
                 prompt: vec![],
                 options,
+                requires_flag: None,
             }],
             content: ContentView::default(),
             encounters: HashMap::new(),

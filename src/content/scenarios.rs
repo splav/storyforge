@@ -75,11 +75,20 @@ pub enum SceneDef {
         /// Ordered persistent-status operations on named party members, applied in
         /// declaration order when folded (see `active_party_statuses`).
         status_ops: Vec<PartyStatusOp>,
+        /// If `Some(f)`, this scene is skipped when `f` is absent from
+        /// `CampaignState.flags`. Composes with `is_invisible`: either reason
+        /// causes the scene to be skipped.
+        requires_flag: Option<String>,
     },
     Combat {
         encounter_id: String,
         location: Option<String>,
         on_victory_flags: Vec<String>,
+        /// If `Some(f)`, this scene is skipped when `f` is absent from
+        /// `CampaignState.flags`. NOTE: skipping a `Combat` scene discards its
+        /// `on_victory_flags` — any downstream-needed flag must be set by the
+        /// branching `Choice` option or a story scene instead.
+        requires_flag: Option<String>,
     },
     /// Player decision point. Shows `prompt` dialogue, then one button per
     /// `option`; clicking option *i* records `option[i].set_flag` into campaign
@@ -88,6 +97,9 @@ pub enum SceneDef {
     Choice {
         prompt: Vec<DialogueLine>,
         options: Vec<ChoiceOption>,
+        /// If `Some(f)`, this scene is skipped when `f` is absent from
+        /// `CampaignState.flags`.
+        requires_flag: Option<String>,
     },
 }
 
@@ -102,6 +114,17 @@ impl SceneDef {
     /// should auto-skip past it.
     pub fn is_invisible(&self) -> bool {
         matches!(self, SceneDef::Story { lines, .. } if lines.is_empty())
+    }
+
+    /// Returns the scene-level gate flag, if any. When `Some(f)` and `f` is
+    /// absent from `CampaignState.flags`, the scene is skipped exactly like an
+    /// invisible scene.
+    pub fn requires_flag(&self) -> Option<&str> {
+        match self {
+            SceneDef::Story { requires_flag, .. } => requires_flag.as_deref(),
+            SceneDef::Combat { requires_flag, .. } => requires_flag.as_deref(),
+            SceneDef::Choice { requires_flag, .. } => requires_flag.as_deref(),
+        }
     }
 }
 
@@ -226,6 +249,10 @@ struct SceneRecord {
     status_ops: Vec<PartyStatusOpRecord>,
     #[serde(default)]
     options: Vec<ChoiceOptionRecord>,
+    /// Scene-level flag gate. If present, the scene is skipped when the named flag
+    /// is absent from `CampaignState.flags`.
+    #[serde(default)]
+    requires_flag: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -273,7 +300,7 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
             .scenes
             .into_iter()
             .map(|s| match s.scene_type.as_str() {
-                "story" => SceneDef::Story {
+                                "story" => SceneDef::Story {
                     // `lines = []` is legal and produces an invisible scene (pure
                     // party-change beat). Missing `lines` key is also treated as empty.
                     lines: s
@@ -303,15 +330,17 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
                             ),
                         })
                         .collect(),
+                    requires_flag: s.requires_flag.clone(),
                 },
-                "combat" => SceneDef::Combat {
+                                "combat" => SceneDef::Combat {
                     encounter_id: s
                         .encounter
                         .unwrap_or_else(|| panic!("{path}: combat scene missing encounter")),
                     location: s.location,
                     on_victory_flags: s.on_victory_flags,
+                    requires_flag: s.requires_flag.clone(),
                 },
-                "choice" => SceneDef::Choice {
+                                "choice" => SceneDef::Choice {
                     prompt: s.lines.unwrap_or_default().into_iter()
                         .map(|l| DialogueLine {
                             speaker: l.speaker,
@@ -322,6 +351,7 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
                     options: s.options.into_iter()
                         .map(|o| ChoiceOption { label: o.label, set_flag: o.set_flag })
                         .collect(),
+                    requires_flag: s.requires_flag.clone(),
                 },
                 other => panic!("{path}: unknown scene type '{other}' (expected 'story', 'combat', or 'choice')"),
             })
@@ -372,6 +402,7 @@ mod tests {
                         PartyStatusOp::Add { unit_name: "Bob".into(),   status_id: "injured".into() },
                         PartyStatusOp::Remove { unit_name: "Bob".into(), status_id: "injured".into() },
                     ],
+                    requires_flag: None,
                 },
                 SceneDef::Story {
                     lines: vec![],
@@ -380,6 +411,7 @@ mod tests {
                     status_ops: vec![
                         PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "exhaustion".into() },
                     ],
+                    requires_flag: None,
                 },
             ],
             content: ContentView::default(),
@@ -439,6 +471,7 @@ mod tests {
                     status_ops: vec![
                         PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
                     ],
+                    requires_flag: None,
                 },
                 SceneDef::Story {
                     lines: vec![],
@@ -448,6 +481,7 @@ mod tests {
                     status_ops: vec![
                         PartyStatusOp::Add { unit_name: "Alice".into(), status_id: "injured".into() },
                     ],
+                    requires_flag: None,
                 },
             ],
             content: ContentView::default(),
@@ -472,6 +506,7 @@ mod tests {
                 status_ops: vec![
                     PartyStatusOp::Remove { unit_name: "Ghost".into(), status_id: "injured".into() },
                 ],
+                requires_flag: None,
             }],
             content: ContentView::default(),
             encounters: HashMap::new(),
@@ -575,7 +610,7 @@ set_flag = "ignored"
 "#;
         let scen = parse_scenario_body("s1", "test.toml", toml);
         assert_eq!(scen.scenes.len(), 1);
-        let SceneDef::Choice { prompt, options } = &scen.scenes[0] else {
+        let SceneDef::Choice { prompt, options, .. } = &scen.scenes[0] else {
             panic!("expected Choice variant");
         };
         assert_eq!(prompt.len(), 1);
@@ -604,7 +639,7 @@ label = "Go"
 set_flag = "went"
 "#;
         let scen = parse_scenario_body("s1", "test.toml", toml);
-        let SceneDef::Choice { prompt, options } = &scen.scenes[0] else {
+        let SceneDef::Choice { prompt, options, .. } = &scen.scenes[0] else {
             panic!("expected Choice variant");
         };
         assert!(prompt.is_empty(), "prompt should be empty when lines omitted");

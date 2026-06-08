@@ -180,7 +180,7 @@ pub fn setup_choice_screen(
 ) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
     let (prompt, options) = match &scen.scenes[scenario.scene_index] {
-        SceneDef::Choice { prompt, options } => (prompt, options),
+        SceneDef::Choice { prompt, options, .. } => (prompt, options),
         _ => return,
     };
     let empty_flags = std::collections::BTreeSet::new();

@@ -62,7 +62,7 @@ src/
     classes.rs      ClassDef + parse_classes
     unit_templates.rs UnitTemplateDef + nested stats/equipment/resources blocks + parse_unit_templates
     encounters.rs   EncounterDef, EnemyDef, PhaseDef, AuraDef, VictoryCondition + load_encounters_from_str
-    scenarios.rs    ScenarioDef (holds content: ContentView + encounters), SceneDef (Story+Combat), PartyMemberDef, parse_scenario_body, active_party, active_flags
+    scenarios.rs    ScenarioDef (holds content: ContentView + encounters), SceneDef (Story+Combat+Choice, each with requires_flag gate), PartyMemberDef, parse_scenario_body, active_party, active_flags
     campaigns.rs    CampaignDef + directory-walking loader that builds per-scenario ContentView via load_layered
     races.rs        RaceDef, FactionDef, PathDef, CritFailEffect + parse_races
 
@@ -94,6 +94,33 @@ Each `ScenarioDef` gets its own merged `content: ContentView` stored at load. On
 Combat systems read content exclusively via `Res<ActiveContent>` — `GameDb` holds only metadata (`scenarios`, `campaigns`, `campaign_order`) and runs validation per-scenario against that scenario's merged view. There is no "global abilities map" at runtime: every lookup is scoped to the currently-active scenario.
 
 Tests that don't enter a scenario construct a `ContentView::load_global_for_tests()` (global layer only) and wrap it in `ActiveContent`.
+
+## Scenario Scene Flow
+
+`ScenarioDef.scenes` is a flat `Vec<SceneDef>` (Story / Combat / Choice). `advance_scenario_system` increments `ScenarioState.scene_index` by 1 then calls `skip_skipped`, which walks forward past any scenes that should be auto-skipped, returning `None` if all remaining scenes are skipped (→ scenario finish). `enter_scenario_at` (save-load reentry) calls the same helper.
+
+### Skip reasons
+
+A scene is skipped when **either** condition holds:
+
+| Condition | Mechanism |
+|-----------|-----------|
+| `is_invisible()` | `Story` scene with `lines = []` — silent party-change beat |
+| `requires_flag` absent | `SceneDef` has `requires_flag: Some("flag")` and `"flag" ∉ CampaignState.flags` |
+
+The two reasons compose: an invisible scene is always skipped regardless of its `requires_flag`.
+
+### `requires_flag` semantics
+
+- Declared per `[[scenes]]` entry in `scenario.toml` as `requires_flag = "flag_name"` (optional; omitting it means always play).
+- Applies to all three variant types: `Story`, `Combat`, `Choice`.
+- When the flag is absent at skip-resolution time, the scene is treated as if it doesn't exist. Execution resumes at the next non-skipped scene.
+- **Combat scene contract**: skipping a `Combat` scene discards its `on_victory_flags` and encounter objectives — those flags are never written to `CampaignState`. Any downstream scene that needs a flag from a skippable fight must receive it via the branching `Choice` option or a dedicated `Story` scene instead.
+- Non-campaign scenarios (no `CampaignState`) treat flags as empty: all `requires_flag`-gated scenes are skipped.
+
+### All-gated tail
+
+If `skip_skipped` returns `None` (all remaining scenes gated/invisible), the scenario finishes gracefully — same path as reaching the last scene normally. `enter_scenario_at` does the same (no panic) to handle save-load that lands on an all-gated tail.
 
 ## Data Files
 
