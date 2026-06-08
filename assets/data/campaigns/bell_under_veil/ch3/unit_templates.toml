@@ -1,0 +1,234 @@
+# Шаблоны юнитов главы III «Остров швов».
+# Перекрывают/дополняют кампейн- и глобальный слои.
+# Дизайн/статы — ch3/docs/engine-requirements.md (Б.2/Б.4/Б.5) и
+# ch3/docs/description.md §6. Здесь — только уникальные для главы шаблоны.
+#
+# ВАЖНО: теги (`symbiote`/`corporeal`/`living`/`incorporeal`), ауры и фазы —
+# поля ЭНКАУНТЕРА, не шаблона. Здесь только базовые статы/экипировка/способности.
+# Фаза-3 Контейнера, накопитель-аура, NonActingNpc-маркер и keep_alive лодки
+# задаются в encounters.toml (Фаза 2).
+
+# ── Бой 1: Высадка на берегу ──────────────────────────────────────────────────
+
+# Био-усиленный охранник (×3, массовка): человек с имплантом + искра-устройство.
+# Уровнем выше стрелков Колма (ch2 spark_shooter): крепче и с имплантом, но та же
+# роль — дальняя искра (spark_bolt, питается устройством, без маны) + слабый мили.
+# Переиспользуется как «охранник прикрытия» в бою 4.
+[[unit_templates]]
+id    = "bio_guard"
+name  = "Био-усиленный охранник"
+race  = "human"
+speed = 4
+
+stats     = { max_hp = 12, strength = 2, dexterity = 4, constitution = 2, intelligence = 0, wisdom = 0, charisma = -2 }
+equipment = { main_hand = "spark_device", chest = "chainmail", legs = "leather_pants", feet = "leather_boots" }
+
+ability_ids = ["melee_attack", "spark_bolt"]
+
+# Сигнальщик (×1): рвётся к краю карты «звать своих» — давит на темп. Механически
+# приоритетная цель; чуть быстрее и легче охранника. Флейвор сигнала — сценарный.
+[[unit_templates]]
+id    = "signaler"
+name  = "Сигнальщик"
+race  = "human"
+speed = 5
+
+stats     = { max_hp = 10, strength = 1, dexterity = 5, constitution = 1, intelligence = 0, wisdom = 1, charisma = -2 }
+equipment = { main_hand = "spark_device", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+
+ability_ids = ["melee_attack", "spark_bolt"]
+
+# Тяжёлый охранник (×1): био-протез-таран, держит линию. Толстый, медленный,
+# чистый мили. Природный «таран» — fangs (когти/протез). Аналог heavy_merc ch2.
+[[unit_templates]]
+id    = "heavy_guard"
+name  = "Тяжёлый охранник"
+race  = "human"
+speed = 3
+
+stats     = { max_hp = 22, strength = 6, dexterity = 0, constitution = 5, intelligence = -2, wisdom = 0, charisma = -2 }
+equipment = { main_hand = "fangs", chest = "heavy_plate", legs = "plate_greaves", feet = "iron_boots" }
+
+ability_ids = ["melee_attack"]
+
+# Лодка — NonActingNpc (паттерн Эрика ch2): неподвижный объект с HP на клетке у
+# воды. Её гибель ≠ проигрыш, а провал вторичной цели `boat_saved` (encounters).
+# Раса `object` (неживой), perma-`stunned`, пустой кит. HP ~12 (description §6).
+[[unit_templates]]
+id    = "boat"
+name  = "Лодка"
+race  = "object"
+speed = 0
+
+stats     = { max_hp = 12, strength = 0, dexterity = 0, constitution = 0, intelligence = 0, wisdom = 0, charisma = 0 }
+equipment = { main_hand = "fangs", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids      = []
+initial_statuses = ["stunned"]
+
+# ── Бой 2: Лаборатории / Живые анфилады ───────────────────────────────────────
+
+# Боевой симбионт (×3-4): тег `symbiote` (задаётся в энкаунтере) — нужен для
+# предиката хила пастуха. Броня 3 (heavy_plate-экв.), HP ~16, средний мили-урон
+# (клыки/тараны), БЕЗ самоотхила. Толстый, медленный гринд (speed 3).
+[[unit_templates]]
+id    = "combat_symbiote"
+name  = "Боевой симбионт"
+race  = "grafted"
+speed = 3
+
+stats     = { max_hp = 16, strength = 3, dexterity = 0, constitution = 4, intelligence = -2, wisdom = 0, charisma = -4 }
+equipment = { main_hand = "fangs", chest = "heavy_plate", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids = ["melee_attack"]
+
+# Пастух (×1-2): биомеханик-лекарь. 1 AP (дефолт), броня 0-1, HP ~11, mana 8,
+# низкий урон. Кит: мили + дальняя магатака `flash` (1 мана, ситуативно) + хил
+# симбионта `shepherd_heal` (1 AP + 1 мана, +3 HP с INT 0, только цель с тегом
+# `symbiote`). Приоритетная цель боя.
+[[unit_templates]]
+id    = "shepherd"
+name  = "Пастух"
+race  = "human"
+speed = 4
+
+stats     = { max_hp = 11, strength = 0, dexterity = 2, constitution = 1, intelligence = 0, wisdom = 3, charisma = 0 }
+equipment = { main_hand = "dagger", chest = "leather_vest", legs = "cloth_pants", feet = "cloth_shoes" }
+resources = { mana = 8 }
+
+ability_ids = ["melee_attack", "flash", "shepherd_heal"]
+
+# ── Бой 3: Встреча с Тэо ──────────────────────────────────────────────────────
+
+# Одержимый носитель (×3-4, «линия подопытных»): жертва Колма с Гостем внутри.
+# Средний мили + «шёпот» Гостя (whisper_from_beyond, range, игнорирует броню,
+# дизориентирует), невысокая броня. Бить их = бить жертв → решает `marken_fate`.
+# Маркен Лесогор — этот же шаблон с override `name` в энкаунтере (личная ставка Kael).
+[[unit_templates]]
+id    = "possessed_host"
+name  = "Одержимый носитель"
+race  = "aberration"
+path  = "pact"
+speed = 4
+
+stats     = { max_hp = 18, strength = 2, dexterity = 2, constitution = 4, intelligence = 5, wisdom = 2, charisma = -4 }
+equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+resources = { mana = 6 }
+
+ability_ids = ["melee_attack", "whisper_from_beyond"]
+
+# Эразм Тэо — NonActingNpc: хладнокровно «дирижирует», сам не боец. Цель/исход
+# боя, не урон. В бою 4 не появляется ни при каком исходе. perma-`stunned`.
+[[unit_templates]]
+id    = "theo"
+name  = "Эразм Тэо"
+race  = "human"
+path  = "pact"
+speed = 0
+
+stats     = { max_hp = 14, strength = 0, dexterity = 1, constitution = 2, intelligence = 5, wisdom = 4, charisma = 3 }
+equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids      = []
+initial_statuses = ["stunned"]
+
+# ── Бой 4: Финал «Контейнер» ──────────────────────────────────────────────────
+
+# Контейнер, фаза 1 «Изделие» (танк): оболочка цела. Высокая броня (heavy_plate +
+# greaves + boots = 5; + аура накопителя +3 = 8 эффективных), НИЗКИЙ урон мили
+# (STR 0). Теги `{symbiote, corporeal}` (энкаунтер) — кормят ауру накопителя.
+# Базовый шаблон ростера; фазы 2/3 — swap на порогах HP (encounters.toml).
+[[unit_templates]]
+id    = "container"
+name  = "Контейнер"
+race  = "grafted"
+path  = "pact"
+speed = 3
+
+stats     = { max_hp = 30, strength = 0, dexterity = 0, constitution = 6, intelligence = 0, wisdom = 0, charisma = -4 }
+equipment = { main_hand = "fangs", chest = "heavy_plate", legs = "plate_greaves", feet = "iron_boots" }
+
+ability_ids = ["melee_attack"]
+
+# Контейнер, фаза 2 «Гость проступает» (маг): оболочка треснула. Броня средняя
+# (plate_armor = 2), `spell_damage` (spark) + статус-контроль (burn). Теги всё ещё
+# `{symbiote, corporeal}` (аура ещё кормит). Цель партии — прерывать/бёрстить.
+[[unit_templates]]
+id    = "container_phase2"
+name  = "Контейнер — Гость проступает"
+race  = "grafted"
+path  = "pact"
+speed = 4
+
+stats     = { max_hp = 30, strength = 0, dexterity = 2, constitution = 4, intelligence = 5, wisdom = 2, charisma = -4 }
+equipment = { main_hand = "dagger", chest = "plate_armor", legs = "leather_pants", feet = "leather_boots" }
+resources = { mana = 10 }
+
+ability_ids = ["melee_attack", "spark", "burn"]
+
+# Контейнер, фаза 3 «Несобранное» (подвижный): оболочка пала. Раса `aberration`,
+# теги `{aberration, incorporeal}` (энкаунтер снимает `symbiote`/`corporeal`) →
+# аура накопителя его уже не видит, питание отрезано. Броня 0 (mage_robe), высокая
+# speed, дальнобойные pierce-атаки (spark). Партия догоняет/бьёт дальнобоем.
+[[unit_templates]]
+id    = "container_phase3"
+name  = "Контейнер — Несобранное"
+race  = "aberration"
+path  = "pact"
+speed = 6
+
+stats     = { max_hp = 30, strength = 0, dexterity = 5, constitution = 2, intelligence = 5, wisdom = 2, charisma = -4 }
+equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+resources = { mana = 10 }
+
+ability_ids = ["melee_attack", "spark"]
+
+# Накопитель — NonActingNpc: неподвижная «живая батарея» за спиной босса. Средний
+# HP, без атак. Эмитит баф-ауру на Контейнер (`affects_tags = {symbiote}`,
+# задаётся в энкаунтере). Выбил → ослабил босса (callback к бою 2). perma-`stunned`.
+[[unit_templates]]
+id    = "accumulator"
+name  = "Накопитель"
+race  = "grafted"
+speed = 0
+
+stats     = { max_hp = 18, strength = 0, dexterity = 0, constitution = 4, intelligence = 0, wisdom = 0, charisma = 0 }
+equipment = { main_hand = "fangs", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids      = []
+initial_statuses = ["stunned"]
+
+# Мастер Хорст — NonActingNpc: старший островной мастерской, пожилой инженер (не
+# маг, не боец). Торгуется/сдаётся; падение/капитуляция через `victory_override`
+# в энкаунтере. Сам не атакует. perma-`stunned`.
+[[unit_templates]]
+id    = "horst"
+name  = "Мастер Хорст"
+race  = "human"
+speed = 0
+
+stats     = { max_hp = 16, strength = 1, dexterity = 1, constitution = 2, intelligence = 4, wisdom = 4, charisma = 4 }
+equipment = { main_hand = "dagger", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+
+ability_ids      = []
+initial_statuses = ["stunned"]
+
+# ── Партия: Орен (4-й временный спутник) ──────────────────────────────────────
+
+# Орен — виридиец-лекарь, чистый саппорт (engine-requirements §Б.5). HP 12, STR −1,
+# INT +3 (=Лира), speed 3, броня 1 (chainmail+leather+leather=1), mana 15, 1 AP.
+# Фокус «живой ланцет» (1d4 + sp 1 — скейл хила). Кит: мили; `heal` (бёрст 1d4+3+1
+# ≈ 6.5, 2 маны); `vital_infusion` (HoT +4×2=+8, 2 маны); `living_carapace`
+# (armor +2, 3 маны); `numbness` (speed −2, 2 маны). Урона почти не даёт.
+# `party_add` Орена — в story-сцене после боя 1 (Вставка 1).
+[[unit_templates]]
+id    = "oren"
+name  = "Орен"
+race  = "viridium"
+speed = 3
+
+stats     = { max_hp = 12, strength = -1, dexterity = 1, constitution = 2, intelligence = 3, wisdom = 4, charisma = 1 }
+equipment = { main_hand = "lancet", chest = "chainmail", legs = "leather_pants", feet = "leather_boots" }
+resources = { mana = 15 }
+
+ability_ids = ["melee_attack", "heal", "vital_infusion", "living_carapace", "numbness"]
