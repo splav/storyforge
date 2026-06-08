@@ -222,10 +222,11 @@ initial_statuses = ["stunned"]
 # (armor +2, 3 маны); `numbness` (speed −2, 2 маны). Урона почти не даёт.
 # `party_add` Орена — в story-сцене после боя 1 (Вставка 1).
 [[unit_templates]]
-id    = "oren"
-name  = "Орен"
-race  = "viridium"
-speed = 3
+id      = "oren"
+name    = "Орен"
+race    = "human"
+faction = "viridium"
+speed   = 3
 
 stats     = { max_hp = 12, strength = -1, dexterity = 1, constitution = 2, intelligence = 3, wisdom = 4, charisma = 1 }
 equipment = { main_hand = "lancet", chest = "chainmail", legs = "leather_pants", feet = "leather_boots" }
