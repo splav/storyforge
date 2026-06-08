@@ -158,6 +158,7 @@ pub fn campaign_button_system(
             &camp.id,
             paths.as_deref(),
             settings.current_slot,
+            &settings,
         );
         return;
     }
@@ -214,6 +215,26 @@ pub fn cleanup_main_menu(mut commands: Commands, roots: Query<Entity, With<MainM
 
 // ── Helpers used by main menu and prompt handlers ───────────────────────────
 
+/// Resolve which scenario index to start at for a fresh campaign.
+///
+/// In dev builds, a non-empty `dev_start` is looked up in `scenario_ids`.
+/// Falls back to index 0 on mismatch or when the field is empty.
+/// In non-dev builds this always returns 0 — the override block is compiled out.
+pub fn resolve_start_index(scenario_ids: &[String], _dev_start: &str) -> usize {
+    #[cfg(feature = "dev")]
+    if !_dev_start.is_empty() {
+        if let Some(idx) = scenario_ids.iter().position(|id| id == _dev_start) {
+            return idx;
+        }
+        warn!(
+            "[dev] start_scenario '{}' not found in campaign — starting at chapter 0",
+            _dev_start
+        );
+    }
+    let _ = scenario_ids; // suppress unused warning in non-dev builds
+    0
+}
+
 pub fn start_campaign_fresh(
     commands: &mut Commands,
     db: &GameDb,
@@ -221,29 +242,47 @@ pub fn start_campaign_fresh(
     campaign_id: &str,
     paths: Option<&PersistencePaths>,
     slot: u8,
+    #[cfg_attr(not(feature = "dev"), allow(unused_variables))]
+    settings: &GameSettings,
 ) {
     let camp = db
         .campaigns
         .get(campaign_id)
         .unwrap_or_else(|| panic!("Campaign '{campaign_id}' not found"));
-    let first_scenario = camp.scenario_ids[0].clone();
+
+    let start_index = resolve_start_index(&camp.scenario_ids, &settings.dev_start_scenario);
+    let start_scenario = camp.scenario_ids[start_index].clone();
+
+    #[cfg(feature = "dev")]
+    if start_index > 0 {
+        info!(
+            "[dev] starting campaign '{}' at chapter '{}' (index {})",
+            campaign_id, start_scenario, start_index
+        );
+    }
+
     let campaign_state = CampaignState {
         campaign_id: camp.id.clone(),
-        scenario_index: 0,
+        scenario_index: start_index,
         flags: Default::default(),
     };
     commands.insert_resource(campaign_state.clone());
-    // Fresh campaign has no flags yet; pass empty set so flag-gated scenes at index 0 skip.
+    // Fresh campaign has no flags yet; pass empty set so flag-gated scenes skip.
     enter_scenario(
         commands,
         db,
         next_state,
-        &first_scenario,
+        &start_scenario,
         Some(&campaign_state.flags),
     );
     if let Some(p) = paths {
-        if let Err(e) = save_repo::record_progress(&p.0, slot, &campaign_state, &first_scenario, 0)
-        {
+        if let Err(e) = save_repo::record_progress(
+            &p.0,
+            slot,
+            &campaign_state,
+            &start_scenario,
+            start_index,
+        ) {
             warn!("autosave on new game failed: {e}");
         }
     }
@@ -284,4 +323,43 @@ pub fn validate_and_resume(
         Some(&flags),
     );
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_start_index;
+
+    fn ids(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn empty_dev_start_always_returns_zero() {
+        let campaign = ids(&["ch1", "ch2", "ch3"]);
+        assert_eq!(resolve_start_index(&campaign, ""), 0);
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn dev_known_id_returns_correct_index() {
+        let campaign = ids(&["ch1", "ch2", "ch3"]);
+        assert_eq!(resolve_start_index(&campaign, "ch3"), 2);
+        assert_eq!(resolve_start_index(&campaign, "ch2"), 1);
+        assert_eq!(resolve_start_index(&campaign, "ch1"), 0);
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn dev_unknown_id_falls_back_to_zero() {
+        let campaign = ids(&["ch1", "ch2", "ch3"]);
+        assert_eq!(resolve_start_index(&campaign, "ch99"), 0);
+    }
+
+    // Non-dev path: override is compiled out, always index 0 regardless of value.
+    #[cfg(not(feature = "dev"))]
+    #[test]
+    fn non_dev_ignores_nonempty_string() {
+        let campaign = ids(&["ch1", "ch2", "ch3"]);
+        assert_eq!(resolve_start_index(&campaign, "ch3"), 0);
+    }
 }

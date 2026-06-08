@@ -150,6 +150,7 @@ pub fn handle_modal_input(
                             &campaign_id,
                             paths.as_deref(),
                             settings.current_slot,
+                            &settings,
                         );
                     }
                     prompt.0 = None;
@@ -166,6 +167,7 @@ pub fn handle_modal_input(
                         &campaign_id,
                         paths.as_deref(),
                         settings.current_slot,
+                        &settings,
                     );
                     prompt.0 = None;
                 }

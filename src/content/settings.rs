@@ -20,6 +20,9 @@ pub struct GameSettings {
     /// divergence diagnostics. Set to false to restore the old replan-every-tick
     /// behaviour for comparison.
     pub ai_freeze_plan_after_move: bool,
+    /// Dev-only: id of the campaign scenario to start a fresh campaign at.
+    /// Empty = normal start (scenario_ids[0]). Only honoured under `--features dev`.
+    pub dev_start_scenario: String,
 }
 
 impl Default for GameSettings {
@@ -34,6 +37,7 @@ impl Default for GameSettings {
             ai_log_path: String::new(),
             current_slot: 1,
             ai_freeze_plan_after_move: true,
+            dev_start_scenario: String::new(),
         }
     }
 }
@@ -97,6 +101,10 @@ pub struct DebugSection {
     pub ai_log_path: String,
     #[serde(default = "default_true")]
     pub ai_freeze_plan_after_move: bool,
+    /// Dev-only (cargo `dev` feature): id of the campaign chapter to start a NEW
+    /// fresh campaign at; empty string = chapter 1 (normal behaviour).
+    #[serde(default)]
+    pub start_scenario: String,
 }
 
 fn default_true() -> bool {
@@ -126,6 +134,7 @@ impl GameSettings {
             ai_log_path: f.debug.ai_log_path,
             current_slot: clamp_slot(f.profile.current_slot),
             ai_freeze_plan_after_move: f.debug.ai_freeze_plan_after_move,
+            dev_start_scenario: f.debug.start_scenario,
         }
     }
 
@@ -140,6 +149,7 @@ impl GameSettings {
                 ai_log: self.ai_log,
                 ai_log_path: self.ai_log_path.clone(),
                 ai_freeze_plan_after_move: self.ai_freeze_plan_after_move,
+                start_scenario: self.dev_start_scenario.clone(),
             },
             profile: ProfileSection {
                 current_slot: self.current_slot,
