@@ -243,7 +243,8 @@ use crate::game::hex::Hex;
 /// `MIN_SUPPORTED` remains 43 — existing v43/v44/v45 fixtures contain no env
 /// objects and still replay correctly.
 /// v46 → v47: `Event::HotHealed` + `Effect::TickHeal` + `StatusDef.heal_per_tick` (heal-over-time).
-pub const SCHEMA_VERSION: u32 = 47;
+/// v47 → v48: `Unit.tags` (BTreeSet<TagId>) added; `#[serde(default)]` → empty on pre-v48 traces.
+pub const SCHEMA_VERSION: u32 = 48;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init

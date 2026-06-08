@@ -285,6 +285,7 @@ fn summon_template(dex_mod: i32) -> UnitTemplate {
             PoolKind::Ap     => None,
             PoolKind::Mp     => None,
         },
+        tags: Default::default(),
     }
 }
 

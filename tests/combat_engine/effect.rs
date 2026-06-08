@@ -1077,6 +1077,7 @@ fn test_template() -> UnitTemplate {
             PoolKind::Ap     => None,
             PoolKind::Mp     => None,
         },
+        tags: Default::default(),
     }
 }
 
@@ -1417,6 +1418,7 @@ fn melee_template() -> UnitTemplate {
             PoolKind::Ap     => None,
             PoolKind::Mp     => None,
         },
+        tags: Default::default(),
     }
 }
 

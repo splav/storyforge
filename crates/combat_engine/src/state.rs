@@ -325,6 +325,13 @@ pub struct Unit {
     /// trace files — defaults to empty on deserialization.  The engine reads
     /// this list in `resolve_turn_start_passives` to auto-fire passives.
     pub passives: Vec<crate::AbilityId>,
+
+    /// Creature tags (e.g. "undead", "beast", "living").
+    ///
+    /// Populated at spawn from `UnitTemplate.tags`; empty for units without
+    /// an explicit template. Used by Slice B/C for aura/legality predicates.
+    /// `BTreeSet` ensures deterministic serialization order for `post_state_hash`.
+    pub tags: std::collections::BTreeSet<crate::TagId>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -371,6 +378,11 @@ struct UnitWire {
     // this from ECS at combat init, so stored traces round-trip cleanly.
     #[serde(default, skip_serializing)]
     pub passives: Vec<crate::AbilityId>,
+
+    // ── creature tags (v48+) ─────────────────────────────────────────────────
+    // `#[serde(default)]` → empty BTreeSet for pre-v48 traces (no `tags` key).
+    #[serde(default)]
+    pub tags: std::collections::BTreeSet<crate::TagId>,
 
     // ── legacy fields (pre-C6, for backward-compat deserialization only) ───
     // Silently ignored on read if `pools` is already populated.
@@ -480,6 +492,7 @@ impl From<UnitWire> for Unit {
             // Passives are transient — always empty after deserialization.
             // The bridge re-populates them from ECS at combat init.
             passives: w.passives,
+            tags: w.tags,
         }
     }
 }
@@ -510,6 +523,7 @@ impl From<Unit> for UnitWire {
             // Passives are transient; skip_serializing ensures they are never
             // written to trace files, so serde-default-to-empty is correct.
             passives: u.passives,
+            tags: u.tags,
             // Legacy fields never written — only read for backward compat.
             action_points: None,
             max_ap: None,
@@ -588,7 +602,19 @@ impl Unit {
             regen_per_pool,
             template_id,
             passives: Vec::new(),
+            tags: std::collections::BTreeSet::new(),
         }
+    }
+
+    /// Set this unit's tags (production / bootstrap idiom).
+    pub fn set_tags(&mut self, tags: std::collections::BTreeSet<crate::TagId>) {
+        self.tags = tags;
+    }
+
+    /// Builder-style tags setter (consumes and returns `self`).
+    pub fn with_tags(mut self, tags: std::collections::BTreeSet<crate::TagId>) -> Self {
+        self.tags = tags;
+        self
     }
 
     /// Returns `true` iff the unit's HP pool is `Some` and current HP > 0.
@@ -2405,5 +2431,73 @@ mod tests {
 
         let hp_after_poisoner = state.unit(victim).unwrap().hp();
         assert_eq!(hp_after_poisoner, 11, "HP should decrease after DoT tick (14-3=11)");
+    }
+
+    // ── Atom 3 Slice A: TagId / Unit.tags serde tests ────────────────────────
+
+    /// Tags round-trip through serde (non-empty set).
+    #[test]
+    fn unit_tags_roundtrip_nonempty() {
+        use std::collections::BTreeSet;
+        use crate::TagId;
+
+        let mut unit = make_unit(UnitId(1), 2, 2, None);
+        unit.tags = BTreeSet::from([TagId::from("symbiote"), TagId::from("living")]);
+
+        let json = serde_json::to_string(&unit).expect("serialize");
+        let unit2: Unit = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(unit2.tags, unit.tags, "tags must round-trip byte-identical");
+    }
+
+    /// Tags round-trip through serde (empty set).
+    #[test]
+    fn unit_tags_roundtrip_empty() {
+        let unit = make_unit(UnitId(2), 2, 2, None);
+        assert!(unit.tags.is_empty());
+
+        let json = serde_json::to_string(&unit).expect("serialize");
+        let unit2: Unit = serde_json::from_str(&json).expect("deserialize");
+        assert!(unit2.tags.is_empty(), "empty tags must round-trip empty");
+    }
+
+    /// A pre-v48 UnitWire JSON (no `tags` key) deserializes to empty tags.
+    #[test]
+    fn unit_tags_serde_default_for_missing_key() {
+        use crate::TagId;
+
+        // Build a valid unit, serialize it, strip the `tags` key.
+        let unit = make_unit(UnitId(3), 2, 2, None);
+        let json = serde_json::to_string(&unit).expect("serialize");
+        // Remove the tags field from the JSON to simulate a pre-v48 trace.
+        let stripped = {
+            let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+            v.as_object_mut().unwrap().remove("tags");
+            serde_json::to_string(&v).unwrap()
+        };
+
+        let unit2: Unit = serde_json::from_str(&stripped).expect("deserialize without tags key");
+        assert!(unit2.tags.is_empty(), "missing tags key must default to empty BTreeSet");
+        // Sanity: TagId type parses correctly
+        let _: TagId = TagId::from("test");
+    }
+
+    /// BTreeSet serializes in sorted order — two sets built from the same ids
+    /// in different insertion order produce identical JSON (determinism for post_state_hash).
+    #[test]
+    fn unit_tags_serialization_order_deterministic() {
+        use std::collections::BTreeSet;
+        use crate::TagId;
+
+        let mut unit_a = make_unit(UnitId(10), 2, 2, None);
+        unit_a.tags = BTreeSet::from([TagId::from("undead"), TagId::from("beast"), TagId::from("living")]);
+
+        let mut unit_b = make_unit(UnitId(10), 2, 2, None);
+        // Insert in different order — BTreeSet normalizes to sorted.
+        unit_b.tags = BTreeSet::from([TagId::from("living"), TagId::from("undead"), TagId::from("beast")]);
+
+        let json_a = serde_json::to_string(&unit_a).expect("serialize a");
+        let json_b = serde_json::to_string(&unit_b).expect("serialize b");
+        assert_eq!(json_a, json_b, "tag serialization must be order-independent (BTreeSet => sorted JSON)");
     }
 }

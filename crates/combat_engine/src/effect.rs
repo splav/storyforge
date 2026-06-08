@@ -1010,7 +1010,7 @@ pub fn apply_effect(
             };
 
             let new_uid = state.alloc_synthetic_uid();
-            let new_unit = Unit::new(
+            let mut new_unit = Unit::new(
                 new_uid,
                 summoner_team,
                 pos,
@@ -1041,6 +1041,7 @@ pub fn apply_effect(
                 // (parity with bootstrap path via apply_template_initial_statuses).
                 Some(template_id.clone()),
             );
+            new_unit.tags = template.tags.clone();
 
             state.insert_unit(new_unit);
 

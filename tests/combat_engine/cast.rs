@@ -1096,6 +1096,7 @@ fn imp_template() -> UnitTemplate {
             PoolKind::Ap     => None,
             PoolKind::Mp     => None,
         },
+        tags: Default::default(),
     }
 }
 

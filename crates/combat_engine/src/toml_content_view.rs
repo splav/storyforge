@@ -707,6 +707,7 @@ fn convert_template(
                 crate::PoolKind::Mp     => map.get("mp").copied(),
             }
         },
+        tags: Default::default(),
     };
 
     (r.id, tpl)

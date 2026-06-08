@@ -280,6 +280,10 @@ pub struct UnitTemplate {
     /// (Hp/Mana/Energy/Ap/Mp = max; Rage = 0). Clamped to [0, pool_max] at spawn.
     /// Populated from TOML `initial_pools = { hp = 6 }` on the template record.
     pub initial_pools: enum_map::EnumMap<crate::PoolKind, Option<i32>>,
+    /// Creature tags applied to units spawned from this template (e.g. "undead",
+    /// "beast"). Empty for most templates; populated in Slice B/C when content
+    /// authors them.
+    pub tags: std::collections::BTreeSet<crate::TagId>,
 }
 
 // ── Aura types (Phase 4 step 4c) ─────────────────────────────────────────────

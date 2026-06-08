@@ -536,6 +536,7 @@ fn replay_summon_initiative_hash_stable() {
                     PoolKind::Ap     => None,
                     PoolKind::Mp     => None,
                 },
+                tags: Default::default(),
             };
             let ability = AbilityDef {
                 key: None, cost_ap: 1, costs: vec![],

@@ -146,6 +146,7 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
                 PoolKind::Mp     => map.get("mp").copied(),
             }
         },
+        tags: Default::default(),
     })
 }
 

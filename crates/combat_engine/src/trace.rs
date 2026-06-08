@@ -11,7 +11,7 @@
 //!
 //! # Schema version
 //!
-//! [`SCHEMA_VERSION`] is `46`. Any engine change that adds/removes RNG calls
+//! [`SCHEMA_VERSION`] is `48`. Any engine change that adds/removes RNG calls
 //! or changes the trace record shape MUST bump this constant (Phase 5 D2).
 
 use serde::{Deserialize, Serialize};
@@ -66,7 +66,9 @@ use crate::{
 /// `#[serde(default)]` still populates `pools[Hp]` for pre-v44 traces).
 /// Old v43 traces are incompatible — clean break.
 /// v46 → v47: `Event::HotHealed` + `Effect::TickHeal` + `StatusDef.heal_per_tick` (heal-over-time).
-pub const SCHEMA_VERSION: u32 = 47;
+/// v47 → v48: `Unit.tags` (BTreeSet<TagId>) added; `#[serde(default)]` → empty on pre-v48 traces.
+///            (Additive; Slices B/C add `AuraDef.affects_tags` + `PhaseEntry.tags` to the same v48 wire shape.)
+pub const SCHEMA_VERSION: u32 = 48;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

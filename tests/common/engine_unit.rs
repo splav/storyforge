@@ -17,7 +17,7 @@ use hexx::Hex;
 use storyforge::combat_engine::{
     content::{AbilityDef, CasterContext, ContentView, StatusDef, UnitTemplate},
     state::{ActiveStatus, Team, Unit, UnitId},
-    AbilityId, DiceExpr, PoolKind, RegenRule, StatusId,
+    AbilityId, DiceExpr, PoolKind, RegenRule, StatusId, TagId,
 };
 use storyforge::game::hex::hex_from_offset;
 
@@ -25,7 +25,7 @@ use storyforge::game::hex::hex_from_offset;
 
 /// Fluent builder for [`Unit`] in engine integration tests.
 ///
-/// **Defaults** (the dominant test case):\\
+/// **Defaults** (the dominant test case):\
 /// - `team`: `Team::Player`
 /// - `pos`: `hex_from_offset(0, 0)`
 /// - `Hp`: `(20, 20)`
@@ -37,6 +37,7 @@ use storyforge::game::hex::hex_from_offset;
 /// - `armor` / `armor_bonus` / `damage_taken_bonus`: `0`
 /// - `aoo_dice`: `None`
 /// - `initiative`: `None`
+/// - `tags`: empty
 /// - All regens follow the canonical pattern:
 ///   `Hp=None, Mana=Increment(1), Rage=None, Energy=Increment(1), Ap=RefillToMax, Mp=RefillToMax`
 pub struct EngineUnitBuilder {
@@ -68,6 +69,7 @@ pub struct EngineUnitBuilder {
     summoner: Option<UnitId>,
     template: Option<String>,
     initiative: Option<i32>,
+    tags: std::collections::BTreeSet<TagId>,
 }
 
 impl EngineUnitBuilder {
@@ -110,6 +112,7 @@ impl EngineUnitBuilder {
             summoner: None,
             template: None,
             initiative: None,
+            tags: std::collections::BTreeSet::new(),
         }
     }
 
@@ -210,6 +213,12 @@ impl EngineUnitBuilder {
         self
     }
 
+    /// Set creature tags on the built unit.
+    pub fn tags(mut self, tags: std::collections::BTreeSet<TagId>) -> Self {
+        self.tags = tags;
+        self
+    }
+
     /// Assemble and return the [`Unit`].
     pub fn build(self) -> Unit {
         use storyforge::combat_engine::enum_map::enum_map;
@@ -243,7 +252,7 @@ impl EngineUnitBuilder {
             pools,
             self.regens,
             self.template,
-        )
+        ).with_tags(self.tags)
     }
 }
 

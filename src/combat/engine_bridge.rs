@@ -498,6 +498,7 @@ fn build_engine_template_from_def(
                 combat_engine::PoolKind::Mp     => map.get("mp").copied(),
             }
         },
+        tags: Default::default(),
     }
 }
 

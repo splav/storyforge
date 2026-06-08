@@ -421,6 +421,7 @@ fn apply_initial_statuses_engine_side() {
                         PoolKind::Ap     => None,
                         PoolKind::Mp     => None,
                     },
+                    tags: Default::default(),
                 })
             } else {
                 None
