@@ -478,7 +478,13 @@ mod tests {
         for ability_id in &ability_ids {
             let def = &content.abilities[ability_id];
 
-            if sweep_skip.contains(&ability_id.0.as_str()) || is_weapon_attack(def) {
+            // Tag-gated abilities (requires/excludes_tags) are target-specific: the
+            // generic fixture target carries no tags, so legality refuses the cast
+            // (engine sim) while the AI outcome builder predicts the effect → divergence.
+            // In real play the AI only ever targets legal (tag-matching) units, so this
+            // is unreachable; the sweep can't exercise it. Covered by dedicated tag tests.
+            let tag_gated = !def.requires_tags.is_empty() || !def.excludes_tags.is_empty();
+            if sweep_skip.contains(&ability_id.0.as_str()) || is_weapon_attack(def) || tag_gated {
                 skipped += 1;
                 continue;
             }

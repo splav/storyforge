@@ -235,3 +235,42 @@ range       = 3
 statuses    = [
     { id = "vital_infusion", on = "target", duration = 2 },
 ]
+
+# ── ch3 «Остров швов» ────────────────────────────────────────────────────────
+
+# Пастух чинит ТОЛЬКО симбионтов (tag-предикат). 1 AP + 1 мана, ~+3 HP с INT 0.
+[[abilities]]
+id            = "shepherd_heal"
+name          = "Латание симбионта"
+target_type   = "single_ally"
+effect        = "heal"
+dice_count    = 1
+dice_sides    = 5
+costs         = [{ resource = "mana", amount = 1 }]
+cost_ap       = 1
+range         = 3
+requires_tags = ["symbiote"]
+
+# Орен: Живой панцирь — баф брони союзнику (+2 на 2 хода).
+[[abilities]]
+id          = "living_carapace"
+name        = "Живой панцирь"
+target_type = "single_ally"
+cost_ap     = 1
+costs       = [{ resource = "mana", amount = 3 }]
+range       = 3
+statuses    = [
+    { id = "living_carapace", on = "target", duration = 2 },
+]
+
+# Орен: Оцепенение — слоу врагу (−2 скорости на 2 хода).
+[[abilities]]
+id          = "numbness"
+name        = "Оцепенение"
+target_type = "single_enemy"
+cost_ap     = 1
+costs       = [{ resource = "mana", amount = 2 }]
+range       = 3
+statuses    = [
+    { id = "numbness", on = "target", duration = 2 },
+]

@@ -76,3 +76,27 @@ name          = "Вливание жизни"
 # Heal-over-time: restores 4 HP per tick over the caster's turns.
 # 2 rounds → +8 HP total.
 heal_per_tick = 4
+
+# ── ch3 «Остров швов» ────────────────────────────────────────────────────────
+
+[[statuses]]
+id          = "living_carapace"
+name        = "Живой панцирь"
+# Орен наращивает на союзнике слой живой брони — +2 к броне на 2 хода.
+armor_bonus = 2
+buff_class  = "armor_buff"
+
+[[statuses]]
+id          = "accumulator_field"
+name        = "Поле накопителя"
+# Баф-аура накопителя на Контейнер: живая батарея питает оболочку → +броня.
+# Выбить накопитель → аура спадает → босс уязвимее. В фазе 3 Контейнер теряет
+# тег symbiote → аура его не видит (питание отрезано) — лор-native обрыв.
+armor_bonus = 3
+buff_class  = "armor_buff"
+
+[[statuses]]
+id          = "numbness"
+name        = "Оцепенение"
+# Орен сковывает врага — −2 к скорости на 2 хода (контроль темпа, не урон).
+speed_bonus = -2
