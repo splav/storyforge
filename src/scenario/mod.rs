@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod combat_scene;
+pub mod init_fight;
 pub mod input;
 
 use crate::app_state::{AppState, CombatPhase};

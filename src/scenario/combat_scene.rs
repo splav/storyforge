@@ -28,7 +28,7 @@ pub struct BattleBackground;
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
 /// Спаунит героев и врагов по текущему сценарию/энкаунтеру. Только Commands.
-fn spawn_combatants(
+pub fn spawn_combatants(
     commands: &mut Commands,
     db: &GameDb,
     scenario: &ScenarioState,
@@ -318,7 +318,7 @@ fn spawn_combatants(
 
 /// Recursively collect all `target_name` strings from any `KeepAlive` node
 /// at any depth inside the victory condition tree.
-fn collect_keep_alive_names(cond: &VictoryCondition) -> std::collections::HashSet<&str> {
+pub(crate) fn collect_keep_alive_names(cond: &VictoryCondition) -> std::collections::HashSet<&str> {
     let mut names = std::collections::HashSet::new();
     walk_victory_names(cond, &mut names);
     names
@@ -344,7 +344,7 @@ fn walk_victory_names<'a>(
 /// Find the `marker_color` for a given `target_name` anywhere in the victory tree.
 /// Returns a neutral amber color `[0.9, 0.7, 0.1]` if the name is not found
 /// (should not happen in valid data — `validate_scenario` guards this).
-fn keep_alive_marker_color(cond: &VictoryCondition, name: &str) -> [f32; 3] {
+pub(crate) fn keep_alive_marker_color(cond: &VictoryCondition, name: &str) -> [f32; 3] {
     fn search(cond: &VictoryCondition, name: &str) -> Option<[f32; 3]> {
         match cond {
             VictoryCondition::KeepAlive {
