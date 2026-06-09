@@ -535,7 +535,6 @@ fn build_engine_template_from_def(
 }
 
 /// Build `EcsContentView` from the current ECS state.
-/// Build `EcsContentView` from the current ECS state.
 ///
 /// After 5c.1, `EcsContentView` only wraps `ActiveContent` — all per-combat
 /// state (caster contexts, auras, phase triggers) now lives on engine `Unit`
@@ -543,7 +542,10 @@ fn build_engine_template_from_def(
 ///
 /// Called from `bootstrap_combat_state`, `process_action_system`, and
 /// `advance_turn_system` (for dead-actor sirota-DoT ticks).
-pub(crate) fn build_ecs_content_view<'a>(content: &'a ActiveContent) -> EcsContentView<'a> {
+///
+/// Also used by `replay_engine_trace` to build a content view from layered
+/// campaign content without going through the full Bevy ECS.
+pub fn build_ecs_content_view<'a>(content: &'a ActiveContent) -> EcsContentView<'a> {
     EcsContentView {
         active_content: content,
     }

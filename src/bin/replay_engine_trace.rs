@@ -40,8 +40,10 @@ use combat_engine::{
     state::CombatState,
     step::step,
     trace::{parse_init, parse_step, post_state_hash_hex, InitLine, StepLine, SCHEMA_VERSION},
-    DiceRng, TomlContentView,
+    DiceRng,
 };
+use storyforge::combat::engine_bridge::build_ecs_content_view;
+use storyforge::content::content_view::{ActiveContent, ContentView};
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -49,6 +51,10 @@ struct Args {
     path: PathBuf,
     strict_content: bool,
     tolerance: f32,
+    /// Override auto-resolved campaign id (directory name under assets/data/campaigns/).
+    campaign: Option<String>,
+    /// Override auto-resolved scenario id (sub-directory under the campaign dir).
+    scenario: Option<String>,
 }
 
 fn parse_args() -> Args {
@@ -59,11 +65,14 @@ fn parse_args() -> Args {
         .unwrap_or("replay_engine_trace");
 
     let usage = format!(
-        "USAGE: {prog} <path> [--strict-content] [--tolerance <eps>]\n\
+        "USAGE: {prog} <path> [--strict-content] [--tolerance <eps>] \
+         [--campaign <id>] [--scenario <id>]\n\
          \n\
          <path>              Fight folder (contains engine.jsonl) or direct engine.jsonl path.\n\
          --strict-content    Treat content_hash mismatch as fatal error (exit 2).\n\
          --tolerance <eps>   f32 tolerance for Damage event 'raw' field (default 0.0).\n\
+         --campaign <id>     Override campaign id (directory name under assets/data/campaigns/).\n\
+         --scenario <id>     Override scenario id (sub-directory of the campaign dir).\n\
          \n\
          NOTE: Run from project root so 'assets/data' resolves correctly."
     );
@@ -76,6 +85,8 @@ fn parse_args() -> Args {
     let mut path: Option<PathBuf> = None;
     let mut strict_content = false;
     let mut tolerance: f32 = 0.0;
+    let mut campaign: Option<String> = None;
+    let mut scenario: Option<String> = None;
 
     let mut iter = argv[1..].iter();
     while let Some(a) = iter.next() {
@@ -90,6 +101,26 @@ fn parse_args() -> Args {
                     eprintln!("--tolerance: invalid f32 value '{val}'");
                     std::process::exit(1);
                 });
+            }
+            "--campaign" => {
+                campaign = Some(
+                    iter.next()
+                        .unwrap_or_else(|| {
+                            eprintln!("--campaign requires a value");
+                            std::process::exit(1);
+                        })
+                        .clone(),
+                );
+            }
+            "--scenario" => {
+                scenario = Some(
+                    iter.next()
+                        .unwrap_or_else(|| {
+                            eprintln!("--scenario requires a value");
+                            std::process::exit(1);
+                        })
+                        .clone(),
+                );
             }
             "--help" | "-h" => {
                 println!("{usage}");
@@ -112,6 +143,8 @@ fn parse_args() -> Args {
         path,
         strict_content,
         tolerance,
+        campaign,
+        scenario,
     }
 }
 
@@ -134,6 +167,70 @@ fn state_from_init(init: &InitLine) -> CombatState {
     state.set_next_synthetic_uid(init.next_synthetic_uid);
     state
 }
+
+// ── Overlay resolution ────────────────────────────────────────────────────────
+
+/// Resolve (campaign_dir, scenario_dir) from a session_id of the form
+/// `<timestamp>_<campaign>_<scenario>_<encounter>`.
+///
+/// The timestamp token (no internal underscores) is stripped first.
+/// Then we probe the filesystem under `campaigns_root` to find the longest
+/// campaign directory name that is a prefix of the remaining string (followed
+/// by `_`). Within that campaign we do the same for scenario directories.
+/// Returns `None` if the campaigns_root doesn't exist, no campaign matches,
+/// or no scenario matches.
+///
+/// Example: `"20260609T041509_bell_under_veil_ch3_ch3_theo"` →
+///   `(campaigns/bell_under_veil, campaigns/bell_under_veil/ch3)`
+fn resolve_overlay(session_id: &str, campaigns_root: &Path) -> Option<(PathBuf, PathBuf)> {
+    if !campaigns_root.is_dir() {
+        return None;
+    }
+
+    // Drop the timestamp prefix (everything up to and including the first '_').
+    let after_ts = session_id.split_once('_')?.1;
+
+    // Find the campaign dir whose name is the longest prefix of `after_ts`
+    // followed by '_' (or equal to `after_ts` if nothing remains).
+    let campaign_name = longest_dir_prefix(after_ts, campaigns_root)?;
+    let campaign_dir = campaigns_root.join(&campaign_name);
+
+    // The part after `<campaign_name>_` is `<scenario>_<encounter>`.
+    let after_campaign = after_ts
+        .strip_prefix(&campaign_name)
+        .and_then(|s| s.strip_prefix('_'))
+        .unwrap_or("");
+
+    // Find the scenario dir whose name is the longest prefix of `after_campaign`.
+    let scenario_name = longest_dir_prefix(after_campaign, &campaign_dir)?;
+    let scenario_dir = campaign_dir.join(&scenario_name);
+
+    Some((campaign_dir, scenario_dir))
+}
+
+/// Returns the name of the sub-directory of `parent` whose name is the longest
+/// prefix of `s` followed by `_` (or exactly equal to `s`).
+/// Returns `None` if no such directory exists.
+fn longest_dir_prefix(s: &str, parent: &Path) -> Option<String> {
+    let mut best: Option<String> = None;
+    let entries = std::fs::read_dir(parent).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !entry.path().is_dir() {
+            continue;
+        }
+        // Candidate matches if `s` starts with `<name>_` or `s == name`.
+        let is_prefix = s == name || s.starts_with(&format!("{name}_"));
+        if is_prefix {
+            // Take the longest match.
+            if best.as_ref().is_none_or(|b| name.len() > b.len()) {
+                best = Some(name);
+            }
+        }
+    }
+    best
+}
+
 
 // ── Event comparison ──────────────────────────────────────────────────────────
 
@@ -282,15 +379,50 @@ fn main() {
         );
     }
 
-    // 4. Load content and check hash.
-    let data_dir = Path::new("assets/data");
-    let content = TomlContentView::load_from_dir(data_dir).unwrap_or_else(|e| {
-        eprintln!("warning: cannot load content from assets/data: {e}");
-        eprintln!(
-            "         falling back to empty content (abilities/statuses will all be unknown)"
-        );
-        TomlContentView::empty()
-    });
+    // 4. Load layered content (global + campaign + scenario) and check hash.
+    //
+    // Overlay dirs are resolved from CLI flags first; if neither is given,
+    // auto-resolved from `init.session_id`.  If resolution fails (standalone
+    // trace or unknown campaign), we fall back to global-only content by
+    // passing nonexistent placeholder dirs — `load_layered` treats missing
+    // dirs gracefully (each level is optional).
+    let campaigns_root = Path::new("assets/data/campaigns");
+
+    let overlay = match (&args.campaign, &args.scenario) {
+        (Some(campaign_id), Some(scenario_id)) => {
+            let campaign_dir = campaigns_root.join(campaign_id);
+            let scenario_dir = campaign_dir.join(scenario_id);
+            Some((campaign_dir, scenario_dir))
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            eprintln!("error: --campaign and --scenario must both be provided when overriding");
+            std::process::exit(1);
+        }
+        (None, None) => resolve_overlay(&init.session_id, campaigns_root),
+    };
+
+    let (campaign_dir, scenario_dir) = match overlay {
+        Some((c, s)) => {
+            println!(
+                "info: loading layered content — campaign={} scenario={}",
+                c.display(),
+                s.display()
+            );
+            (c, s)
+        }
+        None => {
+            println!("info: standalone/global-only content (no campaign overlay resolved)");
+            // Nonexistent paths → load_layered contributes nothing from those layers.
+            (
+                PathBuf::from("__no_campaign__"),
+                PathBuf::from("__no_scenario__"),
+            )
+        }
+    };
+
+    let content_view = ContentView::load_layered(&campaign_dir, &scenario_dir);
+    let active = ActiveContent(content_view);
+    let ecs_view = build_ecs_content_view(&active);
 
     match check_content_hash(&init.content_hash) {
         Ok(()) => {}
@@ -324,7 +456,7 @@ fn main() {
         };
 
         let (live_events, live_ctx) =
-            match step(&mut state, recorded.action.clone(), &mut rng, &content) {
+            match step(&mut state, recorded.action.clone(), &mut rng, &ecs_view) {
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("error: step {idx} failed during replay: {e:?}");
@@ -365,4 +497,71 @@ fn main() {
     println!("OK: {n_steps} step(s) replayed — all events, rng_calls, and state hashes match.");
     println!("    session_id={}", init.session_id);
     println!("    final_hash={final_hash}");
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Real `assets/data/campaigns` tree is used for fidelity.
+    /// `bell_under_veil/ch3` exists in the repo.
+    #[test]
+    fn resolve_overlay_bell_under_veil_ch3() {
+        let campaigns_root = Path::new("assets/data/campaigns");
+        let result = resolve_overlay(
+            "20260609T041509_bell_under_veil_ch3_ch3_theo",
+            campaigns_root,
+        );
+        assert!(result.is_some(), "expected Some but got None");
+        let (campaign_dir, scenario_dir) = result.unwrap();
+        assert_eq!(
+            campaign_dir,
+            campaigns_root.join("bell_under_veil"),
+            "campaign_dir mismatch"
+        );
+        assert_eq!(
+            scenario_dir,
+            campaigns_root.join("bell_under_veil").join("ch3"),
+            "scenario_dir mismatch"
+        );
+    }
+
+    #[test]
+    fn resolve_overlay_standalone_session_id_returns_none() {
+        let campaigns_root = Path::new("assets/data/campaigns");
+        // "standalone" is not a campaign directory that exists.
+        let result = resolve_overlay("20260101T000000_standalone_enc1", campaigns_root);
+        assert!(result.is_none(), "expected None for unknown campaign");
+    }
+
+    #[test]
+    fn resolve_overlay_unknown_campaign_returns_none() {
+        let campaigns_root = Path::new("assets/data/campaigns");
+        let result = resolve_overlay(
+            "20260101T000000_nonexistent_campaign_sc1_enc1",
+            campaigns_root,
+        );
+        assert!(result.is_none(), "expected None for nonexistent campaign");
+    }
+
+    #[test]
+    fn load_layered_contains_whisper_from_beyond() {
+        // Smoke-test: the campaign layer should expose whisper_from_beyond.
+        let campaigns_root = Path::new("assets/data/campaigns");
+        let campaign_dir = campaigns_root.join("bell_under_veil");
+        let scenario_dir = campaign_dir.join("ch3");
+        if !scenario_dir.is_dir() {
+            // Skip if tree not present (shouldn't happen in this repo).
+            return;
+        }
+        let cv = ContentView::load_layered(&campaign_dir, &scenario_dir);
+        assert!(
+            cv.abilities.contains_key(&combat_engine::AbilityId(
+                "whisper_from_beyond".to_owned()
+            )),
+            "whisper_from_beyond not found in layered content — campaign layer not loaded?"
+        );
+    }
 }
