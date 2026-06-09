@@ -153,8 +153,9 @@ hex_row = 4
 hex_col = 4
 hex_row = 5
 
-# 2 тяжёлых танка впереди + 3 стрелка с искрой за их спинами (нечётные ряды,
-# col 7 — самый тыл поля).
+# 2 тяжёлых танка впереди + 2 стрелка с искрой за их спинами (нечётные ряды,
+# col 7 — самый тыл поля). Стрелков 2 (не 3): троё на партию-из-троих с двумя
+# танками впереди — перебор по дальнему давлению (плейтест «сложновато»).
 [[encounters.enemies]]
 template = "heavy_merc"
 hex_col  = 6
@@ -168,10 +169,6 @@ hex_row  = 4
 template = "spark_shooter"
 hex_col  = 7
 hex_row  = 1
-[[encounters.enemies]]
-template = "spark_shooter"
-hex_col  = 7
-hex_row  = 3
 [[encounters.enemies]]
 template = "spark_shooter"
 hex_col  = 7
