@@ -1028,8 +1028,58 @@ fn step_inner(
                 interrupted = true;
             }
 
+            // ── No-stacking on interrupt: slide off an occupied pass-through hex ──
+            //
+            // Pre-validate allows a path to *pass through* a friendly-occupied hex
+            // (only the final hex and enemy-occupied intermediates are rejected).
+            // It assumes the mover always reaches the validated final hex. But an
+            // interrupt (AoO / trap / reveal) halts movement on whatever hex the
+            // current step just landed on — which may be one of those friendly
+            // pass-through hexes, leaving two alive units stacked (violates the
+            // "landing must be empty" rule, and trips the bridge's one-unit-per-hex
+            // index → debug_assert panic / silent corruption in release).
+            //
+            // Fix: when a halt would rest the mover on a hex occupied by another
+            // alive unit, slide it forward along the already-validated remaining
+            // path to the first unoccupied hex. The pre-validated final hex is
+            // guaranteed unoccupied (only the mover changes position within a step,
+            // and deaths only free cells), so a legal landing always exists. No new
+            // RNG is drawn and no further reactions are scanned for the slide — the
+            // mover's turn is still interrupted; it just cannot physically rest on
+            // an ally's cell.
+            if halt && state.unit(mover_id).is_some_and(|u| u.is_alive()) {
+                let resting_occupied = state
+                    .units()
+                    .iter()
+                    .any(|u| u.is_alive() && u.id != mover_id && u.pos == new_pos);
+                if resting_occupied {
+                    // Remaining queued path hexes, in order, for this same Move.
+                    let next_free = effect_queue.iter().find_map(|e| match e {
+                        Effect::MovePosition { to, .. }
+                            if !state
+                                .units()
+                                .iter()
+                                .any(|u| u.is_alive() && u.id != mover_id && u.pos == *to) =>
+                        {
+                            Some(*to)
+                        }
+                        _ => None,
+                    });
+                    if let Some(landing) = next_free {
+                        if let Some(u) = state.unit_mut(mover_id) {
+                            u.pos = landing;
+                        }
+                        events.push(Event::UnitMoved {
+                            actor: mover_id,
+                            from: new_pos,
+                            to: landing,
+                        });
+                    }
+                }
+            }
+
             // Update prev_pos for the next move step.
-            // (Irrelevant once the mover is dead, but harmless to advance.)
+            // (Irrelevant once the mover is dead / halted, but harmless to advance.)
             prev_pos = new_pos;
         }
 

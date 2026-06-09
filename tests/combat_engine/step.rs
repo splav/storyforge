@@ -973,6 +973,91 @@ fn aoo_leaving_two_enemies_both_fire_then_halt() {
     );
 }
 
+/// Regression (ch3 `ch3_theo` crash): a move whose path *passes through* a
+/// friendly-occupied hex must never come to rest on that hex when an AoO
+/// interrupts the move on the pass-through step.
+///
+/// Pre-validate allows pathing through allies (only the final hex and
+/// enemy-occupied intermediates are rejected). The original bug: an AoO fired on
+/// the first step, set `halt`, and left the mover stacked on the ally's cell —
+/// two alive units on one hex, tripping the bridge's one-unit-per-hex index.
+///
+/// Layout (even-r offsets):
+///   mover  at (0,0), path = [(1,0), (2,0)]
+///   ally   at (1,0)  — first path hex (pass-through), occupied
+///   enemy  at (-1,0) — adjacent to (0,0), NOT adjacent to (1,0)
+///
+/// Stepping (0,0)→(1,0) leaves the enemy's reach → AoO fires → halt. The fix
+/// slides the mover off the ally's cell to the next free hex (2,0).
+#[test]
+fn move_interrupt_on_ally_passthrough_slides_to_free_hex() {
+    let mover_start = hex_from_offset(0, 0);
+    let ally_hex = hex_from_offset(1, 0); // pass-through, occupied
+    let free_hex = hex_from_offset(2, 0); // final, empty
+    let enemy_hex = hex_from_offset(-1, 0);
+
+    // Sanity: enemy adjacent to start, not to the pass-through hex (so the AoO
+    // fires exactly on the first step and halts the mover on the ally's cell).
+    assert_eq!(mover_start.unsigned_distance_to(enemy_hex), 1);
+    assert!(ally_hex.unsigned_distance_to(enemy_hex) > 1);
+
+    let mut mover = make_unit(1, Team::Player, 0, 0);
+    mover.pos = mover_start;
+    mover.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
+
+    let mut ally = make_unit(2, Team::Player, 0, 0);
+    ally.pos = ally_hex;
+
+    let aoo = DiceExpr::new(0, 6, 2); // 2 raw, non-lethal vs default 20 hp
+    let mut enemy = make_unit(3, Team::Enemy, 0, 0);
+    enemy.pos = enemy_hex;
+    enemy.reactions_left = 1;
+    enemy.aoo_dice = Some(aoo);
+
+    let mut state = state_with(vec![mover, ally, enemy]);
+
+    let (events, ctx) = step(
+        &mut state,
+        Action::Move {
+            actor: UnitId(1),
+            path: vec![ally_hex, free_hex],
+        },
+        &mut ExpectedValue,
+        &StubContent::with_weapon(aoo),
+    )
+    .expect("move that halts on an ally hex must succeed");
+
+    // The AoO fired and interrupted the move.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ReactionFired { .. })),
+        "AoO must fire on the disengage step"
+    );
+    assert!(ctx.interrupted, "AoO sets ctx.interrupted");
+
+    // ── Core invariant: no two alive units share a hex. ──
+    let alive: Vec<_> = state.units().iter().filter(|u| u.is_alive()).collect();
+    for (i, a) in alive.iter().enumerate() {
+        for b in &alive[i + 1..] {
+            assert_ne!(
+                a.pos, b.pos,
+                "two alive units share a hex: {:?} and {:?} at {:?}",
+                a.id, b.id, a.pos
+            );
+        }
+    }
+
+    // The mover must have slid off the ally's cell onto the next free hex.
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pos,
+        free_hex,
+        "mover must land on the free hex, not stack on the ally"
+    );
+    // Ally is undisturbed.
+    assert_eq!(state.unit(UnitId(2)).unwrap().pos, ally_hex);
+}
+
 // Note: trap_on_arrival_triggers_and_halts is in tests/combat_engine/trap.rs
 // where the necessary Stub/hazard/run helpers are already defined.
 

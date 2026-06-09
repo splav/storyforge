@@ -72,7 +72,14 @@ use crate::{
 ///            Slice C1 adds `PhaseEntry.tags` (`Option<BTreeSet<TagId>>`, phase tag-replace,
 ///            `#[serde(default)]` → `None` on pre-C1 traces); `PhaseTransition.tags` carries the
 ///            same value at runtime (not serialized separately).
-pub const SCHEMA_VERSION: u32 = 48;
+/// v48 → v49: move-interrupt no-stacking fix. When a Move halts (AoO / trap /
+///            reveal) on a hex still occupied by another alive unit (a friendly
+///            pass-through cell that pre-validate allowed), the mover now slides
+///            forward to the first unoccupied hex on the remaining validated path,
+///            emitting one extra `UnitMoved`. No RNG/effect-order change; only the
+///            event stream + post-state of such halting steps differ. Behavioral
+///            change → SCHEMA bump (no wire-shape change).
+pub const SCHEMA_VERSION: u32 = 49;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

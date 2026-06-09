@@ -244,7 +244,10 @@ use combat_engine::AbilityId;
 /// objects and still replay correctly.
 /// v46 → v47: `Event::HotHealed` + `Effect::TickHeal` + `StatusDef.heal_per_tick` (heal-over-time).
 /// v47 → v48: `Unit.tags` (BTreeSet<TagId>) added; `#[serde(default)]` → empty on pre-v48 traces.
-pub const SCHEMA_VERSION: u32 = 48;
+/// v48 → v49: move-interrupt no-stacking fix (see `combat_engine::trace` v49 note) —
+///            halting on an occupied pass-through hex now slides the mover to the
+///            next free hex, adding one `UnitMoved` on such steps. Behavioral; no wire change.
+pub const SCHEMA_VERSION: u32 = 49;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init
