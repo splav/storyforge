@@ -479,12 +479,11 @@ fn build_template_member(
     };
     let bridge_regen = standard_regen();
 
-    let caster_ctx = make_caster_ctx(
-        &tpl.stats,
-        Some(&equipment),
-        active_content,
-        tpl.path.as_deref(),
-    );
+    // Template-based party members do NOT receive a `CombatPath` component in
+    // `spawn_combatants` (only class heroes and enemies do), so the ECS
+    // `bootstrap_combat_state` reads `crit_fail_outcome = Miss` for them. Pass
+    // `None` here to mirror that — sourcing from `tpl.path` would diverge.
+    let caster_ctx = make_caster_ctx(&tpl.stats, Some(&equipment), active_content, None);
     let aoo_dice = make_aoo_dice(&tpl.ability_ids, &caster_ctx, &tpl.stats, active_content);
     let passives = collect_passives(&tpl.ability_ids, active_content);
 
