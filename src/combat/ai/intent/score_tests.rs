@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::config::difficulty::DifficultyProfile;

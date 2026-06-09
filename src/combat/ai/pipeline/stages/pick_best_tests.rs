@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};

@@ -30,8 +30,8 @@
 //! whose initiative total is unique, and (for tied groups) only that the SET of
 //! identities in each equal-initiative run matches.
 
-use bevy::prelude::*;
 use bevy::ecs::system::RunSystemOnce;
+use bevy::prelude::*;
 use std::collections::HashMap;
 
 use combat_engine::{
@@ -39,22 +39,22 @@ use combat_engine::{
     DiceRng,
 };
 
+use storyforge::combat::ai::world::tags::AbilityTagCache;
 use storyforge::combat::engine_bridge::{
-    bootstrap_combat_state, apply_bridge_queues_pre_projection,
-    CombatStateRes, UnitIdMap, BridgeQueues,
+    apply_bridge_queues_pre_projection, bootstrap_combat_state, BridgeQueues, CombatStateRes,
+    UnitIdMap,
 };
+use storyforge::combat::DiceRngRes;
 use storyforge::content::campaigns::load_campaigns;
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::scenarios::SceneDef;
-use storyforge::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective,
-    GameDb, HexCorpses, HexPositions, PresetInitiative, ScenarioState, TurnQueue, UiDirty,
-};
 use storyforge::game::combat_log::CombatLog;
-use storyforge::scenario::init_fight::{init_fight, CombatantSource};
+use storyforge::game::resources::{
+    CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, GameDb, HexCorpses,
+    HexPositions, PresetInitiative, ScenarioState, TurnQueue, UiDirty,
+};
 use storyforge::scenario::combat_scene::spawn_combatants;
-use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::combat::DiceRngRes;
+use storyforge::scenario::init_fight::{init_fight, CombatantSource};
 
 #[path = "common/mod.rs"]
 mod common;
@@ -67,11 +67,11 @@ const TEST_SEED: u64 = 0xDEAD_C0DE_1234_5678;
 /// Build a headless app that can run `spawn_combatants` + `bootstrap_combat_state`.
 fn scenario_app(content: storyforge::content::content_view::ContentView) -> App {
     use bevy::math::Vec2;
-    use storyforge::combat::ai::log::{AiLogger, PendingAiLogEntries};
     use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
+    use storyforge::combat::ai::log::{AiLogger, PendingAiLogEntries};
+    use storyforge::game::messages::ActionInput;
     use storyforge::ui::animation::AnimationQueue;
     use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
-    use storyforge::game::messages::ActionInput;
 
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -125,20 +125,18 @@ fn run_ecs_bootstrap(
         campaigns: HashMap::new(),
         campaign_order: Vec::new(),
     };
-    db.scenarios.insert(scenario_id.to_owned(), scenario.clone());
+    db.scenarios
+        .insert(scenario_id.to_owned(), scenario.clone());
 
     // Insert scenario routing resources.
-    app.world_mut()
-        .insert_resource(ScenarioState {
-            scenario_id: scenario_id.to_owned(),
-            scene_index,
-        });
+    app.world_mut().insert_resource(ScenarioState {
+        scenario_id: scenario_id.to_owned(),
+        scene_index,
+    });
     app.world_mut().insert_resource(db);
 
     // Seed the RNG.
-    app.world_mut()
-        .resource_mut::<DiceRngRes>()
-        .0 = DiceRng::with_seed(seed);
+    app.world_mut().resource_mut::<DiceRngRes>().0 = DiceRng::with_seed(seed);
 
     // Spawn combatants (mirrors spawn_combat_scene).
     app.world_mut()
@@ -207,11 +205,16 @@ fn spawn_combatants_system(
 fn apply_starting_hex_positions(
     mut commands: Commands,
     mut positions: ResMut<HexPositions>,
-    combatants: Query<(Entity, &storyforge::game::components::StartingHexPos), With<storyforge::game::components::Combatant>>,
+    combatants: Query<
+        (Entity, &storyforge::game::components::StartingHexPos),
+        With<storyforge::game::components::Combatant>,
+    >,
 ) {
     for (entity, starting_pos) in combatants.iter() {
         positions.insert(entity, starting_pos.0);
-        commands.entity(entity).remove::<storyforge::game::components::StartingHexPos>();
+        commands
+            .entity(entity)
+            .remove::<storyforge::game::components::StartingHexPos>();
     }
 }
 
@@ -351,7 +354,10 @@ fn init_fight_matches_ecs_bootstrap_for_all_campaign_encounters() {
             if !errs.is_empty() {
                 failures.push(format!(
                     "FAIL  {case_name}\n{}",
-                    errs.iter().map(|e| format!("      {e}")).collect::<Vec<_>>().join("\n"),
+                    errs.iter()
+                        .map(|e| format!("      {e}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
                 ));
             }
         }
@@ -516,9 +522,7 @@ fn compare_turn_order(
 }
 
 /// Map each queued UnitId → (identity, initiative total) in `state`.
-fn order_as_identities(
-    state: &combat_engine::state::CombatState,
-) -> Vec<(Identity, i32)> {
+fn order_as_identities(state: &combat_engine::state::CombatState) -> Vec<(Identity, i32)> {
     state
         .turn_queue
         .order
@@ -544,7 +548,10 @@ fn compare_units(
             if ru.$field != cu.$field {
                 errs.push(format!(
                     "unit {:?}: .{} differs\n        ref:  {:?}\n        cand: {:?}",
-                    ident, stringify!($field), ru.$field, cu.$field
+                    ident,
+                    stringify!($field),
+                    ru.$field,
+                    cu.$field
                 ));
             }
         };

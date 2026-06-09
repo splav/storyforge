@@ -34,8 +34,8 @@ use crate::content::{
     races::CritFailEffect,
     scenarios::{active_party, active_party_statuses, PartyMemberDef, ScenarioDef},
 };
-use combat_engine::AbilityId;
 use combat_engine::modifier;
+use combat_engine::AbilityId;
 
 use super::combat_scene::{collect_keep_alive_names, keep_alive_marker_color};
 
@@ -61,10 +61,7 @@ pub enum CombatantSource<'a> {
         party_statuses: Vec<String>,
     },
     /// Enemy from the encounter definition.
-    Enemy {
-        def: &'a EnemyDef,
-        uid: UnitId,
-    },
+    Enemy { def: &'a EnemyDef, uid: UnitId },
 }
 
 impl CombatantSource<'_> {
@@ -213,8 +210,7 @@ pub fn init_fight(
     let mut units = Vec::with_capacity(sources.len());
     let mut metas: Vec<ProjectionMeta> = Vec::with_capacity(sources.len());
     for src in &sources {
-        let (unit, meta) =
-            build_combatant(src, &active_content, &keep_alive_names, encounter);
+        let (unit, meta) = build_combatant(src, &active_content, &keep_alive_names, encounter);
         units.push(unit);
         metas.push(meta);
     }
@@ -743,10 +739,7 @@ fn make_aoo_dice(
 }
 
 /// Collect passive ability ids — mirrors the `passives` loop in `bootstrap_combat_state`.
-fn collect_passives(
-    ability_ids: &[AbilityId],
-    active_content: &ActiveContent,
-) -> Vec<AbilityId> {
+fn collect_passives(ability_ids: &[AbilityId], active_content: &ActiveContent) -> Vec<AbilityId> {
     ability_ids
         .iter()
         .filter(|aid| {

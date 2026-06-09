@@ -231,7 +231,6 @@ fn longest_dir_prefix(s: &str, parent: &Path) -> Option<String> {
     best
 }
 
-
 // ── Event comparison ──────────────────────────────────────────────────────────
 
 /// Compare two event slices.  When `tolerance == 0.0` this is byte-equal.
@@ -558,9 +557,8 @@ mod tests {
         }
         let cv = ContentView::load_layered(&campaign_dir, &scenario_dir);
         assert!(
-            cv.abilities.contains_key(&combat_engine::AbilityId(
-                "whisper_from_beyond".to_owned()
-            )),
+            cv.abilities
+                .contains_key(&combat_engine::AbilityId("whisper_from_beyond".to_owned())),
             "whisper_from_beyond not found in layered content — campaign layer not loaded?"
         );
     }

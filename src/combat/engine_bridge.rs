@@ -175,10 +175,8 @@ pub(crate) struct UnitBuildInput {
         combat_engine::PoolKind,
         Option<combat_engine::state::Pool>,
     >,
-    pub regen_per_pool: combat_engine::enum_map::EnumMap<
-        combat_engine::PoolKind,
-        combat_engine::RegenRule,
-    >,
+    pub regen_per_pool:
+        combat_engine::enum_map::EnumMap<combat_engine::PoolKind, combat_engine::RegenRule>,
     pub template_id: Option<String>,
 }
 

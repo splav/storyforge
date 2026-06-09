@@ -242,8 +242,7 @@ pub fn start_campaign_fresh(
     campaign_id: &str,
     paths: Option<&PersistencePaths>,
     slot: u8,
-    #[cfg_attr(not(feature = "dev"), allow(unused_variables))]
-    settings: &GameSettings,
+    #[cfg_attr(not(feature = "dev"), allow(unused_variables))] settings: &GameSettings,
 ) {
     let camp = db
         .campaigns
@@ -276,13 +275,9 @@ pub fn start_campaign_fresh(
         Some(&campaign_state.flags),
     );
     if let Some(p) = paths {
-        if let Err(e) = save_repo::record_progress(
-            &p.0,
-            slot,
-            &campaign_state,
-            &start_scenario,
-            start_index,
-        ) {
+        if let Err(e) =
+            save_repo::record_progress(&p.0, slot, &campaign_state, &start_scenario, start_index)
+        {
             warn!("autosave on new game failed: {e}");
         }
     }
