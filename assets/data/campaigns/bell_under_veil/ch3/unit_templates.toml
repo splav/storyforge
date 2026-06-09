@@ -145,7 +145,7 @@ race  = "grafted"
 path  = "pact"
 speed = 3
 
-stats     = { max_hp = 30, strength = 0, dexterity = 0, constitution = 6, intelligence = 0, wisdom = 0, charisma = -4 }
+stats     = { max_hp = 60, strength = 0, dexterity = 0, constitution = 6, intelligence = 0, wisdom = 0, charisma = -4 }
 equipment = { main_hand = "fangs", chest = "heavy_plate", legs = "plate_greaves", feet = "iron_boots" }
 
 ability_ids = ["melee_attack"]
@@ -160,7 +160,7 @@ race  = "grafted"
 path  = "pact"
 speed = 4
 
-stats     = { max_hp = 30, strength = 0, dexterity = 2, constitution = 4, intelligence = 5, wisdom = 2, charisma = -4 }
+stats     = { max_hp = 60, strength = 0, dexterity = 2, constitution = 4, intelligence = 5, wisdom = 2, charisma = -4 }
 equipment = { main_hand = "dagger", chest = "plate_armor", legs = "leather_pants", feet = "leather_boots" }
 resources = { mana = 10 }
 
@@ -177,7 +177,7 @@ race  = "aberration"
 path  = "pact"
 speed = 6
 
-stats     = { max_hp = 30, strength = 0, dexterity = 5, constitution = 2, intelligence = 5, wisdom = 2, charisma = -4 }
+stats     = { max_hp = 60, strength = 0, dexterity = 5, constitution = 2, intelligence = 5, wisdom = 2, charisma = -4 }
 equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
 resources = { mana = 10 }
 
