@@ -1,14 +1,15 @@
 #![allow(clippy::type_complexity)]
 use super::render::{
     HexBorder, HexCellLink, HexGridOffset, HexHover, HexHpLabel, HexManaLabel, HexMaterials,
-    HexNameLabel,
+    HexNameLabel, HexStatusBadge, STATUS_BADGE_SLOTS,
 };
 use crate::combat::engine_bridge::CombatStateRes;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ActiveContent;
+use crate::content::statuses::StatusDef;
 use crate::game::components::{
-    ActionPoints, ActiveCombatant, Dead, Energy, Faction, HexCombatantQ, Mana, Rage, Team,
-    UnitToken, Vital,
+    ActionPoints, ActiveCombatant, Dead, Energy, Faction, HexCombatantQ, Mana, Rage, StatusEffects,
+    Team, UnitToken, Vital,
 };
 use crate::game::hex::{hex_circle, hex_line, Hex, LAYOUT};
 use crate::game::hex_map::HexMap;
@@ -50,6 +51,7 @@ pub fn ui_dirty_bridge(
     rage_q: Query<(), Changed<Rage>>,
     energy_q: Query<(), Changed<Energy>>,
     ap_q: Query<(), Changed<ActionPoints>>,
+    status_q: Query<(), Changed<StatusEffects>>,
     mut dirty: ResMut<UiDirty>,
     mut prev: Local<DirtyBridgePrev>,
 ) {
@@ -79,7 +81,8 @@ pub fn ui_dirty_bridge(
             | UiDirtyFlags::MOVE_BTN;
     }
 
-    if sel.selected_ability != prev.ability {
+    let ability_changed = sel.selected_ability != prev.ability;
+    if ability_changed {
         prev.ability = sel.selected_ability.clone();
         dirty.0 |= UiDirtyFlags::OVERLAY | UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::PHASE_HINT;
     }
@@ -102,7 +105,8 @@ pub fn ui_dirty_bridge(
         dirty.0 |= UiDirtyFlags::OVERLAY
             | UiDirtyFlags::HEX_FILL
             | UiDirtyFlags::LABELS
-            | UiDirtyFlags::TOKENS;
+            | UiDirtyFlags::TOKENS
+            | UiDirtyFlags::STATUS_BADGES;
     }
 
     // Corpse layer mutations: cell fill / token / labels read corpses via
@@ -113,7 +117,8 @@ pub fn ui_dirty_bridge(
         dirty.0 |= UiDirtyFlags::HEX_FILL
             | UiDirtyFlags::LABELS
             | UiDirtyFlags::TOKENS
-            | UiDirtyFlags::TOOLTIP;
+            | UiDirtyFlags::TOOLTIP
+            | UiDirtyFlags::STATUS_BADGES;
     }
 
     if queue.is_changed() {
@@ -136,9 +141,21 @@ pub fn ui_dirty_bridge(
         dirty.0 |= UiDirtyFlags::OVERLAY | UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::MOVE_BTN;
     }
 
-    if hover.0 != prev.hover {
+    if !status_q.is_empty() {
+        dirty.0 |= UiDirtyFlags::STATUS_BADGES;
+    }
+
+    let hover_changed = hover.0 != prev.hover;
+    if hover_changed {
         prev.hover = hover.0;
         dirty.0 |= UiDirtyFlags::TOOLTIP | UiDirtyFlags::HEX_FILL;
+    }
+
+    // Recompute forecast whenever hover or selected ability changes and an
+    // ability is currently selected (cheap gate — compute_forecast itself
+    // handles the case where the target is invalid and clears the forecast).
+    if (hover_changed || ability_changed) && sel.selected_ability.is_some() {
+        dirty.0 |= UiDirtyFlags::FORECAST;
     }
 }
 
@@ -169,6 +186,7 @@ pub struct HexLabelParams<'w, 's> {
             Without<HexNameLabel>,
             Without<HexHpLabel>,
             Without<HexManaLabel>,
+            Without<HexStatusBadge>,
         ),
     >,
     pub name_labels: Query<
@@ -184,6 +202,7 @@ pub struct HexLabelParams<'w, 's> {
             Without<HexBorder>,
             Without<HexHpLabel>,
             Without<HexManaLabel>,
+            Without<HexStatusBadge>,
         ),
     >,
     pub hp_labels: Query<
@@ -199,6 +218,7 @@ pub struct HexLabelParams<'w, 's> {
             Without<HexBorder>,
             Without<HexNameLabel>,
             Without<HexManaLabel>,
+            Without<HexStatusBadge>,
         ),
     >,
     pub mana_labels: Query<
@@ -214,6 +234,7 @@ pub struct HexLabelParams<'w, 's> {
             Without<HexBorder>,
             Without<HexNameLabel>,
             Without<HexHpLabel>,
+            Without<HexStatusBadge>,
         ),
     >,
 }
@@ -516,6 +537,159 @@ pub fn update_hex_visuals(
     }
 }
 
+// ── Status badge helpers ──────────────────────────────────────────────────────
+
+/// Tint category used for badge coloring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusTint {
+    /// Buffs: green. Heuristic: has a positive `buff_class` or positive armor.
+    Buff,
+    /// Debuffs: red. Heuristic: deals DoT, skips turn, or causes disadvantage.
+    Debuff,
+    /// Neither clearly buff nor debuff: gray.
+    Neutral,
+}
+
+impl StatusTint {
+    pub fn to_color(self) -> Color {
+        match self {
+            StatusTint::Buff => Color::srgb(0.30, 0.85, 0.40),
+            StatusTint::Debuff => Color::srgb(0.90, 0.25, 0.20),
+            StatusTint::Neutral => Color::srgb(0.65, 0.65, 0.65),
+        }
+    }
+}
+
+/// Classify a status definition as buff, debuff, or neutral.
+///
+/// Rule (simple, documented so the inspection panel can reuse it):
+/// - **Debuff** if `dot_dice.is_some()` OR `skips_turn` OR `causes_disadvantage`.
+/// - **Buff** if `buff_class.is_some()` OR `armor_bonus > 0`.
+/// - **Neutral** otherwise.
+///
+/// Debuff check takes priority over buff to handle mixed-stats statuses correctly.
+pub fn classify_status(def: &StatusDef) -> StatusTint {
+    if def.dot_dice.is_some() || def.skips_turn || def.causes_disadvantage {
+        StatusTint::Debuff
+    } else if def.buff_class.is_some() || def.bonuses.armor_bonus > 0 {
+        StatusTint::Buff
+    } else {
+        StatusTint::Neutral
+    }
+}
+
+/// Produce the short abbreviation displayed on a badge (max 3 chars).
+///
+/// Takes the first char that is a Cyrillic or Latin letter from the name,
+/// plus the second such char if present, to keep it compact on small badges.
+fn status_abbrev(name: &str) -> String {
+    let mut letters = name.chars().filter(|c| c.is_alphabetic()).take(2);
+    match (letters.next(), letters.next()) {
+        (Some(a), Some(b)) => format!("{a}{b}"),
+        (Some(a), None) => a.to_string(),
+        _ => "?".to_string(),
+    }
+}
+
+/// Updates the status-badge label slots for all hex cells.
+///
+/// Gated on `UiDirtyFlags::STATUS_BADGES`. Each occupied cell shows up to
+/// `STATUS_BADGE_SLOTS` badges (colored abbrev + rounds). Slots past the
+/// unit's count are hidden. If a unit has more statuses than fit, the last
+/// visible slot shows "+k" overflow text.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn update_hex_status_badges(
+    dirty: Res<UiDirty>,
+    content: Res<ActiveContent>,
+    map: HexMap,
+    cells: Query<(Entity, &Hex, &Children)>,
+    combatant_q: Query<HexCombatantQ>,
+    status_q: Query<&StatusEffects>,
+    mut badge_q: Query<
+        (
+            &HexCellLink,
+            &HexStatusBadge,
+            &mut Text2d,
+            &mut TextColor,
+            &mut Visibility,
+        ),
+        (
+            With<HexStatusBadge>,
+            Without<HexNameLabel>,
+            Without<HexHpLabel>,
+            Without<HexManaLabel>,
+            Without<HexBorder>,
+        ),
+    >,
+) {
+    if !dirty.0.contains(UiDirtyFlags::STATUS_BADGES) {
+        return;
+    }
+
+    for (link, badge, mut text, mut color, mut vis) in &mut badge_q {
+        let occupant = super::render::label_occupant(link, &cells, &map);
+
+        // Only show badges for alive (non-dead) units.
+        let is_alive = occupant
+            .and_then(|e| combatant_q.get(e).ok())
+            .map(|c| !c.is_dead)
+            .unwrap_or(false);
+
+        let statuses = occupant
+            .filter(|_| is_alive)
+            .and_then(|e| status_q.get(e).ok())
+            .map(|se| &se.0);
+
+        let Some(statuses) = statuses else {
+            *vis = Visibility::Hidden;
+            continue;
+        };
+
+        if statuses.is_empty() {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+
+        let total = statuses.len();
+        let slot = badge.slot as usize;
+        let max_slots = STATUS_BADGE_SLOTS as usize;
+
+        // If this slot is beyond what we need, hide it.
+        if slot >= total.min(max_slots) {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+
+        // Overflow: last slot shows "+k" when total > max_slots.
+        let overflow = total > max_slots;
+        if overflow && slot == max_slots - 1 {
+            let extra = total - (max_slots - 1);
+            text.0 = format!("+{extra}");
+            color.0 = StatusTint::Neutral.to_color();
+            *vis = Visibility::Visible;
+            continue;
+        }
+
+        // Normal slot: abbrev + rounds.
+        let active = &statuses[slot];
+        let def = content.statuses.get(&active.id);
+        let (abbrev, tint) = if let Some(d) = def {
+            (status_abbrev(&d.name), classify_status(d))
+        } else {
+            // Unknown status — show id prefix.
+            (status_abbrev(&active.id.0), StatusTint::Neutral)
+        };
+
+        text.0 = if active.rounds_remaining > 0 {
+            format!("{abbrev}{}", active.rounds_remaining)
+        } else {
+            abbrev
+        };
+        color.0 = tint.to_color();
+        *vis = Visibility::Visible;
+    }
+}
+
 // ── System: Update token positions ────────────────────────────────────────────
 
 /// Syncs UnitToken transforms with the hex position of each token's entity.
@@ -567,5 +741,147 @@ pub fn update_token_positions(
         };
 
         *vis = Visibility::Visible;
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::statuses::{BuffClass, StatusDef};
+    use combat_engine::StatusId;
+
+    fn base_engine_status() -> combat_engine::StatusDef {
+        combat_engine::StatusDef {
+            causes_disadvantage: false,
+            blocks_mana_abilities: false,
+            forces_targeting: false,
+            skips_turn: false,
+            bonuses: combat_engine::StatusBonuses::default(),
+            hp_percent_dot: 0,
+            heal_per_tick: 0,
+        }
+    }
+
+    fn make_status(
+        name: &str,
+        dot_dice: Option<combat_engine::DiceExpr>,
+        buff_class: Option<BuffClass>,
+        engine: combat_engine::StatusDef,
+    ) -> StatusDef {
+        StatusDef {
+            id: StatusId::from(name),
+            name: name.to_string(),
+            dot_dice,
+            ai_controlled: false,
+            buff_class,
+            engine,
+        }
+    }
+
+    /// Parametrised cases matching statuses from assets/data/statuses.toml.
+    #[test]
+    fn classify_status_cases() {
+        struct Case {
+            name: &'static str,
+            def: fn() -> StatusDef,
+            expected: StatusTint,
+        }
+
+        let cases = [
+            Case {
+                name: "defending (armor_bonus=4, buff_class=armor_buff) → Buff",
+                def: || {
+                    let mut eng = base_engine_status();
+                    eng.bonuses.armor_bonus = 4;
+                    make_status("defending", None, Some(BuffClass::ArmorBuff), eng)
+                },
+                expected: StatusTint::Buff,
+            },
+            Case {
+                name: "poisoned (dot_dice=1d4) → Debuff",
+                def: || {
+                    make_status(
+                        "poisoned",
+                        Some(combat_engine::DiceExpr::new(1, 4, 0)),
+                        None,
+                        base_engine_status(),
+                    )
+                },
+                expected: StatusTint::Debuff,
+            },
+            Case {
+                name: "stunned (skips_turn) → Debuff",
+                def: || {
+                    let mut eng = base_engine_status();
+                    eng.skips_turn = true;
+                    make_status("stunned", None, None, eng)
+                },
+                expected: StatusTint::Debuff,
+            },
+            Case {
+                name: "disoriented (causes_disadvantage) → Debuff",
+                def: || {
+                    let mut eng = base_engine_status();
+                    eng.causes_disadvantage = true;
+                    make_status("disoriented", None, None, eng)
+                },
+                expected: StatusTint::Debuff,
+            },
+            Case {
+                name: "broken_faith (blocks_mana only) → Neutral",
+                def: || {
+                    let mut eng = base_engine_status();
+                    eng.blocks_mana_abilities = true;
+                    make_status("broken_faith", None, None, eng)
+                },
+                expected: StatusTint::Neutral,
+            },
+            Case {
+                name: "armor_bonus > 0 but no buff_class → Buff",
+                def: || {
+                    let mut eng = base_engine_status();
+                    eng.bonuses.armor_bonus = 2;
+                    make_status("prototype_ward", None, None, eng)
+                },
+                expected: StatusTint::Buff,
+            },
+            Case {
+                name: "dot_dice takes priority over buff_class (hypothetical mixed) → Debuff",
+                def: || {
+                    let mut eng = base_engine_status();
+                    eng.bonuses.armor_bonus = 1;
+                    make_status(
+                        "mixed",
+                        Some(combat_engine::DiceExpr::new(1, 6, 0)),
+                        Some(BuffClass::ArmorBuff),
+                        eng,
+                    )
+                },
+                expected: StatusTint::Debuff,
+            },
+        ];
+
+        for case in &cases {
+            let def = (case.def)();
+            let got = classify_status(&def);
+            assert_eq!(got, case.expected, "classify_status: {}", case.name);
+        }
+    }
+
+    #[test]
+    fn status_abbrev_cyrillic() {
+        assert_eq!(status_abbrev("Отравлен"), "От");
+    }
+
+    #[test]
+    fn status_abbrev_latin() {
+        assert_eq!(status_abbrev("Stunned"), "St");
+    }
+
+    #[test]
+    fn status_abbrev_single_char() {
+        assert_eq!(status_abbrev("X"), "X");
     }
 }

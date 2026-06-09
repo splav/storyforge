@@ -149,6 +149,7 @@ pub mod effect;
 pub mod event;
 pub mod geom;
 pub mod legality;
+pub mod preview;
 pub mod reaction;
 pub mod state;
 pub mod step;
@@ -168,6 +169,7 @@ pub use geom::has_los;
 pub use legality::{
     check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction,
 };
+pub use preview::preview_action;
 pub use step::EngineCheckState;
 pub use targeting::aoe_cells;
 pub use toml_content_view::{LoadError, TomlContentView};

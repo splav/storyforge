@@ -9,8 +9,8 @@ use storyforge::combat::DiceRngRes;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::messages::{ActionInput, RestartCombat, StartCombat};
 use storyforge::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, GameDb, HexCorpses,
-    HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty,
+    ActionForecast, CombatBlockedHexes, CombatContext, CombatEnvironment, CombatObjective, GameDb,
+    HexCorpses, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty,
 };
 use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
 use storyforge::scenario;
@@ -66,6 +66,7 @@ fn main() {
         .init_resource::<AnimationQueue>()
         .init_resource::<combat::enemy_popup::PopupCursor>()
         .init_resource::<UiDirty>()
+        .init_resource::<ActionForecast>()
         .init_resource::<ui::modal::PendingPrompt>()
         .init_resource::<ui::settings_ui::SettingsRebuild>()
         .add_message::<StartCombat>()
@@ -170,7 +171,14 @@ fn main() {
                 ui::ability_panel::update_ability_description,
                 ui::ability_panel::ability_slot_click_system,
                 ui::ability_panel::end_turn_button_system,
+                ui::inspect_panel::update_inspect_panel,
             )
+                .after(ui::hex_grid::ui_dirty_bridge)
+                .run_if(in_state(AppState::Combat)),
+        )
+        .add_systems(
+            Update,
+            combat::forecast::compute_forecast
                 .after(ui::hex_grid::ui_dirty_bridge)
                 .run_if(in_state(AppState::Combat)),
         )
@@ -179,6 +187,7 @@ fn main() {
             (
                 ui::hex_grid::hex_hover_system,
                 ui::hex_grid::update_hex_visuals,
+                ui::hex_grid::update_hex_status_badges,
                 ui::hex_grid::update_hex_tooltip,
                 ui::hex_grid::hex_click_target,
                 ui::hex_grid::update_token_positions,
@@ -187,6 +196,7 @@ fn main() {
                 ui::log_ui::log_scrollbar_update,
             )
                 .after(ui::hex_grid::ui_dirty_bridge)
+                .after(combat::forecast::compute_forecast)
                 .run_if(in_state(AppState::Combat)),
         )
         .add_systems(

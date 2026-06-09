@@ -77,6 +77,8 @@ mod hot;
 mod initiative;
 #[path = "combat_engine/phase_tags.rs"]
 mod phase_tags;
+#[path = "combat_engine/preview.rs"]
+mod preview;
 #[path = "combat_engine/purity.rs"]
 mod purity;
 #[path = "combat_engine/replay.rs"]
@@ -89,3 +91,6 @@ mod serde_roundtrip;
 mod tags;
 #[path = "combat_engine/trace_helpers.rs"]
 mod trace_helpers;
+
+#[path = "combat_engine/forecast.rs"]
+mod forecast;

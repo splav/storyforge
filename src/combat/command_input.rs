@@ -6,7 +6,7 @@ use crate::game::components::{
     ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team,
 };
 use crate::game::messages::ActionInput;
-use crate::game::resources::{HexPositions, SelectionState};
+use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 /// Map a single-char key string from TOML to a Bevy `KeyCode`.
@@ -50,6 +50,7 @@ pub fn player_command_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<PlayerCombatantQ, (With<Combatant>, Without<Dead>)>,
     statuses: Query<&StatusEffects>,
+    mut dirty: ResMut<UiDirty>,
 ) {
     let Ok(actor) = active_q.single() else { return };
 
@@ -152,9 +153,15 @@ pub fn player_command_system(
         }
     }
 
-    // Escape → cancel move mode.
-    if keyboard.just_pressed(KeyCode::Escape) && selection.move_mode {
-        selection.move_mode = false;
+    // Escape → cancel move mode and close inspection panel.
+    if keyboard.just_pressed(KeyCode::Escape) {
+        if selection.move_mode {
+            selection.move_mode = false;
+        }
+        if selection.inspected.is_some() {
+            selection.inspected = None;
+            dirty.0 |= UiDirtyFlags::INSPECT;
+        }
     }
 
     // E → manually end turn.

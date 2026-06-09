@@ -4,6 +4,7 @@ pub mod command_input;
 pub mod dice_resource;
 pub mod enemy_popup;
 pub mod engine_bridge;
+pub mod forecast;
 pub mod legality_adapter;
 pub mod pipeline;
 pub mod turn_order;

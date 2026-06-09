@@ -51,6 +51,16 @@ pub struct HexHpLabel;
 #[derive(Component)]
 pub struct HexManaLabel;
 
+/// Marker for a status-badge label slot on a hex cell.
+/// `slot` is 0..STATUS_BADGE_SLOTS (left-to-right, bottom-to-top within the row).
+#[derive(Component)]
+pub struct HexStatusBadge {
+    pub slot: u8,
+}
+
+/// Number of status-badge slots spawned per hex cell.
+pub const STATUS_BADGE_SLOTS: u8 = 4;
+
 #[derive(Component)]
 pub struct HexTooltip;
 
@@ -256,6 +266,31 @@ pub fn setup_hex_grid(
                 Color::srgb(0.85, 0.90, 1.0),
                 -16.0,
             );
+
+            // Status-badge slots: a compact row of up to STATUS_BADGE_SLOTS
+            // small labels along the bottom of the hex (y_offset -27).
+            // Slots are spaced 14px apart, centered around x=0.
+            let n = STATUS_BADGE_SLOTS as f32;
+            let badge_spacing = 14.0_f32;
+            let badge_row_start_x = -(n - 1.0) * badge_spacing * 0.5;
+            for slot in 0..STATUS_BADGE_SLOTS {
+                let badge_x = badge_row_start_x + slot as f32 * badge_spacing;
+                commands.spawn((
+                    HexCellLink(cell_id),
+                    HexStatusBadge { slot },
+                    Text2d::new(""),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 8.0,
+                        ..default()
+                    },
+                    TextLayout::new_with_justify(Justify::Center),
+                    TextColor(Color::WHITE),
+                    Anchor::CENTER,
+                    Transform::from_xyz(pixel.x + badge_x, pixel.y - 27.0, 0.2),
+                    Visibility::Hidden,
+                ));
+            }
         }
     }
 

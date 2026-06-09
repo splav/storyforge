@@ -1,5 +1,6 @@
 #![allow(clippy::type_complexity)]
 use super::ability_panel::spawn_ability_panel;
+use super::inspect_panel::spawn_inspect_panel;
 use super::log_ui::LogScrollState;
 use super::turn_order_ui::spawn_turn_order_panel;
 use super::{
@@ -139,6 +140,9 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
             // ── Right panel: turn order cards ─────────────────────────────
             spawn_turn_order_panel(root, &font);
         });
+
+    // ── Inspection panel (absolute, bottom-right, hidden until a unit is clicked) ──
+    spawn_inspect_panel(&mut commands, &font);
 
     // ── Equipment tooltip (absolute, hidden until card is hovered) ───────────
     commands

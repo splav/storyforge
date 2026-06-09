@@ -20,6 +20,27 @@ pub fn step(
 ) -> Result<(Vec<Event>, ApplyCtx), ActionError>;
 ```
 
+#### preview_action (read-only dry-run)
+
+```rust
+pub fn preview_action(
+    state:   &CombatState,            // shared ref — cannot mutate
+    action:  Action,
+    content: &dyn ContentView,
+) -> Result<Vec<Event>, ActionError>;
+```
+
+A pure UI/forecast helper: clones `state`, runs the real `step()` on the clone
+with the stateless `ExpectedValue` dice source, and returns the resulting events
+— **no state mutation, no RNG advance, no trace/log side effects**
+(`ExpectedValue::call_count()` is always 0). Because the analytical mean of `1d20`
+is 11, the per-cast crit-fail roll never fires, so the events describe the
+*expected, non-crit-fail* resolution; callers surface the flat 5% crit-fail
+probability separately. It reuses the canonical resolver verbatim — there is no
+second damage formula to drift. Purity + step-parity are pinned by
+`tests/combat_engine/preview.rs`. Consumed by the bridge `compute_forecast` system
+(the `FORECAST` dirty flag, see [architecture.md](../architecture.md)).
+
 ### Action
 
 ```rust

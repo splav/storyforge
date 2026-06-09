@@ -10,7 +10,9 @@ use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
 use crate::game::hex_map::HexMap;
 use crate::game::messages::ActionInput;
 use crate::game::pathfinding::find_path;
-use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
+use crate::game::resources::{
+    ActionForecast, ForecastKind, HexPositions, SelectionState, UiDirty, UiDirtyFlags,
+};
 use bevy::prelude::*;
 use std::collections::HashSet;
 
@@ -47,6 +49,7 @@ pub fn update_hex_tooltip(
     dirty: Res<UiDirty>,
     hover: Res<HexHover>,
     content: Res<ActiveContent>,
+    forecast: Res<ActionForecast>,
     map: HexMap,
     combatant_q: Query<(
         &Name,
@@ -61,7 +64,7 @@ pub fn update_hex_tooltip(
     mut tooltip_q: Query<(&mut Text, &mut Node, &mut Visibility), With<HexTooltip>>,
     windows: Query<&Window>,
 ) {
-    if !dirty.0.contains(UiDirtyFlags::TOOLTIP) {
+    if !dirty.0.contains(UiDirtyFlags::TOOLTIP) && !dirty.0.contains(UiDirtyFlags::FORECAST) {
         return;
     }
     let Ok((mut text, mut node, mut vis)) = tooltip_q.single_mut() else {
@@ -120,6 +123,42 @@ pub fn update_hex_tooltip(
         lines.push(format!("Статусы: {}", status_strs.join(", ")));
     }
 
+    // ── Forecast section ──────────────────────────────────────────────────────
+    // Show the hovered unit's forecast entry (if any). For AoE, other entries
+    // exist in ActionForecast but are not shown in this tooltip — each unit's
+    // tooltip shows only its own entry.
+    if let Some(entry) = forecast.entries.iter().find(|e| e.entity == entity) {
+        lines.push(String::new()); // blank separator
+        match entry.kind {
+            ForecastKind::Damage => {
+                lines.push(format!(
+                    "−{} урон  HP {}→{}",
+                    entry.amount, entry.hp_before, entry.hp_after
+                ));
+            }
+            ForecastKind::Heal => {
+                lines.push(format!(
+                    "+{} лечение  HP {}→{}",
+                    entry.amount, entry.hp_before, entry.hp_after
+                ));
+            }
+        }
+        if entry.lethal {
+            lines.push("СМЕРТЕЛЬНО".to_string());
+        }
+        for sid in &entry.statuses {
+            let status_name = content
+                .statuses
+                .get(sid)
+                .map(|d| d.name.as_str())
+                .unwrap_or(sid.0.as_str());
+            lines.push(format!("+ {}", status_name));
+        }
+        if forecast.crit_fail_pct > 0 {
+            lines.push(format!("{}% шанс провала", forecast.crit_fail_pct));
+        }
+    }
+
     text.0 = lines.join("\n");
     *vis = Visibility::Visible;
 
@@ -146,6 +185,7 @@ pub fn hex_click_target(
     mut last_click: ResMut<HexLastClick>,
     mut action_input: MessageWriter<ActionInput>,
     ui_interactions: Query<&Interaction>,
+    mut dirty: ResMut<UiDirty>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -192,6 +232,13 @@ pub fn hex_click_target(
 
     if let Some(entity) = occupant {
         sel.selected_target = Some(entity);
+
+        // Left-clicking a unit also inspects it.
+        if sel.inspected != Some(entity) {
+            sel.inspected = Some(entity);
+            dirty.0 |= UiDirtyFlags::INSPECT;
+        }
+
         if is_double {
             if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
                 let target_pos = positions.get(&entity).unwrap_or(hovered);
@@ -222,6 +269,12 @@ pub fn hex_click_target(
             &combatant_q2,
             &mut action_input,
         );
+    } else {
+        // Single-click on empty ground — clear inspection panel.
+        if sel.inspected.is_some() {
+            sel.inspected = None;
+            dirty.0 |= UiDirtyFlags::INSPECT;
+        }
     }
 
     last_click.pos = Some(hovered);

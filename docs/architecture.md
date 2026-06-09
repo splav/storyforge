@@ -173,8 +173,25 @@ See `docs/content-guide.md` for TOML schemas (scenes, encounters, templates, pha
 | `TURN_ORDER` | update_turn_order | actor/queue/vitals/death |
 | `PHASE_HINT` | update_phase_hint | actor/ability/move_mode |
 | `MOVE_BTN` | update_move_button | actor/move_mode |
-| `TOOLTIP` | update_hex_tooltip | hover |
+| `TOOLTIP` | update_hex_tooltip (incl. action forecast section) | hover |
 | `TOKENS` | update_token_positions | positions/death |
+| `FORECAST` | compute_forecast (engine dry-run via `preview_action`) | hover/ability change (when both present) |
+| `STATUS_BADGES` | update_hex_status_badges (per-hex buff/debuff pills) | StatusEffects change / positions / death |
+| `INSPECT` | update_inspect_panel (clicked-unit detail panel) | `SelectionState.inspected` change |
+
+**Combat-readability trio (read-only over live state).** `FORECAST` drives the
+action-preview line in the hover tooltip: `compute_forecast` builds an
+`Action::Cast` from `(selected_actor, selected_ability, hovered_target)` and calls
+`combat_engine::preview_action` — a dry-run of the real `step()` on a *clone* of
+`CombatStateRes` with the `ExpectedValue` dice source, so it mutates nothing and
+advances no RNG (the result is the expected, non-crit-fail outcome; the flat 5%
+crit-fail chance is surfaced separately). Results land in the `ActionForecast`
+resource (per-affected-unit damage/heal, hp before→after, lethal flag, applied
+statuses). `STATUS_BADGES` renders each unit's statuses as colored pills on its
+hex via `classify_status` (debuff = DoT/skips_turn/disadvantage; buff =
+buff_class/armor_bonus; else neutral). `INSPECT` populates a clicked-unit detail
+panel (`inspected` is a dedicated `SelectionState` field, kept out of the
+command-flow diff so inspection never perturbs actor/ability/target selection).
 
 ## Persistence
 

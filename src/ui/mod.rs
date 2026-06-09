@@ -4,6 +4,7 @@ pub mod button;
 pub mod combat_ui;
 pub mod console_log;
 pub mod hex_grid;
+pub mod inspect_panel;
 pub mod log_ui;
 pub mod main_menu_ui;
 pub mod modal;
@@ -105,3 +106,29 @@ pub struct TurnOrderTooltipText;
 /// Loaded font with Cyrillic support, shared across all HUD text nodes.
 #[derive(Resource)]
 pub struct UiFont(pub Handle<Font>);
+
+// ── Inspect panel markers ────────────────────────────────────────────────────
+
+/// Root node of the unit inspection panel (absolute-positioned, bottom-right).
+#[derive(Component)]
+pub struct InspectPanel;
+
+/// Text node showing the inspected unit's name.
+#[derive(Component)]
+pub struct InspectNameText;
+
+/// Text node showing combat stats (STR/DEX/CON/…).
+#[derive(Component)]
+pub struct InspectStatsText;
+
+/// Text node showing resource bars (HP, mana, rage, energy, AP).
+#[derive(Component)]
+pub struct InspectResourcesText;
+
+/// Text node showing active statuses with remaining rounds.
+#[derive(Component)]
+pub struct InspectStatusText;
+
+/// Text node listing the unit's abilities.
+#[derive(Component)]
+pub struct InspectAbilityText;

@@ -2,6 +2,7 @@ use crate::content::campaigns::{load_campaigns, CampaignDef};
 use crate::content::content_view::ContentView;
 use crate::content::scenarios::ScenarioDef;
 use bevy::prelude::*;
+use combat_engine::StatusId;
 use std::collections::HashMap;
 
 // ── Initiative preset (carry initiative across a combat restart) ─────────────
@@ -875,6 +876,10 @@ pub struct SelectionState {
     pub selected_ability: Option<combat_engine::AbilityId>,
     pub selected_target: Option<Entity>,
     pub move_mode: bool,
+    /// Unit currently shown in the inspection panel.
+    /// Completely disjoint from the command-flow fields above —
+    /// NOT diffed by `DirtyBridgePrev`; changes are signalled via `UiDirtyFlags::INSPECT`.
+    pub inspected: Option<Entity>,
 }
 
 impl SelectionState {
@@ -897,11 +902,62 @@ bitflags::bitflags! {
         const MOVE_BTN      = 0b0100_0000;
         const TOOLTIP       = 0b1000_0000;
         const TOKENS        = 0b1_0000_0000;
+        const FORECAST      = 0b10_0000_0000;
+        const STATUS_BADGES = 0b100_0000_0000;
+        const INSPECT       = 0b1000_0000_0000;
     }
 }
 
 #[derive(Resource, Default)]
 pub struct UiDirty(pub UiDirtyFlags);
+
+// ── Action Forecast ─────────────────────────────────────────────────────────
+
+/// What kind of outcome a forecast entry describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForecastKind {
+    Damage,
+    Heal,
+}
+
+/// One affected unit's expected outcome for the pending ability cast.
+#[derive(Debug, Clone)]
+pub struct ForecastEntry {
+    /// Bevy entity this forecast applies to.
+    pub entity: Entity,
+    pub kind: ForecastKind,
+    /// Expected delta (damage dealt or HP restored), always positive.
+    pub amount: i32,
+    pub hp_before: i32,
+    /// `max(0, hp_before - amount)` for damage; `min(max_hp, hp_before + amount)` for heal.
+    pub hp_after: i32,
+    /// `true` if `UnitDied` was present for this unit in the preview events.
+    pub lethal: bool,
+    /// Statuses that will be applied to this unit.
+    pub statuses: Vec<StatusId>,
+}
+
+/// Expected combat outcomes for the currently selected ability + hovered target.
+///
+/// Populated by `compute_forecast` (gated on `UiDirtyFlags::FORECAST`).
+/// Cleared when no valid (actor, ability, target) triple is present.
+#[derive(Resource, Default)]
+pub struct ActionForecast {
+    pub entries: Vec<ForecastEntry>,
+    /// Flat per-cast crit-fail chance in percent (5 for a d20 roll).
+    pub crit_fail_pct: u8,
+}
+
+impl ActionForecast {
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.crit_fail_pct = 0;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
 
 #[cfg(test)]
 mod validate_choice_tests {
