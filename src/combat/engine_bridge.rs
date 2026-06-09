@@ -158,6 +158,84 @@ type CombatantRow<'a> = (
     Option<&'a TemplateRef>,
 );
 
+/// All pure (non-ECS) inputs needed to construct one engine `Unit`.
+///
+/// Populated by `from_ecs` after component reads; passed to `build_unit`.
+/// Kept as a plain struct so a future ECS-free `init_fight` path can build
+/// the same `Unit` from content/templates without touching Bevy.
+pub(crate) struct UnitBuildInput {
+    pub uid: combat_engine::state::UnitId,
+    pub team: combat_engine::state::Team,
+    pub pos: hexx::Hex,
+    pub armor: i32,
+    pub base_speed: i32,
+    pub reactions_max: i32,
+    pub statuses: Vec<combat_engine::state::ActiveStatus>,
+    pub pools: combat_engine::enum_map::EnumMap<
+        combat_engine::PoolKind,
+        Option<combat_engine::state::Pool>,
+    >,
+    pub regen_per_pool: combat_engine::enum_map::EnumMap<
+        combat_engine::PoolKind,
+        combat_engine::RegenRule,
+    >,
+    pub template_id: Option<String>,
+}
+
+/// Pure `Unit` constructor — no ECS, no queries.
+///
+/// Runs the status-aggregate-bonus loop (mirrors `Effect::RefreshAggregates`,
+/// status half only) then calls `Unit::new` with the derived values.
+///
+/// This function owns the single call site of `Unit::new` that was previously
+/// inlined inside `from_ecs`, making it reusable for the future ECS-free
+/// `init_fight` path (Step 2+).
+pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit {
+    // Compute status-derived aggregate bonuses from active statuses.
+    // Mirrors Effect::RefreshAggregates (status half only); aura-based
+    // contributions are added after bootstrap populates unit.auras.
+    let mut armor_bonus: i32 = 0;
+    let mut speed_bonus: i32 = 0;
+    let mut damage_taken_bonus: i32 = 0;
+    for s in &input.statuses {
+        if let Some(def) = content.statuses.get(&s.id) {
+            armor_bonus += def.engine.bonuses.armor_bonus;
+            speed_bonus += def.engine.bonuses.speed_bonus;
+            damage_taken_bonus += def.engine.bonuses.damage_taken_bonus;
+        }
+    }
+
+    Unit::new(
+        input.uid,
+        input.team,
+        input.pos,
+        input.armor,
+        armor_bonus,
+        damage_taken_bonus,
+        input.base_speed,
+        input.base_speed + speed_bonus,
+        // Bootstrap-initial: a unit always enters combat with a full reaction
+        // budget. We intentionally ignore `Reactions.remaining` here — the ECS
+        // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
+        // mid-combat summons), so reading it would yield 0 and break round-1
+        // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
+        // reactions_left = reactions_max on every subsequent round.
+        input.reactions_max,
+        input.reactions_max,
+        input.statuses,
+        None,
+        None, // initiative: not yet rolled
+        // Per-combat fields populated by bootstrap_combat_state after from_ecs.
+        combat_engine::CasterContext::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        input.pools,
+        input.regen_per_pool,
+        input.template_id,
+    )
+}
+
 /// Populate a `CombatState` from the current ECS world; also rebuilds `id_map`.
 ///
 /// Components read:
@@ -304,48 +382,20 @@ pub fn from_ecs(
                     combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
                 };
 
-                // Compute status-derived aggregate bonuses from active statuses.
-                // Mirrors Effect::RefreshAggregates (status half only); aura-based
-                // contributions are added after bootstrap populates unit.auras.
-                let mut armor_bonus: i32 = 0;
-                let mut speed_bonus: i32 = 0;
-                let mut damage_taken_bonus: i32 = 0;
-                for s in &statuses_vec {
-                    if let Some(def) = content.statuses.get(&s.id) {
-                        armor_bonus += def.engine.bonuses.armor_bonus;
-                        speed_bonus += def.engine.bonuses.speed_bonus;
-                        damage_taken_bonus += def.engine.bonuses.damage_taken_bonus;
-                    }
-                }
-
-                Some(Unit::new(
-                    uid,
-                    team,
-                    pos,
-                    vital.armor,
-                    armor_bonus,
-                    damage_taken_bonus,
-                    speed_val,
-                    speed_val + speed_bonus,
-                    // Bootstrap-initial: a unit always enters combat with a full reaction
-                    // budget. We intentionally ignore `Reactions.remaining` here — the ECS
-                    // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
-                    // mid-combat summons), so reading it would yield 0 and break round-1
-                    // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
-                    // reactions_left = reactions_max on every subsequent round.
-                    reactions_max as i32,
-                    reactions_max as i32,
-                    statuses_vec,
-                    None,
-                    None, // initiative: not yet rolled
-                    // Per-combat fields populated by bootstrap_combat_state after from_ecs.
-                    combat_engine::CasterContext::default(),
-                    None,
-                    Vec::new(),
-                    Vec::new(),
-                    bridge_pools,
-                    bridge_regen,
-                    template_ref.map(|tr| tr.0.clone()),
+                Some(build_unit(
+                    UnitBuildInput {
+                        uid,
+                        team,
+                        pos,
+                        armor: vital.armor,
+                        base_speed: speed_val,
+                        reactions_max: reactions_max as i32,
+                        statuses: statuses_vec,
+                        pools: bridge_pools,
+                        regen_per_pool: bridge_regen,
+                        template_id: template_ref.map(|tr| tr.0.clone()),
+                    },
+                    content,
                 ))
             },
         )
