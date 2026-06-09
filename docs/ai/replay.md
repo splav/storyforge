@@ -588,3 +588,36 @@ melee-on-Lyra plan to `-∞`, and a safe heal plan wins. Specific bad case
 resolved; one other actor (R.2 Воин, same midpanic conditions) also shifts
 to a retreat. Four other decisions (high HP, low danger) unchanged —
 expected for a targeted fix.
+
+---
+
+## Sibling tool: `replay_engine_trace`
+
+`replay_ai_log` replays *AI decisions*; the separate `replay_engine_trace`
+binary replays an **engine trace** (`engine.jsonl`) and asserts determinism —
+for each recorded step it re-runs `combat_engine::step()` and checks the events,
+`rng_calls`, and `post_state_hash` match (see the binary's own header docs).
+
+### Layered content resolution
+
+To re-run a campaign fight faithfully the replay must load the **same merged
+content** the game saw — global **plus** the campaign and scenario layers.
+Campaign-layer content (e.g. the `whisper_from_beyond` ability used by ch3's
+possessed hosts) lives only in `assets/data/campaigns/<c>/...`, so a global-only
+load would fail mid-replay with `UnknownAbility`.
+
+`replay_engine_trace` therefore resolves the content layers from the trace's
+`InitLine.session_id` (`<timestamp>_<campaign>_<scenario>_<encounter>`): it
+strips the timestamp, then probes `assets/data/campaigns/` for the
+longest-matching campaign directory and, within it, the scenario directory,
+and feeds both to `ContentView::load_layered`.
+
+- `--campaign <id>` / `--scenario <id>` override the auto-resolved dirs. **Both
+  must be supplied together** (passing only one is an error).
+- If resolution fails (or the trace is a standalone fixture whose `session_id`
+  matches no campaign), it falls back to **global-only** content
+  (`assets/data`) with an `info:` line, which is correct for traces that use
+  only global content.
+
+Previously the tool loaded only global `assets/data`, so replaying any campaign
+fight that cast a campaign-layer ability errored out.

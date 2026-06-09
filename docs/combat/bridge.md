@@ -123,6 +123,13 @@ When an actor dies mid-action (e.g. AoO kills the mover), `Effect::Death` of
 the turn-holder derives `Effect::AdvanceTurn` automatically — involuntary turn
 end is handled by the engine, no bridge workaround needed.
 
+An **alive** enemy with no actionable abilities (e.g. a perma-stunned non-acting
+NPC like Тэо / Хорст / the accumulator, whose `Abilities` is empty) must still
+relinquish its turn: `enemy_ai_system` detects the empty-abilities case and
+writes `ActionInput::EndTurn { actor }` explicitly instead of returning early,
+which would leave the active turn permanently stuck (combat hangs). Regression:
+`tests/combat/ai_no_abilities.rs`.
+
 `CombatStep::TurnStart` set is empty (kept as a stable hook for future
 bridge-side systems). All turn-lifecycle events flow through
 `process_action_system → project_state_to_ecs` in a single frame — ECS is

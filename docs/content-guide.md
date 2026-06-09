@@ -151,6 +151,30 @@ Spawn rules:
 - `myself`: self-cast; no target selection.
 - `ground`: player picks a **cell** (position-based). No entity target — `target` is a sentinel, the effect uses `target_pos`. Typically paired with `aoe = "circle" | "line"`; `aoe = "none"` is legal but only meaningful for position-only effects (teleport, summon-at-cell).
 
+### Target tags (`requires_tags` / `excludes_tags`)
+
+Restrict which units an ability may target by their **creature tags** (see [Creature tags](#creature-tags) below). A target is legal only when it carries **all** of `requires_tags` and **none** of `excludes_tags`.
+
+```toml
+[[abilities]]
+id            = "shepherd_heal"
+name          = "Латание симбионта"
+target_type   = "single_ally"
+effect        = "heal"
+dice_count    = 1
+dice_sides    = 5
+costs         = [{ resource = "mana", amount = 1 }]
+cost_ap       = 1
+range         = 3
+requires_tags = ["symbiote"]      # may only heal units tagged `symbiote`
+# excludes_tags = ["incorporeal"]  # …and never units tagged `incorporeal`
+```
+
+- **Enforced in legality** for `single_enemy` and `single_ally` targets only (`check_legality` in `crates/combat_engine/src/legality.rs`); `myself` / `ground` ignore the predicate. A failing target yields `IllegalReason::WrongTargetTags` and the cast is refused — for both player and AI (the AI inherits the gate for free through the shared legality path).
+- **Both default to empty** → no restriction. Omit when you don't need tag-gating.
+- **Content-only.** `requires_tags` / `excludes_tags` are *not* serialized into the engine wire/trace — they live on the content `AbilityDef` and are consulted at legality time.
+- **When to use:** a healer that only patches one creature type (ch3 `shepherd_heal` → `symbiote`), a weapon that bites only the corporeal, an exorcism that targets only the possessed.
+
 ## Statuses (`statuses.toml`)
 
 ```toml
@@ -168,7 +192,21 @@ speed_bonus           = 0        # modifies movement (clamped to 0+; speed=0 mea
 hp_percent_dot        = 0        # % of max_hp as DoT per tick
 ai_controlled         = false    # hero acts under AI control (pact_control)
 causes_disadvantage   = false    # ALL carrier's rolls are at disadvantage (disoriented)
+heal_per_tick         = 0        # HoT: heals N HP per tick over the holder's turns
 ```
+
+### Heal-over-time (`heal_per_tick`)
+
+The healing mirror of damage DoT (`dot_count`/`dot_sides`/`hp_percent_dot`). A status with `heal_per_tick = N` restores **N HP per tick** over the holder's own turns, clamped to `max_hp`. The amount is **fixed** (not INT/spell-power-scaled) — like a damage DoT. Healing can never kill, phase-trigger, or grant rage.
+
+```toml
+[[statuses]]
+id            = "vital_infusion"
+name          = "Вливание жизни"
+heal_per_tick = 4                # +4 HP per turn → +8 over a 2-turn duration
+```
+
+Apply it like any other status — via an ability's `statuses = [{ id = "vital_infusion", on = "target", duration = 2 }]`. Real example: Орен's «Вливание жизни» (ch3) — a `single_ally`, 2-mana cast that lays a 2-turn `vital_infusion` for +8 total, the efficiency counterpart to a burst `heal`.
 
 ## Weapons / Armor
 
@@ -290,6 +328,26 @@ hex_col  = 5
 hex_row  = 3
 ```
 
+### Creature tags
+
+`tags = ["..."]` on a `[[encounters.enemies]]` entry attaches **creature tags** to that roster unit (e.g. species/body/life axes — `symbiote`, `corporeal`, `living`, `incorporeal`, `aberration`, …). Tags are a flat, additive set; the axes are documentation grouping, not enforced. They're consumed by:
+
+- ability target predicates — `requires_tags` / `excludes_tags` (see [Target tags](#target-tags-requires_tags--excludes_tags) above);
+- aura `affects_tags` (see above);
+- phase tag-swaps (see below).
+
+Tags live on the **encounter enemy**, not the template — the same template can be tagged differently per encounter. Default is empty (most enemies need no tags).
+
+```toml
+[[encounters.enemies]]
+template = "combat_symbiote"
+tags     = ["symbiote", "corporeal", "living"]   # makes shepherd_heal legal on it
+hex_col  = 5
+hex_row  = 3
+```
+
+Real example: ch3 `combat_symbiote` carries `["symbiote","corporeal","living"]` so the shepherd's `requires_tags = ["symbiote"]` heal can target it.
+
 ### Phases
 
 Boss transforms when a trigger fires. At most one phase per frame; pending phases fire in declaration order. **In-place mutation**: same entity, same turn position, `VictoryTarget` preserved — so `kill_target` means "kill through all phases".
@@ -306,6 +364,20 @@ flavor       = "Старшина падает — но буря в его кро
 Без template поля `name`/`stats`/`ability_ids` задаются напрямую (всё необязательное — что не указано, остаётся от текущего состояния босса).
 
 `flavor` — сюжетная строка. Показывается в попапе перехода и в combat log.
+
+#### Phase tags
+
+A phase may also rewrite the unit's [creature tags](#creature-tags) on entry. `tags = ["..."]` on a `[[encounters.enemies.phases]]` **replaces** the unit's entire tag set when the phase fires; **omitting** `tags` keeps the current tags unchanged (it does not clear them).
+
+```toml
+[[encounters.enemies.phases]]
+hp_below_pct = 33
+template     = "container_phase3"
+tags         = ["aberration", "incorporeal"]   # REPLACES the tag set; drops `symbiote`
+flavor       = "Оболочка пала..."
+```
+
+Real example: the ch3 Container's phase-3 swap replaces `{symbiote, corporeal}` with `{aberration, incorporeal}`. Dropping `symbiote` means the accumulator aura (`affects_tags = ["symbiote"]`) no longer matches the boss, so its feed cuts off automatically — see [Aura `affects_tags`](#aura-affects_tags). (Phase-2, which omits `tags`, keeps `{symbiote, corporeal}` so the aura still feeds it.)
 
 #### Phase overrides: victory, deadline, AI behaviour
 
@@ -334,6 +406,17 @@ Passive radius effect. While the source is alive, targets in range matching `aff
 aura = { status = "disoriented", radius = 2, affects = "enemies" }
 # affects: enemies | allies | all (default: enemies)
 ```
+
+#### Aura `affects_tags`
+
+Optionally narrow the aura to targets carrying **all** of `affects_tags` (in addition to the `affects` team filter). An **empty / omitted** list ⇒ no tag filter (every team-matching unit in range is affected).
+
+```toml
+# ch3 accumulator: a buff aura that only feeds units tagged `symbiote`.
+aura = { status = "accumulator_field", radius = 2, affects = "allies", affects_tags = ["symbiote"] }
+```
+
+Real example: the ch3 `accumulator` ("живая батарея") sits behind the boss and projects an `armor_bonus` aura with `affects_tags = ["symbiote"]` — so it only feeds the Container while the Container still carries the `symbiote` tag. When the Container's phase-3 swap drops `symbiote` (see [Phase tags](#phase-tags) below), the aura stops seeing it and the buff falls off — a lore-native way to cut the feed "no matter what". Killing the accumulator removes the source and the aura lapses the same way.
 
 ### Immobility
 
@@ -433,11 +516,69 @@ on_victory_flags = ["beastblood_routed"]
 
 ### Scene types
 
-- **`story`** — dialogue. `lines` is a list of `{speaker, text, requires_flag?}`. Lines with `requires_flag` only show if that flag was set by an earlier victory. Player advances line-by-line (Space / Enter / button); previous lines stay on screen.
+- **`story`** — dialogue. `lines` is a list of `{speaker, text, requires_flag?, excludes_flag?}`. Player advances line-by-line (Space / Enter / button); previous lines stay on screen. Line visibility is gated by flags (see [Per-line flag gating](#per-line-flag-gating-requires_flag--excludes_flag) below).
   - `party_add` / `party_remove` apply when the player advances past the last line.
   - **If `lines = []`** (or omitted), the scene is **invisible** — `advance_scenario` skips past it. Use this idiom for a pure party-change beat without dialogue.
 
 - **`combat`** — fight. `encounter` refers to this scenario's `encounters.toml`. On the outcome, campaign flags are recorded (see **Combat-outcome flags** below); `requires_flag` on future dialogue lines checks against the persisted flag set.
+
+- **`choice`** — a `story`-style prompt (`lines`) plus an `options` list. Each option is `{ label, set_flag }`; picking one writes `set_flag` into the persistent campaign flag set and advances. This is the **branching primitive**: downstream `requires_flag` / `excludes_flag` gates (on scenes or lines) read those flags. Real example: ch3 `theo_fate` (`theo_surrendered` / `theo_fight`) and the 3-way `kasian_choice` (`kasian_accept` / `kasian_refuse` / `kasian_strike`).
+
+```toml
+[[scenes]]
+type = "choice"
+lines = [ { speaker = "Тэо", text = "Опустите оружие." } ]
+options = [
+  { label = "Опустить оружие — выслушать Тэо", set_flag = "theo_surrendered" },
+  { label = "Прорываться к Тэо с боем",        set_flag = "theo_fight" },
+]
+```
+
+### Per-line flag gating (`requires_flag` / `excludes_flag`)
+
+A `[[scenes]]` `story`/`choice` `lines` entry can carry both flag gates. A line is **shown** iff:
+
+- `requires_flag` is unset **or** its flag is present, **and**
+- `excludes_flag` is unset **or** its flag is absent.
+
+`requires_flag` = "show only after this happened"; `excludes_flag` = its `else`-branch companion ("show only when this did *not* happen") — useful for narrating an outcome without a dedicated positive flag.
+
+```toml
+lines = [
+  # boat survived → praise; boat lost → the "else" line (no positive flag needed)
+  { speaker = "Венн", text = "...полным составом да с сухой кормой.", requires_flag = "boat_saved" },
+  { speaker = "Венн", text = "Корыто в щепки расшибли. Но уцелели.",  excludes_flag = "boat_saved" },
+  # Marken possessed = Theo killed but Marken NOT killed
+  { speaker = "Kael", text = "Оставил его там... с этой тварью под кожей.",
+    requires_flag = "theo_killed", excludes_flag = "marken_killed" },
+]
+```
+
+### Scene-level branching (`requires_flag`)
+
+`requires_flag = "flag"` on a **whole scene** (`type = "story" | "combat" | "choice"`) skips that scene — exactly like an empty/invisible beat — when the flag is **absent** from the campaign flag set. This is how a branch gates entire beats: skip a combat bout, or gate one of several mutually-exclusive epilogue scenes.
+
+```toml
+# ch3: this combat bout only plays in the "fight" branch.
+[[scenes]]
+type          = "combat"
+encounter     = "ch3_theo"
+requires_flag = "theo_fight"
+
+# ch3: one of three mutually-exclusive epilogues, gated by the kasian_choice flag.
+[[scenes]]
+type          = "story"
+requires_flag = "kasian_accept"
+lines = [ { speaker = "Lyra", text = "...Мы примем его условия. Пока." } ]
+```
+
+> **Contract — skipping a combat scene discards its flags.** A skipped `Combat`
+> scene never writes its `on_victory_flags` or encounter `objectives` flags. So a
+> branch that *replaces* a fight (e.g. "negotiate instead of fighting Тэо") must
+> set any downstream-needed flag itself — via the `Choice` option's `set_flag` or
+> a `Story` scene — because the skipped bout won't. See
+> [docs/architecture.md](architecture.md) (Scenario Scene Flow) for the flag-flow
+> internals.
 
 ### Combat-outcome flags (two mechanisms)
 

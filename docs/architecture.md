@@ -35,6 +35,7 @@ src/
   scenario/
     mod.rs          AdvanceScenario message, start_scenario, advance_scenario_system
     combat_scene.rs spawn_combat_scene, despawn_combatants, restart_combat_system
+    init_fight.rs   ECS-free builder of the initial engine CombatState (headless tooling; see note below)
     input.rs        victory_input_system
   lib.rs            Re-exports all modules
   main.rs           App builder: resources, messages, UI/меню системы; combat-цепочка подключается через `CombatPipelinePlugin`
@@ -124,6 +125,12 @@ Individual `DialogueLine` entries within a scene also support `requires_flag` (s
 
 If `skip_skipped` returns `None` (all remaining scenes gated/invisible), the scenario finishes gracefully — same path as reaching the last scene normally. `enter_scenario_at` does the same (no panic) to handle save-load that lands on an all-gated tail.
 
+## `init_fight` — ECS-free combat bootstrap
+
+`src/scenario/init_fight.rs` builds the initial engine `CombatState` purely from data — `(ContentView, ScenarioDef, scene_index, EncounterDef, rng_seed, UnitId-assigner)` — with **no ECS access**. It is the Bevy-free counterpart to the live `spawn_combatants` + `from_ecs` bootstrap, and `tests/init_fight_equivalence.rs` asserts the two produce a field-equivalent `CombatState` when fed the same UnitIds and seed.
+
+**Status: a building block, not yet wired into the live game.** The running game still bootstraps combat through `spawn_combatants` + `from_ecs`; the cutover was deliberately not done. `init_fight` exists as the foundation for **headless tooling** (e.g. a future balance-sim that runs fights without a window). The id schemes need not match: UnitIds are recorded in engine traces and read back on replay, so a headless simulator can mint dense `0..N` ids while the game uses its own — the trace is the contract, not a shared id space.
+
 ## Data Files
 
 ```
@@ -173,6 +180,7 @@ See `docs/content-guide.md` for TOML schemas (scenes, encounters, templates, pha
 
 - Пути определяются через `directories::ProjectDirs` (qualifier=`com`, org/app=`Storyforge`) один раз в `detect_paths()` на старте; при неудаче persistence выключается.
 - **Settings** — `config_dir/settings.toml`. Layered load: при parse-ошибке файл переименовывается в `.bak`, используются bundled defaults.
+- **Dev start-chapter** — `[debug] start_scenario` (→ `GameSettings.dev_start_scenario`) in `assets/data/settings.toml`. When built with the cargo `dev` feature, a **fresh** campaign starts at that scenario id instead of the first chapter (e.g. `start_scenario = "ch3"` jumps straight into chapter 3). Empty string = normal start. **Ignored in release builds** — it only takes effect under `--features dev`, so it can't ship a wrong entry point to players.
 - **Saves** — `data_dir/saves/slot_{1..SLOT_COUNT}.toml`, формат versioned (`SaveSlotFile::V1`). Slot = профиль пользователя: `last_campaign` + `HashMap<campaign_id, CampaignProgress>`. Parse-ошибка → backup в `.toml.bak`, slot считается отсутствующим.
 - **Логирование**: `info!` на успешную загрузку/сохранение/удаление (путь + summary), `warn!` на ошибки чтения/парсинга и неудачный backup-rename. Стартовая строка `persistence paths: …` подтверждает, что хранилище активно.
 - Callers: `main.rs` (settings at startup), `ui/settings_ui.rs` (settings save, slot select/delete), `ui/main_menu_ui.rs` + `ui/modal.rs` (new game / continue / resume), `scenario/mod.rs` (`record_progress` on scene advance, `clear_campaign` on scenario finish).
