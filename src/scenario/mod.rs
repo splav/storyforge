@@ -136,13 +136,9 @@ pub fn should_enter_camp(
     if !has_campaign {
         return false;
     }
-    // Scenarios alternate Story/Combat, so the inter-fight rest point is the
-    // Story scene right AFTER a won fight. Enter camp on Combat→Story; the
-    // destination Story may opt out via `no_camp`. (Between-chapter camp — the
-    // post-final-fight case — is deferred to the shop hub.)
-    let from_is_combat = matches!(from_scene, SceneDef::Combat { .. });
-    let to_is_story_no_camp = matches!(to_scene, SceneDef::Story { no_camp: false, .. });
-    from_is_combat && to_is_story_no_camp
+    let from_is_story_no_camp = matches!(from_scene, SceneDef::Story { no_camp: false, .. });
+    let to_is_story = matches!(to_scene, SceneDef::Story { .. });
+    from_is_story_no_camp && to_is_story
 }
 
 pub fn advance_scenario_system(
@@ -823,20 +819,13 @@ mod tests {
 
     // ── camp routing detour ───────────────────────────────────────────────────
 
-    /// Helper: build a Combat→Story scenario (scene 0 = Combat, scene 1 = the
-    /// post-fight Story). `dest_no_camp` sets `no_camp` on that Story scene.
-    fn combat_then_story_scenario(dest_no_camp: bool) -> ScenarioDef {
+    /// Helper: build a two-scene all-Story scenario (both `no_camp = false`).
+    fn two_story_scenario() -> ScenarioDef {
         use crate::content::scenarios::DialogueLine;
-        let combat = SceneDef::Combat {
-            encounter_id: "e1".into(),
-            location: None,
-            on_victory_flags: vec![],
-            requires_flag: None,
-        };
-        let story = SceneDef::Story {
+        let story = |text: &str| SceneDef::Story {
             lines: vec![DialogueLine {
                 speaker: "X".into(),
-                text: "post-fight".into(),
+                text: text.into(),
                 requires_flag: None,
                 excludes_flag: None,
             }],
@@ -844,9 +833,9 @@ mod tests {
             party_remove: vec![],
             status_ops: vec![],
             requires_flag: None,
-            no_camp: dest_no_camp,
+            no_camp: false,
         };
-        scenario_from_scenes(vec![combat, story])
+        scenario_from_scenes(vec![story("scene 0"), story("scene 1")])
     }
 
     /// Helper: build a minimal advance app around a given `ScenarioDef`.
@@ -885,11 +874,11 @@ mod tests {
         app
     }
 
-    /// Combat→Story (post-victory) with a live `CampaignState` routes to
-    /// `AppState::Camp`, with `scene_index` pre-advanced to 1 (the post-fight Story).
+    /// Story→Story with a live `CampaignState` routes to `AppState::Camp`,
+    /// and `scene_index` is pre-advanced to 1 (pointing at the next scene).
     #[test]
-    fn advance_combat_to_story_with_campaign_routes_to_camp() {
-        let mut app = make_advance_app(combat_then_story_scenario(false), true);
+    fn advance_story_to_story_with_campaign_routes_to_camp() {
+        let mut app = make_advance_app(two_story_scenario(), true);
         app.update();
 
         let ns = app.world().resource::<NextState<AppState>>();
@@ -910,7 +899,7 @@ mod tests {
         // A second `AdvanceScenario` (which Camp does NOT send) would push to 2/end.
         // Verify that without firing AdvanceScenario the index stays put.
         use crate::content::settings::GameSettings;
-        let db = make_db(combat_then_story_scenario(false));
+        let db = make_db(two_story_scenario());
         let mut app = App::new();
         app.add_message::<AdvanceScenario>();
         app.insert_resource(db);
@@ -944,30 +933,16 @@ mod tests {
     }
 
     /// Standalone scenario (no `CampaignState`) does NOT route to Camp —
-    /// Combat→Story stays `AppState::Story`.
+    /// Story→Story stays `AppState::Story`.
     #[test]
-    fn advance_combat_to_story_without_campaign_skips_camp() {
-        let mut app = make_advance_app(combat_then_story_scenario(false), false);
+    fn advance_story_to_story_without_campaign_skips_camp() {
+        let mut app = make_advance_app(two_story_scenario(), false);
         app.update();
 
         let ns = app.world().resource::<NextState<AppState>>();
         assert!(
             matches!(ns, NextState::Pending(AppState::Story)),
             "standalone scenario must go to Story, not Camp, got {ns:?}",
-        );
-    }
-
-    /// `no_camp = true` on the post-fight Story suppresses the camp detour even
-    /// with a live campaign — Combat→Story goes straight to `AppState::Story`.
-    #[test]
-    fn advance_combat_to_story_no_camp_skips_camp() {
-        let mut app = make_advance_app(combat_then_story_scenario(true), true);
-        app.update();
-
-        let ns = app.world().resource::<NextState<AppState>>();
-        assert!(
-            matches!(ns, NextState::Pending(AppState::Story)),
-            "no_camp story must skip camp and go to Story, got {ns:?}",
         );
     }
 

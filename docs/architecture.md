@@ -6,16 +6,16 @@
 
 ```
 Boot → Story ↔ Combat → MainMenu
-                 ↓
-               Camp → Story
+             ↕
+           Camp
 ```
 
 Transitions:
 - `Boot` → first scene (Story or Combat via `start_scenario`)
 - `Story` → `Combat` (on `AdvanceScenario` to a Combat scene)
-- `Combat` → `Camp` (after a **won fight**: `AdvanceScenario` advances from the Combat scene into the following Story scene, and `CampaignState` is present with that Story's `no_camp=false` → detour through Camp first)
+- `Story` → `Camp` (on `AdvanceScenario` from a Story scene with `no_camp=false` to a next Story scene, while `CampaignState` is present)
 - `Camp` → `Story` (Continue button / Space/Enter in camp)
-- `Combat` → `Story` (victory advance when camp not eligible — no campaign / `no_camp` / next scene not Story)
+- `Combat` → `Story` (on `AdvanceScenario` after victory/defeat)
 - Any → `MainMenu` (scenario/campaign complete)
 
 | State | Description |
@@ -23,7 +23,7 @@ Transitions:
 | `Boot` | Default. `start_scenario` runs at Startup, transitions to first scene |
 | `Story` | Story screen overlay (text + "Continue"). Input: Space/Enter/click |
 | `Combat` | Hex grid combat. Sub-state `CombatPhase` active |
-| `Camp` | Post-fight rest screen. Player re-equips heroes from the party stash. Entered automatically after a won fight (Combat→Story advance) when `CampaignState` present and the post-fight Story's `no_camp=false`. Continue → `Story`. (Scenarios alternate Story/Combat, so the rest point is the Story right after each fight.) |
+| `Camp` | Between-story-scenes rest screen. Player re-equips heroes from the party stash. Entered automatically on Story→Story advance when `CampaignState` present and `no_camp=false`. Continue → `Story`. |
 | `MainMenu` | End state (scenario complete or defeat) |
 | `Overworld` | Reserved, not used |
 

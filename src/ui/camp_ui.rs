@@ -822,34 +822,33 @@ mod tests {
         }
     }
 
-    /// Combat → Story (post-victory) with campaign and dest no_camp=false → enter camp.
+    /// Story → Story with campaign and no_camp=false → enter camp.
     #[test]
-    fn should_enter_camp_combat_to_story_with_campaign() {
-        assert!(should_enter_camp(&combat_scene(), &story_scene(false), true));
+    fn should_enter_camp_story_to_story_with_campaign() {
+        assert!(should_enter_camp(&story_scene(false), &story_scene(false), true));
     }
 
-    /// no_camp=true on the destination (post-fight) Story → skip camp.
+    /// no_camp=true on the FROM scene → skip camp.
     #[test]
-    fn should_enter_camp_dest_no_camp_skips() {
-        assert!(!should_enter_camp(&combat_scene(), &story_scene(true), true));
+    fn should_enter_camp_no_camp_true_skips() {
+        assert!(!should_enter_camp(&story_scene(true), &story_scene(false), true));
     }
 
     /// No CampaignState → skip camp.
     #[test]
     fn should_enter_camp_no_campaign_skips() {
-        assert!(!should_enter_camp(&combat_scene(), &story_scene(false), false));
+        assert!(!should_enter_camp(&story_scene(false), &story_scene(false), false));
     }
 
-    /// Story → Combat (heading into a fight) → skip camp.
+    /// Story → Combat → skip camp.
     #[test]
     fn should_enter_camp_story_to_combat_skips() {
         assert!(!should_enter_camp(&story_scene(false), &combat_scene(), true));
     }
 
-    /// Story → Story → skip camp (only Combat→Story qualifies in the alternating
-    /// structure; this case doesn't occur in shipped content anyway).
+    /// Combat → Story → skip camp (only Story→Story qualifies).
     #[test]
-    fn should_enter_camp_story_to_story_skips() {
-        assert!(!should_enter_camp(&story_scene(false), &story_scene(false), true));
+    fn should_enter_camp_combat_to_story_skips() {
+        assert!(!should_enter_camp(&combat_scene(), &story_scene(false), true));
     }
 }
