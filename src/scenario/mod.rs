@@ -195,6 +195,14 @@ pub fn advance_scenario_system(
                         &next_id,
                         0,
                     );
+                    // Force a camp at the very start of the new chapter so the
+                    // player can equip drops carried over from the previous
+                    // chapter (incl. its boss reward). Skipped when the stash is
+                    // empty (nothing to equip). Chapters always open on a Story
+                    // scene, so Camp's Continue → Story shows the intro.
+                    if !camp_state.stash.is_empty() {
+                        next_state.set(AppState::Camp);
+                    }
                     return;
                 }
                 // Campaign finished.
@@ -943,6 +951,115 @@ mod tests {
         assert!(
             matches!(ns, NextState::Pending(AppState::Story)),
             "standalone scenario must go to Story, not Camp, got {ns:?}",
+        );
+    }
+
+    /// Single-`Story` scenario with an explicit id (for chapter-transition tests).
+    fn single_story_scenario(id: &str) -> ScenarioDef {
+        use crate::content::scenarios::DialogueLine;
+        let story = SceneDef::Story {
+            lines: vec![DialogueLine {
+                speaker: "X".into(),
+                text: "intro".into(),
+                requires_flag: None,
+                excludes_flag: None,
+            }],
+            party_add: vec![],
+            party_remove: vec![],
+            status_ops: vec![],
+            requires_flag: None,
+            no_camp: false,
+        };
+        let mut s = scenario_from_scenes(vec![story]);
+        s.id = id.into();
+        s
+    }
+
+    /// Build an advance app for a 2-chapter campaign (s1 → s2); firing one
+    /// `AdvanceScenario` finishes single-scene s1 and crosses into s2. `stash`
+    /// seeds the carried-over party stash.
+    fn make_chapter_advance_app(stash: Vec<crate::content::item_ref::ItemRef>) -> App {
+        use crate::content::campaigns::CampaignDef;
+        use crate::content::settings::GameSettings;
+        let mut db = GameDb {
+            scenarios: HashMap::new(),
+            campaigns: HashMap::new(),
+            campaign_order: vec![],
+        };
+        db.scenarios.insert("s1".into(), single_story_scenario("s1"));
+        db.scenarios.insert("s2".into(), single_story_scenario("s2"));
+        db.campaigns.insert(
+            "c".into(),
+            CampaignDef {
+                id: "c".into(),
+                name: "c".into(),
+                description: String::new(),
+                scenario_ids: vec!["s1".into(), "s2".into()],
+            },
+        );
+        let mut app = App::new();
+        app.add_message::<AdvanceScenario>();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
+        app.insert_resource(GameSettings::default());
+        app.insert_resource(NextState::<AppState>::default());
+        app.insert_resource(CampaignState {
+            campaign_id: "c".into(),
+            scenario_index: 0,
+            flags: std::collections::BTreeSet::new(),
+            stash,
+            loadouts: std::collections::HashMap::new(),
+        });
+        app.add_systems(
+            Update,
+            (
+                |mut w: MessageWriter<AdvanceScenario>| {
+                    w.write(AdvanceScenario);
+                },
+                advance_scenario_system,
+            )
+                .chain(),
+        );
+        app
+    }
+
+    /// Crossing into a new chapter with a non-empty stash forces a camp at the
+    /// chapter start so carried-over drops (incl. the previous boss reward) can
+    /// be equipped before the chapter begins.
+    #[test]
+    fn chapter_start_forces_camp_when_stash_nonempty() {
+        let stash = vec![crate::content::item_ref::ItemRef::Weapon(
+            combat_engine::WeaponId::from("kolm_cleaver"),
+        )];
+        let mut app = make_chapter_advance_app(stash);
+        app.update();
+
+        let ns = app.world().resource::<NextState<AppState>>();
+        assert!(
+            matches!(ns, NextState::Pending(AppState::Camp)),
+            "expected forced Camp at chapter start, got {ns:?}",
+        );
+        assert_eq!(
+            app.world().resource::<CampaignState>().scenario_index,
+            1,
+            "campaign should have advanced to chapter 2",
+        );
+    }
+
+    /// Crossing into a new chapter with an EMPTY stash does NOT force a camp —
+    /// the chapter opens directly on its first Story scene.
+    #[test]
+    fn chapter_start_skips_camp_when_stash_empty() {
+        let mut app = make_chapter_advance_app(vec![]);
+        app.update();
+
+        let ns = app.world().resource::<NextState<AppState>>();
+        assert!(
+            matches!(ns, NextState::Pending(AppState::Story)),
+            "empty stash should open chapter on Story, not Camp, got {ns:?}",
         );
     }
 

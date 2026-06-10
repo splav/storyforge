@@ -14,7 +14,8 @@ Transitions:
 - `Boot` → first scene (Story or Combat via `start_scenario`)
 - `Story` → `Combat` (on `AdvanceScenario` to a Combat scene)
 - `Story` → `Camp` (on `AdvanceScenario` from a Story scene with `no_camp=false` to a next Story scene, while `CampaignState` is present)
-- `Camp` → `Story` (Continue button / Space/Enter in camp)
+- `* ` → `Camp` (**forced at the start of a new chapter**: when the campaign crosses into the next scenario and the carried-over `CampaignState.stash` is non-empty, route into Camp before the chapter's first scene)
+- `Camp` → `Story` (Continue button / Space/Enter in camp; chapters open on Story)
 - `Combat` → `Story` (on `AdvanceScenario` after victory/defeat)
 - Any → `MainMenu` (scenario/campaign complete)
 
@@ -23,7 +24,7 @@ Transitions:
 | `Boot` | Default. `start_scenario` runs at Startup, transitions to first scene |
 | `Story` | Story screen overlay (text + "Continue"). Input: Space/Enter/click |
 | `Combat` | Hex grid combat. Sub-state `CombatPhase` active |
-| `Camp` | Between-story-scenes rest screen. Player re-equips heroes from the party stash. Entered automatically on Story→Story advance when `CampaignState` present and `no_camp=false`. Continue → `Story`. |
+| `Camp` | Rest/equip screen — player re-equips heroes from the party stash. Entered (1) on Story→Story advance (`CampaignState` present, `no_camp=false`), and (2) **forced at the start of a new chapter** when the carried stash is non-empty (equip the previous chapter's boss drop). Continue → `Story`. |
 | `MainMenu` | End state (scenario complete or defeat) |
 | `Overworld` | Reserved, not used |
 

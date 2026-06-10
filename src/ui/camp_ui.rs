@@ -1,7 +1,12 @@
-//! Camp screen: displayed between two Story scenes so the player can re-equip
-//! heroes from the party stash.  Entered via `AppState::Camp`; a "Continue"
-//! button (or Enter/Space) transitions to `AppState::Story` to show the
-//! already-queued next scene.
+//! Camp screen: lets the player re-equip heroes from the party stash. Entered
+//! via `AppState::Camp` on two triggers (see `scenario::advance_scenario_system`):
+//!   1. between two Story scenes (Story→Story, when a campaign is active and the
+//!      source scene's `no_camp` is false), and
+//!   2. **forced at the start of a new chapter** when the carried-over stash is
+//!      non-empty — so the previous chapter's boss drop can be equipped.
+//!
+//! Chapters always open on a Story scene, so a "Continue" button (or Enter/Space)
+//! transitions to `AppState::Story` to show the already-queued next scene.
 
 use super::button::{spawn_standard_button, ButtonStyle};
 use crate::app_state::AppState;
