@@ -817,6 +817,135 @@ mod tests {
         assert_eq!(idx, 1, "scene_index should advance from 0 to 1");
     }
 
+    // ── camp routing detour ───────────────────────────────────────────────────
+
+    /// Helper: build a two-scene all-Story scenario (both `no_camp = false`).
+    fn two_story_scenario() -> ScenarioDef {
+        use crate::content::scenarios::DialogueLine;
+        let story = |text: &str| SceneDef::Story {
+            lines: vec![DialogueLine {
+                speaker: "X".into(),
+                text: text.into(),
+                requires_flag: None,
+                excludes_flag: None,
+            }],
+            party_add: vec![],
+            party_remove: vec![],
+            status_ops: vec![],
+            requires_flag: None,
+            no_camp: false,
+        };
+        scenario_from_scenes(vec![story("scene 0"), story("scene 1")])
+    }
+
+    /// Helper: build a minimal advance app around a given `ScenarioDef`.
+    /// Optionally inserts a `CampaignState`.
+    fn make_advance_app(scen: ScenarioDef, with_campaign: bool) -> App {
+        use crate::content::settings::GameSettings;
+        let db = make_db(scen);
+        let mut app = App::new();
+        app.add_message::<AdvanceScenario>();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
+        app.insert_resource(GameSettings::default());
+        app.insert_resource(NextState::<AppState>::default());
+        if with_campaign {
+            app.insert_resource(CampaignState {
+                campaign_id: "c".into(),
+                scenario_index: 0,
+                flags: std::collections::BTreeSet::new(),
+                stash: vec![],
+                loadouts: std::collections::HashMap::new(),
+            });
+        }
+        app.add_systems(
+            Update,
+            (
+                |mut w: MessageWriter<AdvanceScenario>| {
+                    w.write(AdvanceScenario);
+                },
+                advance_scenario_system,
+            )
+                .chain(),
+        );
+        app
+    }
+
+    /// Story→Story with a live `CampaignState` routes to `AppState::Camp`,
+    /// and `scene_index` is pre-advanced to 1 (pointing at the next scene).
+    #[test]
+    fn advance_story_to_story_with_campaign_routes_to_camp() {
+        let mut app = make_advance_app(two_story_scenario(), true);
+        app.update();
+
+        let ns = app.world().resource::<NextState<AppState>>();
+        assert!(
+            matches!(ns, NextState::Pending(AppState::Camp)),
+            "expected NextState::Pending(Camp), got {ns:?}",
+        );
+        let idx = app.world().resource::<ScenarioState>().scene_index;
+        assert_eq!(idx, 1, "scene_index should be pre-advanced to 1 before Camp");
+    }
+
+    /// After the camp detour the `scene_index` is already at 1; Camp Continue
+    /// transitions to `AppState::Story` directly (no `AdvanceScenario`), so
+    /// `scene_index` must not advance a second time.
+    #[test]
+    fn camp_exit_does_not_double_advance() {
+        // We simulate just the post-detour state: scene_index=1 is already set.
+        // A second `AdvanceScenario` (which Camp does NOT send) would push to 2/end.
+        // Verify that without firing AdvanceScenario the index stays put.
+        use crate::content::settings::GameSettings;
+        let db = make_db(two_story_scenario());
+        let mut app = App::new();
+        app.add_message::<AdvanceScenario>();
+        app.insert_resource(db);
+        // Start at scene_index=1 (post-camp-detour state).
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 1,
+        });
+        app.insert_resource(GameSettings::default());
+        app.insert_resource(NextState::<AppState>::default());
+        app.insert_resource(CampaignState {
+            campaign_id: "c".into(),
+            scenario_index: 0,
+            flags: std::collections::BTreeSet::new(),
+            stash: vec![],
+            loadouts: std::collections::HashMap::new(),
+        });
+        // No writer system: advance_scenario_system fires only if a message exists.
+        app.add_systems(Update, advance_scenario_system);
+        app.update();
+
+        // No AdvanceScenario sent → scene_index unchanged at 1.
+        let idx = app.world().resource::<ScenarioState>().scene_index;
+        assert_eq!(idx, 1, "scene_index must stay at 1 when no AdvanceScenario sent");
+        // NextState was not set (still default).
+        let ns = app.world().resource::<NextState<AppState>>();
+        assert!(
+            matches!(ns, NextState::Unchanged),
+            "NextState must stay Unchanged when no advance fired",
+        );
+    }
+
+    /// Standalone scenario (no `CampaignState`) does NOT route to Camp —
+    /// Story→Story stays `AppState::Story`.
+    #[test]
+    fn advance_story_to_story_without_campaign_skips_camp() {
+        let mut app = make_advance_app(two_story_scenario(), false);
+        app.update();
+
+        let ns = app.world().resource::<NextState<AppState>>();
+        assert!(
+            matches!(ns, NextState::Pending(AppState::Story)),
+            "standalone scenario must go to Story, not Camp, got {ns:?}",
+        );
+    }
+
     // ── requires_flag scene-level gating ─────────────────────────────────────
 
     /// Helper: build a SceneDef::Story with given requires_flag (no lines → invisible

@@ -486,6 +486,8 @@ pub fn camp_interaction_system(
     active_content: Res<ActiveContent>,
     mut next_state: ResMut<NextState<AppState>>,
     mut rebuild: ResMut<CampNeedsRebuild>,
+    db: Res<GameDb>,
+    scenario_state: Res<ScenarioState>,
 ) {
     let key_continue = keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Enter);
     let btn_continue = continue_buttons.iter().any(|i| *i == Interaction::Pressed);
@@ -518,16 +520,19 @@ pub fn camp_interaction_system(
             None => continue,
         };
 
-        // Resolve current save (or a blank if no loadout exists yet).
-        let current_save = camp.loadouts.get(&hero_id).cloned().unwrap_or(EquipmentSave {
-            main_hand: None,
-            off_hand: None,
-            chest: ArmorId::from(""),
-            legs: ArmorId::from(""),
-            feet: ArmorId::from(""),
-        });
-
+        // Resolve current save: saved loadout if present, else class defaults.
+        // Using resolve_hero_equipment ensures a first equip writes a complete snapshot
+        // (real class-default armor in untouched slots) rather than empty sentinels.
+        let scen = db.scenarios.get(&scenario_state.scenario_id).unwrap();
+        let party = crate::content::scenarios::active_party(scen, scenario_state.scene_index);
+        let class_id = party
+            .iter()
+            .find(|m| m.id == hero_id)
+            .map(|m| m.class_id.clone())
+            .unwrap_or_default();
         let content = &active_content.0;
+        let current_save = resolve_hero_equipment(&hero_id, &class_id, camp, content);
+
         match try_equip(&current_save, &slot, item.clone(), &content.weapons, &content.armor) {
             Ok(result) => {
                 // Remove the equipped item from the stash.

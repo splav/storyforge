@@ -80,6 +80,7 @@ lines = [
 ]
 # Эффект сцены: Kael входит в партию перед следующим боем.
 [[scenes.party_add]]
+id      = "kael"
 name    = "Kael"
 race    = "human"
 faction = "aurum"
