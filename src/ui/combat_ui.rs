@@ -442,6 +442,7 @@ mod tests {
             environment: vec![],
             on_defeat,
             objectives: vec![],
+            rewards: vec![],
         };
         let mut encounters = HashMap::new();
         encounters.insert("enc".into(), enc);

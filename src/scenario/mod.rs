@@ -7,6 +7,7 @@ pub mod input;
 use crate::app_state::{AppState, CombatPhase};
 use crate::content::content_view::ActiveContent;
 use crate::content::encounters::OnDefeat;
+use crate::content::item_ref::ItemRef;
 use crate::content::scenarios::SceneDef;
 use crate::content::settings::GameSettings;
 use crate::game::components::{Combatant, Faction, Team, Vital};
@@ -241,6 +242,60 @@ pub fn write_victory_flags(
     }
 }
 
+/// Resolve a bare item id to an [`ItemRef`] by checking the content registries.
+///
+/// Returns `None` (and logs a warning) if the id is unknown.
+pub fn resolve_reward(id: &str, content: &crate::content::content_view::ContentView) -> Option<ItemRef> {
+    use combat_engine::{ArmorId, WeaponId};
+    let weapon_id = WeaponId::from(id);
+    if content.weapons.contains_key(&weapon_id) {
+        return Some(ItemRef::Weapon(weapon_id));
+    }
+    let armor_id = ArmorId::from(id);
+    if content.armor.contains_key(&armor_id) {
+        return Some(ItemRef::Armor(armor_id));
+    }
+    warn!("resolve_reward: unknown item id '{id}' — skipping");
+    None
+}
+
+/// On entering `CombatPhase::Victory`, grant the encounter's authored `rewards`
+/// to `CampaignState.stash`.
+///
+/// Idempotent: a per-encounter flag `__rewarded_<scenario_id>_<scene_index>` is
+/// set in `CampaignState.flags` on first grant; re-entry is a no-op.
+///
+/// No-op when `CampaignState` is absent (standalone scenarios).
+pub fn write_victory_rewards(
+    scenario: Option<Res<ScenarioState>>,
+    mut campaign: Option<ResMut<CampaignState>>,
+    db: Res<GameDb>,
+) {
+    let (Some(scenario), Some(campaign)) = (scenario, campaign.as_mut()) else {
+        return;
+    };
+    let guard_flag = format!(
+        "__rewarded_{}_{}",
+        scenario.scenario_id, scenario.scene_index
+    );
+    if campaign.flags.contains(&guard_flag) {
+        return;
+    }
+    let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
+    let SceneDef::Combat { encounter_id, .. } = &scen.scenes[scenario.scene_index] else {
+        return;
+    };
+    let Some(enc) = scen.encounters.get(encounter_id.as_str()) else {
+        return;
+    };
+    for id in &enc.rewards {
+        if let Some(item) = resolve_reward(id, &scen.content) {
+            campaign.stash.push(item);
+        }
+    }
+    campaign.flags.insert(guard_flag);
+}
+
 /// On combat end (victory OR proceed-defeat), evaluate this encounter's secondary
 /// `objectives` against the final ECS state and record each MET objective's `id`
 /// into `CampaignState.flags`.
@@ -355,6 +410,7 @@ mod tests {
             environment: vec![],
             on_defeat,
             objectives: vec![obj],
+            rewards: vec![],
         };
         let mut encounters = HashMap::new();
         encounters.insert("enc".into(), enc);
@@ -1088,5 +1144,192 @@ mod tests {
         // From index 0 with empty flags: scene 0 (gated) skipped, scene 1 plays.
         assert_eq!(skip_skipped(scen2, 0, &empty), Some(1));
         // No panic reached → test passes.
+    }
+
+    // ── write_victory_rewards tests ──────────────────────────────────────
+
+    /// Build a `ContentView` with one weapon and one armor item for reward tests.
+    fn rewards_content() -> ContentView {
+        use crate::content::armor::{ArmorDef, ArmorSlot};
+        use crate::content::weapons::{HandType, WeaponDef};
+        use combat_engine::{ArmorId, DiceExpr, WeaponId};
+
+        let weapon_id = WeaponId::from("sword_x");
+        let armor_id = ArmorId::from("plate_y");
+
+        let mut content = ContentView::default();
+        content.weapons.insert(
+            weapon_id.clone(),
+            WeaponDef {
+                id: weapon_id,
+                name: "Sword X".into(),
+                hand: HandType::MainHand,
+                dice: DiceExpr { count: 1, sides: 6, bonus: 0 },
+                spell_power: 0,
+                armor: 0,
+                max_hp: 0,
+                strength: 0,
+                dexterity: 0,
+                constitution: 0,
+                intelligence: 0,
+                wisdom: 0,
+                charisma: 0,
+            },
+        );
+        content.armor.insert(
+            armor_id.clone(),
+            ArmorDef {
+                id: armor_id,
+                name: "Plate Y".into(),
+                slot: ArmorSlot::Chest,
+                armor: 3,
+                max_hp: 0,
+                strength: 0,
+                dexterity: 0,
+                constitution: 0,
+                intelligence: 0,
+                wisdom: 0,
+                charisma: 0,
+            },
+        );
+        content
+    }
+
+    /// Build a `ScenarioDef` with a combat scene whose encounter has the given rewards.
+    fn scenario_with_rewards(reward_ids: Vec<&str>, content: ContentView) -> ScenarioDef {
+        use crate::content::encounters::EncounterDef;
+        let enc = EncounterDef {
+            id: "enc".into(),
+            name: "enc".into(),
+            enemies: vec![],
+            victory: crate::content::encounters::VictoryCondition::AllEnemiesDead,
+            obstacles: vec![],
+            environment: vec![],
+            on_defeat: crate::content::encounters::OnDefeat::Retry,
+            objectives: vec![],
+            rewards: reward_ids.into_iter().map(str::to_string).collect(),
+        };
+        let mut encounters = HashMap::new();
+        encounters.insert("enc".to_string(), enc);
+        ScenarioDef {
+            id: "s1".into(),
+            name: "s1".into(),
+            party: vec![],
+            scenes: vec![SceneDef::Combat {
+                encounter_id: "enc".into(),
+                location: None,
+                on_victory_flags: vec![],
+                requires_flag: None,
+            }],
+            content,
+            encounters,
+        }
+    }
+
+    fn campaign_empty() -> CampaignState {
+        CampaignState {
+            campaign_id: "c".into(),
+            scenario_index: 0,
+            flags: std::collections::BTreeSet::new(),
+            stash: Vec::new(),
+            loadouts: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Victory with rewards appends resolved ItemRefs to stash.
+    #[test]
+    fn victory_rewards_appended_to_stash() {
+        use crate::content::item_ref::ItemRef;
+        use combat_engine::{ArmorId, WeaponId};
+
+        let content = rewards_content();
+        let scenario = scenario_with_rewards(vec!["sword_x", "plate_y"], content);
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(campaign_empty());
+        app.add_systems(Update, write_victory_rewards);
+        app.update();
+
+        let stash = &app.world().resource::<CampaignState>().stash;
+        assert_eq!(stash.len(), 2);
+        assert!(stash.contains(&ItemRef::Weapon(WeaponId::from("sword_x"))));
+        assert!(stash.contains(&ItemRef::Armor(ArmorId::from("plate_y"))));
+    }
+
+    /// Re-entry into Victory does NOT double-append rewards (guard flag prevents it).
+    #[test]
+    fn victory_rewards_idempotent() {
+        let content = rewards_content();
+        let scenario = scenario_with_rewards(vec!["sword_x"], content);
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(campaign_empty());
+        app.add_systems(Update, write_victory_rewards);
+        app.update();
+        app.update(); // second call — must not duplicate
+
+        let stash = &app.world().resource::<CampaignState>().stash;
+        assert_eq!(stash.len(), 1, "stash must not double on re-entry");
+    }
+
+    /// Encounter with no rewards leaves stash unchanged.
+    #[test]
+    fn victory_rewards_empty_encounter_is_noop() {
+        let scenario = scenario_with_rewards(vec![], ContentView::default());
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(campaign_empty());
+        app.add_systems(Update, write_victory_rewards);
+        app.update();
+
+        let stash = &app.world().resource::<CampaignState>().stash;
+        assert!(stash.is_empty());
+    }
+
+    /// Unknown reward id is skipped (warn+skip), known ids still granted.
+    #[test]
+    fn victory_rewards_unknown_id_skipped_known_granted() {
+        use crate::content::item_ref::ItemRef;
+        use combat_engine::WeaponId;
+
+        let content = rewards_content();
+        // "ghost_item" is not in content registries
+        let scenario = scenario_with_rewards(vec!["sword_x", "ghost_item"], content);
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(campaign_empty());
+        app.add_systems(Update, write_victory_rewards);
+        app.update();
+
+        let stash = &app.world().resource::<CampaignState>().stash;
+        assert_eq!(stash.len(), 1);
+        assert!(stash.contains(&ItemRef::Weapon(WeaponId::from("sword_x"))));
+    }
+
+    /// No CampaignState → write_victory_rewards is a no-op (no panic).
+    #[test]
+    fn victory_rewards_no_campaign_state_is_noop() {
+        let content = rewards_content();
+        let scenario = scenario_with_rewards(vec!["sword_x"], content);
+        let db = make_db(scenario);
+
+        let mut app = App::new();
+        app.insert_resource(db);
+        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        // No CampaignState inserted — must not panic.
+        app.add_systems(Update, write_victory_rewards);
+        app.update();
     }
 }

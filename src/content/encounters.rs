@@ -36,6 +36,10 @@ pub struct EncounterDef {
     pub on_defeat: OnDefeat,
     /// Secondary objectives evaluated at combat end. Default empty.
     pub objectives: Vec<ObjectiveDef>,
+    /// Bare item ids granted to the party stash on victory. Default empty.
+    /// Each id is resolved at grant time: weapon → `ItemRef::Weapon`,
+    /// armor → `ItemRef::Armor`. Unknown ids are skipped with a warning.
+    pub rewards: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -216,6 +220,8 @@ struct EncounterRecord {
     on_defeat: Option<String>,
     #[serde(default)]
     objectives: Vec<ObjectiveRecord>,
+    #[serde(default)]
+    rewards: Vec<String>,
 }
 
 /// A static obstacle tile as declared in `encounters.toml`.
@@ -614,6 +620,7 @@ pub fn load_encounters_from_str(
                     .collect(),
                 on_defeat,
                 objectives,
+                rewards: enc.rewards,
             }
         })
         .collect()
@@ -903,5 +910,20 @@ target_name = "Лодка"
             }
             other => panic!("expected KeepAlive, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rewards_absent_defaults_to_empty() {
+        let enc = load_enc(&enc_toml_with("", ""));
+        assert!(enc.rewards.is_empty());
+    }
+
+    #[test]
+    fn rewards_present_parsed() {
+        let enc = load_enc(&enc_toml_with(
+            r#"rewards = ["sword_x", "plate_y"]"#,
+            "",
+        ));
+        assert_eq!(enc.rewards, vec!["sword_x", "plate_y"]);
     }
 }

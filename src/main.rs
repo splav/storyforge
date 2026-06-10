@@ -233,6 +233,7 @@ fn main() {
             OnEnter(CombatPhase::Victory),
             (
                 scenario::write_victory_flags,
+                scenario::write_victory_rewards,
                 scenario::write_objective_flags,
             ),
         )

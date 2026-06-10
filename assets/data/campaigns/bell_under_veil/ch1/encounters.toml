@@ -4,8 +4,9 @@
 # Обучающий бой, простая группа. Вожак — позиция в центре, налётчики по флангам.
 
 [[encounters]]
-id   = "road_bridge"
-name = "Стычка на старой дороге"
+id      = "road_bridge"
+name    = "Стычка на старой дороге"
+rewards = ["short_sword"]
 
 [[encounters.enemies]]
 template = "beastblood_leader"
