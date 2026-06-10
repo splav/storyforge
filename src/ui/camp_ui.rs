@@ -285,6 +285,163 @@ fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentVi
     full[..end].to_string()
 }
 
+// ── Stat comparison card ─────────────────────────────────────────────────────
+
+/// Marker for the fixed comparison-card panel.
+/// Spawned once inside `CampScreenRoot`; shown/hidden by `camp_comparison_system`.
+#[derive(Component)]
+pub struct ComparisonCard;
+
+/// One stat row in the comparison card.
+#[derive(Debug, Clone)]
+pub struct CompareRow {
+    pub label: String,
+    /// Value for the selected item (left column).
+    pub selected_val: f32,
+    /// Value for the hovered item (right column).
+    pub hovered_val: f32,
+}
+
+/// Build comparison rows for two items.
+///
+/// Returns only rows where at least one item has a non-zero value.
+/// For weapons, "Урон" is the average dice damage (`DiceExpr::expected()`).
+///
+/// Pure function — no Bevy types, fully unit-testable.
+pub fn compare_items(
+    selected: &ItemRef,
+    hovered: &ItemRef,
+    weapons: &std::collections::HashMap<WeaponId, WeaponDef>,
+    armor: &std::collections::HashMap<ArmorId, ArmorDef>,
+) -> Vec<CompareRow> {
+    // Inline stat bundle extracted from whichever item kind we have.
+    struct Stats {
+        damage:      f32,
+        spell_power: f32,
+        armor:       f32,
+        max_hp:      f32,
+        strength:    f32,
+        dexterity:   f32,
+        constitution: f32,
+        intelligence: f32,
+        wisdom:       f32,
+        charisma:     f32,
+    }
+
+    let extract = |item: &ItemRef| -> Stats {
+        match item {
+            ItemRef::Weapon(wid) => {
+                if let Some(def) = weapons.get(wid) {
+                    Stats {
+                        damage:       def.dice.expected(),
+                        spell_power:  def.spell_power as f32,
+                        armor:        def.armor as f32,
+                        max_hp:       def.max_hp as f32,
+                        strength:     def.strength as f32,
+                        dexterity:    def.dexterity as f32,
+                        constitution: def.constitution as f32,
+                        intelligence: def.intelligence as f32,
+                        wisdom:       def.wisdom as f32,
+                        charisma:     def.charisma as f32,
+                    }
+                } else {
+                    Stats { damage: 0.0, spell_power: 0.0, armor: 0.0, max_hp: 0.0,
+                            strength: 0.0, dexterity: 0.0, constitution: 0.0,
+                            intelligence: 0.0, wisdom: 0.0, charisma: 0.0 }
+                }
+            }
+            ItemRef::Armor(aid) => {
+                if let Some(def) = armor.get(aid) {
+                    Stats {
+                        damage:       0.0,
+                        spell_power:  0.0,
+                        armor:        def.armor as f32,
+                        max_hp:       def.max_hp as f32,
+                        strength:     def.strength as f32,
+                        dexterity:    def.dexterity as f32,
+                        constitution: def.constitution as f32,
+                        intelligence: def.intelligence as f32,
+                        wisdom:       def.wisdom as f32,
+                        charisma:     def.charisma as f32,
+                    }
+                } else {
+                    Stats { damage: 0.0, spell_power: 0.0, armor: 0.0, max_hp: 0.0,
+                            strength: 0.0, dexterity: 0.0, constitution: 0.0,
+                            intelligence: 0.0, wisdom: 0.0, charisma: 0.0 }
+                }
+            }
+        }
+    };
+
+    let s = extract(selected);
+    let h = extract(hovered);
+
+    let candidates: &[(&str, f32, f32)] = &[
+        ("Урон",      s.damage,       h.damage),
+        ("Сила закл.", s.spell_power, h.spell_power),
+        ("Броня",     s.armor,        h.armor),
+        ("HP",        s.max_hp,       h.max_hp),
+        ("СИЛ",       s.strength,     h.strength),
+        ("ЛОВ",       s.dexterity,    h.dexterity),
+        ("ТЕЛ",       s.constitution, h.constitution),
+        ("ИНТ",       s.intelligence, h.intelligence),
+        ("МУД",       s.wisdom,       h.wisdom),
+        ("ХАР",       s.charisma,     h.charisma),
+    ];
+
+    candidates
+        .iter()
+        .filter(|(_, sv, hv)| *sv != 0.0 || *hv != 0.0)
+        .map(|(label, sv, hv)| CompareRow {
+            label: label.to_string(),
+            selected_val: *sv,
+            hovered_val: *hv,
+        })
+        .collect()
+}
+
+/// Resolve which item (if any) lives in a given `CellKind`.
+///
+/// - `Backpack { index }` → `stash[index]`  
+/// - `Equip { hero_id, slot }` → resolve loadout, read the slot  
+fn cell_item(
+    kind: &CellKind,
+    campaign: &CampaignState,
+    db: &GameDb,
+    scenario_state: &ScenarioState,
+    content: &crate::content::content_view::ContentView,
+) -> Option<ItemRef> {
+    match kind {
+        CellKind::Backpack { index } => campaign.stash.get(*index).cloned(),
+        CellKind::Equip { hero_id, slot } => {
+            let scen = db.scenarios.get(&scenario_state.scenario_id)?;
+            let party = active_party(scen, scenario_state.scene_index);
+            let class_id = party
+                .iter()
+                .find(|m| m.id == *hero_id)
+                .map(|m| m.class_id.as_str())
+                .unwrap_or("");
+            let eq = resolve_hero_equipment(hero_id, class_id, campaign, content);
+            match slot {
+                EquipSlot::MainHand => eq.main_hand.map(ItemRef::Weapon),
+                EquipSlot::OffHand  => eq.off_hand.map(ItemRef::Weapon),
+                EquipSlot::Chest    => {
+                    let id = eq.chest;
+                    if id.0.is_empty() { None } else { Some(ItemRef::Armor(id)) }
+                }
+                EquipSlot::Legs     => {
+                    let id = eq.legs;
+                    if id.0.is_empty() { None } else { Some(ItemRef::Armor(id)) }
+                }
+                EquipSlot::Feet     => {
+                    let id = eq.feet;
+                    if id.0.is_empty() { None } else { Some(ItemRef::Armor(id)) }
+                }
+            }
+        }
+    }
+}
+
 // ── Visual constants ─────────────────────────────────────────────────────────
 
 const CELL_SIZE: f32 = 56.0;
@@ -458,6 +615,25 @@ fn spawn_camp_ui(
                     }
                 });
             }
+
+            // ── Stat comparison card (fixed top-right, starts hidden) ────
+            root.spawn((
+                ComparisonCard,
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: Val::Px(24.0),
+                    top: Val::Px(24.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(10.0)),
+                    row_gap: Val::Px(4.0),
+                    min_width: Val::Px(200.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.08, 0.08, 0.14, 0.95)),
+                BorderColor::all(Color::srgb(0.45, 0.40, 0.30)),
+                Visibility::Hidden,
+            ));
 
             // ── Continue button ───────────────────────────────────────────
             spawn_standard_button(
@@ -782,6 +958,190 @@ pub fn cleanup_camp_screen(
     }
 }
 
+/// Updates the stat-comparison card each frame while in `AppState::Camp`.
+///
+/// Shows the card when:
+///   - a cell is selected (`CampEquipSelection.selected.is_some()`), AND
+///   - exactly one cell is hovered that is NOT the selected cell, AND
+///   - both cells resolve to an item.
+///
+/// The card is a fixed top-right panel (absolute position, never overlaps the
+/// grids), so it cannot intercept pointer events — the cell buttons always
+/// receive `Interaction::Pressed` correctly.
+///
+/// Uses a `Local` to track the last `(selected, hovered)` pair so children are
+/// only rebuilt when the pair changes, not every frame.
+#[allow(clippy::too_many_arguments)]
+pub fn camp_comparison_system(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    selection: Res<CampEquipSelection>,
+    campaign: Option<Res<CampaignState>>,
+    active_content: Res<ActiveContent>,
+    db: Res<GameDb>,
+    scenario_state: Res<ScenarioState>,
+    equip_cells: Query<(&Interaction, &EquipCell)>,
+    backpack_cells: Query<(&Interaction, &BackpackCell)>,
+    mut cards: Query<(Entity, &mut Visibility), With<ComparisonCard>>,
+    mut last: Local<Option<(CellKind, CellKind)>>,
+) {
+    // Find the single hovered cell (if any).
+    let hovered_kind: Option<CellKind> = {
+        let from_equip = equip_cells
+            .iter()
+            .find(|(i, _)| **i == Interaction::Hovered)
+            .map(|(_, c)| CellKind::Equip { hero_id: c.hero_id.clone(), slot: c.slot.clone() });
+        let from_backpack = backpack_cells
+            .iter()
+            .find(|(i, _)| **i == Interaction::Hovered)
+            .map(|(_, c)| CellKind::Backpack { index: c.index });
+        from_equip.or(from_backpack)
+    };
+
+    // Determine whether we should show the card.
+    let show = (|| -> Option<(CellKind, CellKind)> {
+        let selected_kind = selection.selected.clone()?;
+        let hovered = hovered_kind?;
+        if hovered == selected_kind {
+            return None; // hovering the selected cell — hide
+        }
+        Some((selected_kind, hovered))
+    })();
+
+    let Ok((card_entity, mut card_vis)) = cards.single_mut() else {
+        return;
+    };
+
+    let Some((selected_kind, hovered_kind)) = show else {
+        // Hide card and reset last pair.
+        *card_vis = Visibility::Hidden;
+        *last = None;
+        return;
+    };
+
+    // Only rebuild children when the pair changes.
+    if *last == Some((selected_kind.clone(), hovered_kind.clone())) {
+        *card_vis = Visibility::Inherited;
+        return;
+    }
+
+    let Some(campaign) = campaign else { return };
+    let content = &active_content.0;
+
+    // Resolve items for both cells.
+    let sel_item = cell_item(&selected_kind, &campaign, &db, &scenario_state, content);
+    let hov_item = cell_item(&hovered_kind, &campaign, &db, &scenario_state, content);
+
+    let (Some(sel_item), Some(hov_item)) = (sel_item, hov_item) else {
+        // One cell is empty — hide card.
+        *card_vis = Visibility::Hidden;
+        *last = None;
+        return;
+    };
+
+    // Item names for headers.
+    let sel_name = match &sel_item {
+        ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
+        ItemRef::Armor(aid)  => armor_name(aid, content).to_string(),
+    };
+    let hov_name = match &hov_item {
+        ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
+        ItemRef::Armor(aid)  => armor_name(aid, content).to_string(),
+    };
+
+    let rows = compare_items(&sel_item, &hov_item, &content.weapons, &content.armor);
+
+    // Rebuild card children.
+    *last = Some((selected_kind, hovered_kind));
+    *card_vis = Visibility::Inherited;
+
+    let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
+
+    commands.entity(card_entity).despawn_related::<Children>();
+    commands.entity(card_entity).with_children(|card| {
+        // Header row: "Выбрано | Наведено"
+        card.spawn(Node {
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(8.0),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                Text::new(sel_name),
+                TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                TextColor(Color::srgb(0.95, 0.85, 0.5)),
+            ));
+            row.spawn((
+                Text::new(" / "),
+                TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                TextColor(Color::srgb(0.6, 0.6, 0.6)),
+            ));
+            row.spawn((
+                Text::new(hov_name),
+                TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                TextColor(Color::srgb(0.5, 0.85, 0.95)),
+            ));
+        });
+
+        // Stat rows.
+        for row_data in &rows {
+            let delta = row_data.hovered_val - row_data.selected_val;
+            let delta_color = if delta > 0.0 {
+                Color::srgb(0.3, 0.9, 0.3)
+            } else if delta < 0.0 {
+                Color::srgb(0.9, 0.3, 0.3)
+            } else {
+                Color::srgb(0.6, 0.6, 0.6)
+            };
+            let delta_str = if delta > 0.0 {
+                format!("+{:.0}", delta)
+            } else {
+                format!("{:.0}", delta)
+            };
+
+            card.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(6.0),
+                ..default()
+            })
+            .with_children(|row| {
+                // Label
+                row.spawn((
+                    Text::new(format!("{:<10}", row_data.label)),
+                    TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                    TextColor(Color::srgb(0.75, 0.75, 0.75)),
+                ));
+                // Selected value
+                row.spawn((
+                    Text::new(format!("{:.0}", row_data.selected_val)),
+                    TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                    TextColor(Color::srgb(0.95, 0.85, 0.5)),
+                ));
+                // Arrow + delta
+                row.spawn((
+                    Text::new(format!("→ {}", delta_str)),
+                    TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                    TextColor(delta_color),
+                ));
+                // Hovered value
+                row.spawn((
+                    Text::new(format!("{:.0}", row_data.hovered_val)),
+                    TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                    TextColor(Color::srgb(0.5, 0.85, 0.95)),
+                ));
+            });
+        }
+
+        if rows.is_empty() {
+            card.spawn((
+                Text::new("Нет статов"),
+                TextFont { font, font_size: 11.0, ..default() },
+                TextColor(Color::srgb(0.5, 0.5, 0.5)),
+            ));
+        }
+    });
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1094,5 +1454,173 @@ mod tests {
     #[test]
     fn should_enter_camp_combat_to_story_skips() {
         assert!(!should_enter_camp(&combat_scene(), &story_scene(false), true));
+    }
+
+    // ── compare_items ────────────────────────────────────────────────────────
+
+    /// Helper: weapon with specific stats.
+    fn make_weapon_stats(
+        id: &str,
+        hand: HandType,
+        dice: DiceExpr,
+        spell_power: i32,
+        armor: i32,
+        max_hp: i32,
+    ) -> (WeaponId, WeaponDef) {
+        let wid = WeaponId::from(id);
+        let def = WeaponDef {
+            id: wid.clone(),
+            name: id.to_string(),
+            hand,
+            dice,
+            spell_power,
+            armor,
+            max_hp,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        };
+        (wid, def)
+    }
+
+    /// Helper: armor with specific stats.
+    fn make_armor_stats(
+        id: &str,
+        slot: ArmorSlot,
+        armor_val: i32,
+        max_hp: i32,
+        strength: i32,
+    ) -> (ArmorId, ArmorDef) {
+        let aid = ArmorId::from(id);
+        let def = ArmorDef {
+            id: aid.clone(),
+            name: id.to_string(),
+            slot,
+            armor: armor_val,
+            max_hp,
+            strength,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        };
+        (aid, def)
+    }
+
+    /// Two weapons: compare produces "Урон" row with correct expected-damage values.
+    #[test]
+    fn compare_two_weapons_damage_row() {
+        let mut weapons = HashMap::new();
+        let dice_a = DiceExpr { count: 1, sides: 6, bonus: 0 }; // expected = 3.5
+        let dice_b = DiceExpr { count: 2, sides: 4, bonus: 1 }; // expected = 6.0
+        let (id_a, def_a) = make_weapon_stats("sword", HandType::MainHand, dice_a, 0, 0, 0);
+        let (id_b, def_b) = make_weapon_stats("axe",   HandType::MainHand, dice_b, 0, 0, 0);
+        weapons.insert(id_a.clone(), def_a);
+        weapons.insert(id_b.clone(), def_b);
+        let armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
+
+        let rows = compare_items(
+            &ItemRef::Weapon(id_a),
+            &ItemRef::Weapon(id_b),
+            &weapons,
+            &armor,
+        );
+
+        let dmg = rows.iter().find(|r| r.label == "Урон").expect("Урон row present");
+        assert!((dmg.selected_val - 3.5).abs() < 0.01, "sword expected = 3.5");
+        assert!((dmg.hovered_val  - 6.0).abs() < 0.01, "axe expected = 6.0");
+    }
+
+    /// Two armors: compare produces "Броня", "HP", "СИЛ" rows; no "Урон" row.
+    #[test]
+    fn compare_two_armors_stat_rows() {
+        let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
+        let mut armor = HashMap::new();
+        // chest_a: armor=3, hp=10, str=0
+        let (id_a, def_a) = make_armor_stats("chest_a", ArmorSlot::Chest, 3, 10, 0);
+        // chest_b: armor=5, hp=0, str=2
+        let (id_b, def_b) = make_armor_stats("chest_b", ArmorSlot::Chest, 5, 0, 2);
+        armor.insert(id_a.clone(), def_a);
+        armor.insert(id_b.clone(), def_b);
+
+        let rows = compare_items(
+            &ItemRef::Armor(id_a),
+            &ItemRef::Armor(id_b),
+            &weapons,
+            &armor,
+        );
+
+        let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        assert!(labels.contains(&"Броня"), "Броня row present");
+        assert!(labels.contains(&"HP"),    "HP row present");
+        assert!(labels.contains(&"СИЛ"),   "СИЛ row present");
+        assert!(!labels.contains(&"Урон"), "no Урон row for armor");
+
+        let bronya = rows.iter().find(|r| r.label == "Броня").unwrap();
+        assert_eq!(bronya.selected_val as i32, 3);
+        assert_eq!(bronya.hovered_val  as i32, 5);
+
+        let hp = rows.iter().find(|r| r.label == "HP").unwrap();
+        assert_eq!(hp.selected_val as i32, 10);
+        assert_eq!(hp.hovered_val  as i32, 0);
+    }
+
+    /// When both items have all-zero stats (plain default weapon), compare returns empty.
+    #[test]
+    fn compare_zero_items_returns_empty_except_damage() {
+        let mut weapons = HashMap::new();
+        let armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
+        // A weapon with 1d1+0 dice has expected = 1.0 (non-zero), so Урон row appears.
+        // Use count=0 to get expected=0 (edge case: no dice).
+        let wid = WeaponId::from("empty_w");
+        let def = WeaponDef {
+            id: wid.clone(),
+            name: "empty_w".into(),
+            hand: HandType::MainHand,
+            dice: DiceExpr { count: 0, sides: 6, bonus: 0 },
+            spell_power: 0, armor: 0, max_hp: 0,
+            strength: 0, dexterity: 0, constitution: 0,
+            intelligence: 0, wisdom: 0, charisma: 0,
+        };
+        weapons.insert(wid.clone(), def);
+
+        let rows = compare_items(
+            &ItemRef::Weapon(wid.clone()),
+            &ItemRef::Weapon(wid),
+            &weapons,
+            &armor,
+        );
+        assert!(rows.is_empty(), "all-zero stats → no rows");
+    }
+
+    /// Weapon vs armor: weapon contributes Урон, armor contributes Броня — both rows appear.
+    #[test]
+    fn compare_weapon_vs_armor_mixed_rows() {
+        let mut weapons = HashMap::new();
+        let mut armor = HashMap::new();
+        let dice = DiceExpr { count: 1, sides: 8, bonus: 0 }; // expected = 4.5
+        let (wid, wdef) = make_weapon_stats("longsword", HandType::MainHand, dice, 0, 0, 0);
+        let (aid, adef) = make_armor_stats("plate", ArmorSlot::Chest, 6, 0, 0);
+        weapons.insert(wid.clone(), wdef);
+        armor.insert(aid.clone(), adef);
+
+        let rows = compare_items(
+            &ItemRef::Weapon(wid),
+            &ItemRef::Armor(aid),
+            &weapons,
+            &armor,
+        );
+
+        let dmg   = rows.iter().find(|r| r.label == "Урон");
+        let bronya = rows.iter().find(|r| r.label == "Броня");
+        assert!(dmg.is_some(),    "Урон row (weapon side is non-zero)");
+        assert!(bronya.is_some(), "Броня row (armor side is non-zero)");
+        let dmg = dmg.unwrap();
+        assert!((dmg.selected_val - 4.5).abs() < 0.01);
+        assert_eq!(dmg.hovered_val as i32, 0);
     }
 }

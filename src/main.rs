@@ -149,6 +149,7 @@ fn main() {
             (
                 ui::camp_ui::camp_interaction_system,
                 ui::camp_ui::camp_rebuild_system.after(ui::camp_ui::camp_interaction_system),
+                ui::camp_ui::camp_comparison_system,
             )
                 .run_if(in_state(AppState::Camp)),
         )
