@@ -7,6 +7,26 @@
 //!
 //! Chapters always open on a Story scene, so a "Continue" button (or Enter/Space)
 //! transitions to `AppState::Story` to show the already-queued next scene.
+//!
+//! ## Layout
+//! - Hero equipment grids: one labeled section per class-hero with 5 square
+//!   cells (MainHand / OffHand / Chest / Legs / Feet), each showing the current
+//!   item short-name.
+//! - Backpack grid: 6-column wrap of 56×56 cells for every item in
+//!   `CampaignState.stash`.  Empty stash shows a placeholder label.
+//! - Continue button (also Space / Enter).
+//!
+//! ## Interaction
+//! Click any cell to select it (bright yellow border highlight).  Click a
+//! second cell to attempt a swap:
+//!   - `EquipCell ↔ BackpackCell`: validated via `try_equip`; on success the
+//!     backpack item moves into the equip slot and the displaced item takes the
+//!     backpack slot (true swap — no item loss or duplication).
+//!   - `BackpackCell ↔ BackpackCell`: swaps positions in the stash vector.
+//!   - `EquipCell ↔ EquipCell`: not supported in this pass; clicking a second
+//!     equip cell while one is selected deselects the first and selects the new
+//!     one instead.
+//!     Clicking the already-selected cell deselects it (no action taken).
 
 use super::button::{spawn_standard_button, ButtonStyle};
 use crate::app_state::AppState;
@@ -32,20 +52,24 @@ pub struct CampScreenRoot;
 #[derive(Component)]
 pub struct CampContinueButton;
 
-/// Marker on an equip-slot button.
+/// Marks a hero equipment-slot cell in the grid.
 #[derive(Component, Clone)]
-pub struct EquipSlotButton {
+pub struct EquipCell {
     pub hero_id: String,
     pub slot: EquipSlot,
 }
 
-/// Marker on a stash-item button.
+/// Marks a backpack (stash) cell in the grid.
 #[derive(Component, Clone)]
-pub struct StashItemButton {
-    pub stash_index: usize,
+pub struct BackpackCell {
+    pub index: usize,
 }
 
-/// Which slot in the hero's loadout the `EquipSlotButton` represents.
+/// Marks the currently-selected cell entity so we can reset its highlight.
+#[derive(Component)]
+pub struct SelectedCellMarker;
+
+/// Which slot in the hero's loadout the `EquipCell` represents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipSlot {
     MainHand,
@@ -57,11 +81,17 @@ pub enum EquipSlot {
 
 // ── Camp state resources ─────────────────────────────────────────────────────
 
-/// Which hero + slot is currently "highlighted" waiting for a stash item to be
-/// chosen.  `None` means nothing selected.
+/// Which cell is currently selected, waiting for a second click to swap with.
 #[derive(Resource, Default)]
 pub struct CampEquipSelection {
-    pub selected: Option<(String, EquipSlot)>,
+    pub selected: Option<CellKind>,
+}
+
+/// Which kind of cell is selected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CellKind {
+    Equip { hero_id: String, slot: EquipSlot },
+    Backpack { index: usize },
 }
 
 /// Set to `true` after an equip operation to trigger a UI teardown+rebuild
@@ -244,6 +274,62 @@ fn armor_name<'a>(id: &ArmorId, content: &'a crate::content::content_view::Conte
     content.armor.get(id).map(|d| d.name.as_str()).unwrap_or("?")
 }
 
+/// Short display label for an item (first 8 chars to fit in the 56px cell).
+fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentView) -> String {
+    let full = match item {
+        ItemRef::Weapon(wid) => weapon_name(wid, content),
+        ItemRef::Armor(aid) => armor_name(aid, content),
+    };
+    // Take up to 8 chars (char boundary safe).
+    let end = full.char_indices().nth(8).map(|(i, _)| i).unwrap_or(full.len());
+    full[..end].to_string()
+}
+
+// ── Visual constants ─────────────────────────────────────────────────────────
+
+const CELL_SIZE: f32 = 56.0;
+const CELL_GAP: f32 = 6.0;
+/// Border color for an idle (unselected) cell.
+const CELL_IDLE_BORDER: Color = Color::srgb(0.35, 0.32, 0.28);
+/// Background for idle cells.
+const CELL_IDLE_BG: Color = Color::srgb(0.10, 0.10, 0.08);
+/// Border color for the selected (highlighted) cell.
+const CELL_SELECTED_BORDER: Color = Color::srgb(0.9, 0.85, 0.3);
+/// Background tint for the selected cell.
+const CELL_SELECTED_BG: Color = Color::srgb(0.18, 0.17, 0.06);
+
+// ── Cell spawn helper ─────────────────────────────────────────────────────────
+
+/// Spawns a square 56×56 Button cell with the given label, in idle style.
+fn spawn_cell<'a>(
+    parent: &'a mut ChildSpawnerCommands,
+    font: Handle<Font>,
+    label: impl Into<String>,
+) -> EntityCommands<'a> {
+    let mut ec = parent.spawn((
+        Button,
+        Node {
+            width: Val::Px(CELL_SIZE),
+            height: Val::Px(CELL_SIZE),
+            border: UiRect::all(Val::Px(1.5)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            overflow: Overflow::clip(),
+            ..default()
+        },
+        BorderColor::all(CELL_IDLE_BORDER),
+        BackgroundColor(CELL_IDLE_BG),
+    ));
+    ec.with_children(|btn| {
+        btn.spawn((
+            Text::new(label),
+            TextFont { font, font_size: 10.0, ..default() },
+            TextColor(Color::WHITE),
+        ));
+    });
+    ec
+}
+
 // ── Spawn helper ──────────────────────────────────────────────────────────────
 
 fn spawn_camp_ui(
@@ -257,7 +343,7 @@ fn spawn_camp_ui(
     let scen = db.scenarios.get(&scenario_state.scenario_id).unwrap();
     let party = active_party(scen, scenario_state.scene_index);
 
-    // Only class-heroes get a loadout row; template-NPCs are skipped for MVP.
+    // Only class-heroes get a loadout row; template-NPCs are skipped.
     let class_heroes: Vec<_> = party.iter().filter(|m| m.template.is_none()).collect();
 
     commands
@@ -286,17 +372,16 @@ fn spawn_camp_ui(
 
             // Instruction hint
             root.spawn((
-                Text::new("Выберите слот, затем предмет из инвентаря"),
+                Text::new("Нажмите ячейку, затем ячейку назначения, чтобы поменять местами"),
                 TextFont { font: font.clone(), font_size: 13.0, ..default() },
                 TextColor(Color::srgb(0.6, 0.6, 0.6)),
             ));
 
-            // Hero loadout rows
+            // ── Per-hero equipment grids ──────────────────────────────────
             for member in &class_heroes {
                 let eq = resolve_hero_equipment(&member.id, &member.class_id, campaign, content);
                 root.spawn((
                     Node {
-                        width: Val::Px(720.0),
                         flex_direction: FlexDirection::Column,
                         border: UiRect::all(Val::Px(1.0)),
                         padding: UiRect::all(Val::Px(8.0)),
@@ -306,102 +391,75 @@ fn spawn_camp_ui(
                     BorderColor::all(Color::srgb(0.35, 0.30, 0.25)),
                 ))
                 .with_children(|hero_panel| {
+                    // Hero name label
                     hero_panel.spawn((
                         Text::new(member.name.clone()),
                         TextFont { font: font.clone(), font_size: 16.0, ..default() },
                         TextColor(Color::srgb(0.9, 0.85, 0.6)),
                     ));
 
+                    // 5 slot cells in a row
                     hero_panel
                         .spawn(Node {
                             flex_direction: FlexDirection::Row,
-                            column_gap: Val::Px(6.0),
-                            flex_wrap: FlexWrap::Wrap,
+                            column_gap: Val::Px(CELL_GAP),
                             ..default()
                         })
                         .with_children(|slots_row| {
                             let id = member.id.clone();
 
-                            let mh_label = eq
-                                .main_hand
-                                .as_ref()
-                                .map(|w| format!("Правая: {}", weapon_name(w, content)))
-                                .unwrap_or_else(|| "Правая: —".into());
-                            spawn_standard_button(
-                                slots_row, font.clone(), mh_label,
-                                Val::Auto, Val::Auto, ButtonStyle::Default,
-                            )
-                            .insert(EquipSlotButton { hero_id: id.clone(), slot: EquipSlot::MainHand });
+                            let slots = [
+                                (EquipSlot::MainHand, eq.main_hand.as_ref().map(|w| ItemRef::Weapon(w.clone()))),
+                                (EquipSlot::OffHand,  eq.off_hand.as_ref().map(|w| ItemRef::Weapon(w.clone()))),
+                                (EquipSlot::Chest, Some(ItemRef::Armor(eq.chest.clone()))),
+                                (EquipSlot::Legs,  Some(ItemRef::Armor(eq.legs.clone()))),
+                                (EquipSlot::Feet,  Some(ItemRef::Armor(eq.feet.clone()))),
+                            ];
 
-                            let oh_label = eq
-                                .off_hand
-                                .as_ref()
-                                .map(|w| format!("Левая: {}", weapon_name(w, content)))
-                                .unwrap_or_else(|| "Левая: —".into());
-                            spawn_standard_button(
-                                slots_row, font.clone(), oh_label,
-                                Val::Auto, Val::Auto, ButtonStyle::Default,
-                            )
-                            .insert(EquipSlotButton { hero_id: id.clone(), slot: EquipSlot::OffHand });
-
-                            let chest_label =
-                                format!("Нагр: {}", armor_name(&eq.chest, content));
-                            spawn_standard_button(
-                                slots_row, font.clone(), chest_label,
-                                Val::Auto, Val::Auto, ButtonStyle::Default,
-                            )
-                            .insert(EquipSlotButton { hero_id: id.clone(), slot: EquipSlot::Chest });
-
-                            let legs_label =
-                                format!("Ноги: {}", armor_name(&eq.legs, content));
-                            spawn_standard_button(
-                                slots_row, font.clone(), legs_label,
-                                Val::Auto, Val::Auto, ButtonStyle::Default,
-                            )
-                            .insert(EquipSlotButton { hero_id: id.clone(), slot: EquipSlot::Legs });
-
-                            let feet_label =
-                                format!("Обувь: {}", armor_name(&eq.feet, content));
-                            spawn_standard_button(
-                                slots_row, font.clone(), feet_label,
-                                Val::Auto, Val::Auto, ButtonStyle::Default,
-                            )
-                            .insert(EquipSlotButton { hero_id: id.clone(), slot: EquipSlot::Feet });
+                            for (slot, maybe_item) in slots {
+                                let label = match &maybe_item {
+                                    Some(item) => item_abbrev(item, content),
+                                    None => "—".into(),
+                                };
+                                spawn_cell(slots_row, font.clone(), label)
+                                    .insert(EquipCell { hero_id: id.clone(), slot });
+                            }
                         });
                 });
             }
 
-            // Stash header
+            // ── Backpack (stash) grid ─────────────────────────────────────
             root.spawn((
-                Text::new("Инвентарь:"),
+                Text::new("Рюкзак"),
                 TextFont { font: font.clone(), font_size: 14.0, ..default() },
                 TextColor(Color::srgb(0.7, 0.7, 0.7)),
             ));
 
-            // Stash items
-            root.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                flex_wrap: FlexWrap::Wrap,
-                column_gap: Val::Px(8.0),
-                row_gap: Val::Px(4.0),
-                width: Val::Px(720.0),
-                ..default()
-            })
-            .with_children(|stash_row| {
-                for (i, item) in campaign.stash.iter().enumerate() {
-                    let label = match item {
-                        ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
-                        ItemRef::Armor(aid) => armor_name(aid, content).to_string(),
-                    };
-                    spawn_standard_button(
-                        stash_row, font.clone(), label,
-                        Val::Auto, Val::Auto, ButtonStyle::Default,
-                    )
-                    .insert(StashItemButton { stash_index: i });
-                }
-            });
+            if campaign.stash.is_empty() {
+                root.spawn((
+                    Text::new("— пусто —"),
+                    TextFont { font: font.clone(), font_size: 13.0, ..default() },
+                    TextColor(Color::srgb(0.4, 0.4, 0.4)),
+                ));
+            } else {
+                root.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    flex_wrap: FlexWrap::Wrap,
+                    column_gap: Val::Px(CELL_GAP),
+                    row_gap: Val::Px(CELL_GAP),
+                    max_width: Val::Px((CELL_SIZE + CELL_GAP) * 6.0),
+                    ..default()
+                })
+                .with_children(|pack_grid| {
+                    for (i, item) in campaign.stash.iter().enumerate() {
+                        let label = item_abbrev(item, content);
+                        spawn_cell(pack_grid, font.clone(), label)
+                            .insert(BackpackCell { index: i });
+                    }
+                });
+            }
 
-            // Continue button
+            // ── Continue button ───────────────────────────────────────────
             spawn_standard_button(
                 root, font.clone(), "Продолжить",
                 Val::Px(200.0), Val::Auto, ButtonStyle::Default,
@@ -441,7 +499,7 @@ pub fn setup_camp_screen(
 
 // ── Rebuild system ────────────────────────────────────────────────────────────
 
-/// After an equip, rebuilds the camp UI in-place (despawn + respawn).
+/// After a swap, rebuilds the camp UI in-place (despawn + respawn).
 /// Runs after `camp_interaction_system` under `run_if(in_state(Camp))`.
 #[allow(clippy::too_many_arguments)]
 pub fn camp_rebuild_system(
@@ -478,14 +536,25 @@ pub fn camp_rebuild_system(
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 
-/// Handles slot selection, stash-item clicks, and Continue.
-/// Runs under `run_if(in_state(AppState::Camp))`.
+/// Handles cell selection, swap attempts, and Continue.
+///
+/// Interaction pattern (mirrors `main_menu_ui`):
+/// - Query `Changed<Interaction>`, check `*i == Interaction::Pressed`.
+/// - First press → select cell (highlight).
+/// - Second press → attempt swap, then rebuild + clear selection.
+/// - Press already-selected cell → deselect.
+/// - EquipCell ↔ EquipCell → re-select the new cell (equip↔equip not supported
+///   this pass; see module doc).
 #[allow(clippy::too_many_arguments)]
 pub fn camp_interaction_system(
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    slot_buttons: Query<(&Interaction, &EquipSlotButton), Changed<Interaction>>,
-    stash_buttons: Query<(&Interaction, &StashItemButton), Changed<Interaction>>,
+    equip_cells: Query<(Entity, &Interaction, &EquipCell), Changed<Interaction>>,
+    backpack_cells: Query<(Entity, &Interaction, &BackpackCell), Changed<Interaction>>,
     continue_buttons: Query<&Interaction, (Changed<Interaction>, With<CampContinueButton>)>,
+    selected_entities: Query<Entity, With<SelectedCellMarker>>,
+    mut borders: Query<&mut BorderColor>,
+    mut backgrounds: Query<&mut BackgroundColor>,
     mut selection: ResMut<CampEquipSelection>,
     mut campaign: Option<ResMut<CampaignState>>,
     active_content: Res<ActiveContent>,
@@ -494,86 +563,186 @@ pub fn camp_interaction_system(
     db: Res<GameDb>,
     scenario_state: Res<ScenarioState>,
 ) {
+    // ── Continue ──────────────────────────────────────────────────────────
     let key_continue = keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Enter);
     let btn_continue = continue_buttons.iter().any(|i| *i == Interaction::Pressed);
-
     if key_continue || btn_continue {
         next_state.set(AppState::Story);
         return;
     }
 
-    // --- Slot button clicked: select it ---
-    for (interaction, btn) in &slot_buttons {
-        if *interaction == Interaction::Pressed {
-            selection.selected = Some((btn.hero_id.clone(), btn.slot.clone()));
+    // ── Collect pressed cells ─────────────────────────────────────────────
+    let pressed_equip: Option<(Entity, EquipCell)> = equip_cells
+        .iter()
+        .find(|(_, i, _)| **i == Interaction::Pressed)
+        .map(|(e, _, c)| (e, c.clone()));
+
+    let pressed_backpack: Option<(Entity, BackpackCell)> = backpack_cells
+        .iter()
+        .find(|(_, i, _)| **i == Interaction::Pressed)
+        .map(|(e, _, c)| (e, c.clone()));
+
+    // At most one press per frame (Button guarantees this, but defensive).
+    let pressed: Option<(Entity, CellKind)> = match (pressed_equip, pressed_backpack) {
+        (Some((e, c)), None) => Some((e, CellKind::Equip { hero_id: c.hero_id, slot: c.slot })),
+        (None, Some((e, c))) => Some((e, CellKind::Backpack { index: c.index })),
+        _ => None,
+    };
+
+    let Some((pressed_entity, pressed_kind)) = pressed else {
+        return;
+    };
+
+    // ── Helper: set highlight on an entity ───────────────────────────────
+    let highlight_entity = |entity: Entity,
+                             selected: bool,
+                             borders: &mut Query<&mut BorderColor>,
+                             backgrounds: &mut Query<&mut BackgroundColor>| {
+        if let Ok(mut bc) = borders.get_mut(entity) {
+            *bc = BorderColor::all(if selected { CELL_SELECTED_BORDER } else { CELL_IDLE_BORDER });
         }
+        if let Ok(mut bg) = backgrounds.get_mut(entity) {
+            *bg = BackgroundColor(if selected { CELL_SELECTED_BG } else { CELL_IDLE_BG });
+        }
+    };
+
+    // ── De-select helper (remove marker + reset visuals) ─────────────────
+    let clear_selection = |commands: &mut Commands,
+                            selected_entities: &Query<Entity, With<SelectedCellMarker>>,
+                            borders: &mut Query<&mut BorderColor>,
+                            backgrounds: &mut Query<&mut BackgroundColor>| {
+        for e in selected_entities.iter() {
+            highlight_entity(e, false, borders, backgrounds);
+            commands.entity(e).remove::<SelectedCellMarker>();
+        }
+    };
+
+    // ── Case: no selection yet — select pressed cell ──────────────────────
+    let Some(current_selection) = selection.selected.clone() else {
+        // Select this cell.
+        selection.selected = Some(pressed_kind);
+        commands.entity(pressed_entity).insert(SelectedCellMarker);
+        highlight_entity(pressed_entity, true, &mut borders, &mut backgrounds);
+        return;
+    };
+
+    // ── Case: pressed the already-selected cell — deselect ───────────────
+    if current_selection == pressed_kind {
+        selection.selected = None;
+        clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+        return;
     }
 
-    // --- Stash button clicked: try to equip into the selected slot ---
-    for (interaction, stash_btn) in &stash_buttons {
-        if *interaction != Interaction::Pressed {
-            continue;
+    // ── Case: second cell pressed — attempt swap ──────────────────────────
+    match (&current_selection, &pressed_kind) {
+        // EquipCell ↔ EquipCell: not supported; re-select the new cell.
+        (CellKind::Equip { .. }, CellKind::Equip { .. }) => {
+            clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+            selection.selected = Some(pressed_kind);
+            commands.entity(pressed_entity).insert(SelectedCellMarker);
+            highlight_entity(pressed_entity, true, &mut borders, &mut backgrounds);
         }
-        let Some((hero_id, slot)) = selection.selected.clone() else {
-            // No slot selected yet.
-            continue;
-        };
-        let Some(ref mut camp) = campaign else { continue };
 
-        let item = match camp.stash.get(stash_btn.stash_index) {
-            Some(i) => i.clone(),
-            None => continue,
-        };
+        // BackpackCell ↔ BackpackCell: swap positions in stash.
+        (CellKind::Backpack { index: idx_a }, CellKind::Backpack { index: idx_b }) => {
+            let (idx_a, idx_b) = (*idx_a, *idx_b);
+            if let Some(ref mut camp) = campaign {
+                if idx_a < camp.stash.len() && idx_b < camp.stash.len() {
+                    camp.stash.swap(idx_a, idx_b);
+                }
+            }
+            selection.selected = None;
+            clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+            rebuild.0 = true;
+        }
 
-        // Resolve current save: saved loadout if present, else class defaults.
-        // Using resolve_hero_equipment ensures a first equip writes a complete snapshot
-        // (real class-default armor in untouched slots) rather than empty sentinels.
-        let scen = db.scenarios.get(&scenario_state.scenario_id).unwrap();
-        let party = crate::content::scenarios::active_party(scen, scenario_state.scene_index);
-        let class_id = party
-            .iter()
-            .find(|m| m.id == hero_id)
-            .map(|m| m.class_id.clone())
-            .unwrap_or_default();
-        let content = &active_content.0;
-        let current_save = resolve_hero_equipment(&hero_id, &class_id, camp, content);
+        // EquipCell ↔ BackpackCell (either order): try_equip + true swap.
+        (first, second) => {
+            let (equip_kind, backpack_idx) = match (first, second) {
+                (CellKind::Equip { hero_id, slot }, CellKind::Backpack { index }) => {
+                    (CellKind::Equip { hero_id: hero_id.clone(), slot: slot.clone() }, *index)
+                }
+                (CellKind::Backpack { index }, CellKind::Equip { hero_id, slot }) => {
+                    (CellKind::Equip { hero_id: hero_id.clone(), slot: slot.clone() }, *index)
+                }
+                _ => unreachable!(),
+            };
 
-        match try_equip(&current_save, &slot, item.clone(), &content.weapons, &content.armor) {
-            Ok(result) => {
-                // Remove the equipped item from the stash.
-                camp.stash.remove(stash_btn.stash_index);
+            let CellKind::Equip { hero_id, slot } = equip_kind else { unreachable!() };
 
-                // Two-handed weapon: if there was an off-hand item, return it to stash.
-                if let ItemRef::Weapon(wid) = &item {
-                    if let Some(def) = content.weapons.get(wid) {
-                        if def.hand == HandType::TwoHanded {
-                            if let Some(old_oh) = current_save.off_hand.as_ref() {
-                                camp.stash.push(ItemRef::Weapon(old_oh.clone()));
+            let Some(ref mut camp) = campaign else {
+                selection.selected = None;
+                clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                return;
+            };
+
+            let item = match camp.stash.get(backpack_idx) {
+                Some(i) => i.clone(),
+                None => {
+                    // Stash index stale; clear and bail.
+                    selection.selected = None;
+                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                    return;
+                }
+            };
+
+            // Resolve hero class for equipment snapshot.
+            let scen = db.scenarios.get(&scenario_state.scenario_id).unwrap();
+            let party = active_party(scen, scenario_state.scene_index);
+            let class_id = party
+                .iter()
+                .find(|m| m.id == hero_id)
+                .map(|m| m.class_id.clone())
+                .unwrap_or_default();
+            let content = &active_content.0;
+            let current_save = resolve_hero_equipment(&hero_id, &class_id, camp, content);
+
+            match try_equip(&current_save, &slot, item.clone(), &content.weapons, &content.armor) {
+                Ok(result) => {
+                    // ── True swap: backpack item → equip slot, displaced → same backpack cell ──
+
+                    // Two-handed weapon: the off-hand that gets cleared also returns
+                    // to the stash.  We push it first so it goes to the END; then we
+                    // place the displaced item (old main-hand) into the backpack slot.
+                    if let ItemRef::Weapon(wid) = &item {
+                        if let Some(def) = content.weapons.get(wid) {
+                            if def.hand == HandType::TwoHanded {
+                                if let Some(old_oh) = current_save.off_hand.as_ref() {
+                                    camp.stash.push(ItemRef::Weapon(old_oh.clone()));
+                                }
                             }
                         }
                     }
-                }
 
-                // Displaced item returns to stash (skip empty sentinel armor ids).
-                if let Some(displaced) = result.displaced {
-                    let is_empty_sentinel = match &displaced {
-                        ItemRef::Armor(aid) => aid.0.is_empty(),
-                        ItemRef::Weapon(_) => false,
-                    };
-                    if !is_empty_sentinel {
-                        camp.stash.push(displaced);
+                    // Replace the backpack cell with the displaced item (if any),
+                    // or remove it if the equip slot was empty (hand slot, None displaced).
+                    let is_empty_sentinel = |d: &ItemRef| matches!(d, ItemRef::Armor(aid) if aid.0.is_empty());
+                    match result.displaced {
+                        Some(displaced) if !is_empty_sentinel(&displaced) => {
+                            // True swap: put the old equipped item into the same stash cell.
+                            camp.stash[backpack_idx] = displaced;
+                        }
+                        _ => {
+                            // Slot was empty (hand slot, no previous item) — just remove
+                            // the stash entry.
+                            camp.stash.remove(backpack_idx);
+                        }
                     }
+
+                    // Write updated loadout.
+                    camp.loadouts.insert(hero_id.clone(), result.new_save);
+
+                    // Clear selection and rebuild.
+                    selection.selected = None;
+                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                    rebuild.0 = true;
                 }
-
-                // Write the updated loadout.
-                camp.loadouts.insert(hero_id.clone(), result.new_save);
-
-                // Clear selection and request UI rebuild.
-                selection.selected = None;
-                rebuild.0 = true;
-            }
-            Err(e) => {
-                warn!("camp: equip failed for hero '{}': {:?}", hero_id, e);
+                Err(e) => {
+                    warn!("camp: equip rejected for hero '{}': {:?}", hero_id, e);
+                    // Reject: clear selection, no state change.
+                    selection.selected = None;
+                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                }
             }
         }
     }
@@ -800,6 +969,76 @@ mod tests {
         assert_eq!(result.new_save.chest, ArmorId::from("chest_plate"));
         // Old chest_plate is displaced (same item in this test).
         assert_eq!(result.displaced, Some(ItemRef::Armor(ArmorId::from("chest_plate"))));
+    }
+
+    // ── Swap resolution: EquipCell ↔ BackpackCell ────────────────────────────
+
+    /// Swapping a backpack armor item into its correct equip slot puts the old
+    /// equipped item into the same backpack index — no loss, no dupe.
+    #[test]
+    fn swap_equip_backpack_true_swap() {
+        let (w, a) = content_with_items();
+        // Stash has a new chest plate; hero wears "chest_plate" already.
+        let mut stash = [ItemRef::Armor(ArmorId::from("chest_plate"))];
+        let stash: &mut [ItemRef] = &mut stash;
+        let save = base_save(); // chest = "chest_plate"
+
+        let result = try_equip(
+            &save, &EquipSlot::Chest,
+            stash[0].clone(), &w, &a,
+        ).unwrap();
+
+        // Simulate the true-swap: replace stash[0] with displaced.
+        let displaced = result.displaced.unwrap();
+        stash[0] = displaced.clone();
+
+        assert_eq!(result.new_save.chest, ArmorId::from("chest_plate"));
+        assert_eq!(stash.len(), 1, "no item created or destroyed");
+        assert_eq!(stash[0], ItemRef::Armor(ArmorId::from("chest_plate")));
+    }
+
+    /// Swapping a backpack weapon into a hand slot where the slot was empty:
+    /// backpack cell is removed (not replaced), no item lost.
+    #[test]
+    fn swap_equip_backpack_empty_slot_removes_cell() {
+        let (w, a) = content_with_items();
+        let save_no_oh = EquipmentSave {
+            main_hand: Some(WeaponId::from("mh_sword")),
+            off_hand: None,
+            chest: ArmorId::from("chest_plate"),
+            legs: ArmorId::from("legs_plate"),
+            feet: ArmorId::from("feet_boots"),
+        };
+        let mut stash = vec![ItemRef::Weapon(WeaponId::from("oh_dagger"))];
+
+        let result = try_equip(
+            &save_no_oh, &EquipSlot::OffHand,
+            stash[0].clone(), &w, &a,
+        ).unwrap();
+
+        // displaced = None (slot was empty); remove the stash cell.
+        assert!(result.displaced.is_none());
+        stash.remove(0);
+
+        assert_eq!(result.new_save.off_hand, Some(WeaponId::from("oh_dagger")));
+        assert!(stash.is_empty(), "stash cell removed when slot was empty");
+    }
+
+    /// Invalid swap (type mismatch) must not change the stash.
+    #[test]
+    fn swap_invalid_is_noop() {
+        let (w, a) = content_with_items();
+        let stash_before = [ItemRef::Armor(ArmorId::from("chest_plate"))];
+        let save = base_save();
+
+        // Armor into a hand slot — rejected.
+        let err = try_equip(
+            &save, &EquipSlot::MainHand,
+            stash_before[0].clone(), &w, &a,
+        ).unwrap_err();
+
+        assert_eq!(err, EquipError::ArmorIntoHandSlot);
+        // Caller does not modify stash on error — stash unchanged.
     }
 
     // ── should_enter_camp decision table ────────────────────────────────────

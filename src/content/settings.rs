@@ -27,6 +27,10 @@ pub struct GameSettings {
     /// to on a fresh campaign. Empty = start of chapter. Only honoured under
     /// `--features dev`. Requires `dev_start_scenario` to identify the chapter.
     pub dev_start_scene: String,
+    /// Dev-only: if true, a fresh campaign starts directly in `AppState::Camp` with a
+    /// seeded stash of test items instead of entering the first story scene.
+    /// Only honoured under `--features dev`.
+    pub dev_start_in_camp: bool,
 }
 
 impl Default for GameSettings {
@@ -43,6 +47,7 @@ impl Default for GameSettings {
             ai_freeze_plan_after_move: true,
             dev_start_scenario: String::new(),
             dev_start_scene: String::new(),
+            dev_start_in_camp: false,
         }
     }
 }
@@ -114,6 +119,10 @@ pub struct DebugSection {
     /// start chapter to jump to on a fresh campaign; empty = beginning of chapter.
     #[serde(default)]
     pub start_scene: String,
+    /// Dev-only (cargo `dev` feature): if true, a fresh campaign starts directly in
+    /// the camp screen with a seeded stash of test items.
+    #[serde(default)]
+    pub start_in_camp: bool,
 }
 
 fn default_true() -> bool {
@@ -145,6 +154,7 @@ impl GameSettings {
             ai_freeze_plan_after_move: f.debug.ai_freeze_plan_after_move,
             dev_start_scenario: f.debug.start_scenario,
             dev_start_scene: f.debug.start_scene,
+            dev_start_in_camp: f.debug.start_in_camp,
         }
     }
 
@@ -161,6 +171,7 @@ impl GameSettings {
                 ai_freeze_plan_after_move: self.ai_freeze_plan_after_move,
                 start_scenario: self.dev_start_scenario.clone(),
                 start_scene: self.dev_start_scene.clone(),
+                start_in_camp: self.dev_start_in_camp,
             },
             profile: ProfileSection {
                 current_slot: self.current_slot,

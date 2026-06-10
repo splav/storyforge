@@ -299,14 +299,35 @@ pub fn start_campaign_fresh(
         );
     }
 
+    // Build the initial stash — normally empty; in dev+start_in_camp mode seed
+    // a variety of test items so the camp screen has swappable content.
+    #[cfg(feature = "dev")]
+    let initial_stash: Vec<crate::content::item_ref::ItemRef> = if settings.dev_start_in_camp {
+        use crate::content::item_ref::ItemRef;
+        use combat_engine::{ArmorId, WeaponId};
+        vec![
+            ItemRef::Weapon(WeaponId::from("kolm_cleaver")),
+            ItemRef::Weapon(WeaponId::from("short_sword")),
+            ItemRef::Armor(ArmorId::from("warded_jerkin")),
+            ItemRef::Armor(ArmorId::from("chainmail")),
+            ItemRef::Armor(ArmorId::from("iron_boots")),
+            ItemRef::Armor(ArmorId::from("plate_greaves")),
+        ]
+    } else {
+        Vec::new()
+    };
+    #[cfg(not(feature = "dev"))]
+    let initial_stash: Vec<crate::content::item_ref::ItemRef> = Vec::new();
+
     let campaign_state = CampaignState {
         campaign_id: camp.id.clone(),
         scenario_index: start_index,
         flags: Default::default(),
-        stash: Vec::new(),
+        stash: initial_stash,
         loadouts: std::collections::HashMap::new(),
     };
     commands.insert_resource(campaign_state.clone());
+
     // Fresh campaign has no flags yet; pass empty set so flag-gated scenes skip.
     // Note: story scenes before start_scene_index are not played, so their flags
     // won't be set — acceptable for a dev jump.
@@ -318,6 +339,16 @@ pub fn start_campaign_fresh(
         start_scene_index,
         Some(&campaign_state.flags),
     );
+
+    // Dev: override next_state to Camp so the player lands in the equip screen
+    // with the seeded stash. enter_scenario_at already set up ScenarioState and
+    // ActiveContent; the camp Continue button will push on to AppState::Story.
+    #[cfg(feature = "dev")]
+    if settings.dev_start_in_camp {
+        info!("[dev] start_in_camp=true — entering AppState::Camp with seeded stash");
+        next_state.set(AppState::Camp);
+    }
+
     if let Some(p) = paths {
         if let Err(e) = save_repo::record_progress(
             &p.0,
