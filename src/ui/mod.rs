@@ -1,4 +1,5 @@
 pub mod ability_panel;
+pub mod camp_ui;
 pub mod animation;
 pub mod button;
 pub mod combat_ui;

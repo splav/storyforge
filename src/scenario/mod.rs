@@ -118,6 +118,29 @@ fn skip_skipped(
     None
 }
 
+/// Pure decision function: should the scenario router detour into the camp screen?
+///
+/// Returns `true` when ALL of:
+/// 1. `from_scene` is a `Story` scene with `no_camp == false` (the scene being left).
+/// 2. `to_scene` is a `Story` scene (the scene being entered).
+/// 3. `has_campaign` — there is a live `CampaignState` (standalone scenarios skip camp).
+///
+/// NOTE: between-chapter camp (scenario boundary) is deferred to the shop-hub milestone
+/// and is intentionally NOT handled here.
+pub fn should_enter_camp(
+    from_scene: &crate::content::scenarios::SceneDef,
+    to_scene: &crate::content::scenarios::SceneDef,
+    has_campaign: bool,
+) -> bool {
+    use crate::content::scenarios::SceneDef;
+    if !has_campaign {
+        return false;
+    }
+    let from_is_story_no_camp = matches!(from_scene, SceneDef::Story { no_camp: false, .. });
+    let to_is_story = matches!(to_scene, SceneDef::Story { .. });
+    from_is_story_no_camp && to_is_story
+}
+
 pub fn advance_scenario_system(
     mut commands: Commands,
     mut events: MessageReader<AdvanceScenario>,
@@ -135,6 +158,9 @@ pub fn advance_scenario_system(
     }
     events.clear();
     {
+        // Capture which scene we are advancing FROM before incrementing.
+        let from_index = scenario.scene_index;
+
         scenario.scene_index += 1;
 
         let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
@@ -186,11 +212,24 @@ pub fn advance_scenario_system(
             return;
         }
 
-        match &scen.scenes[scenario.scene_index] {
-            SceneDef::Story { .. } => next_state.set(AppState::Story),
-            SceneDef::Combat { .. } => next_state.set(AppState::Combat),
-            SceneDef::Choice { .. } => next_state.set(AppState::Story),
-        }
+        // Determine the next app state to transition into.
+        // When advancing from a Story scene to another Story scene with a live campaign,
+        // route through AppState::Camp first (unless the source scene opted out via no_camp).
+        // The camp Continue button will transition to AppState::Story directly.
+        let from_scene = &scen.scenes[from_index];
+        let to_scene = &scen.scenes[scenario.scene_index];
+        let next_app_state = match to_scene {
+            SceneDef::Story { .. } => {
+                if should_enter_camp(from_scene, to_scene, campaign.is_some()) {
+                    AppState::Camp
+                } else {
+                    AppState::Story
+                }
+            }
+            SceneDef::Combat { .. } => AppState::Combat,
+            SceneDef::Choice { .. } => AppState::Story,
+        };
+        next_state.set(next_app_state);
 
         if let Some(camp) = campaign.as_deref() {
             write_autosave(
@@ -702,6 +741,7 @@ mod tests {
             party_remove: vec![],
             status_ops: vec![],
             requires_flag: None,
+            no_camp: false,
         }];
         let db = make_db(scenario);
         let state = ScenarioState {
@@ -745,6 +785,7 @@ mod tests {
             party_remove: vec![],
             status_ops: vec![],
             requires_flag: None,
+            no_camp: false,
         });
         let db = make_db(scenario);
 
@@ -792,6 +833,7 @@ mod tests {
             party_remove: vec![],
             status_ops: vec![],
             requires_flag: flag.map(str::to_string),
+            no_camp: false,
         }
     }
 
@@ -847,6 +889,7 @@ mod tests {
             party_remove: vec![],
             status_ops: vec![],
             requires_flag: None,
+            no_camp: false,
         };
         assert!(should_skip(&invisible, &flags(&[])));
         assert!(should_skip(&invisible, &flags(&["x"])));

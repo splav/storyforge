@@ -660,6 +660,7 @@ mod validate_party_status_tests {
                 party_remove: vec![],
                 status_ops,
                 requires_flag: None,
+                no_camp: false,
             }],
             content: valid_content(),
             encounters: HashMap::new(),

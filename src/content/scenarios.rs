@@ -94,6 +94,11 @@ pub enum SceneDef {
         /// `CampaignState.flags`. Composes with `is_invisible`: either reason
         /// causes the scene to be skipped.
         requires_flag: Option<String>,
+        /// Opt-out: if `true`, advancing FROM this scene to the next Story scene will
+        /// NOT route through the camp screen even if all other conditions are met.
+        /// Useful for story beats that narratively cannot be a rest point.
+        /// Defaults to `false` — most Story→Story transitions enter camp.
+        no_camp: bool,
     },
     Combat {
         encounter_id: String,
@@ -295,6 +300,10 @@ struct SceneRecord {
     /// is absent from `CampaignState.flags`.
     #[serde(default)]
     requires_flag: Option<String>,
+    /// If `true`, advancing FROM this story scene will not offer the camp screen.
+    /// Defaults to `false`.
+    #[serde(default)]
+    no_camp: bool,
 }
 
 #[derive(Deserialize)]
@@ -355,7 +364,7 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
             .scenes
             .into_iter()
             .map(|s| match s.scene_type.as_str() {
-                                "story" => SceneDef::Story {
+                                                "story" => SceneDef::Story {
                     // `lines = []` is legal and produces an invisible scene (pure
                     // party-change beat). Missing `lines` key is also treated as empty.
                     lines: s
@@ -387,6 +396,7 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
                         })
                         .collect(),
                     requires_flag: s.requires_flag.clone(),
+                    no_camp: s.no_camp,
                 },
                                 "combat" => SceneDef::Combat {
                     encounter_id: s
@@ -471,6 +481,7 @@ mod tests {
                         },
                     ],
                     requires_flag: None,
+                    no_camp: false,
                 },
                 SceneDef::Story {
                     lines: vec![],
@@ -481,6 +492,7 @@ mod tests {
                         status_id: "exhaustion".into(),
                     }],
                     requires_flag: None,
+                    no_camp: false,
                 },
             ],
             content: ContentView::default(),
@@ -546,6 +558,7 @@ mod tests {
                         status_id: "injured".into(),
                     }],
                     requires_flag: None,
+                    no_camp: false,
                 },
                 SceneDef::Story {
                     lines: vec![],
@@ -557,6 +570,7 @@ mod tests {
                         status_id: "injured".into(),
                     }],
                     requires_flag: None,
+                    no_camp: false,
                 },
             ],
             content: ContentView::default(),
@@ -587,6 +601,7 @@ mod tests {
                     status_id: "injured".into(),
                 }],
                 requires_flag: None,
+                no_camp: false,
             }],
             content: ContentView::default(),
             encounters: HashMap::new(),

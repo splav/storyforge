@@ -50,6 +50,7 @@ fn make_db_with_choice(options: Vec<ChoiceOption>) -> GameDb {
                 party_remove: vec![],
                 status_ops: vec![],
                 requires_flag: None,
+                no_camp: false,
             },
         ],
         content: ContentView::default(),
