@@ -6,7 +6,6 @@
 [[encounters]]
 id      = "road_bridge"
 name    = "Стычка на старой дороге"
-rewards = ["short_sword"]
 
 [[encounters.enemies]]
 template = "beastblood_leader"
@@ -107,6 +106,7 @@ hex_row  = 3
 [[encounters]]
 id   = "bell_crypt"
 name = "Колокольная крипта"
+rewards = ["warded_jerkin"]
 
 victory = { type = "kill_target", enemy_name = "Настоятель Мерон", marker_color = [0.95, 0.85, 0.35], description = "Низвергнуть Настоятеля Мерона" }
 

@@ -189,6 +189,7 @@ hex_row  = 5
 [[encounters]]
 id      = "ch2_kolm"
 name    = "Подземные склады Колма"
+rewards = ["kolm_cleaver"]
 victory = { type = "kill_target", enemy_name = "Тибор Колм", marker_color = [0.85, 0.20, 0.20] }
 
 # Бочки, ящики, штабеля — преграды низкого свода (движение + LOS).
