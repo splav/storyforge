@@ -59,6 +59,11 @@ pub struct ScenarioDef {
 
 #[derive(Debug, Clone)]
 pub struct PartyMemberDef {
+    /// Stable slug used as the key in `CampaignState.loadouts`.
+    /// Set explicitly on class-heroes (`"aldric"`, `"lyra"`, `"kael"`).
+    /// For template-based NPCs this is a best-effort slug of `name`; the
+    /// loadout lookup is skipped for template members so the value is unused.
+    pub id: String,
     pub name: String,
     pub race: String,
     pub faction: Option<String>,
@@ -236,6 +241,10 @@ struct ScenarioRecord {
 
 #[derive(Deserialize)]
 struct PartyRecord {
+    /// Optional explicit slug id. Omitted for legacy records; derived from `name`
+    /// when absent (lowercase ASCII). Only class-heroes carry a meaningful id.
+    #[serde(default)]
+    id: Option<String>,
     name: String,
     race: String,
     #[serde(default)]
@@ -305,7 +314,18 @@ struct DialogueLineRecord {
 }
 
 fn convert_party_record(p: PartyRecord) -> PartyMemberDef {
+    // If an explicit id is present, use it; otherwise derive a slug from the name
+    // (lowercase ASCII). For Cyrillic NPC names this yields a degraded slug, but
+    // template members skip the loadout lookup entirely so the value is unused.
+    let id = p.id.unwrap_or_else(|| {
+        p.name
+            .chars()
+            .filter(|c| c.is_ascii())
+            .map(|c| c.to_ascii_lowercase())
+            .collect::<String>()
+    });
     PartyMemberDef {
+        id,
         name: p.name,
         race: p.race,
         faction: p.faction,
@@ -407,6 +427,7 @@ mod tests {
         // scene 0: story — ops: add Alice/injured, add Bob/injured, remove Bob/injured
         // scene 1: story — ops: add Alice/exhaustion
         let party = vec![PartyMemberDef {
+            id: "alice".into(),
             name: "Alice".into(),
             race: "human".into(),
             faction: None,
@@ -416,6 +437,7 @@ mod tests {
             template: None,
         }];
         let bob = PartyMemberDef {
+            id: "bob".into(),
             name: "Bob".into(),
             race: "human".into(),
             faction: None,
@@ -505,6 +527,7 @@ mod tests {
             id: "s".into(),
             name: "s".into(),
             party: vec![PartyMemberDef {
+                id: "alice".into(),
                 name: "Alice".into(),
                 race: "human".into(),
                 faction: None,

@@ -28,6 +28,10 @@ pub struct BattleBackground;
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
 /// Спаунит героев и врагов по текущему сценарию/энкаунтеру. Только Commands.
+///
+/// `loadouts` — per-hero equipment overrides keyed by `PartyMemberDef.id` (stable slug).
+/// Only applied to class-based heroes; template members keep their template default.
+/// An unknown slug (miss in the map) falls back silently to the class default.
 pub fn spawn_combatants(
     commands: &mut Commands,
     db: &GameDb,
@@ -36,6 +40,7 @@ pub fn spawn_combatants(
     blocked_hexes: &mut CombatBlockedHexes,
     environment: &mut CombatEnvironment,
     tag_cache: &AbilityTagCache,
+    loadouts: &std::collections::HashMap<String, crate::content::item_ref::EquipmentSave>,
 ) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
     let encounter_id = match &scen.scenes[scenario.scene_index] {
@@ -173,12 +178,69 @@ pub fn spawn_combatants(
             .classes
             .get(&member.class_id)
             .unwrap_or_else(|| panic!("Class '{}' not found in classes.toml", member.class_id));
-        let equipment = Equipment {
+        let class_equipment = Equipment {
             main_hand: Some(cls.main_hand.clone()),
             off_hand: cls.off_hand.clone(),
             chest: cls.chest.clone(),
             legs: cls.legs.clone(),
             feet: cls.feet.clone(),
+        };
+        // Apply saved loadout override (if any) before resolving stats.
+        // Per-slot validation: fall back to class default for any slot whose saved
+        // id is absent from the content registries, with a warning.
+        let equipment = if let Some(save) = loadouts.get(&member.id) {
+            let main_hand = match &save.main_hand {
+                Some(wid) if content.weapons.contains_key(wid) => Some(wid.clone()),
+                Some(wid) => {
+                    warn!(
+                        "Loadout for '{}': weapon '{}' not found in content; using class default",
+                        member.id, wid
+                    );
+                    class_equipment.main_hand.clone()
+                }
+                None => None,
+            };
+            let off_hand = match &save.off_hand {
+                Some(wid) if content.weapons.contains_key(wid) => Some(wid.clone()),
+                Some(wid) => {
+                    warn!(
+                        "Loadout for '{}': weapon '{}' not found in content; using class default",
+                        member.id, wid
+                    );
+                    class_equipment.off_hand.clone()
+                }
+                None => None,
+            };
+            let chest = if content.armor.contains_key(&save.chest) {
+                save.chest.clone()
+            } else {
+                warn!(
+                    "Loadout for '{}': armor '{}' not found in content; using class default",
+                    member.id, save.chest
+                );
+                class_equipment.chest.clone()
+            };
+            let legs = if content.armor.contains_key(&save.legs) {
+                save.legs.clone()
+            } else {
+                warn!(
+                    "Loadout for '{}': armor '{}' not found in content; using class default",
+                    member.id, save.legs
+                );
+                class_equipment.legs.clone()
+            };
+            let feet = if content.armor.contains_key(&save.feet) {
+                save.feet.clone()
+            } else {
+                warn!(
+                    "Loadout for '{}': armor '{}' not found in content; using class default",
+                    member.id, save.feet
+                );
+                class_equipment.feet.clone()
+            };
+            Equipment { main_hand, off_hand, chest, legs, feet }
+        } else {
+            class_equipment
         };
         let effective = content.effective_stats(&cls.stats, &equipment);
         let armor = content.equipment_armor(&equipment);
@@ -395,7 +457,13 @@ pub fn spawn_combat_scene(
     mut anim_queue: ResMut<AnimationQueue>,
     mut deadline: ResMut<PhaseDeadline>,
     tag_cache: Res<AbilityTagCache>,
+    campaign: Option<Res<crate::game::resources::CampaignState>>,
 ) {
+    let empty_loadouts = std::collections::HashMap::new();
+    let loadouts = campaign
+        .as_ref()
+        .map(|c| &c.loadouts)
+        .unwrap_or(&empty_loadouts);
     spawn_combatants(
         &mut commands,
         &db,
@@ -404,6 +472,7 @@ pub fn spawn_combat_scene(
         &mut blocked_hexes,
         &mut environment,
         &tag_cache,
+        loadouts,
     );
     spawn_background(&mut commands, &db, &scenario, &asset_server, &windows);
     reset_combat_state(
@@ -517,6 +586,7 @@ pub fn restart_combat_system(
         ResMut<PopupCursor>,
         ResMut<AnimationQueue>,
         ResMut<PhaseDeadline>,
+        Option<Res<crate::game::resources::CampaignState>>,
     ),
     mut sel: ResMut<SelectionState>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
@@ -525,7 +595,7 @@ pub fn restart_combat_system(
         return;
     }
 
-    let (blocked_hexes, environment, log, cursor, popup_cursor, anim_queue, deadline) =
+    let (blocked_hexes, environment, log, cursor, popup_cursor, anim_queue, deadline, campaign) =
         &mut reset_bundle;
 
     // 1. Save initiative by name.
@@ -552,6 +622,11 @@ pub fn restart_combat_system(
     // reads the same RestartCombat message via its own independent reader.
 
     // 3. Spawn fresh combatants + reset state.
+    let empty_loadouts = std::collections::HashMap::new();
+    let loadouts = campaign
+        .as_ref()
+        .map(|c| &c.loadouts)
+        .unwrap_or(&empty_loadouts);
     spawn_combatants(
         &mut commands,
         &db,
@@ -560,6 +635,7 @@ pub fn restart_combat_system(
         blocked_hexes,
         environment,
         &tag_cache,
+        loadouts,
     );
     reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue, deadline);
 

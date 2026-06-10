@@ -76,6 +76,8 @@ fn base_app(db: GameDb) -> App {
         campaign_id: "c".into(),
         scenario_index: 0,
         flags: std::collections::BTreeSet::new(),
+        stash: Vec::new(),
+        loadouts: std::collections::HashMap::new(),
     });
     app
 }

@@ -264,6 +264,8 @@ pub fn start_campaign_fresh(
         campaign_id: camp.id.clone(),
         scenario_index: start_index,
         flags: Default::default(),
+        stash: Vec::new(),
+        loadouts: std::collections::HashMap::new(),
     };
     commands.insert_resource(campaign_state.clone());
     // Fresh campaign has no flags yet; pass empty set so flag-gated scenes skip.
@@ -308,6 +310,8 @@ pub fn validate_and_resume(
         campaign_id: campaign_id.to_string(),
         scenario_index: progress.scenario_index,
         flags: flags.clone(),
+        stash: progress.stash.clone(),
+        loadouts: progress.loadouts.clone(),
     });
     enter_scenario_at(
         commands,

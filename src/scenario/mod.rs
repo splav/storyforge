@@ -402,6 +402,8 @@ mod tests {
             campaign_id: "c".into(),
             scenario_index: 0,
             flags: std::collections::BTreeSet::new(),
+            stash: Vec::new(),
+            loadouts: std::collections::HashMap::new(),
         });
         app.insert_resource(State::new(phase));
         app.add_systems(Update, write_objective_flags);
@@ -435,6 +437,8 @@ mod tests {
             campaign_id: "c".into(),
             scenario_index: 0,
             flags: std::collections::BTreeSet::new(),
+            stash: Vec::new(),
+            loadouts: std::collections::HashMap::new(),
         });
         app.add_systems(Update, write_victory_flags);
         app.update();
@@ -467,6 +471,8 @@ mod tests {
             campaign_id: "c".into(),
             scenario_index: 0,
             flags: std::collections::BTreeSet::new(),
+            stash: Vec::new(),
+            loadouts: std::collections::HashMap::new(),
         });
         app.add_systems(Update, write_victory_flags);
         app.update();
@@ -580,6 +586,8 @@ mod tests {
             campaign_id: "c".into(),
             scenario_index: 0,
             flags: std::collections::BTreeSet::new(),
+            stash: Vec::new(),
+            loadouts: std::collections::HashMap::new(),
         });
         app.insert_resource(State::new(CombatPhase::Victory));
         app.add_systems(Update, write_objective_flags);
@@ -905,6 +913,8 @@ mod tests {
             campaign_id: "c".into(),
             scenario_index: 0,
             flags: f_flee.clone(),
+            stash: Vec::new(),
+            loadouts: std::collections::HashMap::new(),
         });
         app.add_systems(Update, write_victory_flags);
         app.update();

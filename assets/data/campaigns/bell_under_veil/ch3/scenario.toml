@@ -20,6 +20,7 @@ name = "Остров швов"
 # ── Стартовая партия (Aldric, Lyra, Kael — как в конце ch2) ──────────────────
 
 [[party]]
+id      = "aldric"
 name    = "Aldric"
 race    = "human"
 faction = "aurum"
@@ -29,6 +30,7 @@ hex_col = 1
 hex_row = 3
 
 [[party]]
+id      = "lyra"
 name    = "Lyra"
 race    = "human"
 faction = "askeria"
@@ -38,6 +40,7 @@ hex_col = 0
 hex_row = 4
 
 [[party]]
+id      = "kael"
 name    = "Kael"
 race    = "human"
 faction = "aurum"

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::{fs, io};
 
+use crate::content::item_ref::{EquipmentSave, ItemRef};
 use crate::persistence::paths::AppPaths;
 
 pub const SLOT_COUNT: u8 = 3;
@@ -32,6 +33,13 @@ pub struct CampaignProgress {
     /// `#[serde(default)]` lets old saves (without this field) load as an empty list.
     #[serde(default)]
     pub flags: Vec<String>,
+    /// Flat party-wide item stash (gear not currently equipped).
+    #[serde(default)]
+    pub stash: Vec<ItemRef>,
+    /// Per-hero equipment overrides keyed by the hero's stable slug id.
+    /// Overrides the class default on combat spawn. Missing entry → class default.
+    #[serde(default)]
+    pub loadouts: HashMap<String, EquipmentSave>,
 }
 
 fn slot_path(paths: &AppPaths, slot: u8) -> std::path::PathBuf {
@@ -121,6 +129,8 @@ pub fn record_progress(
             scene_index,
             saved_at: now_unix(),
             flags: campaign.flags.iter().cloned().collect(),
+            stash: campaign.stash.clone(),
+            loadouts: campaign.loadouts.clone(),
         },
     );
     profile.last_campaign = Some(campaign.campaign_id.clone());
@@ -163,6 +173,8 @@ mod tests {
             scene_index: 0,
             saved_at: 0,
             flags: flags.into_iter().map(str::to_string).collect(),
+            stash: Vec::new(),
+            loadouts: std::collections::HashMap::new(),
         }
     }
 
@@ -177,6 +189,8 @@ mod tests {
                 scene_index: 3,
                 saved_at: 1_700_000_000,
                 flags: vec!["flag_a".into(), "flag_b".into()],
+                stash: Vec::new(),
+                loadouts: std::collections::HashMap::new(),
             },
         );
         let original = SlotProfileV1 {
@@ -257,5 +271,114 @@ saved_at = 0
             "old save without flags field should default to empty, got {:?}",
             pr.flags
         );
+    }
+
+    /// Stash and loadouts round-trip through TOML serialize → deserialize.
+    #[test]
+    fn stash_and_loadouts_roundtrip() {
+        use crate::content::item_ref::{EquipmentSave, ItemRef};
+        use combat_engine::{ArmorId, WeaponId};
+
+        let mut loadouts = std::collections::HashMap::new();
+        loadouts.insert(
+            "aldric".to_string(),
+            EquipmentSave {
+                main_hand: Some(WeaponId::from("long_sword")),
+                off_hand: None,
+                chest: ArmorId::from("plate_chest"),
+                legs: ArmorId::from("plate_legs"),
+                feet: ArmorId::from("plate_feet"),
+            },
+        );
+        let mut campaigns = HashMap::new();
+        campaigns.insert(
+            "c".to_string(),
+            CampaignProgress {
+                scenario_index: 0,
+                scenario_id: "s1".into(),
+                scene_index: 0,
+                saved_at: 0,
+                flags: Vec::new(),
+                stash: vec![
+                    ItemRef::Weapon(WeaponId::from("long_sword")),
+                    ItemRef::Armor(ArmorId::from("plate_chest")),
+                ],
+                loadouts,
+            },
+        );
+        let slot = SlotProfileV1 { last_campaign: Some("c".into()), campaigns };
+        let text = toml::to_string_pretty(&SaveSlotFile::V1(slot)).unwrap();
+        let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(&text).unwrap();
+        let pr = parsed.campaigns.get("c").unwrap();
+        assert_eq!(pr.stash.len(), 2);
+        assert_eq!(pr.stash[0], ItemRef::Weapon(WeaponId::from("long_sword")));
+        assert_eq!(pr.stash[1], ItemRef::Armor(ArmorId::from("plate_chest")));
+        let ald = pr.loadouts.get("aldric").expect("aldric loadout must survive roundtrip");
+        assert_eq!(ald.main_hand, Some(WeaponId::from("long_sword")));
+        assert!(ald.off_hand.is_none());
+        assert_eq!(ald.chest, ArmorId::from("plate_chest"));
+    }
+
+    /// Old save without `stash`/`loadouts` keys → both default to empty.
+    #[test]
+    fn old_save_without_stash_loadouts_defaults_to_empty() {
+        let toml_src = r#"
+version = "1"
+
+[campaigns.camp_a]
+scenario_index = 0
+scenario_id = "s1"
+scene_index = 0
+saved_at = 0
+"#;
+        let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(toml_src).unwrap();
+        let pr = parsed.campaigns.get("camp_a").unwrap();
+        assert!(
+            pr.stash.is_empty(),
+            "old save without stash should default to empty, got {:?}",
+            pr.stash
+        );
+        assert!(
+            pr.loadouts.is_empty(),
+            "old save without loadouts should default to empty, got {:?}",
+            pr.loadouts
+        );
+    }
+
+    /// `PartyRecord` with explicit id preserves it; without id → slug derived from name.
+    #[test]
+    fn party_record_id_explicit_and_derived() {
+        use crate::content::scenarios::parse_scenario_body;
+
+        let with_id = r#"
+name = "test"
+[[party]]
+id      = "aldric"
+name    = "Aldric"
+race    = "human"
+class   = "warrior"
+hex_col = 0
+hex_row = 0
+[[scenes]]
+type = "story"
+"#;
+        let scen = parse_scenario_body("s1", "test.toml", with_id);
+        assert_eq!(scen.party[0].id, "aldric");
+        assert_eq!(scen.party[0].name, "Aldric");
+
+        let without_id = r#"
+name = "test"
+[[party]]
+name    = "Lyra"
+race    = "human"
+class   = "mage"
+hex_col = 0
+hex_row = 0
+[[scenes]]
+type = "story"
+"#;
+        let scen2 = parse_scenario_body("s1", "test.toml", without_id);
+        assert_eq!(scen2.party[0].id, "lyra", "id should be lowercased ASCII of name");
+        assert_eq!(scen2.party[0].name, "Lyra");
     }
 }

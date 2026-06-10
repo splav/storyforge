@@ -6,6 +6,7 @@ name = "Колокол под Завесой"
 # Kael появится после 2-го боя (через scenes.party_add).
 
 [[party]]
+id      = "aldric"
 name    = "Aldric"
 race    = "human"
 faction = "aurum"
@@ -15,6 +16,7 @@ hex_col = 1
 hex_row = 2
 
 [[party]]
+id      = "lyra"
 name    = "Lyra"
 race    = "human"
 faction = "askeria"

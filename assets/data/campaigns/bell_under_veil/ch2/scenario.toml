@@ -9,6 +9,7 @@ name = "След медной книги"
 # ── Стартовая партия ────────────────────────────────────────────────────────
 
 [[party]]
+id      = "aldric"
 name    = "Aldric"
 race    = "human"
 faction = "aurum"
@@ -18,6 +19,7 @@ hex_col = 1
 hex_row = 3
 
 [[party]]
+id      = "lyra"
 name    = "Lyra"
 race    = "human"
 faction = "askeria"
@@ -29,6 +31,7 @@ hex_row = 4
 # Kael — следопыт. Его пассивка scout_traps раскрывает ловушки в радиусе 2
 # на старте хода и при движении. Спавнится впереди — разведчик авангарда.
 [[party]]
+id      = "kael"
 name    = "Kael"
 race    = "human"
 faction = "aurum"

@@ -177,6 +177,8 @@ fn run_ecs_bootstrap(
 }
 
 /// One-shot Bevy system that calls the inner `spawn_combatants` helper.
+/// Hero loadouts are intentionally not applied on the offline equivalence-test path:
+/// `init_fight` always uses class defaults, so both paths must match without overrides.
 fn spawn_combatants_system(
     mut commands: Commands,
     db: Res<GameDb>,
@@ -186,6 +188,7 @@ fn spawn_combatants_system(
     mut environment: ResMut<CombatEnvironment>,
     tag_cache: Res<AbilityTagCache>,
 ) {
+    let empty_loadouts = std::collections::HashMap::new();
     spawn_combatants(
         &mut commands,
         &db,
@@ -194,6 +197,7 @@ fn spawn_combatants_system(
         &mut blocked,
         &mut environment,
         &tag_cache,
+        &empty_loadouts,
     );
 }
 

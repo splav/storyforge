@@ -627,6 +627,7 @@ mod validate_party_status_tests {
 
     fn member(name: &str) -> PartyMemberDef {
         PartyMemberDef {
+            id: name.to_ascii_lowercase(),
             name: name.into(),
             race: "human".into(),
             faction: None,
@@ -748,6 +749,13 @@ pub struct CampaignState {
     /// Written on `OnEnter(CombatPhase::Victory)`, before autosave.
     #[serde(default)]
     pub flags: std::collections::BTreeSet<String>,
+    /// Flat party-wide item stash (gear not currently equipped).
+    #[serde(default)]
+    pub stash: Vec<crate::content::item_ref::ItemRef>,
+    /// Per-hero equipment overrides keyed by the hero's stable slug id.
+    /// Overrides the class default on combat spawn. Missing entry → class default.
+    #[serde(default)]
+    pub loadouts: std::collections::HashMap<String, crate::content::item_ref::EquipmentSave>,
 }
 
 // ── Hex positions ────────────────────────────────────────────────────────────

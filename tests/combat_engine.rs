@@ -94,3 +94,6 @@ mod trace_helpers;
 
 #[path = "combat_engine/forecast.rs"]
 mod forecast;
+
+#[path = "combat_engine/loadout_overlay.rs"]
+mod loadout_overlay;

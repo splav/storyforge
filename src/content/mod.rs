@@ -1,4 +1,5 @@
 pub mod abilities;
+pub mod item_ref;
 pub mod armor;
 pub mod campaigns;
 pub mod classes;
