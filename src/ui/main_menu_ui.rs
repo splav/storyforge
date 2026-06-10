@@ -5,7 +5,10 @@ use crate::content::settings::GameSettings;
 use crate::game::resources::{CampaignState, GameDb};
 use crate::persistence::save_repo::{self, CampaignProgress};
 use crate::persistence::PersistencePaths;
-use crate::scenario::{enter_scenario, enter_scenario_at};
+use crate::content::scenarios::ScenarioDef;
+#[cfg(feature = "dev")]
+use crate::content::scenarios::SceneDef;
+use crate::scenario::enter_scenario_at;
 use crate::ui::modal::{PendingPrompt, PromptKind};
 use bevy::prelude::*;
 
@@ -235,6 +238,28 @@ pub fn resolve_start_index(scenario_ids: &[String], _dev_start: &str) -> usize {
     0
 }
 
+/// Resolve which scene index within a scenario to start at for a fresh campaign.
+///
+/// In dev builds, a non-empty `dev_start_scene` is matched against `SceneDef::Combat`
+/// encounter ids. Falls back to index 0 on mismatch or when the field is empty.
+/// In non-dev builds this always returns 0 — the override block is compiled out.
+pub fn resolve_start_scene_index(scen: &ScenarioDef, _dev_start_scene: &str) -> usize {
+    #[cfg(feature = "dev")]
+    if !_dev_start_scene.is_empty() {
+        if let Some(idx) = scen.scenes.iter().position(|s| {
+            matches!(s, SceneDef::Combat { encounter_id, .. } if encounter_id == _dev_start_scene)
+        }) {
+            return idx;
+        }
+        warn!(
+            "[dev] start_scene '{}' not found in scenario '{}' — starting at scene 0",
+            _dev_start_scene, scen.id
+        );
+    }
+    let _ = scen; // suppress unused warning in non-dev builds
+    0
+}
+
 pub fn start_campaign_fresh(
     commands: &mut Commands,
     db: &GameDb,
@@ -260,6 +285,20 @@ pub fn start_campaign_fresh(
         );
     }
 
+    let scen = db
+        .scenarios
+        .get(&start_scenario)
+        .unwrap_or_else(|| panic!("Scenario '{start_scenario}' not found"));
+    let start_scene_index = resolve_start_scene_index(scen, &settings.dev_start_scene);
+
+    #[cfg(feature = "dev")]
+    if start_scene_index > 0 {
+        info!(
+            "[dev] starting scenario '{}' at scene index {} (encounter-jump)",
+            start_scenario, start_scene_index
+        );
+    }
+
     let campaign_state = CampaignState {
         campaign_id: camp.id.clone(),
         scenario_index: start_index,
@@ -269,17 +308,24 @@ pub fn start_campaign_fresh(
     };
     commands.insert_resource(campaign_state.clone());
     // Fresh campaign has no flags yet; pass empty set so flag-gated scenes skip.
-    enter_scenario(
+    // Note: story scenes before start_scene_index are not played, so their flags
+    // won't be set — acceptable for a dev jump.
+    enter_scenario_at(
         commands,
         db,
         next_state,
         &start_scenario,
+        start_scene_index,
         Some(&campaign_state.flags),
     );
     if let Some(p) = paths {
-        if let Err(e) =
-            save_repo::record_progress(&p.0, slot, &campaign_state, &start_scenario, start_index)
-        {
+        if let Err(e) = save_repo::record_progress(
+            &p.0,
+            slot,
+            &campaign_state,
+            &start_scenario,
+            start_scene_index,
+        ) {
             warn!("autosave on new game failed: {e}");
         }
     }
@@ -326,11 +372,48 @@ pub fn validate_and_resume(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_start_index;
+    use super::{resolve_start_index, resolve_start_scene_index};
+    use crate::content::content_view::ContentView;
+    use crate::content::scenarios::{ScenarioDef, SceneDef};
+    use std::collections::HashMap;
 
     fn ids(names: &[&str]) -> Vec<String> {
         names.iter().map(|s| s.to_string()).collect()
     }
+
+    /// Build a minimal ScenarioDef with the given id and scenes.
+    fn scenario(id: &str, scenes: Vec<SceneDef>) -> ScenarioDef {
+        ScenarioDef {
+            id: id.into(),
+            name: id.into(),
+            party: vec![],
+            scenes,
+            content: ContentView::default(),
+            encounters: HashMap::new(),
+        }
+    }
+
+    fn combat(encounter_id: &str) -> SceneDef {
+        SceneDef::Combat {
+            encounter_id: encounter_id.into(),
+            location: None,
+            on_victory_flags: vec![],
+            requires_flag: None,
+        }
+    }
+
+    fn story() -> SceneDef {
+        SceneDef::Story {
+            lines: vec![],
+            party_add: vec![],
+            party_remove: vec![],
+            status_ops: vec![],
+            requires_flag: None,
+            no_camp: false,
+        }
+    }
+
+    // ── resolve_start_index ──────────────────────────────────────────────────
 
     #[test]
     fn empty_dev_start_always_returns_zero() {
@@ -360,5 +443,40 @@ mod tests {
     fn non_dev_ignores_nonempty_string() {
         let campaign = ids(&["ch1", "ch2", "ch3"]);
         assert_eq!(resolve_start_index(&campaign, "ch3"), 0);
+    }
+
+    // ── resolve_start_scene_index ────────────────────────────────────────────
+
+    #[test]
+    fn empty_scene_start_always_returns_zero() {
+        let scen = scenario("ch1", vec![story(), combat("boss"), story()]);
+        assert_eq!(resolve_start_scene_index(&scen, ""), 0);
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn dev_scene_known_encounter_returns_correct_index() {
+        // story(0), combat("intro",1), story(2), combat("boss",3)
+        let scen = scenario(
+            "ch1",
+            vec![story(), combat("intro"), story(), combat("boss")],
+        );
+        assert_eq!(resolve_start_scene_index(&scen, "boss"), 3);
+        assert_eq!(resolve_start_scene_index(&scen, "intro"), 1);
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn dev_scene_unknown_encounter_falls_back_to_zero() {
+        let scen = scenario("ch1", vec![story(), combat("boss")]);
+        assert_eq!(resolve_start_scene_index(&scen, "no_such_enc"), 0);
+    }
+
+    // Non-dev path: override compiled out, always 0 regardless of value.
+    #[cfg(not(feature = "dev"))]
+    #[test]
+    fn non_dev_scene_ignores_nonempty_string() {
+        let scen = scenario("ch1", vec![story(), combat("boss")]);
+        assert_eq!(resolve_start_scene_index(&scen, "boss"), 0);
     }
 }

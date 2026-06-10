@@ -23,6 +23,10 @@ pub struct GameSettings {
     /// Dev-only: id of the campaign scenario to start a fresh campaign at.
     /// Empty = normal start (scenario_ids[0]). Only honoured under `--features dev`.
     pub dev_start_scenario: String,
+    /// Dev-only: id of the encounter (combat scene) within the start chapter to jump
+    /// to on a fresh campaign. Empty = start of chapter. Only honoured under
+    /// `--features dev`. Requires `dev_start_scenario` to identify the chapter.
+    pub dev_start_scene: String,
 }
 
 impl Default for GameSettings {
@@ -38,6 +42,7 @@ impl Default for GameSettings {
             current_slot: 1,
             ai_freeze_plan_after_move: true,
             dev_start_scenario: String::new(),
+            dev_start_scene: String::new(),
         }
     }
 }
@@ -105,6 +110,10 @@ pub struct DebugSection {
     /// fresh campaign at; empty string = chapter 1 (normal behaviour).
     #[serde(default)]
     pub start_scenario: String,
+    /// Dev-only (cargo `dev` feature): id of the encounter (combat scene) within the
+    /// start chapter to jump to on a fresh campaign; empty = beginning of chapter.
+    #[serde(default)]
+    pub start_scene: String,
 }
 
 fn default_true() -> bool {
@@ -135,6 +144,7 @@ impl GameSettings {
             current_slot: clamp_slot(f.profile.current_slot),
             ai_freeze_plan_after_move: f.debug.ai_freeze_plan_after_move,
             dev_start_scenario: f.debug.start_scenario,
+            dev_start_scene: f.debug.start_scene,
         }
     }
 
@@ -150,6 +160,7 @@ impl GameSettings {
                 ai_log_path: self.ai_log_path.clone(),
                 ai_freeze_plan_after_move: self.ai_freeze_plan_after_move,
                 start_scenario: self.dev_start_scenario.clone(),
+                start_scene: self.dev_start_scene.clone(),
             },
             profile: ProfileSection {
                 current_slot: self.current_slot,
