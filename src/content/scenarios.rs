@@ -94,10 +94,10 @@ pub enum SceneDef {
         /// `CampaignState.flags`. Composes with `is_invisible`: either reason
         /// causes the scene to be skipped.
         requires_flag: Option<String>,
-        /// Opt-out: if `true`, advancing FROM this scene to the next Story scene will
-        /// NOT route through the camp screen even if all other conditions are met.
-        /// Useful for story beats that narratively cannot be a rest point.
-        /// Defaults to `false` — most Story→Story transitions enter camp.
+        /// Opt-out: if `true`, entering THIS Story scene right after a won fight
+        /// (Combat→Story) will NOT route through the camp screen even if all other
+        /// conditions are met. Useful for post-fight beats that narratively cannot
+        /// be a rest point. Defaults to `false` — most post-fight Story scenes offer camp.
         no_camp: bool,
     },
     Combat {
