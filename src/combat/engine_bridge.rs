@@ -2005,11 +2005,23 @@ pub fn project_state_to_ecs(
                     combat_engine::state::EffectSource,
                 )> = unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
 
+                // Env-applied engine statuses project to ECS with `applier: None`,
+                // losing their `Env(id)` identity. Track their status *ids* so the
+                // preserve filter can recognise the engine's own env statuses on the
+                // ECS side. Without this, an env status (e.g. a spike-trap
+                // `disoriented`) is both preserved AND re-appended from the engine
+                // every frame → the list grows by one per frame and the status never
+                // expires. The engine dedupes by id, so id-only matching is exact.
+                let engine_env_ids: std::collections::HashSet<&combat_engine::StatusId> = unit
+                    .statuses
+                    .iter()
+                    .filter(|s| matches!(s.applier, combat_engine::state::EffectSource::Env(_)))
+                    .map(|s| &s.id)
+                    .collect();
+
                 // Preserve ECS statuses that are NOT in the engine's status list.
                 // For ECS statuses with a unit applier we key on
                 // `EffectSource::Unit(entity_to_uid(applier_entity))`.
-                // Env-applied statuses (applier: None) are never round-tripped from
-                // ECS back to engine, so we always keep them in `preserved`.
                 let preserved: Vec<crate::game::components::ActiveStatus> = status_effects
                     .0
                     .iter()
@@ -2021,8 +2033,11 @@ pub fn project_state_to_ecs(
                                     applier_ent,
                                 )),
                             )),
-                            // applier: None means env-applied; never in engine_known.
-                            None => true,
+                            // applier: None means env-applied. Preserve it ONLY if the
+                            // engine has no matching env status — otherwise the engine
+                            // re-projects it below (single source of truth), and keeping
+                            // the ECS copy too would double it every frame.
+                            None => !engine_env_ids.contains(&ecs_s.id),
                         }
                     })
                     .cloned()

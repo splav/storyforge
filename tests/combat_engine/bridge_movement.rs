@@ -495,3 +495,54 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
         .any(|e| matches!(e, CombatEvent::UnitDied { entity } if *entity == player));
     assert!(died, "CombatLog must contain UnitDied for the player");
 }
+
+/// Regression: an env-applied engine status (e.g. a sprung spike-trap
+/// `disoriented`) projects to ECS with `applier: None`. The per-frame
+/// engine→ECS status merge in `project_state_to_ecs` must not BOTH preserve the
+/// ECS copy and re-append the engine's — otherwise the ECS status list grew by
+/// one *every frame* while idle (the reported bug: counter ticking up with no
+/// action, long repeating tooltip). Exactly one entry must survive across many
+/// idle frames.
+#[test]
+fn env_applied_status_projects_once_not_per_frame() {
+    use storyforge::combat_engine::state::{
+        ActiveStatus as EngineActiveStatus, EffectSource, EnvId,
+    };
+
+    let pos = hex_from_offset(0, 0);
+    let mut app = common::apps::bridge::bridge_app();
+    let unit = common::apps::bridge::spawn_caster(&mut app, pos, vec![]);
+    common::apps::bridge::bootstrap(&mut app);
+
+    // Inject an env-applied status straight into the engine unit (mimics a
+    // sprung trap: applier = Env, which projects to ECS as `applier: None`).
+    common::apps::bridge::with_engine_unit(&mut app, unit, |u| {
+        u.statuses.push(EngineActiveStatus {
+            id: StatusId::from("disoriented"),
+            rounds_remaining: 99, // outlast all idle frames; idle frames don't tick
+            dot_per_tick: 0,
+            applier: EffectSource::Env(EnvId(0)),
+        });
+    });
+
+    // Several idle frames — no action taken, only the per-frame projection runs.
+    for _ in 0..6 {
+        app.update();
+    }
+
+    let statuses = app
+        .world()
+        .entity(unit)
+        .get::<StatusEffects>()
+        .expect("unit has a StatusEffects component");
+    let count = statuses
+        .0
+        .iter()
+        .filter(|s| s.id == StatusId::from("disoriented"))
+        .count();
+    assert_eq!(
+        count, 1,
+        "env-applied status must project exactly once across idle frames, \
+         not accumulate per frame; got {count}",
+    );
+}
