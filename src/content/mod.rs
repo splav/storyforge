@@ -5,6 +5,7 @@ pub mod classes;
 pub mod content_view;
 pub mod encounters;
 pub mod item_ref;
+pub mod item_stats;
 pub mod races;
 pub mod scenarios;
 pub mod settings;

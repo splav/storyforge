@@ -60,15 +60,10 @@ fn mana_armor(id: &str, slot: ArmorSlot, mana: i32) -> ArmorDef {
         name: id.into(),
         slot,
         weight: ArmorWeight::Light,
-        armor: 0,
-        max_hp: 0,
-        strength: 0,
-        dexterity: 0,
-        constitution: 0,
-        intelligence: 0,
-        wisdom: 0,
-        charisma: 0,
-        mana,
+        stats: storyforge::content::item_stats::ItemStats {
+            mana,
+            ..Default::default()
+        },
     }
 }
 

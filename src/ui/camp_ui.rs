@@ -474,14 +474,14 @@ pub fn item_stats(
                 (
                     def.dice.expected(),
                     def.spell_power as f32,
-                    def.armor as f32,
-                    def.max_hp as f32,
-                    def.strength as f32,
-                    def.dexterity as f32,
-                    def.constitution as f32,
-                    def.intelligence as f32,
-                    def.wisdom as f32,
-                    def.charisma as f32,
+                    def.stats.armor as f32,
+                    def.stats.combat.max_hp as f32,
+                    def.stats.combat.strength as f32,
+                    def.stats.combat.dexterity as f32,
+                    def.stats.combat.constitution as f32,
+                    def.stats.combat.intelligence as f32,
+                    def.stats.combat.wisdom as f32,
+                    def.stats.combat.charisma as f32,
                     0.0, // weapons carry no mana bonus
                 )
             } else {
@@ -493,15 +493,15 @@ pub fn item_stats(
                 (
                     0.0,
                     0.0,
-                    def.armor as f32,
-                    def.max_hp as f32,
-                    def.strength as f32,
-                    def.dexterity as f32,
-                    def.constitution as f32,
-                    def.intelligence as f32,
-                    def.wisdom as f32,
-                    def.charisma as f32,
-                    def.mana as f32,
+                    def.stats.armor as f32,
+                    def.stats.combat.max_hp as f32,
+                    def.stats.combat.strength as f32,
+                    def.stats.combat.dexterity as f32,
+                    def.stats.combat.constitution as f32,
+                    def.stats.combat.intelligence as f32,
+                    def.stats.combat.wisdom as f32,
+                    def.stats.combat.charisma as f32,
+                    def.stats.mana as f32,
                 )
             } else {
                 (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -1831,14 +1831,7 @@ mod tests {
                 bonus: 0,
             },
             spell_power: 0,
-            armor: 0,
-            max_hp: 0,
-            strength: 0,
-            dexterity: 0,
-            constitution: 0,
-            intelligence: 0,
-            wisdom: 0,
-            charisma: 0,
+            stats: Default::default(),
         };
         (wid, def)
     }
@@ -1850,15 +1843,10 @@ mod tests {
             name: id.to_string(),
             slot,
             weight: ArmorWeight::Light,
-            armor: 1,
-            max_hp: 0,
-            strength: 0,
-            dexterity: 0,
-            constitution: 0,
-            intelligence: 0,
-            wisdom: 0,
-            charisma: 0,
-            mana: 0,
+            stats: crate::content::item_stats::ItemStats {
+                armor: 1,
+                ..Default::default()
+            },
         };
         (aid, def)
     }
@@ -2220,14 +2208,14 @@ mod tests {
             hand,
             dice,
             spell_power,
-            armor,
-            max_hp,
-            strength: 0,
-            dexterity: 0,
-            constitution: 0,
-            intelligence: 0,
-            wisdom: 0,
-            charisma: 0,
+            stats: crate::content::item_stats::ItemStats {
+                armor,
+                combat: crate::game::components::CombatStats {
+                    max_hp,
+                    ..Default::default()
+                },
+                mana: 0,
+            },
         };
         (wid, def)
     }
@@ -2247,15 +2235,15 @@ mod tests {
             name: id.to_string(),
             slot,
             weight,
-            armor: armor_val,
-            max_hp,
-            strength,
-            dexterity: 0,
-            constitution: 0,
-            intelligence: 0,
-            wisdom: 0,
-            charisma: 0,
-            mana: 0,
+            stats: crate::content::item_stats::ItemStats {
+                armor: armor_val,
+                combat: crate::game::components::CombatStats {
+                    max_hp,
+                    strength,
+                    ..Default::default()
+                },
+                mana: 0,
+            },
         };
         (aid, def)
     }
@@ -2352,14 +2340,7 @@ mod tests {
                 bonus: 0,
             },
             spell_power: 0,
-            armor: 0,
-            max_hp: 0,
-            strength: 0,
-            dexterity: 0,
-            constitution: 0,
-            intelligence: 0,
-            wisdom: 0,
-            charisma: 0,
+            stats: Default::default(),
         };
         weapons.insert(wid.clone(), def);
 
@@ -2434,15 +2415,10 @@ mod tests {
             name: "mage_robe".into(),
             slot: ArmorSlot::Chest,
             weight: ArmorWeight::Light,
-            armor: 0,
-            max_hp: 0,
-            strength: 0,
-            dexterity: 0,
-            constitution: 0,
-            intelligence: 0,
-            wisdom: 0,
-            charisma: 0,
-            mana: 2,
+            stats: crate::content::item_stats::ItemStats {
+                mana: 2,
+                ..Default::default()
+            },
         };
         armor.insert(aid.clone(), def);
 

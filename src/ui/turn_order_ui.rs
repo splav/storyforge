@@ -280,29 +280,29 @@ fn armor_line(slot: &str, id: &ArmorId, content: &ContentView) -> String {
 
 fn weapon_bonus_str(w: &WeaponDef) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if w.armor != 0 {
-        parts.push(format!("броня {}", w.armor));
+    if w.stats.armor != 0 {
+        parts.push(format!("броня {}", w.stats.armor));
     }
-    if w.max_hp != 0 {
-        parts.push(format!("хп {:+}", w.max_hp));
+    if w.stats.combat.max_hp != 0 {
+        parts.push(format!("хп {:+}", w.stats.combat.max_hp));
     }
-    if w.strength != 0 {
-        parts.push(format!("сил {:+}", w.strength));
+    if w.stats.combat.strength != 0 {
+        parts.push(format!("сил {:+}", w.stats.combat.strength));
     }
-    if w.dexterity != 0 {
-        parts.push(format!("лов {:+}", w.dexterity));
+    if w.stats.combat.dexterity != 0 {
+        parts.push(format!("лов {:+}", w.stats.combat.dexterity));
     }
-    if w.constitution != 0 {
-        parts.push(format!("тел {:+}", w.constitution));
+    if w.stats.combat.constitution != 0 {
+        parts.push(format!("тел {:+}", w.stats.combat.constitution));
     }
-    if w.intelligence != 0 {
-        parts.push(format!("инт {:+}", w.intelligence));
+    if w.stats.combat.intelligence != 0 {
+        parts.push(format!("инт {:+}", w.stats.combat.intelligence));
     }
-    if w.wisdom != 0 {
-        parts.push(format!("мдр {:+}", w.wisdom));
+    if w.stats.combat.wisdom != 0 {
+        parts.push(format!("мдр {:+}", w.stats.combat.wisdom));
     }
-    if w.charisma != 0 {
-        parts.push(format!("хар {:+}", w.charisma));
+    if w.stats.combat.charisma != 0 {
+        parts.push(format!("хар {:+}", w.stats.combat.charisma));
     }
     if w.spell_power != 0 {
         parts.push(format!("маг {:+}", w.spell_power));
@@ -369,29 +369,29 @@ fn cost_summary(costs: &[ResourceCost]) -> String {
 
 fn armor_bonus_str(a: &ArmorDef) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if a.armor != 0 {
-        parts.push(format!("броня {}", a.armor));
+    if a.stats.armor != 0 {
+        parts.push(format!("броня {}", a.stats.armor));
     }
-    if a.max_hp != 0 {
-        parts.push(format!("хп {:+}", a.max_hp));
+    if a.stats.combat.max_hp != 0 {
+        parts.push(format!("хп {:+}", a.stats.combat.max_hp));
     }
-    if a.strength != 0 {
-        parts.push(format!("сил {:+}", a.strength));
+    if a.stats.combat.strength != 0 {
+        parts.push(format!("сил {:+}", a.stats.combat.strength));
     }
-    if a.dexterity != 0 {
-        parts.push(format!("лов {:+}", a.dexterity));
+    if a.stats.combat.dexterity != 0 {
+        parts.push(format!("лов {:+}", a.stats.combat.dexterity));
     }
-    if a.constitution != 0 {
-        parts.push(format!("тел {:+}", a.constitution));
+    if a.stats.combat.constitution != 0 {
+        parts.push(format!("тел {:+}", a.stats.combat.constitution));
     }
-    if a.intelligence != 0 {
-        parts.push(format!("инт {:+}", a.intelligence));
+    if a.stats.combat.intelligence != 0 {
+        parts.push(format!("инт {:+}", a.stats.combat.intelligence));
     }
-    if a.wisdom != 0 {
-        parts.push(format!("мдр {:+}", a.wisdom));
+    if a.stats.combat.wisdom != 0 {
+        parts.push(format!("мдр {:+}", a.stats.combat.wisdom));
     }
-    if a.charisma != 0 {
-        parts.push(format!("хар {:+}", a.charisma));
+    if a.stats.combat.charisma != 0 {
+        parts.push(format!("хар {:+}", a.stats.combat.charisma));
     }
     parts.join(", ")
 }

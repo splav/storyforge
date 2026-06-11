@@ -26,18 +26,7 @@ pub struct ArmorDef {
     pub name: String,
     pub slot: ArmorSlot,
     pub weight: ArmorWeight,
-    pub armor: i32,
-    // stat bonuses
-    pub max_hp: i32,
-    pub strength: i32,
-    pub dexterity: i32,
-    pub constitution: i32,
-    pub intelligence: i32,
-    pub wisdom: i32,
-    pub charisma: i32,
-    /// Flat bonus added to the wearer's mana pool at spawn (casters only —
-    /// see `ContentView::equipment_mana_bonus`). 0 for non-magical armor.
-    pub mana: i32,
+    pub stats: crate::content::item_stats::ItemStats,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -83,15 +72,19 @@ pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
             name: r.name,
             slot,
             weight: r.weight,
-            armor: r.armor,
-            max_hp: r.max_hp,
-            strength: r.strength,
-            dexterity: r.dexterity,
-            constitution: r.constitution,
-            intelligence: r.intelligence,
-            wisdom: r.wisdom,
-            charisma: r.charisma,
-            mana: r.mana,
+            stats: crate::content::item_stats::ItemStats {
+                combat: crate::game::components::CombatStats {
+                    max_hp: r.max_hp,
+                    strength: r.strength,
+                    dexterity: r.dexterity,
+                    constitution: r.constitution,
+                    intelligence: r.intelligence,
+                    wisdom: r.wisdom,
+                    charisma: r.charisma,
+                },
+                armor: r.armor,
+                mana: r.mana,
+            },
         })
         .collect()
 }

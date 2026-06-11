@@ -48,24 +48,12 @@ impl ContentView {
             .flatten()
         {
             if let Some(w) = self.weapons.get(weapon_id) {
-                s.max_hp += w.max_hp;
-                s.strength += w.strength;
-                s.dexterity += w.dexterity;
-                s.constitution += w.constitution;
-                s.intelligence += w.intelligence;
-                s.wisdom += w.wisdom;
-                s.charisma += w.charisma;
+                s += &w.stats.combat;
             }
         }
         for armor_id in [&equipment.chest, &equipment.legs, &equipment.feet] {
             if let Some(a) = self.armor.get(armor_id) {
-                s.max_hp += a.max_hp;
-                s.strength += a.strength;
-                s.dexterity += a.dexterity;
-                s.constitution += a.constitution;
-                s.intelligence += a.intelligence;
-                s.wisdom += a.wisdom;
-                s.charisma += a.charisma;
+                s += &a.stats.combat;
             }
         }
         s
@@ -79,12 +67,12 @@ impl ContentView {
             .flatten()
         {
             if let Some(w) = self.weapons.get(weapon_id) {
-                total += w.armor;
+                total += w.stats.armor;
             }
         }
         for armor_id in [&equipment.chest, &equipment.legs, &equipment.feet] {
             if let Some(a) = self.armor.get(armor_id) {
-                total += a.armor;
+                total += a.stats.armor;
             }
         }
         total
@@ -98,7 +86,7 @@ impl ContentView {
         [&equipment.chest, &equipment.legs, &equipment.feet]
             .into_iter()
             .filter_map(|id| self.armor.get(id))
-            .map(|a| a.mana)
+            .map(|a| a.stats.mana)
             .sum()
     }
 }

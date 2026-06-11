@@ -101,7 +101,7 @@ pub use combat_engine::state::Team;
 pub struct Faction(pub Team);
 
 /// The core combat stats (base values, without equipment bonuses).
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Default)]
 pub struct CombatStats {
     pub max_hp: i32,
     pub strength: i32,  // melee attack/damage bonus
@@ -110,6 +110,18 @@ pub struct CombatStats {
     pub intelligence: i32, // boosts spell damage and healing
     pub wisdom: i32,
     pub charisma: i32,
+}
+
+impl std::ops::AddAssign<&CombatStats> for CombatStats {
+    fn add_assign(&mut self, rhs: &CombatStats) {
+        self.max_hp += rhs.max_hp;
+        self.strength += rhs.strength;
+        self.dexterity += rhs.dexterity;
+        self.constitution += rhs.constitution;
+        self.intelligence += rhs.intelligence;
+        self.wisdom += rhs.wisdom;
+        self.charisma += rhs.charisma;
+    }
 }
 
 #[derive(Component)]

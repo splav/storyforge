@@ -366,14 +366,7 @@ impl MeleeContent {
             hand: HandType::MainHand,
             dice: DiceExpr::new(1, 6, 0),
             spell_power: 0,
-            armor: 0,
-            max_hp: 0,
-            strength: 0,
-            dexterity: 0,
-            constitution: 0,
-            intelligence: 0,
-            wisdom: 0,
-            charisma: 0,
+            stats: Default::default(),
         };
         let ability = AbilityDef {
             id: self.ability_id.clone(),

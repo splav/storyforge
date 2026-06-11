@@ -24,15 +24,10 @@ fn armor_piece(id: &str, slot: ArmorSlot, armor: i32) -> ArmorDef {
         name: id.into(),
         slot,
         weight: ArmorWeight::Light,
-        armor,
-        max_hp: 0,
-        strength: 0,
-        dexterity: 0,
-        constitution: 0,
-        intelligence: 0,
-        wisdom: 0,
-        charisma: 0,
-        mana: 0,
+        stats: storyforge::content::item_stats::ItemStats {
+            armor,
+            ..Default::default()
+        },
     }
 }
 
@@ -48,15 +43,15 @@ fn armor_with_bonus(
         name: id.into(),
         slot,
         weight: ArmorWeight::Light,
-        armor,
-        max_hp: 0,
-        strength,
-        dexterity: 0,
-        constitution: 0,
-        intelligence,
-        wisdom: 0,
-        charisma: 0,
-        mana: 0,
+        stats: storyforge::content::item_stats::ItemStats {
+            armor,
+            combat: storyforge::game::components::CombatStats {
+                strength,
+                intelligence,
+                ..Default::default()
+            },
+            mana: 0,
+        },
     }
 }
 
@@ -67,14 +62,7 @@ fn weapon(id: &str, hand: HandType) -> WeaponDef {
         hand,
         dice: DiceExpr::new(1, 6, 0),
         spell_power: 0,
-        armor: 0,
-        max_hp: 0,
-        strength: 0,
-        dexterity: 0,
-        constitution: 0,
-        intelligence: 0,
-        wisdom: 0,
-        charisma: 0,
+        stats: Default::default(),
     }
 }
 
@@ -85,14 +73,14 @@ fn weapon_with_bonus(id: &str, strength: i32, armor: i32) -> WeaponDef {
         hand: HandType::MainHand,
         dice: DiceExpr::new(1, 6, 0),
         spell_power: 0,
-        armor,
-        max_hp: 0,
-        strength,
-        dexterity: 0,
-        constitution: 0,
-        intelligence: 0,
-        wisdom: 0,
-        charisma: 0,
+        stats: storyforge::content::item_stats::ItemStats {
+            armor,
+            combat: storyforge::game::components::CombatStats {
+                strength,
+                ..Default::default()
+            },
+            mana: 0,
+        },
     }
 }
 
@@ -204,15 +192,10 @@ fn armor_with_mana(id: &str, slot: ArmorSlot, mana: i32) -> ArmorDef {
         name: id.into(),
         slot,
         weight: ArmorWeight::Light,
-        armor: 0,
-        max_hp: 0,
-        strength: 0,
-        dexterity: 0,
-        constitution: 0,
-        intelligence: 0,
-        wisdom: 0,
-        charisma: 0,
-        mana,
+        stats: storyforge::content::item_stats::ItemStats {
+            mana,
+            ..Default::default()
+        },
     }
 }
 

@@ -15,15 +15,7 @@ pub struct WeaponDef {
     pub hand: HandType,
     pub dice: DiceExpr,
     pub spell_power: i32, // added to spell damage / healing formulas
-    // stat bonuses
-    pub armor: i32,
-    pub max_hp: i32,
-    pub strength: i32,
-    pub dexterity: i32,
-    pub constitution: i32,
-    pub intelligence: i32,
-    pub wisdom: i32,
-    pub charisma: i32,
+    pub stats: crate::content::item_stats::ItemStats,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -96,14 +88,19 @@ pub fn parse_weapons(path: &str, src: &str) -> Vec<WeaponDef> {
             name: r.name,
             dice: DiceExpr::new(r.dice_count, r.dice_sides, 0),
             spell_power: r.spell_power,
-            armor: r.armor,
-            max_hp: r.max_hp,
-            strength: r.strength,
-            dexterity: r.dexterity,
-            constitution: r.constitution,
-            intelligence: r.intelligence,
-            wisdom: r.wisdom,
-            charisma: r.charisma,
+            stats: crate::content::item_stats::ItemStats {
+                combat: crate::game::components::CombatStats {
+                    max_hp: r.max_hp,
+                    strength: r.strength,
+                    dexterity: r.dexterity,
+                    constitution: r.constitution,
+                    intelligence: r.intelligence,
+                    wisdom: r.wisdom,
+                    charisma: r.charisma,
+                },
+                armor: r.armor,
+                mana: 0,
+            },
         })
         .collect()
 }

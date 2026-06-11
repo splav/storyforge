@@ -1470,14 +1470,7 @@ mod tests {
                     bonus: 0,
                 },
                 spell_power: 0,
-                armor: 0,
-                max_hp: 0,
-                strength: 0,
-                dexterity: 0,
-                constitution: 0,
-                intelligence: 0,
-                wisdom: 0,
-                charisma: 0,
+                stats: Default::default(),
             },
         );
         content.armor.insert(
@@ -1487,15 +1480,10 @@ mod tests {
                 name: "Plate Y".into(),
                 slot: ArmorSlot::Chest,
                 weight: ArmorWeight::Light,
-                armor: 3,
-                max_hp: 0,
-                strength: 0,
-                dexterity: 0,
-                constitution: 0,
-                intelligence: 0,
-                wisdom: 0,
-                charisma: 0,
-                mana: 0,
+                stats: crate::content::item_stats::ItemStats {
+                    armor: 3,
+                    ..Default::default()
+                },
             },
         );
         content
