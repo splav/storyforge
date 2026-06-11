@@ -125,8 +125,11 @@ mod tests {
                 .clone()
         };
 
-        assert_eq!(find("warrior"), vec![ArmorWeight::Medium, ArmorWeight::Heavy]);
-        assert_eq!(find("ranger"),  vec![ArmorWeight::Medium]);
-        assert_eq!(find("mage"),    Vec::<ArmorWeight>::new());
+        assert_eq!(
+            find("warrior"),
+            vec![ArmorWeight::Medium, ArmorWeight::Heavy]
+        );
+        assert_eq!(find("ranger"), vec![ArmorWeight::Medium]);
+        assert_eq!(find("mage"), Vec::<ArmorWeight>::new());
     }
 }

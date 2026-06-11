@@ -306,14 +306,20 @@ saved_at = 0
                 loadouts,
             },
         );
-        let slot = SlotProfileV1 { last_campaign: Some("c".into()), campaigns };
+        let slot = SlotProfileV1 {
+            last_campaign: Some("c".into()),
+            campaigns,
+        };
         let text = toml::to_string_pretty(&SaveSlotFile::V1(slot)).unwrap();
         let SaveSlotFile::V1(parsed) = toml::from_str::<SaveSlotFile>(&text).unwrap();
         let pr = parsed.campaigns.get("c").unwrap();
         assert_eq!(pr.stash.len(), 2);
         assert_eq!(pr.stash[0], ItemRef::Weapon(WeaponId::from("long_sword")));
         assert_eq!(pr.stash[1], ItemRef::Armor(ArmorId::from("plate_chest")));
-        let ald = pr.loadouts.get("aldric").expect("aldric loadout must survive roundtrip");
+        let ald = pr
+            .loadouts
+            .get("aldric")
+            .expect("aldric loadout must survive roundtrip");
         assert_eq!(ald.main_hand, Some(WeaponId::from("long_sword")));
         assert!(ald.off_hand.is_none());
         assert_eq!(ald.chest, ArmorId::from("plate_chest"));
@@ -378,7 +384,10 @@ hex_row = 0
 type = "story"
 "#;
         let scen2 = parse_scenario_body("s1", "test.toml", without_id);
-        assert_eq!(scen2.party[0].id, "lyra", "id should be lowercased ASCII of name");
+        assert_eq!(
+            scen2.party[0].id, "lyra",
+            "id should be lowercased ASCII of name"
+        );
         assert_eq!(scen2.party[0].name, "Lyra");
     }
 }

@@ -920,10 +920,7 @@ target_name = "Лодка"
 
     #[test]
     fn rewards_present_parsed() {
-        let enc = load_enc(&enc_toml_with(
-            r#"rewards = ["sword_x", "plate_y"]"#,
-            "",
-        ));
+        let enc = load_enc(&enc_toml_with(r#"rewards = ["sword_x", "plate_y"]"#, ""));
         assert_eq!(enc.rewards, vec!["sword_x", "plate_y"]);
     }
 }

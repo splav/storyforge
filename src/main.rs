@@ -140,10 +140,7 @@ fn main() {
         )
         .add_systems(OnExit(AppState::Story), ui::story_ui::cleanup_story_screen)
         // ── Camp ─────────────────────────────────────────────────────────────
-        .add_systems(
-            OnEnter(AppState::Camp),
-            ui::camp_ui::setup_camp_screen,
-        )
+        .add_systems(OnEnter(AppState::Camp), ui::camp_ui::setup_camp_screen)
         .add_systems(
             Update,
             (
@@ -153,10 +150,7 @@ fn main() {
             )
                 .run_if(in_state(AppState::Camp)),
         )
-        .add_systems(
-            OnExit(AppState::Camp),
-            ui::camp_ui::cleanup_camp_screen,
-        )
+        .add_systems(OnExit(AppState::Camp), ui::camp_ui::cleanup_camp_screen)
         // ── Combat enter / exit ──────────────────────────────────────────
         .add_systems(
             OnEnter(AppState::Combat),

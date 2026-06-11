@@ -1,10 +1,10 @@
 pub mod abilities;
-pub mod item_ref;
 pub mod armor;
 pub mod campaigns;
 pub mod classes;
 pub mod content_view;
 pub mod encounters;
+pub mod item_ref;
 pub mod races;
 pub mod scenarios;
 pub mod settings;

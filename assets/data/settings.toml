@@ -12,6 +12,10 @@ ai_debug = true
 ai_log = true
 # Dev-only (cargo dev feature): id сценария-главы, с которой начинается НОВАЯ кампания.
 # Пустая строка = обычный старт (первая глава). Игнорируется в релизной сборке.
-start_scenario = ""
+start_scenario = "ch1"
 # Dev-only: прыгнуть на бой по id энкаунтера, напр. "bell_crypt"; "" = начало главы.
-start_scene = ""
+start_scene = "bell_crypt"
+# Dev-only: if true, a fresh campaign starts directly in the camp screen with
+# a seeded stash of test items. Set to true to test the equip UI without
+# playing through the opening story. Ignored in release builds.
+start_in_camp = false

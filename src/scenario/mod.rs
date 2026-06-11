@@ -292,7 +292,10 @@ pub fn write_victory_flags(
 /// Resolve a bare item id to an [`ItemRef`] by checking the content registries.
 ///
 /// Returns `None` (and logs a warning) if the id is unknown.
-pub fn resolve_reward(id: &str, content: &crate::content::content_view::ContentView) -> Option<ItemRef> {
+pub fn resolve_reward(
+    id: &str,
+    content: &crate::content::content_view::ContentView,
+) -> Option<ItemRef> {
     use combat_engine::{ArmorId, WeaponId};
     let weapon_id = WeaponId::from(id);
     if content.weapons.contains_key(&weapon_id) {
@@ -895,7 +898,10 @@ mod tests {
             "expected NextState::Pending(Camp), got {ns:?}",
         );
         let idx = app.world().resource::<ScenarioState>().scene_index;
-        assert_eq!(idx, 1, "scene_index should be pre-advanced to 1 before Camp");
+        assert_eq!(
+            idx, 1,
+            "scene_index should be pre-advanced to 1 before Camp"
+        );
     }
 
     /// After the camp detour the `scene_index` is already at 1; Camp Continue
@@ -931,7 +937,10 @@ mod tests {
 
         // No AdvanceScenario sent → scene_index unchanged at 1.
         let idx = app.world().resource::<ScenarioState>().scene_index;
-        assert_eq!(idx, 1, "scene_index must stay at 1 when no AdvanceScenario sent");
+        assert_eq!(
+            idx, 1,
+            "scene_index must stay at 1 when no AdvanceScenario sent"
+        );
         // NextState was not set (still default).
         let ns = app.world().resource::<NextState<AppState>>();
         assert!(
@@ -986,8 +995,10 @@ mod tests {
             campaigns: HashMap::new(),
             campaign_order: vec![],
         };
-        db.scenarios.insert("s1".into(), single_story_scenario("s1"));
-        db.scenarios.insert("s2".into(), single_story_scenario("s2"));
+        db.scenarios
+            .insert("s1".into(), single_story_scenario("s1"));
+        db.scenarios
+            .insert("s2".into(), single_story_scenario("s2"));
         db.campaigns.insert(
             "c".into(),
             CampaignDef {
@@ -1453,7 +1464,11 @@ mod tests {
                 id: weapon_id,
                 name: "Sword X".into(),
                 hand: HandType::MainHand,
-                dice: DiceExpr { count: 1, sides: 6, bonus: 0 },
+                dice: DiceExpr {
+                    count: 1,
+                    sides: 6,
+                    bonus: 0,
+                },
                 spell_power: 0,
                 armor: 0,
                 max_hp: 0,
@@ -1538,7 +1553,10 @@ mod tests {
 
         let mut app = App::new();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(campaign_empty());
         app.add_systems(Update, write_victory_rewards);
         app.update();
@@ -1558,7 +1576,10 @@ mod tests {
 
         let mut app = App::new();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(campaign_empty());
         app.add_systems(Update, write_victory_rewards);
         app.update();
@@ -1576,7 +1597,10 @@ mod tests {
 
         let mut app = App::new();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(campaign_empty());
         app.add_systems(Update, write_victory_rewards);
         app.update();
@@ -1598,7 +1622,10 @@ mod tests {
 
         let mut app = App::new();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         app.insert_resource(campaign_empty());
         app.add_systems(Update, write_victory_rewards);
         app.update();
@@ -1617,7 +1644,10 @@ mod tests {
 
         let mut app = App::new();
         app.insert_resource(db);
-        app.insert_resource(ScenarioState { scenario_id: "s1".into(), scene_index: 0 });
+        app.insert_resource(ScenarioState {
+            scenario_id: "s1".into(),
+            scene_index: 0,
+        });
         // No CampaignState inserted — must not panic.
         app.add_systems(Update, write_victory_rewards);
         app.update();

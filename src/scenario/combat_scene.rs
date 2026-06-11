@@ -238,7 +238,13 @@ pub fn spawn_combatants(
                 );
                 class_equipment.feet.clone()
             };
-            Equipment { main_hand, off_hand, chest, legs, feet }
+            Equipment {
+                main_hand,
+                off_hand,
+                chest,
+                legs,
+                feet,
+            }
         } else {
             class_equipment
         };

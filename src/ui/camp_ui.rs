@@ -168,7 +168,10 @@ pub fn try_equip(
                     if def.hand == HandType::TwoHanded {
                         new_save.off_hand = None;
                     }
-                    Ok(EquipResult { new_save, displaced })
+                    Ok(EquipResult {
+                        new_save,
+                        displaced,
+                    })
                 }
                 EquipSlot::OffHand => {
                     if def.hand == HandType::TwoHanded {
@@ -181,7 +184,10 @@ pub fn try_equip(
                         .map(|id| ItemRef::Weapon(id.clone()));
                     let mut new_save = current_save.clone();
                     new_save.off_hand = Some(wid.clone());
-                    Ok(EquipResult { new_save, displaced })
+                    Ok(EquipResult {
+                        new_save,
+                        displaced,
+                    })
                 }
                 EquipSlot::Chest | EquipSlot::Legs | EquipSlot::Feet => {
                     Err(EquipError::WeaponIntoArmorSlot)
@@ -202,7 +208,10 @@ pub fn try_equip(
                     let displaced = Some(ItemRef::Armor(current_save.chest.clone()));
                     let mut new_save = current_save.clone();
                     new_save.chest = aid.clone();
-                    Ok(EquipResult { new_save, displaced })
+                    Ok(EquipResult {
+                        new_save,
+                        displaced,
+                    })
                 }
                 EquipSlot::Legs => {
                     if def.slot != ArmorSlot::Legs {
@@ -214,7 +223,10 @@ pub fn try_equip(
                     let displaced = Some(ItemRef::Armor(current_save.legs.clone()));
                     let mut new_save = current_save.clone();
                     new_save.legs = aid.clone();
-                    Ok(EquipResult { new_save, displaced })
+                    Ok(EquipResult {
+                        new_save,
+                        displaced,
+                    })
                 }
                 EquipSlot::Feet => {
                     if def.slot != ArmorSlot::Feet {
@@ -226,7 +238,10 @@ pub fn try_equip(
                     let displaced = Some(ItemRef::Armor(current_save.feet.clone()));
                     let mut new_save = current_save.clone();
                     new_save.feet = aid.clone();
-                    Ok(EquipResult { new_save, displaced })
+                    Ok(EquipResult {
+                        new_save,
+                        displaced,
+                    })
                 }
             }
         }
@@ -255,7 +270,10 @@ fn resolve_hero_equipment(
             feet: class_def.feet.clone(),
         })
     } else {
-        warn!("camp: unknown class_id '{}' for hero '{}'", class_id, hero_id);
+        warn!(
+            "camp: unknown class_id '{}' for hero '{}'",
+            class_id, hero_id
+        );
         EquipmentSave {
             main_hand: None,
             off_hand: None,
@@ -266,12 +284,23 @@ fn resolve_hero_equipment(
     }
 }
 
-fn weapon_name<'a>(id: &WeaponId, content: &'a crate::content::content_view::ContentView) -> &'a str {
-    content.weapons.get(id).map(|d| d.name.as_str()).unwrap_or("?")
+fn weapon_name<'a>(
+    id: &WeaponId,
+    content: &'a crate::content::content_view::ContentView,
+) -> &'a str {
+    content
+        .weapons
+        .get(id)
+        .map(|d| d.name.as_str())
+        .unwrap_or("?")
 }
 
 fn armor_name<'a>(id: &ArmorId, content: &'a crate::content::content_view::ContentView) -> &'a str {
-    content.armor.get(id).map(|d| d.name.as_str()).unwrap_or("?")
+    content
+        .armor
+        .get(id)
+        .map(|d| d.name.as_str())
+        .unwrap_or("?")
 }
 
 /// Russian label for an armor-weight class, shown on the comparison card.
@@ -301,7 +330,11 @@ fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentVi
         ItemRef::Armor(aid) => armor_name(aid, content),
     };
     // Take up to 8 chars (char boundary safe).
-    let end = full.char_indices().nth(8).map(|(i, _)| i).unwrap_or(full.len());
+    let end = full
+        .char_indices()
+        .nth(8)
+        .map(|(i, _)| i)
+        .unwrap_or(full.len());
     full[..end].to_string()
 }
 
@@ -342,15 +375,26 @@ pub fn compare_items(
 ) -> Vec<CompareRow> {
     // All possible stat labels in display order.
     const LABELS: &[&str] = &[
-        "Урон", "Сила закл.", "Броня", "HP",
-        "СИЛ", "ЛОВ", "ТЕЛ", "ИНТ", "МУД", "ХАР",
+        "Урон",
+        "Сила закл.",
+        "Броня",
+        "HP",
+        "СИЛ",
+        "ЛОВ",
+        "ТЕЛ",
+        "ИНТ",
+        "МУД",
+        "ХАР",
     ];
 
     let eq_stats = item_stats(equipped, weapons, armor);
     let in_stats = item_stats(incoming, weapons, armor);
 
     let val_of = |stats: &[(String, f32)], label: &str| -> f32 {
-        stats.iter().find(|(l, _)| l == label).map_or(0.0, |(_, v)| *v)
+        stats
+            .iter()
+            .find(|(l, _)| l == label)
+            .map_or(0.0, |(_, v)| *v)
     };
 
     LABELS
@@ -411,23 +455,50 @@ pub fn item_stats(
     weapons: &std::collections::HashMap<WeaponId, WeaponDef>,
     armor: &std::collections::HashMap<ArmorId, ArmorDef>,
 ) -> Vec<(String, f32)> {
-    let (damage, spell_power, armor_val, max_hp, strength, dexterity, constitution,
-         intelligence, wisdom, charisma) = match item {
+    let (
+        damage,
+        spell_power,
+        armor_val,
+        max_hp,
+        strength,
+        dexterity,
+        constitution,
+        intelligence,
+        wisdom,
+        charisma,
+    ) = match item {
         ItemRef::Weapon(wid) => {
             if let Some(def) = weapons.get(wid) {
-                (def.dice.expected(), def.spell_power as f32, def.armor as f32,
-                 def.max_hp as f32, def.strength as f32, def.dexterity as f32,
-                 def.constitution as f32, def.intelligence as f32,
-                 def.wisdom as f32, def.charisma as f32)
+                (
+                    def.dice.expected(),
+                    def.spell_power as f32,
+                    def.armor as f32,
+                    def.max_hp as f32,
+                    def.strength as f32,
+                    def.dexterity as f32,
+                    def.constitution as f32,
+                    def.intelligence as f32,
+                    def.wisdom as f32,
+                    def.charisma as f32,
+                )
             } else {
                 (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             }
         }
         ItemRef::Armor(aid) => {
             if let Some(def) = armor.get(aid) {
-                (0.0, 0.0, def.armor as f32, def.max_hp as f32,
-                 def.strength as f32, def.dexterity as f32, def.constitution as f32,
-                 def.intelligence as f32, def.wisdom as f32, def.charisma as f32)
+                (
+                    0.0,
+                    0.0,
+                    def.armor as f32,
+                    def.max_hp as f32,
+                    def.strength as f32,
+                    def.dexterity as f32,
+                    def.constitution as f32,
+                    def.intelligence as f32,
+                    def.wisdom as f32,
+                    def.charisma as f32,
+                )
             } else {
                 (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             }
@@ -435,16 +506,16 @@ pub fn item_stats(
     };
 
     let candidates: &[(&str, f32)] = &[
-        ("Урон",      damage),
+        ("Урон", damage),
         ("Сила закл.", spell_power),
-        ("Броня",     armor_val),
-        ("HP",        max_hp),
-        ("СИЛ",       strength),
-        ("ЛОВ",       dexterity),
-        ("ТЕЛ",       constitution),
-        ("ИНТ",       intelligence),
-        ("МУД",       wisdom),
-        ("ХАР",       charisma),
+        ("Броня", armor_val),
+        ("HP", max_hp),
+        ("СИЛ", strength),
+        ("ЛОВ", dexterity),
+        ("ТЕЛ", constitution),
+        ("ИНТ", intelligence),
+        ("МУД", wisdom),
+        ("ХАР", charisma),
     ];
 
     candidates
@@ -477,7 +548,9 @@ pub fn cell_compatible(
     match (selection, target) {
         // Backpack → Equip: check whether the backpack item fits the equip slot.
         (CellKind::Backpack { index: bp_idx }, CellKind::Equip { hero_id, slot }) => {
-            let Some(item) = campaign.stash.get(*bp_idx) else { return false };
+            let Some(item) = campaign.stash.get(*bp_idx) else {
+                return false;
+            };
             let scen = db.scenarios.get(&scenario_state.scenario_id);
             let Some(scen) = scen else { return false };
             let party = active_party(scen, scenario_state.scene_index);
@@ -495,7 +568,9 @@ pub fn cell_compatible(
 
         // Equip → Backpack: check whether the backpack item fits back into the same slot.
         (CellKind::Equip { hero_id, slot }, CellKind::Backpack { index: bp_idx }) => {
-            let Some(item) = campaign.stash.get(*bp_idx) else { return false };
+            let Some(item) = campaign.stash.get(*bp_idx) else {
+                return false;
+            };
             let scen = db.scenarios.get(&scenario_state.scenario_id);
             let Some(scen) = scen else { return false };
             let party = active_party(scen, scenario_state.scene_index);
@@ -526,8 +601,12 @@ fn hero_can_wear(
     item: &ItemRef,
     content: &crate::content::content_view::ContentView,
 ) -> bool {
-    let ItemRef::Armor(aid) = item else { return true }; // weapons: always
-    let Some(def) = content.armor.get(aid) else { return false }; // unknown item: deny
+    let ItemRef::Armor(aid) = item else {
+        return true;
+    }; // weapons: always
+    let Some(def) = content.armor.get(aid) else {
+        return false;
+    }; // unknown item: deny
     match def.weight {
         ArmorWeight::Light => true, // anyone
         w => content
@@ -561,18 +640,30 @@ fn cell_item(
             let eq = resolve_hero_equipment(hero_id, class_id, campaign, content);
             match slot {
                 EquipSlot::MainHand => eq.main_hand.map(ItemRef::Weapon),
-                EquipSlot::OffHand  => eq.off_hand.map(ItemRef::Weapon),
-                EquipSlot::Chest    => {
+                EquipSlot::OffHand => eq.off_hand.map(ItemRef::Weapon),
+                EquipSlot::Chest => {
                     let id = eq.chest;
-                    if id.0.is_empty() { None } else { Some(ItemRef::Armor(id)) }
+                    if id.0.is_empty() {
+                        None
+                    } else {
+                        Some(ItemRef::Armor(id))
+                    }
                 }
-                EquipSlot::Legs     => {
+                EquipSlot::Legs => {
                     let id = eq.legs;
-                    if id.0.is_empty() { None } else { Some(ItemRef::Armor(id)) }
+                    if id.0.is_empty() {
+                        None
+                    } else {
+                        Some(ItemRef::Armor(id))
+                    }
                 }
-                EquipSlot::Feet     => {
+                EquipSlot::Feet => {
                     let id = eq.feet;
-                    if id.0.is_empty() { None } else { Some(ItemRef::Armor(id)) }
+                    if id.0.is_empty() {
+                        None
+                    } else {
+                        Some(ItemRef::Armor(id))
+                    }
                 }
             }
         }
@@ -606,15 +697,9 @@ fn spawn_cell<'a>(
     style: CellStyle,
 ) -> EntityCommands<'a> {
     let (border_color, bg_color, text_alpha) = match style {
-        CellStyle::Idle | CellStyle::Active => {
-            (CELL_IDLE_BORDER, CELL_IDLE_BG, 1.0_f32)
-        }
-        CellStyle::Selected => {
-            (CELL_SELECTED_BORDER, CELL_SELECTED_BG, 1.0_f32)
-        }
-        CellStyle::Inactive => {
-            (CELL_INACTIVE_BORDER, CELL_INACTIVE_BG, 0.4_f32)
-        }
+        CellStyle::Idle | CellStyle::Active => (CELL_IDLE_BORDER, CELL_IDLE_BG, 1.0_f32),
+        CellStyle::Selected => (CELL_SELECTED_BORDER, CELL_SELECTED_BG, 1.0_f32),
+        CellStyle::Inactive => (CELL_INACTIVE_BORDER, CELL_INACTIVE_BG, 0.4_f32),
     };
 
     let mut ec = parent.spawn((
@@ -634,7 +719,11 @@ fn spawn_cell<'a>(
     ec.with_children(|btn| {
         btn.spawn((
             Text::new(label),
-            TextFont { font, font_size: 10.0, ..default() },
+            TextFont {
+                font,
+                font_size: 10.0,
+                ..default()
+            },
             TextColor(Color::WHITE.with_alpha(text_alpha)),
         ));
     });
@@ -700,14 +789,22 @@ fn spawn_camp_ui(
             // Title
             root.spawn((
                 Text::new("Привал"),
-                TextFont { font: font.clone(), font_size: 28.0, ..default() },
+                TextFont {
+                    font: font.clone(),
+                    font_size: 28.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.9, 0.85, 0.7)),
             ));
 
             // Instruction hint
             root.spawn((
                 Text::new("Нажмите ячейку, затем ячейку назначения, чтобы поменять местами"),
-                TextFont { font: font.clone(), font_size: 13.0, ..default() },
+                TextFont {
+                    font: font.clone(),
+                    font_size: 13.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.6, 0.6, 0.6)),
             ));
 
@@ -728,7 +825,11 @@ fn spawn_camp_ui(
                     // Hero name label
                     hero_panel.spawn((
                         Text::new(member.name.clone()),
-                        TextFont { font: font.clone(), font_size: 16.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 16.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.9, 0.85, 0.6)),
                     ));
 
@@ -743,19 +844,24 @@ fn spawn_camp_ui(
                             })
                             .with_children(|header_row| {
                                 for &label in SLOT_HEADERS {
-                                    header_row.spawn(Node {
-                                        width: Val::Px(CELL_SIZE),
-                                        justify_content: JustifyContent::Center,
-                                        align_items: AlignItems::Center,
-                                        ..default()
-                                    })
-                                    .with_children(|cell_wrapper| {
-                                        cell_wrapper.spawn((
-                                            Text::new(label),
-                                            TextFont { font: font.clone(), font_size: 10.0, ..default() },
-                                            TextColor(Color::srgba(0.6, 0.6, 0.6, 0.7)),
-                                        ));
-                                    });
+                                    header_row
+                                        .spawn(Node {
+                                            width: Val::Px(CELL_SIZE),
+                                            justify_content: JustifyContent::Center,
+                                            align_items: AlignItems::Center,
+                                            ..default()
+                                        })
+                                        .with_children(|cell_wrapper| {
+                                            cell_wrapper.spawn((
+                                                Text::new(label),
+                                                TextFont {
+                                                    font: font.clone(),
+                                                    font_size: 10.0,
+                                                    ..default()
+                                                },
+                                                TextColor(Color::srgba(0.6, 0.6, 0.6, 0.7)),
+                                            ));
+                                        });
                                 }
                             });
                     }
@@ -771,11 +877,17 @@ fn spawn_camp_ui(
                             let id = member.id.clone();
 
                             let slots = [
-                                (EquipSlot::MainHand, eq.main_hand.as_ref().map(|w| ItemRef::Weapon(w.clone()))),
-                                (EquipSlot::OffHand,  eq.off_hand.as_ref().map(|w| ItemRef::Weapon(w.clone()))),
+                                (
+                                    EquipSlot::MainHand,
+                                    eq.main_hand.as_ref().map(|w| ItemRef::Weapon(w.clone())),
+                                ),
+                                (
+                                    EquipSlot::OffHand,
+                                    eq.off_hand.as_ref().map(|w| ItemRef::Weapon(w.clone())),
+                                ),
                                 (EquipSlot::Chest, Some(ItemRef::Armor(eq.chest.clone()))),
-                                (EquipSlot::Legs,  Some(ItemRef::Armor(eq.legs.clone()))),
-                                (EquipSlot::Feet,  Some(ItemRef::Armor(eq.feet.clone()))),
+                                (EquipSlot::Legs, Some(ItemRef::Armor(eq.legs.clone()))),
+                                (EquipSlot::Feet, Some(ItemRef::Armor(eq.feet.clone()))),
                             ];
 
                             for (slot, maybe_item) in slots {
@@ -783,10 +895,23 @@ fn spawn_camp_ui(
                                     Some(item) => item_abbrev(item, content),
                                     None => "—".into(),
                                 };
-                                let cell_kind = CellKind::Equip { hero_id: id.clone(), slot: slot.clone() };
-                                let style = cell_style(&cell_kind, selection, campaign, db, scenario_state, content);
+                                let cell_kind = CellKind::Equip {
+                                    hero_id: id.clone(),
+                                    slot: slot.clone(),
+                                };
+                                let style = cell_style(
+                                    &cell_kind,
+                                    selection,
+                                    campaign,
+                                    db,
+                                    scenario_state,
+                                    content,
+                                );
                                 let mut ec = spawn_cell(slots_row, font.clone(), label, style);
-                                ec.insert(EquipCell { hero_id: id.clone(), slot });
+                                ec.insert(EquipCell {
+                                    hero_id: id.clone(),
+                                    slot,
+                                });
                                 // Re-insert SelectedCellMarker so camp_interaction_system can find it.
                                 if style == CellStyle::Selected {
                                     ec.insert(SelectedCellMarker);
@@ -799,14 +924,22 @@ fn spawn_camp_ui(
             // ── Backpack (stash) grid ─────────────────────────────────────
             root.spawn((
                 Text::new("Рюкзак"),
-                TextFont { font: font.clone(), font_size: 14.0, ..default() },
+                TextFont {
+                    font: font.clone(),
+                    font_size: 14.0,
+                    ..default()
+                },
                 TextColor(Color::srgb(0.7, 0.7, 0.7)),
             ));
 
             if campaign.stash.is_empty() {
                 root.spawn((
                     Text::new("— пусто —"),
-                    TextFont { font: font.clone(), font_size: 13.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 13.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.4, 0.4, 0.4)),
                 ));
             } else {
@@ -822,7 +955,14 @@ fn spawn_camp_ui(
                     for (i, item) in campaign.stash.iter().enumerate() {
                         let label = item_abbrev(item, content);
                         let cell_kind = CellKind::Backpack { index: i };
-                        let style = cell_style(&cell_kind, selection, campaign, db, scenario_state, content);
+                        let style = cell_style(
+                            &cell_kind,
+                            selection,
+                            campaign,
+                            db,
+                            scenario_state,
+                            content,
+                        );
                         let mut ec = spawn_cell(pack_grid, font.clone(), label, style);
                         ec.insert(BackpackCell { index: i });
                         if style == CellStyle::Selected {
@@ -853,8 +993,12 @@ fn spawn_camp_ui(
 
             // ── Continue button ───────────────────────────────────────────
             spawn_standard_button(
-                root, font.clone(), "Продолжить",
-                Val::Px(200.0), Val::Auto, ButtonStyle::Default,
+                root,
+                font.clone(),
+                "Продолжить",
+                Val::Px(200.0),
+                Val::Auto,
+                ButtonStyle::Default,
             )
             .insert(CampContinueButton);
         });
@@ -981,7 +1125,13 @@ pub fn camp_interaction_system(
 
     // At most one press per frame (Button guarantees this, but defensive).
     let pressed: Option<(Entity, CellKind)> = match (pressed_equip, pressed_backpack) {
-        (Some((e, c)), None) => Some((e, CellKind::Equip { hero_id: c.hero_id, slot: c.slot })),
+        (Some((e, c)), None) => Some((
+            e,
+            CellKind::Equip {
+                hero_id: c.hero_id,
+                slot: c.slot,
+            },
+        )),
         (None, Some((e, c))) => Some((e, CellKind::Backpack { index: c.index })),
         _ => None,
     };
@@ -991,28 +1141,38 @@ pub fn camp_interaction_system(
     };
 
     // ── Helper: set highlight on an entity ───────────────────────────────
-    let highlight_entity = |entity: Entity,
-                             selected: bool,
-                             borders: &mut Query<&mut BorderColor>,
-                             backgrounds: &mut Query<&mut BackgroundColor>| {
-        if let Ok(mut bc) = borders.get_mut(entity) {
-            *bc = BorderColor::all(if selected { CELL_SELECTED_BORDER } else { CELL_IDLE_BORDER });
-        }
-        if let Ok(mut bg) = backgrounds.get_mut(entity) {
-            *bg = BackgroundColor(if selected { CELL_SELECTED_BG } else { CELL_IDLE_BG });
-        }
-    };
+    let highlight_entity =
+        |entity: Entity,
+         selected: bool,
+         borders: &mut Query<&mut BorderColor>,
+         backgrounds: &mut Query<&mut BackgroundColor>| {
+            if let Ok(mut bc) = borders.get_mut(entity) {
+                *bc = BorderColor::all(if selected {
+                    CELL_SELECTED_BORDER
+                } else {
+                    CELL_IDLE_BORDER
+                });
+            }
+            if let Ok(mut bg) = backgrounds.get_mut(entity) {
+                *bg = BackgroundColor(if selected {
+                    CELL_SELECTED_BG
+                } else {
+                    CELL_IDLE_BG
+                });
+            }
+        };
 
     // ── De-select helper (remove marker + reset visuals) ─────────────────
-    let clear_selection = |commands: &mut Commands,
-                            selected_entities: &Query<Entity, With<SelectedCellMarker>>,
-                            borders: &mut Query<&mut BorderColor>,
-                            backgrounds: &mut Query<&mut BackgroundColor>| {
-        for e in selected_entities.iter() {
-            highlight_entity(e, false, borders, backgrounds);
-            commands.entity(e).remove::<SelectedCellMarker>();
-        }
-    };
+    let clear_selection =
+        |commands: &mut Commands,
+         selected_entities: &Query<Entity, With<SelectedCellMarker>>,
+         borders: &mut Query<&mut BorderColor>,
+         backgrounds: &mut Query<&mut BackgroundColor>| {
+            for e in selected_entities.iter() {
+                highlight_entity(e, false, borders, backgrounds);
+                commands.entity(e).remove::<SelectedCellMarker>();
+            }
+        };
 
     // ── Case: no selection yet — select pressed cell ──────────────────────
     let Some(current_selection) = selection.selected.clone() else {
@@ -1025,7 +1185,12 @@ pub fn camp_interaction_system(
     // ── Case: pressed the already-selected cell — deselect ───────────────
     if current_selection == pressed_kind {
         selection.selected = None;
-        clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+        clear_selection(
+            &mut commands,
+            &selected_entities,
+            &mut borders,
+            &mut backgrounds,
+        );
         // Trigger rebuild to remove dimming.
         rebuild.0 = true;
         return;
@@ -1035,7 +1200,12 @@ pub fn camp_interaction_system(
     match (&current_selection, &pressed_kind) {
         // EquipCell ↔ EquipCell: not supported; re-select the new cell.
         (CellKind::Equip { .. }, CellKind::Equip { .. }) => {
-            clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+            clear_selection(
+                &mut commands,
+                &selected_entities,
+                &mut borders,
+                &mut backgrounds,
+            );
             selection.selected = Some(pressed_kind);
             // Trigger rebuild to update dimming for the new selection.
             rebuild.0 = true;
@@ -1050,27 +1220,47 @@ pub fn camp_interaction_system(
                 }
             }
             selection.selected = None;
-            clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+            clear_selection(
+                &mut commands,
+                &selected_entities,
+                &mut borders,
+                &mut backgrounds,
+            );
             rebuild.0 = true;
         }
 
         // EquipCell ↔ BackpackCell (either order): try_equip + true swap.
         (first, second) => {
             let (equip_kind, backpack_idx) = match (first, second) {
-                (CellKind::Equip { hero_id, slot }, CellKind::Backpack { index }) => {
-                    (CellKind::Equip { hero_id: hero_id.clone(), slot: slot.clone() }, *index)
-                }
-                (CellKind::Backpack { index }, CellKind::Equip { hero_id, slot }) => {
-                    (CellKind::Equip { hero_id: hero_id.clone(), slot: slot.clone() }, *index)
-                }
+                (CellKind::Equip { hero_id, slot }, CellKind::Backpack { index }) => (
+                    CellKind::Equip {
+                        hero_id: hero_id.clone(),
+                        slot: slot.clone(),
+                    },
+                    *index,
+                ),
+                (CellKind::Backpack { index }, CellKind::Equip { hero_id, slot }) => (
+                    CellKind::Equip {
+                        hero_id: hero_id.clone(),
+                        slot: slot.clone(),
+                    },
+                    *index,
+                ),
                 _ => unreachable!(),
             };
 
-            let CellKind::Equip { hero_id, slot } = equip_kind else { unreachable!() };
+            let CellKind::Equip { hero_id, slot } = equip_kind else {
+                unreachable!()
+            };
 
             let Some(ref mut camp) = campaign else {
                 selection.selected = None;
-                clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                clear_selection(
+                    &mut commands,
+                    &selected_entities,
+                    &mut borders,
+                    &mut backgrounds,
+                );
                 rebuild.0 = true;
                 return;
             };
@@ -1080,7 +1270,12 @@ pub fn camp_interaction_system(
                 None => {
                     // Stash index stale; clear and bail.
                     selection.selected = None;
-                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                    clear_selection(
+                        &mut commands,
+                        &selected_entities,
+                        &mut borders,
+                        &mut backgrounds,
+                    );
                     rebuild.0 = true;
                     return;
                 }
@@ -1098,7 +1293,13 @@ pub fn camp_interaction_system(
             let current_save = resolve_hero_equipment(&hero_id, &class_id, camp, content);
 
             let proficient = hero_can_wear(&class_id, &item, content);
-            match try_equip(&current_save, &slot, item.clone(), &content.weapons, &content.armor) {
+            match try_equip(
+                &current_save,
+                &slot,
+                item.clone(),
+                &content.weapons,
+                &content.armor,
+            ) {
                 Ok(result) if proficient => {
                     // ── True swap: backpack item → equip slot, displaced → same backpack cell ──
 
@@ -1117,7 +1318,8 @@ pub fn camp_interaction_system(
 
                     // Replace the backpack cell with the displaced item (if any),
                     // or remove it if the equip slot was empty (hand slot, None displaced).
-                    let is_empty_sentinel = |d: &ItemRef| matches!(d, ItemRef::Armor(aid) if aid.0.is_empty());
+                    let is_empty_sentinel =
+                        |d: &ItemRef| matches!(d, ItemRef::Armor(aid) if aid.0.is_empty());
                     match result.displaced {
                         Some(displaced) if !is_empty_sentinel(&displaced) => {
                             // True swap: put the old equipped item into the same stash cell.
@@ -1135,20 +1337,35 @@ pub fn camp_interaction_system(
 
                     // Clear selection and rebuild.
                     selection.selected = None;
-                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                    clear_selection(
+                        &mut commands,
+                        &selected_entities,
+                        &mut borders,
+                        &mut backgrounds,
+                    );
                     rebuild.0 = true;
                 }
                 Ok(_) => {
                     warn!("camp: '{}' lacks armor proficiency for {:?}", hero_id, item);
                     selection.selected = None;
-                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                    clear_selection(
+                        &mut commands,
+                        &selected_entities,
+                        &mut borders,
+                        &mut backgrounds,
+                    );
                     rebuild.0 = true;
                 }
                 Err(e) => {
                     warn!("camp: equip rejected for hero '{}': {:?}", hero_id, e);
                     // Reject: clear selection and rebuild (removes dimming).
                     selection.selected = None;
-                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                    clear_selection(
+                        &mut commands,
+                        &selected_entities,
+                        &mut borders,
+                        &mut backgrounds,
+                    );
                     rebuild.0 = true;
                 }
             }
@@ -1244,7 +1461,10 @@ pub fn camp_comparison_system(
         let from_equip = equip_cells
             .iter()
             .find(|(i, _)| **i == Interaction::Hovered)
-            .map(|(_, c)| CellKind::Equip { hero_id: c.hero_id.clone(), slot: c.slot.clone() });
+            .map(|(_, c)| CellKind::Equip {
+                hero_id: c.hero_id.clone(),
+                slot: c.slot.clone(),
+            });
         let from_backpack = backpack_cells
             .iter()
             .find(|(i, _)| **i == Interaction::Hovered)
@@ -1258,7 +1478,14 @@ pub fn camp_comparison_system(
         if hk == selected_kind {
             return None; // hovering the selected cell — single-column mode
         }
-        if !cell_compatible(&selected_kind, &hk, &campaign, &db, &scenario_state, content) {
+        if !cell_compatible(
+            &selected_kind,
+            &hk,
+            &campaign,
+            &db,
+            &scenario_state,
+            content,
+        ) {
             return None; // incompatible cell — single-column mode
         }
         // Must have an item to compare against.
@@ -1288,7 +1515,7 @@ pub fn camp_comparison_system(
     let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
     let sel_name = match &sel_item {
         ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
-        ItemRef::Armor(aid)  => armor_name(aid, content).to_string(),
+        ItemRef::Armor(aid) => armor_name(aid, content).to_string(),
     };
 
     commands.entity(card_entity).despawn_related::<Children>();
@@ -1304,13 +1531,11 @@ pub fn camp_comparison_system(
                 .expect("hov item already validated above");
             let hov_name = match &hov_item {
                 ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
-                ItemRef::Armor(aid)  => armor_name(aid, content).to_string(),
+                ItemRef::Armor(aid) => armor_name(aid, content).to_string(),
             };
 
-            let (worn_item, new_item) =
-                orient_comparison(&selected_kind, &sel_item, &hov_item);
-            let (worn_name, new_name) =
-                orient_comparison(&selected_kind, &sel_name, &hov_name);
+            let (worn_item, new_item) = orient_comparison(&selected_kind, &sel_item, &hov_item);
+            let (worn_name, new_name) = orient_comparison(&selected_kind, &sel_name, &hov_name);
 
             let rows = compare_items(worn_item, new_item, &content.weapons, &content.armor);
 
@@ -1323,17 +1548,29 @@ pub fn camp_comparison_system(
             .with_children(|row| {
                 row.spawn((
                     Text::new(worn_name.clone()),
-                    TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 12.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.95, 0.85, 0.5)),
                 ));
                 row.spawn((
                     Text::new(" / "),
-                    TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 12.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.6, 0.6, 0.6)),
                 ));
                 row.spawn((
                     Text::new(new_name.clone()),
-                    TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 12.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.5, 0.85, 0.95)),
                 ));
             });
@@ -1341,9 +1578,10 @@ pub fn camp_comparison_system(
             // Armor-class row (categorical, no numeric delta). Only for armor —
             // weapons have no weight class. Both columns are the same item kind
             // (cell_compatible never offers weapon↔armor), so both resolve.
-            if let (Some(worn_w), Some(new_w)) =
-                (item_weight(worn_item, content), item_weight(new_item, content))
-            {
+            if let (Some(worn_w), Some(new_w)) = (
+                item_weight(worn_item, content),
+                item_weight(new_item, content),
+            ) {
                 card.spawn(Node {
                     flex_direction: FlexDirection::Row,
                     column_gap: Val::Px(6.0),
@@ -1352,22 +1590,38 @@ pub fn camp_comparison_system(
                 .with_children(|row| {
                     row.spawn((
                         Text::new(format!("{:<10}", "Класс")),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.75, 0.75, 0.75)),
                     ));
                     row.spawn((
                         Text::new(armor_weight_label(worn_w)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.95, 0.85, 0.5)),
                     ));
                     row.spawn((
                         Text::new(" → "),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.6, 0.6, 0.6)),
                     ));
                     row.spawn((
                         Text::new(armor_weight_label(new_w)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.5, 0.85, 0.95)),
                     ));
                 });
@@ -1397,22 +1651,38 @@ pub fn camp_comparison_system(
                 .with_children(|row| {
                     row.spawn((
                         Text::new(format!("{:<10}", row_data.label)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.75, 0.75, 0.75)),
                     ));
                     row.spawn((
                         Text::new(format!("{:.0}", row_data.equipped_val)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.95, 0.85, 0.5)),
                     ));
                     row.spawn((
                         Text::new(format!("→ {}", delta_str)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(delta_color),
                     ));
                     row.spawn((
                         Text::new(format!("{:.0}", row_data.incoming_val)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.5, 0.85, 0.95)),
                     ));
                 });
@@ -1421,7 +1691,11 @@ pub fn camp_comparison_system(
             if rows.is_empty() {
                 card.spawn((
                     Text::new("Нет статов"),
-                    TextFont { font, font_size: 11.0, ..default() },
+                    TextFont {
+                        font,
+                        font_size: 11.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.5, 0.5, 0.5)),
                 ));
             }
@@ -1436,12 +1710,20 @@ pub fn camp_comparison_system(
             .with_children(|row| {
                 row.spawn((
                     Text::new("Выбрано"),
-                    TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 11.0,
+                        ..default()
+                    },
                     TextColor(Color::srgba(0.7, 0.7, 0.7, 0.8)),
                 ));
                 row.spawn((
                     Text::new(format!(" {sel_name}")),
-                    TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 12.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.95, 0.85, 0.5)),
                 ));
             });
@@ -1456,12 +1738,20 @@ pub fn camp_comparison_system(
                 .with_children(|row| {
                     row.spawn((
                         Text::new(format!("{:<10}", "Класс")),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.75, 0.75, 0.75)),
                     ));
                     row.spawn((
                         Text::new(armor_weight_label(w)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.95, 0.85, 0.5)),
                     ));
                 });
@@ -1477,12 +1767,20 @@ pub fn camp_comparison_system(
                 .with_children(|row| {
                     row.spawn((
                         Text::new(format!("{:<10}", label)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.75, 0.75, 0.75)),
                     ));
                     row.spawn((
                         Text::new(format!("{:.0}", val)),
-                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.95, 0.85, 0.5)),
                     ));
                 });
@@ -1491,7 +1789,11 @@ pub fn camp_comparison_system(
             if stats.is_empty() {
                 card.spawn((
                     Text::new("Нет статов"),
-                    TextFont { font, font_size: 11.0, ..default() },
+                    TextFont {
+                        font,
+                        font_size: 11.0,
+                        ..default()
+                    },
                     TextColor(Color::srgb(0.5, 0.5, 0.5)),
                 ));
             }
@@ -1518,10 +1820,20 @@ mod tests {
             id: wid.clone(),
             name: id.to_string(),
             hand,
-            dice: DiceExpr { count: 1, sides: 6, bonus: 0 },
-            spell_power: 0, armor: 0, max_hp: 0,
-            strength: 0, dexterity: 0, constitution: 0,
-            intelligence: 0, wisdom: 0, charisma: 0,
+            dice: DiceExpr {
+                count: 1,
+                sides: 6,
+                bonus: 0,
+            },
+            spell_power: 0,
+            armor: 0,
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
         };
         (wid, def)
     }
@@ -1533,9 +1845,14 @@ mod tests {
             name: id.to_string(),
             slot,
             weight: ArmorWeight::Light,
-            armor: 1, max_hp: 0,
-            strength: 0, dexterity: 0, constitution: 0,
-            intelligence: 0, wisdom: 0, charisma: 0,
+            armor: 1,
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
         };
         (aid, def)
     }
@@ -1577,11 +1894,18 @@ mod tests {
     fn equip_main_hand_into_main_hand() {
         let (w, a) = content_with_items();
         let result = try_equip(
-            &base_save(), &EquipSlot::MainHand,
-            ItemRef::Weapon(WeaponId::from("mh_sword")), &w, &a,
-        ).unwrap();
+            &base_save(),
+            &EquipSlot::MainHand,
+            ItemRef::Weapon(WeaponId::from("mh_sword")),
+            &w,
+            &a,
+        )
+        .unwrap();
         assert_eq!(result.new_save.main_hand, Some(WeaponId::from("mh_sword")));
-        assert_eq!(result.displaced, Some(ItemRef::Weapon(WeaponId::from("mh_sword"))));
+        assert_eq!(
+            result.displaced,
+            Some(ItemRef::Weapon(WeaponId::from("mh_sword")))
+        );
     }
 
     /// Off-hand weapon into off-hand slot: succeeds.
@@ -1589,9 +1913,13 @@ mod tests {
     fn equip_off_hand_into_off_hand() {
         let (w, a) = content_with_items();
         let result = try_equip(
-            &base_save(), &EquipSlot::OffHand,
-            ItemRef::Weapon(WeaponId::from("oh_dagger")), &w, &a,
-        ).unwrap();
+            &base_save(),
+            &EquipSlot::OffHand,
+            ItemRef::Weapon(WeaponId::from("oh_dagger")),
+            &w,
+            &a,
+        )
+        .unwrap();
         assert_eq!(result.new_save.off_hand, Some(WeaponId::from("oh_dagger")));
     }
 
@@ -1600,9 +1928,13 @@ mod tests {
     fn equip_off_hand_into_main_hand_rejected() {
         let (w, a) = content_with_items();
         let err = try_equip(
-            &base_save(), &EquipSlot::MainHand,
-            ItemRef::Weapon(WeaponId::from("oh_dagger")), &w, &a,
-        ).unwrap_err();
+            &base_save(),
+            &EquipSlot::MainHand,
+            ItemRef::Weapon(WeaponId::from("oh_dagger")),
+            &w,
+            &a,
+        )
+        .unwrap_err();
         assert_eq!(err, EquipError::OffHandIntoMainHand);
     }
 
@@ -1611,11 +1943,18 @@ mod tests {
     fn equip_two_handed_clears_off_hand() {
         let (w, a) = content_with_items();
         let result = try_equip(
-            &base_save(), &EquipSlot::MainHand,
-            ItemRef::Weapon(WeaponId::from("2h_axe")), &w, &a,
-        ).unwrap();
+            &base_save(),
+            &EquipSlot::MainHand,
+            ItemRef::Weapon(WeaponId::from("2h_axe")),
+            &w,
+            &a,
+        )
+        .unwrap();
         assert_eq!(result.new_save.main_hand, Some(WeaponId::from("2h_axe")));
-        assert_eq!(result.new_save.off_hand, None, "off_hand cleared by two-handed");
+        assert_eq!(
+            result.new_save.off_hand, None,
+            "off_hand cleared by two-handed"
+        );
     }
 
     /// Two-handed weapon into off-hand: rejected.
@@ -1623,9 +1962,13 @@ mod tests {
     fn equip_two_handed_into_off_hand_rejected() {
         let (w, a) = content_with_items();
         let err = try_equip(
-            &base_save(), &EquipSlot::OffHand,
-            ItemRef::Weapon(WeaponId::from("2h_axe")), &w, &a,
-        ).unwrap_err();
+            &base_save(),
+            &EquipSlot::OffHand,
+            ItemRef::Weapon(WeaponId::from("2h_axe")),
+            &w,
+            &a,
+        )
+        .unwrap_err();
         assert_eq!(err, EquipError::WeaponIntoArmorSlot);
     }
 
@@ -1634,9 +1977,13 @@ mod tests {
     fn equip_weapon_into_armor_slot_rejected() {
         let (w, a) = content_with_items();
         let err = try_equip(
-            &base_save(), &EquipSlot::Chest,
-            ItemRef::Weapon(WeaponId::from("mh_sword")), &w, &a,
-        ).unwrap_err();
+            &base_save(),
+            &EquipSlot::Chest,
+            ItemRef::Weapon(WeaponId::from("mh_sword")),
+            &w,
+            &a,
+        )
+        .unwrap_err();
         assert_eq!(err, EquipError::WeaponIntoArmorSlot);
     }
 
@@ -1645,11 +1992,18 @@ mod tests {
     fn equip_armor_into_correct_slot() {
         let (w, a) = content_with_items();
         let result = try_equip(
-            &base_save(), &EquipSlot::Chest,
-            ItemRef::Armor(ArmorId::from("chest_plate")), &w, &a,
-        ).unwrap();
+            &base_save(),
+            &EquipSlot::Chest,
+            ItemRef::Armor(ArmorId::from("chest_plate")),
+            &w,
+            &a,
+        )
+        .unwrap();
         assert_eq!(result.new_save.chest, ArmorId::from("chest_plate"));
-        assert_eq!(result.displaced, Some(ItemRef::Armor(ArmorId::from("chest_plate"))));
+        assert_eq!(
+            result.displaced,
+            Some(ItemRef::Armor(ArmorId::from("chest_plate")))
+        );
     }
 
     /// Armor into wrong armor slot: rejected with ArmorSlotMismatch.
@@ -1657,9 +2011,13 @@ mod tests {
     fn equip_armor_into_wrong_slot_rejected() {
         let (w, a) = content_with_items();
         let err = try_equip(
-            &base_save(), &EquipSlot::Legs,
-            ItemRef::Armor(ArmorId::from("chest_plate")), &w, &a,
-        ).unwrap_err();
+            &base_save(),
+            &EquipSlot::Legs,
+            ItemRef::Armor(ArmorId::from("chest_plate")),
+            &w,
+            &a,
+        )
+        .unwrap_err();
         assert!(matches!(err, EquipError::ArmorSlotMismatch { .. }));
     }
 
@@ -1668,9 +2026,13 @@ mod tests {
     fn equip_armor_into_hand_slot_rejected() {
         let (w, a) = content_with_items();
         let err = try_equip(
-            &base_save(), &EquipSlot::MainHand,
-            ItemRef::Armor(ArmorId::from("chest_plate")), &w, &a,
-        ).unwrap_err();
+            &base_save(),
+            &EquipSlot::MainHand,
+            ItemRef::Armor(ArmorId::from("chest_plate")),
+            &w,
+            &a,
+        )
+        .unwrap_err();
         assert_eq!(err, EquipError::ArmorIntoHandSlot);
     }
 
@@ -1682,12 +2044,19 @@ mod tests {
         let (w, a) = content_with_items();
         let save = base_save();
         let result = try_equip(
-            &save, &EquipSlot::Chest,
-            ItemRef::Armor(ArmorId::from("chest_plate")), &w, &a,
-        ).unwrap();
+            &save,
+            &EquipSlot::Chest,
+            ItemRef::Armor(ArmorId::from("chest_plate")),
+            &w,
+            &a,
+        )
+        .unwrap();
         assert_eq!(result.new_save.chest, ArmorId::from("chest_plate"));
         // Old chest_plate is displaced (same item in this test).
-        assert_eq!(result.displaced, Some(ItemRef::Armor(ArmorId::from("chest_plate"))));
+        assert_eq!(
+            result.displaced,
+            Some(ItemRef::Armor(ArmorId::from("chest_plate")))
+        );
     }
 
     // ── Swap resolution: EquipCell ↔ BackpackCell ────────────────────────────
@@ -1702,10 +2071,7 @@ mod tests {
         let stash: &mut [ItemRef] = &mut stash;
         let save = base_save(); // chest = "chest_plate"
 
-        let result = try_equip(
-            &save, &EquipSlot::Chest,
-            stash[0].clone(), &w, &a,
-        ).unwrap();
+        let result = try_equip(&save, &EquipSlot::Chest, stash[0].clone(), &w, &a).unwrap();
 
         // Simulate the true-swap: replace stash[0] with displaced.
         let displaced = result.displaced.unwrap();
@@ -1730,10 +2096,7 @@ mod tests {
         };
         let mut stash = vec![ItemRef::Weapon(WeaponId::from("oh_dagger"))];
 
-        let result = try_equip(
-            &save_no_oh, &EquipSlot::OffHand,
-            stash[0].clone(), &w, &a,
-        ).unwrap();
+        let result = try_equip(&save_no_oh, &EquipSlot::OffHand, stash[0].clone(), &w, &a).unwrap();
 
         // displaced = None (slot was empty); remove the stash cell.
         assert!(result.displaced.is_none());
@@ -1751,10 +2114,8 @@ mod tests {
         let save = base_save();
 
         // Armor into a hand slot — rejected.
-        let err = try_equip(
-            &save, &EquipSlot::MainHand,
-            stash_before[0].clone(), &w, &a,
-        ).unwrap_err();
+        let err =
+            try_equip(&save, &EquipSlot::MainHand, stash_before[0].clone(), &w, &a).unwrap_err();
 
         assert_eq!(err, EquipError::ArmorIntoHandSlot);
         // Caller does not modify stash on error — stash unchanged.
@@ -1788,31 +2149,51 @@ mod tests {
     /// Story → Story with campaign and no_camp=false → enter camp.
     #[test]
     fn should_enter_camp_story_to_story_with_campaign() {
-        assert!(should_enter_camp(&story_scene(false), &story_scene(false), true));
+        assert!(should_enter_camp(
+            &story_scene(false),
+            &story_scene(false),
+            true
+        ));
     }
 
     /// no_camp=true on the FROM scene → skip camp.
     #[test]
     fn should_enter_camp_no_camp_true_skips() {
-        assert!(!should_enter_camp(&story_scene(true), &story_scene(false), true));
+        assert!(!should_enter_camp(
+            &story_scene(true),
+            &story_scene(false),
+            true
+        ));
     }
 
     /// No CampaignState → skip camp.
     #[test]
     fn should_enter_camp_no_campaign_skips() {
-        assert!(!should_enter_camp(&story_scene(false), &story_scene(false), false));
+        assert!(!should_enter_camp(
+            &story_scene(false),
+            &story_scene(false),
+            false
+        ));
     }
 
     /// Story → Combat → skip camp.
     #[test]
     fn should_enter_camp_story_to_combat_skips() {
-        assert!(!should_enter_camp(&story_scene(false), &combat_scene(), true));
+        assert!(!should_enter_camp(
+            &story_scene(false),
+            &combat_scene(),
+            true
+        ));
     }
 
     /// Combat → Story → skip camp (only Story→Story qualifies).
     #[test]
     fn should_enter_camp_combat_to_story_skips() {
-        assert!(!should_enter_camp(&combat_scene(), &story_scene(false), true));
+        assert!(!should_enter_camp(
+            &combat_scene(),
+            &story_scene(false),
+            true
+        ));
     }
 
     // ── compare_items ────────────────────────────────────────────────────────
@@ -1876,10 +2257,18 @@ mod tests {
     #[test]
     fn compare_two_weapons_damage_row() {
         let mut weapons = HashMap::new();
-        let dice_a = DiceExpr { count: 1, sides: 6, bonus: 0 }; // expected = 3.5
-        let dice_b = DiceExpr { count: 2, sides: 4, bonus: 1 }; // expected = 6.0
+        let dice_a = DiceExpr {
+            count: 1,
+            sides: 6,
+            bonus: 0,
+        }; // expected = 3.5
+        let dice_b = DiceExpr {
+            count: 2,
+            sides: 4,
+            bonus: 1,
+        }; // expected = 6.0
         let (id_a, def_a) = make_weapon_stats("sword", HandType::MainHand, dice_a, 0, 0, 0);
-        let (id_b, def_b) = make_weapon_stats("axe",   HandType::MainHand, dice_b, 0, 0, 0);
+        let (id_b, def_b) = make_weapon_stats("axe", HandType::MainHand, dice_b, 0, 0, 0);
         weapons.insert(id_a.clone(), def_a);
         weapons.insert(id_b.clone(), def_b);
         let armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
@@ -1891,8 +2280,14 @@ mod tests {
             &armor,
         );
 
-        let dmg = rows.iter().find(|r| r.label == "Урон").expect("Урон row present");
-        assert!((dmg.equipped_val - 3.5).abs() < 0.01, "sword expected = 3.5");
+        let dmg = rows
+            .iter()
+            .find(|r| r.label == "Урон")
+            .expect("Урон row present");
+        assert!(
+            (dmg.equipped_val - 3.5).abs() < 0.01,
+            "sword expected = 3.5"
+        );
         assert!((dmg.incoming_val - 6.0).abs() < 0.01, "axe expected = 6.0");
     }
 
@@ -1902,9 +2297,11 @@ mod tests {
         let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
         let mut armor = HashMap::new();
         // chest_a: armor=3, hp=10, str=0
-        let (id_a, def_a) = make_armor_stats("chest_a", ArmorSlot::Chest, 3, 10, 0, ArmorWeight::Light);
+        let (id_a, def_a) =
+            make_armor_stats("chest_a", ArmorSlot::Chest, 3, 10, 0, ArmorWeight::Light);
         // chest_b: armor=5, hp=0, str=2
-        let (id_b, def_b) = make_armor_stats("chest_b", ArmorSlot::Chest, 5, 0, 2, ArmorWeight::Light);
+        let (id_b, def_b) =
+            make_armor_stats("chest_b", ArmorSlot::Chest, 5, 0, 2, ArmorWeight::Light);
         armor.insert(id_a.clone(), def_a);
         armor.insert(id_b.clone(), def_b);
 
@@ -1917,8 +2314,8 @@ mod tests {
 
         let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
         assert!(labels.contains(&"Броня"), "Броня row present");
-        assert!(labels.contains(&"HP"),    "HP row present");
-        assert!(labels.contains(&"СИЛ"),   "СИЛ row present");
+        assert!(labels.contains(&"HP"), "HP row present");
+        assert!(labels.contains(&"СИЛ"), "СИЛ row present");
         assert!(!labels.contains(&"Урон"), "no Урон row for armor");
 
         let bronya = rows.iter().find(|r| r.label == "Броня").unwrap();
@@ -1942,10 +2339,20 @@ mod tests {
             id: wid.clone(),
             name: "empty_w".into(),
             hand: HandType::MainHand,
-            dice: DiceExpr { count: 0, sides: 6, bonus: 0 },
-            spell_power: 0, armor: 0, max_hp: 0,
-            strength: 0, dexterity: 0, constitution: 0,
-            intelligence: 0, wisdom: 0, charisma: 0,
+            dice: DiceExpr {
+                count: 0,
+                sides: 6,
+                bonus: 0,
+            },
+            spell_power: 0,
+            armor: 0,
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
         };
         weapons.insert(wid.clone(), def);
 
@@ -1964,7 +2371,11 @@ mod tests {
     #[test]
     fn item_stats_weapon_returns_damage() {
         let mut weapons = HashMap::new();
-        let dice = DiceExpr { count: 2, sides: 6, bonus: 2 }; // expected = 9.0
+        let dice = DiceExpr {
+            count: 2,
+            sides: 6,
+            bonus: 2,
+        }; // expected = 9.0
         let (wid, wdef) = make_weapon_stats("sword", HandType::MainHand, dice, 0, 0, 0);
         weapons.insert(wid.clone(), wdef);
         let armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
@@ -1997,7 +2408,11 @@ mod tests {
     fn item_stats_unknown_item_returns_empty() {
         let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
         let armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
-        let stats = item_stats(&ItemRef::Weapon(WeaponId::from("no_such")), &weapons, &armor);
+        let stats = item_stats(
+            &ItemRef::Weapon(WeaponId::from("no_such")),
+            &weapons,
+            &armor,
+        );
         assert!(stats.is_empty());
     }
 
@@ -2014,7 +2429,11 @@ mod tests {
         weapons: HashMap<WeaponId, WeaponDef>,
         armor_map: HashMap<ArmorId, ArmorDef>,
     ) -> (GameDb, ScenarioState, CampaignState, ContentView) {
-        let content = ContentView { weapons, armor: armor_map, ..ContentView::default() };
+        let content = ContentView {
+            weapons,
+            armor: armor_map,
+            ..ContentView::default()
+        };
 
         let scen_id = "test_scen".to_string();
         let member = PartyMemberDef {
@@ -2068,8 +2487,13 @@ mod tests {
         campaign.stash = vec![ItemRef::Weapon(WeaponId::from("mh_sword"))];
 
         let selection = CellKind::Backpack { index: 0 };
-        let target    = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::MainHand };
-        assert!(cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let target = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::MainHand,
+        };
+        assert!(cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// Backpack weapon → Chest equip slot is incompatible.
@@ -2080,8 +2504,13 @@ mod tests {
         campaign.stash = vec![ItemRef::Weapon(WeaponId::from("mh_sword"))];
 
         let selection = CellKind::Backpack { index: 0 };
-        let target    = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::Chest };
-        assert!(!cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let target = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::Chest,
+        };
+        assert!(!cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// Backpack armor (Chest) → Chest slot is compatible.
@@ -2092,8 +2521,13 @@ mod tests {
         campaign.stash = vec![ItemRef::Armor(ArmorId::from("chest_plate"))];
 
         let selection = CellKind::Backpack { index: 0 };
-        let target    = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::Chest };
-        assert!(cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let target = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::Chest,
+        };
+        assert!(cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// Backpack armor (Chest) → Legs slot is incompatible.
@@ -2104,8 +2538,13 @@ mod tests {
         campaign.stash = vec![ItemRef::Armor(ArmorId::from("chest_plate"))];
 
         let selection = CellKind::Backpack { index: 0 };
-        let target    = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::Legs };
-        assert!(!cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let target = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::Legs,
+        };
+        assert!(!cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// Backpack → Backpack is always incompatible (we only offer equip slots).
@@ -2119,8 +2558,10 @@ mod tests {
         ];
 
         let selection = CellKind::Backpack { index: 0 };
-        let target    = CellKind::Backpack { index: 1 };
-        assert!(!cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let target = CellKind::Backpack { index: 1 };
+        assert!(!cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// EquipCell (MainHand slot) → Backpack with a compatible weapon is compatible.
@@ -2131,9 +2572,14 @@ mod tests {
         // Backpack has a main-hand weapon; hero's main-hand slot → compatible.
         campaign.stash = vec![ItemRef::Weapon(WeaponId::from("mh_sword"))];
 
-        let selection = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::MainHand };
-        let target    = CellKind::Backpack { index: 0 };
-        assert!(cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let selection = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::MainHand,
+        };
+        let target = CellKind::Backpack { index: 0 };
+        assert!(cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// EquipCell (MainHand slot) → Backpack with armor is incompatible.
@@ -2143,9 +2589,14 @@ mod tests {
         let (db, ss, mut campaign, content) = compat_fixture("hero", "cls", w, a);
         campaign.stash = vec![ItemRef::Armor(ArmorId::from("chest_plate"))];
 
-        let selection = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::MainHand };
-        let target    = CellKind::Backpack { index: 0 };
-        assert!(!cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let selection = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::MainHand,
+        };
+        let target = CellKind::Backpack { index: 0 };
+        assert!(!cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// Equip → Equip is always incompatible.
@@ -2154,9 +2605,17 @@ mod tests {
         let (w, a) = content_with_items();
         let (db, ss, campaign, content) = compat_fixture("hero", "cls", w, a);
 
-        let selection = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::MainHand };
-        let target    = CellKind::Equip { hero_id: "hero".to_string(), slot: EquipSlot::OffHand };
-        assert!(!cell_compatible(&selection, &target, &campaign, &db, &ss, &content));
+        let selection = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::MainHand,
+        };
+        let target = CellKind::Equip {
+            hero_id: "hero".to_string(),
+            slot: EquipSlot::OffHand,
+        };
+        assert!(!cell_compatible(
+            &selection, &target, &campaign, &db, &ss, &content
+        ));
     }
 
     /// Weapon vs armor: weapon contributes Урон, armor contributes Броня — both rows appear.
@@ -2164,7 +2623,11 @@ mod tests {
     fn compare_weapon_vs_armor_mixed_rows() {
         let mut weapons = HashMap::new();
         let mut armor = HashMap::new();
-        let dice = DiceExpr { count: 1, sides: 8, bonus: 0 }; // expected = 4.5
+        let dice = DiceExpr {
+            count: 1,
+            sides: 8,
+            bonus: 0,
+        }; // expected = 4.5
         let (wid, wdef) = make_weapon_stats("longsword", HandType::MainHand, dice, 0, 0, 0);
         let (aid, adef) = make_armor_stats("plate", ArmorSlot::Chest, 6, 0, 0, ArmorWeight::Light);
         weapons.insert(wid.clone(), wdef);
@@ -2177,9 +2640,9 @@ mod tests {
             &armor,
         );
 
-        let dmg   = rows.iter().find(|r| r.label == "Урон");
+        let dmg = rows.iter().find(|r| r.label == "Урон");
         let bronya = rows.iter().find(|r| r.label == "Броня");
-        assert!(dmg.is_some(),    "Урон row (weapon side is non-zero)");
+        assert!(dmg.is_some(), "Урон row (weapon side is non-zero)");
         assert!(bronya.is_some(), "Броня row (armor side is non-zero)");
         let dmg = dmg.unwrap();
         assert!((dmg.equipped_val - 4.5).abs() < 0.01);
@@ -2207,9 +2670,9 @@ mod tests {
         // Selection-order is reversed, so selected=incoming, hovered=worn.
         let (w_b, i_b) = orient_comparison(&backpack, &incoming, &worn);
 
-        assert_eq!(w_a, &worn,     "case A: worn resolved from equip cell");
+        assert_eq!(w_a, &worn, "case A: worn resolved from equip cell");
         assert_eq!(i_a, &incoming, "case A: incoming resolved from backpack");
-        assert_eq!(w_b, &worn,     "case B: worn still the equip-slot item");
+        assert_eq!(w_b, &worn, "case B: worn still the equip-slot item");
         assert_eq!(i_b, &incoming, "case B: incoming still the backpack item");
     }
 
@@ -2218,12 +2681,14 @@ mod tests {
     #[test]
     fn armor_weight_serde_round_trip() {
         #[derive(serde::Deserialize)]
-        struct W { weight: ArmorWeight }
+        struct W {
+            weight: ArmorWeight,
+        }
 
         let cases = [
-            (r#"weight = "light""#,   ArmorWeight::Light),
-            (r#"weight = "medium""#,  ArmorWeight::Medium),
-            (r#"weight = "heavy""#,   ArmorWeight::Heavy),
+            (r#"weight = "light""#, ArmorWeight::Light),
+            (r#"weight = "medium""#, ArmorWeight::Medium),
+            (r#"weight = "heavy""#, ArmorWeight::Heavy),
         ];
         for (src, expected) in cases {
             let w: W = toml::from_str(src).unwrap();
@@ -2232,7 +2697,10 @@ mod tests {
 
         // Missing field → default = Light
         #[derive(serde::Deserialize)]
-        struct WOpt { #[serde(default)] weight: ArmorWeight }
+        struct WOpt {
+            #[serde(default)]
+            weight: ArmorWeight,
+        }
         let w: WOpt = toml::from_str("").unwrap();
         assert_eq!(w.weight, ArmorWeight::Light);
     }
@@ -2246,15 +2714,25 @@ mod tests {
         use crate::game::components::CombatStats;
 
         let mut armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
-        let (id, def) = make_armor_stats("light_robe",   ArmorSlot::Chest, 0, 0, 0, ArmorWeight::Light);
+        let (id, def) =
+            make_armor_stats("light_robe", ArmorSlot::Chest, 0, 0, 0, ArmorWeight::Light);
         armor.insert(id, def);
-        let (id, def) = make_armor_stats("mail_shirt",   ArmorSlot::Chest, 1, 0, 0, ArmorWeight::Medium);
+        let (id, def) =
+            make_armor_stats("mail_shirt", ArmorSlot::Chest, 1, 0, 0, ArmorWeight::Medium);
         armor.insert(id, def);
-        let (id, def) = make_armor_stats("full_plate",   ArmorSlot::Chest, 3, 0, 0, ArmorWeight::Heavy);
+        let (id, def) =
+            make_armor_stats("full_plate", ArmorSlot::Chest, 3, 0, 0, ArmorWeight::Heavy);
         armor.insert(id, def);
 
-        let blank_stats = CombatStats { max_hp: 10, strength: 0, dexterity: 0,
-            constitution: 0, intelligence: 0, wisdom: 0, charisma: 0 };
+        let blank_stats = CombatStats {
+            max_hp: 10,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        };
         let make_class = |id: &str, profs: Vec<ArmorWeight>| ClassDef {
             id: id.to_string(),
             name: id.to_string(),
@@ -2266,16 +2744,28 @@ mod tests {
             chest: ArmorId::from(""),
             legs: ArmorId::from(""),
             feet: ArmorId::from(""),
-            rage_max: 0, mana_max: 0, energy_max: 0,
+            rage_max: 0,
+            mana_max: 0,
+            energy_max: 0,
             armor_proficiencies: profs,
         };
 
         let mut classes = HashMap::new();
-        classes.insert("warrior".to_string(), make_class("warrior", vec![ArmorWeight::Medium, ArmorWeight::Heavy]));
-        classes.insert("ranger".to_string(),  make_class("ranger",  vec![ArmorWeight::Medium]));
-        classes.insert("mage".to_string(),    make_class("mage",    vec![]));
+        classes.insert(
+            "warrior".to_string(),
+            make_class("warrior", vec![ArmorWeight::Medium, ArmorWeight::Heavy]),
+        );
+        classes.insert(
+            "ranger".to_string(),
+            make_class("ranger", vec![ArmorWeight::Medium]),
+        );
+        classes.insert("mage".to_string(), make_class("mage", vec![]));
 
-        ContentView { armor, classes, ..ContentView::default() }
+        ContentView {
+            armor,
+            classes,
+            ..ContentView::default()
+        }
     }
 
     #[test]
@@ -2283,8 +2773,10 @@ mod tests {
         let content = proficiency_content();
         let item = ItemRef::Armor(ArmorId::from("light_robe"));
         for class_id in ["warrior", "ranger", "mage", "unknown_class"] {
-            assert!(hero_can_wear(class_id, &item, &content),
-                "light armor must be allowed for '{class_id}'");
+            assert!(
+                hero_can_wear(class_id, &item, &content),
+                "light armor must be allowed for '{class_id}'"
+            );
         }
     }
 
@@ -2292,20 +2784,44 @@ mod tests {
     fn hero_can_wear_medium_armor_proficiency() {
         let content = proficiency_content();
         let item = ItemRef::Armor(ArmorId::from("mail_shirt"));
-        assert!(hero_can_wear("warrior", &item, &content),  "warrior can wear medium");
-        assert!(hero_can_wear("ranger",  &item, &content),  "ranger can wear medium");
-        assert!(!hero_can_wear("mage",   &item, &content),  "mage cannot wear medium");
-        assert!(!hero_can_wear("unknown_class", &item, &content), "unknown class cannot wear medium");
+        assert!(
+            hero_can_wear("warrior", &item, &content),
+            "warrior can wear medium"
+        );
+        assert!(
+            hero_can_wear("ranger", &item, &content),
+            "ranger can wear medium"
+        );
+        assert!(
+            !hero_can_wear("mage", &item, &content),
+            "mage cannot wear medium"
+        );
+        assert!(
+            !hero_can_wear("unknown_class", &item, &content),
+            "unknown class cannot wear medium"
+        );
     }
 
     #[test]
     fn hero_can_wear_heavy_armor_proficiency() {
         let content = proficiency_content();
         let item = ItemRef::Armor(ArmorId::from("full_plate"));
-        assert!(hero_can_wear("warrior",       &item, &content),  "warrior can wear heavy");
-        assert!(!hero_can_wear("ranger",       &item, &content),  "ranger cannot wear heavy");
-        assert!(!hero_can_wear("mage",         &item, &content),  "mage cannot wear heavy");
-        assert!(!hero_can_wear("unknown_class",&item, &content),  "unknown class cannot wear heavy");
+        assert!(
+            hero_can_wear("warrior", &item, &content),
+            "warrior can wear heavy"
+        );
+        assert!(
+            !hero_can_wear("ranger", &item, &content),
+            "ranger cannot wear heavy"
+        );
+        assert!(
+            !hero_can_wear("mage", &item, &content),
+            "mage cannot wear heavy"
+        );
+        assert!(
+            !hero_can_wear("unknown_class", &item, &content),
+            "unknown class cannot wear heavy"
+        );
     }
 
     #[test]
@@ -2313,8 +2829,10 @@ mod tests {
         let content = proficiency_content();
         let item = ItemRef::Weapon(WeaponId::from("any_sword"));
         for class_id in ["warrior", "mage", "unknown_class"] {
-            assert!(hero_can_wear(class_id, &item, &content),
-                "weapons must be allowed for '{class_id}'");
+            assert!(
+                hero_can_wear(class_id, &item, &content),
+                "weapons must be allowed for '{class_id}'"
+            );
         }
     }
 
@@ -2361,33 +2879,49 @@ mod tests {
         use crate::content::classes::ClassDef;
         use crate::game::components::CombatStats;
 
-        let blank_stats = CombatStats { max_hp: 10, strength: 0, dexterity: 0,
-            constitution: 0, intelligence: 0, wisdom: 0, charisma: 0 };
+        let blank_stats = CombatStats {
+            max_hp: 10,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        };
 
         let mage_class = ClassDef {
             id: "mage".to_string(),
             name: "Mage".to_string(),
             stats: blank_stats,
-            speed: 4, abilities: vec![],
+            speed: 4,
+            abilities: vec![],
             main_hand: WeaponId::from("staff"),
             off_hand: None,
             chest: ArmorId::from("light_robe"),
             legs: ArmorId::from("cloth_pants"),
             feet: ArmorId::from("cloth_shoes"),
-            rage_max: 0, mana_max: 10, energy_max: 0,
+            rage_max: 0,
+            mana_max: 10,
+            energy_max: 0,
             armor_proficiencies: vec![],
         };
 
         let mut armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
-        let (id, def) = make_armor_stats("light_robe", ArmorSlot::Chest, 0, 0, 0, ArmorWeight::Light);
+        let (id, def) =
+            make_armor_stats("light_robe", ArmorSlot::Chest, 0, 0, 0, ArmorWeight::Light);
         armor.insert(id, def);
-        let (id, def) = make_armor_stats("full_plate", ArmorSlot::Chest, 3, 0, 0, ArmorWeight::Heavy);
+        let (id, def) =
+            make_armor_stats("full_plate", ArmorSlot::Chest, 3, 0, 0, ArmorWeight::Heavy);
         armor.insert(id, def);
 
         let mut classes = HashMap::new();
         classes.insert("mage".to_string(), mage_class);
 
-        let content = ContentView { armor: armor.clone(), classes, ..ContentView::default() };
+        let content = ContentView {
+            armor: armor.clone(),
+            classes,
+            ..ContentView::default()
+        };
 
         // Mage currently wearing full_plate (pre-seeded loadout).
         let (db, ss, mut campaign, _) = compat_fixture("mage_hero", "mage", HashMap::new(), armor);
@@ -2407,14 +2941,21 @@ mod tests {
 
         let light_bp = CellKind::Backpack { index: 0 };
         let heavy_bp = CellKind::Backpack { index: 1 };
-        let chest_slot = CellKind::Equip { hero_id: "mage_hero".to_string(), slot: EquipSlot::Chest };
+        let chest_slot = CellKind::Equip {
+            hero_id: "mage_hero".to_string(),
+            slot: EquipSlot::Chest,
+        };
 
         // Light robe in backpack → mage chest slot: COMPATIBLE (incoming is light).
-        assert!(cell_compatible(&light_bp, &chest_slot, &campaign, &db, &ss, &content),
-            "mage should be able to swap out heavy plate by equipping a light robe");
+        assert!(
+            cell_compatible(&light_bp, &chest_slot, &campaign, &db, &ss, &content),
+            "mage should be able to swap out heavy plate by equipping a light robe"
+        );
 
         // Heavy plate in backpack → mage chest slot: NOT compatible (mage lacks heavy proficiency).
-        assert!(!cell_compatible(&heavy_bp, &chest_slot, &campaign, &db, &ss, &content),
-            "mage should NOT be able to equip a heavy plate from backpack");
+        assert!(
+            !cell_compatible(&heavy_bp, &chest_slot, &campaign, &db, &ss, &content),
+            "mage should NOT be able to equip a heavy plate from backpack"
+        );
     }
 }

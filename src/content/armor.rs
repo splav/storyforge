@@ -8,7 +8,6 @@ pub enum ArmorSlot {
     Feet,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArmorWeight {

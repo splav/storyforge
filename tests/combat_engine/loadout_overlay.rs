@@ -132,7 +132,11 @@ fn collect_aldric_main_hand(
 
 fn ch1_first_combat() -> (String, storyforge::content::scenarios::ScenarioDef) {
     let campaigns = load_campaigns();
-    let scen = campaigns.scenarios.get("ch1").expect("ch1 scenario must exist").clone();
+    let scen = campaigns
+        .scenarios
+        .get("ch1")
+        .expect("ch1 scenario must exist")
+        .clone();
     ("ch1".to_string(), scen)
 }
 
@@ -157,8 +161,10 @@ fn setup_app(
     };
     db.scenarios.insert(scenario_id.to_string(), scenario);
     app.world_mut().insert_resource(db);
-    app.world_mut()
-        .insert_resource(ScenarioState { scenario_id: scenario_id.to_string(), scene_index });
+    app.world_mut().insert_resource(ScenarioState {
+        scenario_id: scenario_id.to_string(),
+        scene_index,
+    });
     app.world_mut().insert_resource(TestLoadouts(loadouts));
     app.init_resource::<AldricMainHand>();
     app
@@ -280,11 +286,10 @@ fn override_weapon_flows_to_engine_unit_caster_context() {
 
     // Find the warrior unit — the one whose weapon_dice.sides == 8 (short_sword 1d8).
     // long_sword (class default) is 2d6 (sides == 6).
-    let warrior = state
-        .units()
-        .iter()
-        .find(|u| u.team == combat_engine::state::Team::Player
-            && u.caster_context.weapon_dice.is_some_and(|d| d.sides == 8));
+    let warrior = state.units().iter().find(|u| {
+        u.team == combat_engine::state::Team::Player
+            && u.caster_context.weapon_dice.is_some_and(|d| d.sides == 8)
+    });
 
     assert!(
         warrior.is_some(),
