@@ -330,6 +330,7 @@ fn build_snapshot_includes_minimal_npc() {
             charisma: 5,
         },
         0,
+        0,
     );
     let npc = spawn_at(
         &mut app,

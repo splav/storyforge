@@ -34,7 +34,7 @@ use storyforge::game::hex::hex_from_offset;
 /// - `Mana` / `Energy` / `Rage`: `None`
 /// - `speed` / `base_speed`: `6`
 /// - `reactions_left` / `reactions_max`: `1`
-/// - `armor` / `armor_bonus` / `damage_taken_bonus`: `0`
+/// - `armor` / `armor_bonus` / `magic_resist` / `damage_taken_bonus`: `0`
 /// - `aoo_dice`: `None`
 /// - `initiative`: `None`
 /// - `tags`: empty
@@ -62,6 +62,7 @@ pub struct EngineUnitBuilder {
     reactions_max: i32,
     armor: i32,
     armor_bonus: i32,
+    magic_resist: i32,
     damage_taken_bonus: i32,
     aoo_dice: Option<DiceExpr>,
     caster_context: CasterContext,
@@ -105,6 +106,7 @@ impl EngineUnitBuilder {
             reactions_max: 1,
             armor: 0,
             armor_bonus: 0,
+            magic_resist: 0,
             damage_taken_bonus: 0,
             aoo_dice: None,
             caster_context: Default::default(),
@@ -195,6 +197,10 @@ impl EngineUnitBuilder {
         self.armor_bonus = b;
         self
     }
+    pub fn magic_resist(mut self, mr: i32) -> Self {
+        self.magic_resist = mr;
+        self
+    }
     pub fn damage_taken_bonus(mut self, d: i32) -> Self {
         self.damage_taken_bonus = d;
         self
@@ -274,6 +280,7 @@ impl EngineUnitBuilder {
             self.team,
             pos,
             self.armor,
+            self.magic_resist,
             self.armor_bonus,
             self.damage_taken_bonus,
             self.base_speed,

@@ -379,6 +379,7 @@ pub fn compare_items(
         "Сила закл.",
         "Мана",
         "Броня",
+        "Сопр. магии",
         "HP",
         "СИЛ",
         "ЛОВ",
@@ -460,6 +461,7 @@ pub fn item_stats(
         damage,
         spell_power,
         armor_val,
+        magic_resist,
         max_hp,
         strength,
         dexterity,
@@ -475,6 +477,7 @@ pub fn item_stats(
                     def.dice.expected(),
                     def.spell_power as f32,
                     def.stats.armor as f32,
+                    def.stats.magic_resist as f32,
                     def.stats.combat.max_hp as f32,
                     def.stats.combat.strength as f32,
                     def.stats.combat.dexterity as f32,
@@ -485,7 +488,7 @@ pub fn item_stats(
                     0.0, // weapons carry no mana bonus
                 )
             } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             }
         }
         ItemRef::Armor(aid) => {
@@ -494,6 +497,7 @@ pub fn item_stats(
                     0.0,
                     0.0,
                     def.stats.armor as f32,
+                    def.stats.magic_resist as f32,
                     def.stats.combat.max_hp as f32,
                     def.stats.combat.strength as f32,
                     def.stats.combat.dexterity as f32,
@@ -504,7 +508,7 @@ pub fn item_stats(
                     def.stats.mana as f32,
                 )
             } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             }
         }
     };
@@ -514,6 +518,7 @@ pub fn item_stats(
         ("Сила закл.", spell_power),
         ("Мана", mana),
         ("Броня", armor_val),
+        ("Сопр. магии", magic_resist),
         ("HP", max_hp),
         ("СИЛ", strength),
         ("ЛОВ", dexterity),
@@ -2215,6 +2220,7 @@ mod tests {
                     ..Default::default()
                 },
                 mana: 0,
+                magic_resist: 0,
             },
         };
         (wid, def)
@@ -2243,6 +2249,7 @@ mod tests {
                     ..Default::default()
                 },
                 mana: 0,
+                magic_resist: 0,
             },
         };
         (aid, def)
@@ -2430,6 +2437,50 @@ mod tests {
         );
         let mana_row = stats.iter().find(|(l, _)| l == "Мана").unwrap();
         assert!((mana_row.1 - 2.0).abs() < 0.01);
+    }
+
+    /// Armor with magic_resist > 0 yields a "Сопр. магии" row.
+    #[test]
+    fn item_stats_armor_with_magic_resist_yields_sopr_row() {
+        let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
+        let mut armor = HashMap::new();
+        let aid = ArmorId::from("resist_robe");
+        let def = ArmorDef {
+            id: aid.clone(),
+            name: "resist_robe".into(),
+            slot: ArmorSlot::Chest,
+            weight: ArmorWeight::Light,
+            stats: crate::content::item_stats::ItemStats {
+                magic_resist: 3,
+                ..Default::default()
+            },
+        };
+        armor.insert(aid.clone(), def);
+
+        let stats = item_stats(&ItemRef::Armor(aid), &weapons, &armor);
+        let labels: Vec<&str> = stats.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(
+            labels.contains(&"Сопр. магии"),
+            "armor with magic_resist should show Сопр. магии row"
+        );
+        let row = stats.iter().find(|(l, _)| l == "Сопр. магии").unwrap();
+        assert!((row.1 - 3.0).abs() < 0.01);
+    }
+
+    /// Armor without magic_resist does NOT yield a "Сопр. магии" row (zero is omitted).
+    #[test]
+    fn item_stats_armor_without_magic_resist_omits_sopr_row() {
+        let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
+        let mut armor = HashMap::new();
+        let (aid, adef) = make_armor("plain_chest", ArmorSlot::Chest);
+        armor.insert(aid.clone(), adef);
+
+        let stats = item_stats(&ItemRef::Armor(aid), &weapons, &armor);
+        let labels: Vec<&str> = stats.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(
+            !labels.contains(&"Сопр. магии"),
+            "armor with magic_resist=0 must not show Сопр. магии row"
+        );
     }
 
     /// Weapon never yields a "Мана" row even when mana was the caller's intent.

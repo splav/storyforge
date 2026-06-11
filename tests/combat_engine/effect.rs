@@ -184,6 +184,7 @@ fn damage_nonlethal_derives_rage_source_then_target() {
             raw: 5.0,
             source: EffectSource::Unit(UnitId(1)),
             pierces: false,
+            magic: false,
         },
         &StubContent::neutral(),
     );
@@ -213,6 +214,7 @@ fn damage_lethal_derives_rage_source_rage_target_death_target_in_order() {
             raw: 10.0,
             source: EffectSource::Unit(UnitId(1)),
             pierces: false,
+            magic: false,
         },
         &StubContent::neutral(),
     );
@@ -240,6 +242,7 @@ fn damage_armor_reduces_final_damage() {
             raw: 5.0,
             source: EffectSource::Unit(UnitId(1)),
             pierces: false,
+            magic: false,
         },
         &StubContent::neutral(),
     );
@@ -256,6 +259,7 @@ fn damage_armor_reduces_final_damage() {
             raw: 3.0,
             source: EffectSource::Unit(UnitId(3)),
             pierces: false,
+            magic: false,
         },
         &StubContent::neutral(),
     );
@@ -277,10 +281,93 @@ fn damage_pierces_ignores_armor() {
             raw: 8.0,
             source: EffectSource::Unit(UnitId(1)),
             pierces: true,
+            magic: false,
         },
         &StubContent::neutral(),
     );
     // pierces=true → armor ignored: final = max(1, 8) = 8; hp = 20-8 = 12
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 12);
+}
+
+/// Magic damage (magic=true) is reduced by magic_resist, not armor.
+/// Parameterized: (raw, magic_resist, armor, expected_hp).
+#[test]
+fn damage_magic_reduced_by_magic_resist() {
+    // (raw, magic_resist, armor, hp_start=20, expected_hp_after)
+    let cases: &[(f32, i32, i32, i32)] = &[
+        (10.0, 3, 0, 13), // dealt=max(1,10-3)=7; hp=20-7=13
+        (10.0, 3, 8, 13), // armor ignored (magic); same dealt=7; hp=13
+        (2.0, 5, 0, 19),  // dealt=max(1,2-5)=1 (floor); hp=20-1=19
+        (5.0, 0, 4, 15),  // magic_resist=0 → no mitigation; dealt=5; hp=15
+    ];
+
+    for &(raw, mr, armor, expected) in cases {
+        let u = crate::common::engine_unit::EngineUnitBuilder::new(1)
+            .hp(20, 20)
+            .armor(armor)
+            .magic_resist(mr)
+            .build();
+        let mut state = state_with(vec![u]);
+        apply_effect(
+            &mut state,
+            &Effect::Damage {
+                target: UnitId(1),
+                raw,
+                source: EffectSource::Unit(UnitId(1)),
+                pierces: false,
+                magic: true,
+            },
+            &StubContent::neutral(),
+        );
+        assert_eq!(
+            state.unit(UnitId(1)).unwrap().hp(),
+            expected,
+            "raw={raw} mr={mr} armor={armor} expected={expected}"
+        );
+    }
+}
+
+/// Physical damage (magic=false) is NOT reduced by magic_resist.
+#[test]
+fn damage_physical_ignores_magic_resist() {
+    let mut u = make_unit(1, 20, 20);
+    u.magic_resist = 10; // high magic_resist must not affect physical damage
+    let mut state = state_with(vec![u]);
+
+    apply_effect(
+        &mut state,
+        &Effect::Damage {
+            target: UnitId(1),
+            raw: 8.0,
+            source: EffectSource::Unit(UnitId(1)),
+            pierces: false,
+            magic: false,
+        },
+        &StubContent::neutral(),
+    );
+    // armor=0 (make_unit default), magic_resist ignored: final = max(1, 8) = 8; hp = 12
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 12);
+}
+
+/// Armor does NOT reduce magic damage.
+#[test]
+fn damage_armor_does_not_reduce_magic() {
+    let mut u = make_unit(1, 20, 20);
+    u.armor = 10; // high armor must not mitigate magic damage
+    let mut state = state_with(vec![u]);
+
+    apply_effect(
+        &mut state,
+        &Effect::Damage {
+            target: UnitId(1),
+            raw: 8.0,
+            source: EffectSource::Unit(UnitId(1)),
+            pierces: false,
+            magic: true,
+        },
+        &StubContent::neutral(),
+    );
+    // magic_resist=0 (default), armor ignored: final = max(1, 8) = 8; hp = 12
     assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 12);
 }
 
@@ -1269,6 +1356,7 @@ fn death_cascade_from_damage_clears_statuses() {
             raw: 100.0,
             source: EffectSource::Unit(UnitId(2)),
             pierces: true,
+            magic: false,
         },
         &content,
     );

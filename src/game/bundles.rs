@@ -22,11 +22,12 @@ impl CombatantBundle {
         team: Team,
         stats: CombatStats,
         armor: i32,
+        magic_resist: i32,
         speed: i32,
         abilities: Vec<AbilityId>,
         equipment: Equipment,
     ) -> Self {
-        let vital = Vital::new(&stats, armor);
+        let vital = Vital::new(&stats, armor, magic_resist);
         Self {
             combatant: Combatant,
             faction: Faction(team),
@@ -50,26 +51,44 @@ impl CombatantBundle {
 pub fn hero_bundle(
     stats: CombatStats,
     armor: i32,
+    magic_resist: i32,
     speed: i32,
     abilities: Vec<AbilityId>,
     equipment: Equipment,
 ) -> impl Bundle {
     (
         PartyMember,
-        CombatantBundle::new(Team::Player, stats, armor, speed, abilities, equipment),
+        CombatantBundle::new(
+            Team::Player,
+            stats,
+            armor,
+            magic_resist,
+            speed,
+            abilities,
+            equipment,
+        ),
     )
 }
 
 pub fn enemy_bundle(
     stats: CombatStats,
     armor: i32,
+    magic_resist: i32,
     speed: i32,
     abilities: Vec<AbilityId>,
     equipment: Equipment,
 ) -> impl Bundle {
     (
         Enemy,
-        CombatantBundle::new(Team::Enemy, stats, armor, speed, abilities, equipment),
+        CombatantBundle::new(
+            Team::Enemy,
+            stats,
+            armor,
+            magic_resist,
+            speed,
+            abilities,
+            equipment,
+        ),
     )
 }
 

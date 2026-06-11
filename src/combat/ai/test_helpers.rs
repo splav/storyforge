@@ -145,6 +145,7 @@ impl UnitBuilder {
                 max_hp: 20,
                 armor: 0,
                 armor_bonus: 0,
+                magic_resist: 0,
                 damage_taken_bonus: 0,
                 action_points: 1,
                 max_ap: 1,
@@ -190,6 +191,10 @@ impl UnitBuilder {
     }
     pub fn armor_bonus(mut self, bonus: i32) -> Self {
         self.inner.armor_bonus = bonus;
+        self
+    }
+    pub fn magic_resist(mut self, mr: i32) -> Self {
+        self.inner.magic_resist = mr;
         self
     }
     pub fn ap(mut self, ap: i32) -> Self {
@@ -341,6 +346,7 @@ impl UnitBuilder {
             team,
             u.pos,
             u.armor,
+            u.magic_resist,
             u.armor_bonus,
             u.damage_taken_bonus,
             u.base_speed,
@@ -439,6 +445,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         team,
         u.pos,
         u.armor,
+        u.magic_resist,
         u.armor_bonus,
         u.damage_taken_bonus,
         u.base_speed,
@@ -549,6 +556,7 @@ pub(crate) fn unit_view_to_snapshot(
         max_hp: u.max_hp(),
         armor: u.armor,
         armor_bonus: u.armor_bonus,
+        magic_resist: u.magic_resist,
         damage_taken_bonus: u.damage_taken_bonus,
         action_points: u.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
         max_ap: u.pools[PoolKind::Ap].map(|(_, m)| m).unwrap_or(0),

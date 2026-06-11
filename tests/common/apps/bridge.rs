@@ -225,7 +225,7 @@ pub fn spawn_unit(
     let entity = app
         .world_mut()
         .spawn(CombatantBundle::new(
-            team, stats, armor, speed, abilities, equipment,
+            team, stats, armor, 0, speed, abilities, equipment,
         ))
         .id();
     app.world_mut()

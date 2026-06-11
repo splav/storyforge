@@ -101,6 +101,7 @@ pub fn spawn_combatants(
             };
             let effective = content.effective_stats(&tpl.stats, &equipment);
             let armor = content.equipment_armor(&equipment);
+            let magic_resist = content.equipment_magic_resist(&equipment);
             let mana_bonus = content.equipment_mana_bonus(&equipment);
             let role = infer_profile(
                 &tpl.ability_ids,
@@ -125,6 +126,7 @@ pub fn spawn_combatants(
                 hero_bundle(
                     effective.clone(),
                     armor,
+                    magic_resist,
                     tpl.speed,
                     tpl.ability_ids.clone(),
                     equipment,
@@ -139,6 +141,7 @@ pub fn spawn_combatants(
                 hp: initial_hp,
                 max_hp: effective.max_hp,
                 armor,
+                magic_resist,
             });
             // Pool components — for templates that declare them.
             if tpl.resources.mana_max > 0 {
@@ -251,6 +254,7 @@ pub fn spawn_combatants(
         };
         let effective = content.effective_stats(&cls.stats, &equipment);
         let armor = content.equipment_armor(&equipment);
+        let magic_resist = content.equipment_magic_resist(&equipment);
         let mana_bonus = content.equipment_mana_bonus(&equipment);
         let role = infer_profile(&cls.abilities, effective.max_hp, armor, content, tag_cache);
         let mut ec = commands.spawn((
@@ -258,6 +262,7 @@ pub fn spawn_combatants(
             hero_bundle(
                 effective,
                 armor,
+                magic_resist,
                 cls.speed,
                 cls.abilities.clone(),
                 equipment,
@@ -309,6 +314,7 @@ pub fn spawn_combatants(
         };
         let effective = content.effective_stats(&enemy.stats, &equipment);
         let armor = content.equipment_armor(&equipment);
+        let magic_resist = content.equipment_magic_resist(&equipment);
         let race_name = content
             .races
             .get(&enemy.race)
@@ -326,6 +332,7 @@ pub fn spawn_combatants(
             enemy_bundle(
                 effective,
                 armor,
+                magic_resist,
                 enemy.speed,
                 enemy.ability_ids.clone(),
                 equipment,

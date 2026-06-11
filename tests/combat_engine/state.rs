@@ -99,6 +99,7 @@ fn build_10_unit_world(world: &mut World) -> (Vec<Entity>, Vec<Hex>) {
             EcsTeam::Player,
             minimal_stats(),
             2,            // armor
+            0,            // magic_resist
             3 + i as i32, // speed varies so we can distinguish units
             vec![],
             minimal_equipment(),
@@ -114,6 +115,7 @@ fn build_10_unit_world(world: &mut World) -> (Vec<Entity>, Vec<Hex>) {
             EcsTeam::Enemy,
             minimal_stats(),
             1, // different armor
+            0, // magic_resist
             2 + i as i32,
             vec![],
             minimal_equipment(),
@@ -207,6 +209,7 @@ fn dead_unit_is_tombstone_with_hp_zero() {
             EcsTeam::Player,
             minimal_stats(),
             0,
+            0,
             3,
             vec![],
             minimal_equipment(),
@@ -222,6 +225,7 @@ fn dead_unit_is_tombstone_with_hp_zero() {
             CombatantBundle::new(
                 EcsTeam::Enemy,
                 minimal_stats(),
+                0,
                 0,
                 3,
                 vec![],

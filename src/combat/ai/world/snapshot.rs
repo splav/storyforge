@@ -86,6 +86,10 @@ pub struct UnitSnapshot {
     pub max_hp: i32,
     pub armor: i32,
     pub armor_bonus: i32,
+    /// Magic damage mitigation. Mirrors `armor` for physical damage.
+    /// Schema: additive field, `#[serde(default)]` → 0 on old logs.
+    #[serde(default)]
+    pub magic_resist: i32,
     pub damage_taken_bonus: i32,
     /// Remaining AP for this turn.
     pub action_points: i32,
@@ -529,6 +533,7 @@ impl UnitSnapshot {
             max_hp: NEUTRAL_REF_MAX_HP,
             armor: 0,
             armor_bonus: 0,
+            magic_resist: 0,
             damage_taken_bonus: 0,
             action_points: 1,
             max_ap: 1,

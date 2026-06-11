@@ -376,6 +376,12 @@ working, they may surface in code review:
   with mixed concerns (caches, contexts, unit builder, snapshot helpers,
   stage harness, critic harness, assertions). Split planned but not yet
   applied — see H1 in the normalisation plan.
+- **June 2026 full revision** found a further batch of issues — most notably
+  tests that don't verify what their names claim (`parity_*_real_vs_sim`
+  without a real-engine leg, parity-only legality cases) and systemic
+  boilerplate duplication (template litanies, Bevy content-def wrappers,
+  headless-app builders). Plan with per-item fixes:
+  [refactor/test-revision-2026-06.md](refactor/test-revision-2026-06.md).
 
 ---
 
@@ -383,4 +389,5 @@ working, they may surface in code review:
 
 - [CLAUDE.md §3 Tests](../CLAUDE.md) — project test guidelines.
 - [refactor/helpers-normalization-plan.md](refactor/helpers-normalization-plan.md) — planned helper consolidation.
+- [refactor/test-revision-2026-06.md](refactor/test-revision-2026-06.md) — June 2026 suite revision: honesty fixes + dedup plan (R1–R5).
 - [combat/engine.md](combat/engine.md), [combat/bridge.md](combat/bridge.md) — what the layers test.

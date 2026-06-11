@@ -42,6 +42,7 @@ fn make_unit_snap(id: u32, team: Team, col: i32, row: i32, aoo: Option<f32>) -> 
         max_hp: 30,
         armor: 2,
         armor_bonus: 0,
+        magic_resist: 0,
         damage_taken_bonus: 0,
         action_points: 2,
         max_ap: 2,

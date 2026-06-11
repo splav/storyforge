@@ -109,6 +109,7 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
                 Team::Enemy,
                 boss_stats,
                 0,
+                0,
                 6,
                 vec![],
                 common::apps::bridge::no_equipment(),
@@ -564,6 +565,7 @@ fn phase_def_tags_carried_into_engine_phase_entry() {
                 storyforge::game::components::Team::Enemy,
                 boss_stats,
                 0,
+                0,
                 6,
                 vec![],
                 common::apps::bridge::no_equipment(),
@@ -698,6 +700,7 @@ fn phase_transition_updates_ecs_tags_component() {
             storyforge::game::bundles::CombatantBundle::new(
                 storyforge::game::components::Team::Enemy,
                 boss_stats,
+                0,
                 0,
                 6,
                 vec![],

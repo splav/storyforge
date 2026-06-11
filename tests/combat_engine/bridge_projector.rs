@@ -49,6 +49,7 @@ fn projector_writes_engine_mutation_to_ecs() {
             Team::Player,
             common::apps::bridge::bridge_stats(),
             0,
+            0,
             6,
             vec![],
             common::apps::bridge::default_equipment(),

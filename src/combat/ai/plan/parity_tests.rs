@@ -224,9 +224,11 @@ mod tests {
             false,
         );
 
-        // EV of 1d4 = 2.5 → 3; bonus = int_mod 3; raw = 6; pierces → dealt = 6.
+        // EV of 1d4 = 2.5 → 3; bonus = int_mod 3; raw = 6.
+        // magic_resist=0 (target default) so mitigation=0; final = max(1, 6-0) = 6.
+        // Numerically identical to the old pierces=true path when magic_resist=0.
         let raw = DiceExpr::new(1, 4, 0).expected().round() as i32 + ctx.int_mod;
-        let dealt = final_damage_f32(raw as f32, 10.0, 0.0, /* pierces */ true);
+        let dealt = final_damage_f32(raw as f32, 0.0, 0.0, false); // magic_resist=0, no pierce
         let t = sim.unit(target_id).unwrap();
         assert!(
             (t.hp() as f32 - (20.0 - dealt)).abs() < 0.01,
@@ -1797,6 +1799,79 @@ mod tests {
             sim.unit(enemy_id).unwrap().pools[combat_engine::PoolKind::Rage],
             Some((8, 10)),
             "AoO attacker 7 → 8",
+        );
+    }
+
+    /// SpellDamage vs a defender with magic_resist > 0: the sim HP delta must
+    /// equal `final_damage_f32(raw, magic_resist, 0.0, false)`.
+    ///
+    /// With magic_resist=0 this is identical to the old pierces_armor=true path
+    /// (because `final_damage_f32(raw, 0, 0, false) == final_damage_f32(raw, X, 0, true)`
+    /// when mitigation is 0). With magic_resist=3 the delta shrinks by 3 — verifying
+    /// the AI sim respects magic_resist via the engine's apply_effect path.
+    #[test]
+    fn parity_spell_damage_respects_magic_resist() {
+        use crate::combat::ai::plan::sim::SimState;
+        use crate::combat::ai::test_helpers::{empty_content, snapshot_from_pairs, UnitBuilder};
+        use crate::combat::ai::world::tags::StatusTagCache;
+        use crate::game::components::Team;
+        use crate::game::hex::hex_from_offset;
+
+        let int_mod = 2i32;
+        let magic_resist = 3i32;
+        let raw_dice = DiceExpr::new(1, 4, 0); // EV=2.5 → rounds to 3
+        let expected_raw = raw_dice.expected().round() as i32 + int_mod; // 3 + 2 = 5
+
+        let ctx = CasterContext {
+            str_mod: 0,
+            int_mod,
+            spell_power: 0,
+            weapon_dice: None,
+        };
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .caster_ctx(ctx.clone())
+            .build_pair();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .hp(20)
+            .max_hp(20)
+            .magic_resist(magic_resist)
+            .build_pair();
+
+        let actor_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+        let target_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
+        let snap = snapshot_from_pairs(vec![actor, target], 1);
+
+        let mut content = empty_content();
+        let def = make_ability(
+            "bolt",
+            EffectDef::SpellDamage { dice: raw_dice },
+            TargetType::SingleEnemy,
+            3,
+            vec![],
+        );
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let status_tags = StatusTagCache::default();
+        let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
+        sim.apply_step(
+            &cast_step(&def.id, target_id, hex_from_offset(1, 0)),
+            &ctx,
+            &content,
+            false,
+        );
+
+        // Engine uses magic_resist (not armor), pierces=false.
+        let expected_dealt = final_damage_f32(expected_raw as f32, magic_resist as f32, 0.0, false);
+        let t = sim.unit(target_id).unwrap();
+        assert!(
+            (t.hp() as f32 - (20.0 - expected_dealt)).abs() < 0.01,
+            "hp={} expected {} (raw={} mr={} dealt={})",
+            t.hp(),
+            20.0 - expected_dealt,
+            expected_raw,
+            magic_resist,
+            expected_dealt,
         );
     }
 }

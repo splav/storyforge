@@ -30,24 +30,32 @@ impl EffectCalcExt for EffectDef {
                 dice: ctx.weapon_dice,
                 bonus: ctx.str_mod,
                 pierces_armor: false,
+                magic: false,
                 is_heal: false,
             }),
             EffectDef::Damage { dice } => Some(EffectCalc {
                 dice: Some(*dice),
                 bonus: ctx.str_mod,
                 pierces_armor: false,
+                magic: false,
                 is_heal: false,
             }),
             EffectDef::SpellDamage { dice } => Some(EffectCalc {
                 dice: Some(*dice),
                 bonus: ctx.int_mod + ctx.spell_power,
-                pierces_armor: true,
+                // SpellDamage uses magic_resist, not armor — engine matches this
+                // via Effect::Damage { magic: true }. pierces_armor=false because
+                // mitigation selection (armor vs magic_resist) happens via the
+                // `magic` flag; `pierces_armor` only suppresses ALL mitigation.
+                pierces_armor: false,
+                magic: true,
                 is_heal: false,
             }),
             EffectDef::Heal { dice } => Some(EffectCalc {
                 dice: Some(*dice),
                 bonus: ctx.int_mod + ctx.spell_power,
                 pierces_armor: false,
+                magic: false,
                 is_heal: true,
             }),
             EffectDef::None
@@ -141,6 +149,8 @@ pub struct EffectCalc {
     pub dice: Option<DiceExpr>,
     pub bonus: i32,
     pub pierces_armor: bool,
+    /// True for spell damage — engine uses magic_resist instead of armor.
+    pub magic: bool,
     pub is_heal: bool,
 }
 
@@ -464,12 +474,17 @@ mod tests {
     }
 
     #[test]
-    fn spell_damage_uses_int_plus_spell_power_and_pierces() {
+    fn spell_damage_uses_int_plus_spell_power_and_is_magic() {
         let c = ctx(4, 3, 1, None);
         let dice = DiceExpr::new(2, 6, 0);
         let calc = EffectDef::SpellDamage { dice }.calc(&c).unwrap();
         assert_eq!(calc.bonus, 4, "int_mod(3) + spell_power(1)");
-        assert!(calc.pierces_armor);
+        // SpellDamage uses magic_resist (not armor): magic=true, pierces_armor=false.
+        assert!(calc.magic, "spell damage must be flagged magic");
+        assert!(
+            !calc.pierces_armor,
+            "spell damage does not pierce — uses magic_resist instead"
+        );
         assert!(!calc.is_heal);
     }
 

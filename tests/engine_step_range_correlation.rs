@@ -188,6 +188,7 @@ fn engine_step_range_correlates_with_action_actor() {
             Team::Player,
             test_stats(),
             0, // armor
+            0, // magic_resist
             6, // speed
             vec![],
             test_equipment(),
@@ -198,6 +199,7 @@ fn engine_step_range_correlates_with_action_actor() {
         .spawn(CombatantBundle::new(
             Team::Player,
             test_stats(),
+            0,
             0,
             6,
             vec![],

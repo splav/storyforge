@@ -258,6 +258,9 @@ pub struct Unit {
     /// Base armor value (equipment). Bonus from statuses is tracked separately
     /// and folded in by `refresh_aggregates`.
     pub armor: i32,
+    /// Flat magic damage mitigation from equipment (gear-only, no status bonus).
+    /// Value-0 compatible: all existing units default to 0.
+    pub magic_resist: i32,
     /// Armor bonus from active statuses (recomputed by `RefreshAggregates`).
     pub armor_bonus: i32,
     /// Incoming-damage multiplier bonus from active statuses (recomputed by
@@ -340,6 +343,12 @@ pub struct Unit {
     pub tags: std::collections::BTreeSet<crate::TagId>,
 }
 
+/// Serde helper: skip serializing an `i32` field when it equals zero.
+/// Used for new backward-compatible fields so existing fixtures stay unchanged.
+fn is_zero_i32(v: &i32) -> bool {
+    *v == 0
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct UnitWire {
     pub id: UnitId,
@@ -378,6 +387,13 @@ struct UnitWire {
     // ── template id (optional; absent in older traces) ──────────────────────
     #[serde(default)]
     pub template_id: Option<String>,
+
+    // ── magic_resist (new; value-0 backward compatible) ──────────────────────
+    // Absent from all existing fixtures (0 = no magic mitigation). The
+    // `skip_serializing_if` ensures the field is never written when zero, so
+    // baseline/snapshot byte-streams are identical to pre-magic_resist traces.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub magic_resist: i32,
 
     // ── passives (transient; not serialized to trace files) ─────────────────
     // Always defaulted to empty on deserialization — the bridge re-populates
@@ -485,6 +501,7 @@ impl From<UnitWire> for Unit {
             team: w.team,
             pos: w.pos,
             armor: w.armor,
+            magic_resist: w.magic_resist,
             armor_bonus: w.armor_bonus,
             damage_taken_bonus: w.damage_taken_bonus,
             base_speed: w.base_speed,
@@ -516,6 +533,7 @@ impl From<Unit> for UnitWire {
             team: u.team,
             pos: u.pos,
             armor: u.armor,
+            magic_resist: u.magic_resist,
             armor_bonus: u.armor_bonus,
             damage_taken_bonus: u.damage_taken_bonus,
             base_speed: u.base_speed,
@@ -571,6 +589,7 @@ impl Unit {
         team: Team,
         pos: Hex,
         armor: i32,
+        magic_resist: i32,
         armor_bonus: i32,
         damage_taken_bonus: i32,
         base_speed: i32,
@@ -597,6 +616,7 @@ impl Unit {
             team,
             pos,
             armor,
+            magic_resist,
             armor_bonus,
             damage_taken_bonus,
             base_speed,
@@ -1657,13 +1677,14 @@ mod tests {
             id,
             Team::Player,
             Hex::ZERO,
-            0,
-            0,
-            0,
-            3,
-            3,
-            1,
-            1,
+            0, // armor
+            0, // magic_resist
+            0, // armor_bonus
+            0, // damage_taken_bonus
+            3, // base_speed
+            3, // speed
+            1, // reactions_left
+            1, // reactions_max
             vec![],
             None,
             None, // initiative: not yet rolled

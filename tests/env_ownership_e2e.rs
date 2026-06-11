@@ -94,6 +94,7 @@ fn eng_unit(id: u64, team: Team, col: i32, hp: i32) -> Unit {
         team,
         hex_from_offset(col, 0),
         0, // armor
+        0, // magic_resist
         0, // armor_bonus
         0, // damage_taken_bonus
         4, // base_speed

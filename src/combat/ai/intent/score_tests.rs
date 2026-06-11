@@ -639,7 +639,12 @@ fn focus_target_scores_proportional_to_damage() {
         let mitigation = if calc.pierces_armor {
             0.0
         } else {
-            (target.armor + target.armor_bonus) as f32
+            combat_engine::mitigation(
+                target.armor,
+                target.armor_bonus,
+                target.magic_resist,
+                calc.magic,
+            )
         };
         (calc.expected() - mitigation + target.damage_taken_bonus as f32).max(0.0)
     };

@@ -38,11 +38,11 @@ pub fn test_equipment() -> Equipment {
 }
 
 pub fn test_hero(stats: CombatStats) -> impl Bundle {
-    hero_bundle(stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
+    hero_bundle(stats, 0, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
 }
 
 pub fn test_enemy(stats: CombatStats) -> impl Bundle {
-    enemy_bundle(stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
+    enemy_bundle(stats, 0, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
 }
 
 pub fn enter_await_command(app: &mut App) {

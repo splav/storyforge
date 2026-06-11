@@ -113,6 +113,7 @@ fn spawn_magister(app: &mut App, hex: hexx::Hex) -> Entity {
                 hp: 4,
                 max_hp: 8,
                 armor: 0,
+                magic_resist: 0,
             },
             Speed(0),
             ActionPoints {

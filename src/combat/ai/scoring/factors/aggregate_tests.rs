@@ -79,7 +79,12 @@ fn annotate_plan(
                         let mitigation = if calc.pierces_armor {
                             0.0
                         } else {
-                            (t.armor + t.armor_bonus) as f32
+                            combat_engine::mitigation(
+                                t.armor,
+                                t.armor_bonus,
+                                t.magic_resist,
+                                calc.magic,
+                            )
                         };
                         (calc.expected() - mitigation + t.damage_taken_bonus as f32).max(0.0)
                     });

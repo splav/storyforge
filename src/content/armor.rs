@@ -60,6 +60,8 @@ struct ArmorRecord {
     charisma: i32,
     #[serde(default)]
     mana: i32,
+    #[serde(default)]
+    magic_resist: i32,
 }
 
 pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
@@ -84,6 +86,7 @@ pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
                 },
                 armor: r.armor,
                 mana: r.mana,
+                magic_resist: r.magic_resist,
             },
         })
         .collect()

@@ -168,6 +168,7 @@ pub(crate) struct UnitBuildInput {
     pub team: combat_engine::state::Team,
     pub pos: hexx::Hex,
     pub armor: i32,
+    pub magic_resist: i32,
     pub base_speed: i32,
     pub reactions_max: i32,
     pub statuses: Vec<combat_engine::state::ActiveStatus>,
@@ -208,6 +209,7 @@ pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit
         input.team,
         input.pos,
         input.armor,
+        input.magic_resist,
         armor_bonus,
         damage_taken_bonus,
         input.base_speed,
@@ -386,6 +388,7 @@ pub fn from_ecs(
                         team,
                         pos,
                         armor: vital.armor,
+                        magic_resist: vital.magic_resist,
                         base_speed: speed_val,
                         reactions_max: reactions_max as i32,
                         statuses: statuses_vec,
@@ -975,6 +978,7 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
         enemy_bundle(
             effective,
             armor,
+            0, // magic_resist: spawned units have no magic_resist (template carries none)
             template.speed,
             template.ability_ids.clone(),
             equipment,
@@ -2484,6 +2488,7 @@ mod tests {
             Team::Player,
             Hex::ZERO,
             3, // armor
+            0, // magic_resist
             0, // armor_bonus
             0, // damage_taken_bonus
             3, // base_speed

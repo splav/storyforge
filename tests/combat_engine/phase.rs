@@ -106,6 +106,7 @@ fn phase_trigger_fires_at_threshold() {
             raw: 25.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -161,6 +162,7 @@ fn non_triggering_damage_no_enter_phase() {
             raw: 10.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -212,6 +214,7 @@ fn preempt_death_phase_revives_unit() {
             raw: 70.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -288,6 +291,7 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
             raw: 20.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -394,6 +398,7 @@ fn multi_threshold_each_damage_fires_own_phase() {
             raw: 55.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -429,6 +434,7 @@ fn multi_threshold_each_damage_fires_own_phase() {
             raw: 20.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -481,6 +487,7 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
             raw: 15.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -537,6 +544,7 @@ fn preempt_death_no_died_event_in_stream() {
             raw: 100.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -549,6 +557,7 @@ fn preempt_death_no_died_event_in_stream() {
             raw: 100.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &state,
         None,

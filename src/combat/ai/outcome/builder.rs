@@ -180,12 +180,17 @@ pub fn hypothetical(
         if calc.is_heal {
             0.0
         } else {
-            let armor = if calc.pierces_armor {
+            let mit = if calc.pierces_armor {
                 0.0
             } else {
-                (target.armor + target.armor_bonus) as f32
+                combat_engine::mitigation(
+                    target.armor,
+                    target.armor_bonus,
+                    target.magic_resist,
+                    calc.magic,
+                )
             };
-            (calc.expected() - armor + target.damage_taken_bonus as f32).max(0.0)
+            (calc.expected() - mit + target.damage_taken_bonus as f32).max(0.0)
         }
     } else {
         0.0
@@ -260,12 +265,17 @@ pub fn estimate_kill_soon(
     let Some(calc) = def.effect.calc(caster) else {
         return 0.0;
     };
-    let armor = if calc.pierces_armor {
+    let mit = if calc.pierces_armor {
         0.0
     } else {
-        (target.armor + target.armor_bonus) as f32
+        combat_engine::mitigation(
+            target.armor,
+            target.armor_bonus,
+            target.magic_resist,
+            calc.magic,
+        )
     };
-    let net = calc.expected().round() - armor + target.damage_taken_bonus as f32;
+    let net = calc.expected().round() - mit + target.damage_taken_bonus as f32;
     // kill_now case — no kill_soon when net already kills
     if net >= target.hp() as f32 {
         return 0.0;
@@ -391,12 +401,12 @@ pub(crate) fn build_damage_facts(
 
     // For each unit in the area, compute expected net damage (post-armor).
     let net_damage_for = |unit: &combat_engine::state::Unit| -> f32 {
-        let armor = if calc.pierces_armor {
+        let mit = if calc.pierces_armor {
             0.0
         } else {
-            (unit.armor + unit.armor_bonus) as f32
+            combat_engine::mitigation(unit.armor, unit.armor_bonus, unit.magic_resist, calc.magic)
         };
-        (calc.expected() - armor + unit.damage_taken_bonus as f32).max(0.0)
+        (calc.expected() - mit + unit.damage_taken_bonus as f32).max(0.0)
     };
 
     let mut enemy_damage = 0.0f32;

@@ -78,6 +78,28 @@ impl ContentView {
         total
     }
 
+    /// Total magic_resist from all equipment pieces (armor items + weapons like shields).
+    ///
+    /// Mirrors `equipment_armor` — iterates main/off-hand weapons and
+    /// chest/legs/feet armor slots, summing `stats.magic_resist`.
+    pub fn equipment_magic_resist(&self, equipment: &Equipment) -> i32 {
+        let mut total = 0;
+        for weapon_id in [&equipment.main_hand, &equipment.off_hand]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(w) = self.weapons.get(weapon_id) {
+                total += w.stats.magic_resist;
+            }
+        }
+        for armor_id in [&equipment.chest, &equipment.legs, &equipment.feet] {
+            if let Some(a) = self.armor.get(armor_id) {
+                total += a.stats.magic_resist;
+            }
+        }
+        total
+    }
+
     /// Flat mana-pool bonus from worn armor. Sums the three armor slots' `mana`.
     /// Weapons are intentionally excluded (no weapon carries mana today); the
     /// armor-only shape makes that exclusion explicit — adding weapon-mana later
@@ -244,6 +266,88 @@ impl ContentView {
         // Walk every layered merge function with the global path twice (no overrides).
         // We reuse load_layered by treating "no campaign/scenario" as same path.
         Self::load_layered(global, global)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
+    use crate::content::item_stats::ItemStats;
+    use crate::content::weapons::WeaponDef;
+    use crate::game::components::Equipment;
+    use combat_engine::{ArmorId, DiceExpr, WeaponId};
+
+    fn armor_with_magic_resist(id: &str, mr: i32) -> (ArmorId, ArmorDef) {
+        let aid = ArmorId::from(id);
+        let def = ArmorDef {
+            id: aid.clone(),
+            name: id.to_string(),
+            slot: ArmorSlot::Chest,
+            weight: ArmorWeight::Light,
+            stats: ItemStats {
+                magic_resist: mr,
+                ..Default::default()
+            },
+        };
+        (aid, def)
+    }
+
+    fn weapon_with_magic_resist(id: &str, mr: i32) -> (WeaponId, WeaponDef) {
+        use crate::content::weapons::HandType;
+        let wid = WeaponId::from(id);
+        let def = WeaponDef {
+            id: wid.clone(),
+            name: id.to_string(),
+            hand: HandType::MainHand,
+            dice: DiceExpr::new(1, 6, 0),
+            spell_power: 0,
+            stats: ItemStats {
+                magic_resist: mr,
+                ..Default::default()
+            },
+        };
+        (wid, def)
+    }
+
+    /// equipment_magic_resist sums magic_resist from all equipped armor + weapon slots.
+    #[test]
+    fn equipment_magic_resist_sums_across_slots() {
+        let (chest_id, chest_def) = armor_with_magic_resist("robe", 2);
+        let (weapon_id, weapon_def) = weapon_with_magic_resist("focus", 1);
+
+        let mut content = ContentView::default();
+        content.armor.insert(chest_id.clone(), chest_def);
+        content.weapons.insert(weapon_id.clone(), weapon_def);
+
+        let equipment = Equipment {
+            main_hand: Some(weapon_id),
+            off_hand: None,
+            chest: chest_id,
+            legs: ArmorId::from(""),
+            feet: ArmorId::from(""),
+        };
+
+        // chest contributes 2, weapon contributes 1; unknown legs/feet → 0.
+        assert_eq!(content.equipment_magic_resist(&equipment), 3);
+    }
+
+    /// equipment_magic_resist returns 0 when no item has magic_resist.
+    #[test]
+    fn equipment_magic_resist_zero_when_no_item_has_it() {
+        let (chest_id, chest_def) = armor_with_magic_resist("plain_robe", 0);
+        let mut content = ContentView::default();
+        content.armor.insert(chest_id.clone(), chest_def);
+
+        let equipment = Equipment {
+            main_hand: None,
+            off_hand: None,
+            chest: chest_id,
+            legs: ArmorId::from(""),
+            feet: ArmorId::from(""),
+        };
+
+        assert_eq!(content.equipment_magic_resist(&equipment), 0);
     }
 }
 

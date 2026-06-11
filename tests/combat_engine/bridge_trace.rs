@@ -131,6 +131,7 @@ fn engine_trace_full_combat_record_replay() {
             Team::Player,
             common::apps::bridge::bridge_stats(),
             0, // armor
+            0, // magic_resist
             6, // speed
             vec![],
             common::apps::bridge::default_equipment(),

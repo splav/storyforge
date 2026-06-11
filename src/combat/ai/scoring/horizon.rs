@@ -642,6 +642,7 @@ mod tests {
                 max_hp: 20,
                 armor: 0,
                 armor_bonus: 0,
+                magic_resist: 0,
                 damage_taken_bonus: 0,
                 action_points: 1,
                 max_ap: 1,

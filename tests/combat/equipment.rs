@@ -51,6 +51,7 @@ fn armor_with_bonus(
                 ..Default::default()
             },
             mana: 0,
+            magic_resist: 0,
         },
     }
 }
@@ -80,6 +81,7 @@ fn weapon_with_bonus(id: &str, strength: i32, armor: i32) -> WeaponDef {
                 ..Default::default()
             },
             mana: 0,
+            magic_resist: 0,
         },
     }
 }

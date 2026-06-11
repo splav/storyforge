@@ -128,15 +128,17 @@ impl std::ops::AddAssign<&CombatStats> for CombatStats {
 pub struct Vital {
     pub hp: i32,
     pub max_hp: i32,
-    pub armor: i32, // reduces incoming damage
+    pub armor: i32,        // reduces incoming physical damage
+    pub magic_resist: i32, // reduces incoming magic damage
 }
 
 impl Vital {
-    pub fn new(stats: &CombatStats, armor: i32) -> Self {
+    pub fn new(stats: &CombatStats, armor: i32, magic_resist: i32) -> Self {
         Self {
             hp: stats.max_hp,
             max_hp: stats.max_hp,
             armor,
+            magic_resist,
         }
     }
 
@@ -410,6 +412,7 @@ mod tests {
             hp,
             max_hp,
             armor: 0,
+            magic_resist: 0,
         }
     }
 

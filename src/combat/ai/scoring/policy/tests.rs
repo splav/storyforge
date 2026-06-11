@@ -55,7 +55,12 @@ fn via_policy(
         let mitigation = if calc.pierces_armor {
             0.0
         } else {
-            (target.armor + target.armor_bonus) as f32
+            combat_engine::mitigation(
+                target.armor,
+                target.armor_bonus,
+                target.magic_resist,
+                calc.magic,
+            )
         };
         let raw = (expected - mitigation + target.damage_taken_bonus as f32).max(0.0);
         let progress = (raw / target.hp.max(1) as f32).min(1.0);

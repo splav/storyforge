@@ -304,6 +304,7 @@ fn phase_entry_tags_none_leaves_tags_unchanged() {
             raw: 40.0,
             source: EffectSource::Unit(attacker),
             pierces: false,
+            magic: false,
         },
         &content,
     );
@@ -437,6 +438,7 @@ fn effect_changes_aura_membership_predicate() {
                 raw: 10.0,
                 source: EffectSource::Unit(uid(2)),
                 pierces: false,
+                magic: false,
             }),
             "Heal" => effect_is_membership_changing(&Effect::Heal {
                 target: uid(1),

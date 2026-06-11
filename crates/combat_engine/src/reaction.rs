@@ -133,6 +133,7 @@ pub fn expand_reaction(
                     raw,
                     source: crate::state::EffectSource::Unit(*from),
                     pierces: false,
+                    magic: false, // AoO is physical
                 },
             ]
         }

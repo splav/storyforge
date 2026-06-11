@@ -51,6 +51,8 @@ struct WeaponRecord {
     wisdom: i32,
     #[serde(default)]
     charisma: i32,
+    #[serde(default)]
+    magic_resist: i32,
 }
 
 fn default_hand() -> String {
@@ -100,6 +102,7 @@ pub fn parse_weapons(path: &str, src: &str) -> Vec<WeaponDef> {
                 },
                 armor: r.armor,
                 mana: 0,
+                magic_resist: r.magic_resist,
             },
         })
         .collect()

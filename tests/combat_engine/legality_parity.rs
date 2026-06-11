@@ -301,6 +301,7 @@ fn legality_parity_bevy_vs_engine() {
             Team::Player,
             base_stats(),
             0,
+            0,
             6,
             vec![ATTACK_ID.into(), HEAL_ID.into(), MANA_SPELL_ID.into()],
             no_equip(),
@@ -317,6 +318,7 @@ fn legality_parity_bevy_vs_engine() {
             Team::Enemy,
             base_stats(),
             0,
+            0,
             6,
             vec![],
             no_equip(),
@@ -330,6 +332,7 @@ fn legality_parity_bevy_vs_engine() {
             Team::Player,
             base_stats(),
             0,
+            0,
             6,
             vec![],
             no_equip(),
@@ -342,6 +345,7 @@ fn legality_parity_bevy_vs_engine() {
         .spawn(CombatantBundle::new(
             Team::Enemy,
             base_stats(),
+            0,
             0,
             6,
             vec![],
@@ -364,7 +368,7 @@ fn legality_parity_bevy_vs_engine() {
     let dead_enemy = app
         .world_mut()
         .spawn((
-            CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()),
+            CombatantBundle::new(Team::Enemy, base_stats(), 0, 0, 6, vec![], no_equip()),
             storyforge::game::components::Dead,
         ))
         .id();
@@ -380,6 +384,7 @@ fn legality_parity_bevy_vs_engine() {
         .spawn(CombatantBundle::new(
             Team::Player,
             base_stats(),
+            0,
             0,
             6,
             vec![ATTACK_ID.into(), MANA_SPELL_ID.into()],
@@ -402,6 +407,7 @@ fn legality_parity_bevy_vs_engine() {
             Team::Player,
             base_stats(),
             0,
+            0,
             6,
             vec![MANA_SPELL_ID.into()],
             no_equip(),
@@ -417,6 +423,7 @@ fn legality_parity_bevy_vs_engine() {
         .spawn(CombatantBundle::new(
             Team::Player,
             base_stats(),
+            0,
             0,
             6,
             vec![MANA_SPELL_ID.into()],
@@ -778,6 +785,7 @@ fn multi_taunter_both_are_legal_targets() {
             Team::Player,
             base_stats(),
             0,
+            0,
             6,
             vec![ATTACK_ID.into()],
             no_equip(),
@@ -790,6 +798,7 @@ fn multi_taunter_both_are_legal_targets() {
         .spawn(CombatantBundle::new(
             Team::Enemy,
             base_stats(),
+            0,
             0,
             6,
             vec![],
@@ -815,6 +824,7 @@ fn multi_taunter_both_are_legal_targets() {
             Team::Enemy,
             base_stats(),
             0,
+            0,
             6,
             vec![],
             no_equip(),
@@ -838,6 +848,7 @@ fn multi_taunter_both_are_legal_targets() {
         .spawn(CombatantBundle::new(
             Team::Enemy,
             base_stats(),
+            0,
             0,
             6,
             vec![],

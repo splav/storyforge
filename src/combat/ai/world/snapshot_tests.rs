@@ -35,6 +35,7 @@ mod affordability_tests {
             max_hp: 20,
             armor: 0,
             armor_bonus: 0,
+            magic_resist: 0,
             damage_taken_bonus: 0,
             action_points: 2,
             max_ap: 2,
@@ -529,6 +530,7 @@ mod snapshot_api_tests {
             EngineTeam::Player,
             pos,
             0, // armor
+            0, // magic_resist
             0, // armor_bonus
             0, // damage_taken_bonus
             3, // base_speed

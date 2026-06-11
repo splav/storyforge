@@ -66,7 +66,7 @@ fn alive_enemy_no_abilities_emits_end_turn() {
     // non-acting NPC roster units (e.g. Тэо, Хорст, accumulator in ch3).
     let actor = spawn_at(
         &mut app,
-        enemy_bundle(base_stats(), 0, 3, vec![], equipment),
+        enemy_bundle(base_stats(), 0, 0, 3, vec![], equipment),
         hex_from_offset(3, 3),
     );
 

@@ -484,6 +484,7 @@ mod tests {
             hp: 10,
             max_hp: 10,
             armor: 0,
+            magic_resist: 0,
         }
     }
 
@@ -492,6 +493,7 @@ mod tests {
             hp: 0,
             max_hp: 10,
             armor: 0,
+            magic_resist: 0,
         }
     }
 

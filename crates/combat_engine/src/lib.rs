@@ -164,7 +164,7 @@ pub use content::{
     StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate,
 };
 pub use dice::{DiceExpr, DiceRng};
-pub use effect::{final_damage_f32, SpawnBlockedReason};
+pub use effect::{final_damage_f32, mitigation, SpawnBlockedReason};
 pub use geom::has_los;
 pub use legality::{
     check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction,

@@ -21,6 +21,12 @@ use crate::event::TurnSkipReason;
 use crate::state::{ActiveStatus, CombatState, Unit, UnitId};
 use crate::{ResourceKind, StatusId};
 
+/// Serde helper: skip serializing a `bool` field when it is `false`.
+/// Used for new backward-compatible fields so existing fixtures stay unchanged.
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 /// Expected-value final-damage formula shared between live engine path and
 /// AI sim / scoring projections.
 ///
@@ -30,6 +36,21 @@ use crate::{ResourceKind, StatusId};
 pub fn final_damage_f32(raw: f32, armor: f32, vulnerability: f32, pierces_armor: bool) -> f32 {
     let armor = if pierces_armor { 0.0 } else { armor };
     (raw - armor + vulnerability).max(1.0)
+}
+
+/// THE single source of mitigation-selection logic, shared between engine
+/// resolution (`apply_effect`) and the AI prediction layer (`builder.rs`).
+///
+/// Returns the effective mitigation value before piercing is applied:
+/// magic damage uses `magic_resist`, physical damage uses `armor + armor_bonus`.
+/// Piercing (`pierces_armor` in `final_damage_f32`) is handled separately by the
+/// caller so the two concerns stay orthogonal.
+pub fn mitigation(armor: i32, armor_bonus: i32, magic_resist: i32, magic: bool) -> f32 {
+    if magic {
+        magic_resist as f32
+    } else {
+        (armor + armor_bonus) as f32
+    }
 }
 
 /// Atomic state mutation.
@@ -43,11 +64,20 @@ pub enum Effect {
     /// Deduct `by` action points from the actor.
     DecrementAP { actor: UnitId, by: i32 },
     /// Deal raw (pre-mitigation) damage from `source` to `target`.
+    ///
+    /// `magic = true` → mitigation uses the target's `magic_resist` instead of
+    /// `armor + armor_bonus`.  `pierces = true` bypasses ALL mitigation.
+    /// For magic damage, `pierces` is set to `false` (magic_resist is the gate).
     Damage {
         target: UnitId,
         raw: f32,
         source: crate::state::EffectSource,
         pierces: bool,
+        /// Whether this is magic damage (mitigated by magic_resist, not armor).
+        /// `#[serde(default)]` + `skip_serializing_if = "is_false"` keeps
+        /// existing fixtures byte-identical (all old Damage effects had magic=false).
+        #[serde(default, skip_serializing_if = "is_false")]
+        magic: bool,
     },
     /// Restore HP on `target`, after first neutralizing active DoT
     /// statuses (Bevy parity — see `apply_effects.rs:73-114`).
@@ -398,15 +428,18 @@ pub fn apply_effect(
             raw,
             source,
             pierces,
+            magic,
         } => {
             // Read the target's current armor (base + bonus) for mitigation.
-            let (armor, armor_bonus) = state
+            let (armor, armor_bonus, magic_resist) = state
                 .unit(*target)
-                .map(|u| (u.armor, u.armor_bonus))
-                .unwrap_or((0, 0));
+                .map(|u| (u.armor, u.armor_bonus, u.magic_resist))
+                .unwrap_or((0, 0, 0));
 
-            let mitigation = (armor + armor_bonus) as f32;
-            let final_dmg = final_damage_f32(*raw, mitigation, 0.0, *pierces);
+            // Magic damage uses magic_resist; physical uses armor+armor_bonus.
+            // `pierces=true` bypasses ALL mitigation regardless of damage type.
+            let mit = mitigation(armor, armor_bonus, magic_resist, *magic);
+            let final_dmg = final_damage_f32(*raw, mit, 0.0, *pierces);
 
             // Apply HP reduction.
             let hp_after = if let Some(u) = state.unit_mut(*target) {
@@ -1130,6 +1163,7 @@ pub fn apply_effect(
                 summoner_team,
                 pos,
                 template.armor,
+                0, // magic_resist: summons carry none (template has no magic_resist field)
                 0,
                 0,
                 template.base_speed,
@@ -1196,13 +1230,14 @@ mod tests {
             id,
             Team::Player,
             Hex::ZERO,
-            0,
-            0,
-            0,
-            3,
-            3,
-            1,
-            1,
+            0, // armor
+            0, // magic_resist
+            0, // armor_bonus
+            0, // damage_taken_bonus
+            3, // base_speed
+            3, // speed
+            1, // reactions_left
+            1, // reactions_max
             vec![],
             None,
             None,

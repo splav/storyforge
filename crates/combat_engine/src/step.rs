@@ -261,6 +261,7 @@ fn effect_for_target(
                 raw,
                 source,
                 pierces: false,
+                magic: false,
             })
         }
         EffectDef::SpellDamage { dice } => {
@@ -269,7 +270,12 @@ fn effect_for_target(
                 target,
                 raw,
                 source,
-                pierces: true,
+                // SpellDamage is magic: mitigated by magic_resist (not armor).
+                // pierces=false so magic_resist applies; old armor-bypass behavior
+                // is superseded — physical armor still doesn't reduce magic damage
+                // because we use magic_resist branch, not armor branch.
+                pierces: false,
+                magic: true,
             })
         }
         EffectDef::WeaponAttack => {
@@ -280,6 +286,7 @@ fn effect_for_target(
                 raw,
                 source,
                 pierces: false,
+                magic: false,
             })
         }
         EffectDef::Heal { dice } => {
@@ -603,6 +610,7 @@ fn step_inner(
                             raw,
                             source: crate::state::EffectSource::Unit(*actor),
                             pierces: false,
+                            magic: false,
                         });
                     }
                     crate::content::CritFailOutcome::ApplyStatus(status_id) => {

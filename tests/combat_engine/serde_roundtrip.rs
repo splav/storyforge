@@ -252,6 +252,7 @@ fn effect_damage() {
         raw: 15.0,
         source: EffectSource::Unit(uid(1)),
         pierces: false,
+        magic: false,
     });
 }
 
@@ -262,6 +263,7 @@ fn effect_damage_env_source() {
         raw: 5.0,
         source: EffectSource::Env(EnvId(0)),
         pierces: true,
+        magic: false,
     });
 }
 

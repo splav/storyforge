@@ -107,6 +107,8 @@ pub struct ProjectionMeta {
     pub initial_hp: i32,
     /// Armor value (for `Vital` reconstruction).
     pub armor: i32,
+    /// Magic resist value (for `Vital` reconstruction).
+    pub magic_resist: i32,
     /// Base speed (for `Speed` component).
     pub speed: i32,
     /// Max AP (for `ActionPoints` — always 1 in current content).
@@ -330,6 +332,7 @@ fn build_class_hero(
 
     let effective = active_content.effective_stats(&cls.stats, &equipment);
     let armor = active_content.equipment_armor(&equipment);
+    let magic_resist = active_content.equipment_magic_resist(&equipment);
     let mana_bonus = active_content.equipment_mana_bonus(&equipment);
 
     // Persistent statuses (PERMANENT_DURATION; unit is own applier — mirrors spawn_combatants).
@@ -368,6 +371,7 @@ fn build_class_hero(
         team: Team::Player,
         pos: member.hex_pos,
         armor,
+        magic_resist,
         base_speed: cls.speed,
         reactions_max: 1, // Reactions::default().max = 1
         statuses: statuses_vec,
@@ -399,6 +403,7 @@ fn build_class_hero(
         max_hp: effective.max_hp,
         initial_hp: effective.max_hp,
         armor,
+        magic_resist,
         speed: cls.speed,
         max_ap: 1,
         reactions_max: 1,
@@ -444,6 +449,7 @@ fn build_template_member(
 
     let effective = active_content.effective_stats(&tpl.stats, &equipment);
     let armor = active_content.equipment_armor(&equipment);
+    let magic_resist = active_content.equipment_magic_resist(&equipment);
     let mana_bonus = active_content.equipment_mana_bonus(&equipment);
 
     // initial_pools.hp override — mirrors spawn_combatants template branch.
@@ -490,6 +496,7 @@ fn build_template_member(
         team: Team::Player,
         pos: member.hex_pos,
         armor,
+        magic_resist,
         base_speed: tpl.speed,
         reactions_max: 1,
         statuses: statuses_vec,
@@ -521,6 +528,7 @@ fn build_template_member(
         max_hp: effective.max_hp,
         initial_hp,
         armor,
+        magic_resist,
         speed: tpl.speed,
         max_ap: 1,
         reactions_max: 1,
@@ -551,6 +559,7 @@ fn build_enemy(
 
     let effective = active_content.effective_stats(&def.stats, &equipment);
     let armor = active_content.equipment_armor(&equipment);
+    let magic_resist = active_content.equipment_magic_resist(&equipment);
 
     let bridge_pools = enum_map! {
         PoolKind::Hp     => Some((effective.max_hp, effective.max_hp)),
@@ -615,6 +624,7 @@ fn build_enemy(
         team: Team::Enemy,
         pos: def.hex_pos,
         armor,
+        magic_resist,
         base_speed: def.speed,
         reactions_max: 1,
         statuses: Vec::new(), // enemies carry no persistent statuses at spawn
@@ -669,6 +679,7 @@ fn build_enemy(
         max_hp: effective.max_hp,
         initial_hp: effective.max_hp,
         armor,
+        magic_resist,
         speed: def.speed,
         max_ap: 1,
         reactions_max: 1,
