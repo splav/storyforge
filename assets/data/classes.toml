@@ -13,8 +13,9 @@ main_hand    = "long_sword"
 chest        = "plate_armor"
 legs         = "plate_greaves"
 feet         = "leather_boots"
-ability_ids  = ["melee_attack", "taunt", "stun", "rush"]
-rage_max     = 5
+ability_ids          = ["melee_attack", "taunt", "stun", "rush"]
+rage_max             = 5
+armor_proficiencies  = ["medium", "heavy"]
 
 [[classes]]
 id           = "mage"
@@ -31,8 +32,9 @@ main_hand    = "staff"
 chest        = "mage_robe"
 legs         = "cloth_pants"
 feet         = "cloth_shoes"
-ability_ids  = ["melee_attack", "flash", "burn", "fireball", "heal"]
-mana_max     = 10
+ability_ids          = ["melee_attack", "flash", "burn", "fireball", "heal"]
+mana_max             = 10
+armor_proficiencies  = []
 
 [[classes]]
 id           = "ranger"
@@ -49,5 +51,6 @@ main_hand    = "dagger"
 chest        = "leather_vest"
 legs         = "leather_pants"
 feet         = "leather_boots"
-ability_ids  = ["melee_attack", "bow_shot", "paralyzing_shot", "field_medic", "poison_shot", "scout_traps"]
-energy_max   = 6
+ability_ids          = ["melee_attack", "bow_shot", "paralyzing_shot", "field_medic", "poison_shot", "scout_traps"]
+energy_max           = 6
+armor_proficiencies  = ["medium"]

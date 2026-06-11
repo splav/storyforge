@@ -1,19 +1,23 @@
 [[items]]
-id    = "iron_boots"
-name  = "Железные сапоги"
-armor = 1
+id     = "iron_boots"
+name   = "Железные сапоги"
+armor  = 1
+weight = "heavy"
 
 [[items]]
-id    = "heavy_boots"
-name  = "Тяжёлые сапоги"
-armor = 0
+id     = "heavy_boots"
+name   = "Тяжёлые сапоги"
+armor  = 0
+weight = "heavy"
 
 [[items]]
-id    = "leather_boots"
-name  = "Кожаные ботинки"
-armor = 0
+id     = "leather_boots"
+name   = "Кожаные ботинки"
+armor  = 0
+weight = "medium"
 
 [[items]]
-id    = "cloth_shoes"
-name  = "Тканевая обувь"
-armor = 0
+id     = "cloth_shoes"
+name   = "Тканевая обувь"
+armor  = 0
+weight = "light"

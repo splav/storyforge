@@ -1,14 +1,17 @@
 [[items]]
-id    = "plate_greaves"
-name  = "Латные поножи"
-armor = 1
+id     = "plate_greaves"
+name   = "Латные поножи"
+armor  = 1
+weight = "heavy"
 
 [[items]]
-id    = "leather_pants"
-name  = "Кожаные штаны"
-armor = 0
+id     = "leather_pants"
+name   = "Кожаные штаны"
+armor  = 0
+weight = "medium"
 
 [[items]]
-id    = "cloth_pants"
-name  = "Тканевые штаны"
-armor = 0
+id     = "cloth_pants"
+name   = "Тканевые штаны"
+armor  = 0
+weight = "light"

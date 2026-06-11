@@ -1,5 +1,5 @@
 use combat_engine::DiceExpr;
-use storyforge::content::armor::{ArmorDef, ArmorSlot};
+use storyforge::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
 use storyforge::content::content_view::ContentView;
 use storyforge::content::weapons::{HandType, WeaponDef};
 use storyforge::game::components::{CombatStats, Equipment};
@@ -23,6 +23,7 @@ fn armor_piece(id: &str, slot: ArmorSlot, armor: i32) -> ArmorDef {
         id: id.into(),
         name: id.into(),
         slot,
+        weight: ArmorWeight::Light,
         armor,
         max_hp: 0,
         strength: 0,
@@ -45,6 +46,7 @@ fn armor_with_bonus(
         id: id.into(),
         name: id.into(),
         slot,
+        weight: ArmorWeight::Light,
         armor,
         max_hp: 0,
         strength,

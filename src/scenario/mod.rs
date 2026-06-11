@@ -1439,7 +1439,7 @@ mod tests {
 
     /// Build a `ContentView` with one weapon and one armor item for reward tests.
     fn rewards_content() -> ContentView {
-        use crate::content::armor::{ArmorDef, ArmorSlot};
+        use crate::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
         use crate::content::weapons::{HandType, WeaponDef};
         use combat_engine::{ArmorId, DiceExpr, WeaponId};
 
@@ -1471,6 +1471,7 @@ mod tests {
                 id: armor_id,
                 name: "Plate Y".into(),
                 slot: ArmorSlot::Chest,
+                weight: ArmorWeight::Light,
                 armor: 3,
                 max_hp: 0,
                 strength: 0,

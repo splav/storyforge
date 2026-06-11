@@ -225,11 +225,14 @@ spell_power = 1
 ```toml
 # chest.toml / legs.toml / feet.toml
 [[items]]
-id    = "plate_armor"
-name  = "Латная кираса"
-armor = 2
+id     = "plate_armor"
+name   = "Латная кираса"
+armor  = 2
+weight = "heavy"      # light (default) | medium | heavy
 # optional stat bonuses
 ```
+
+Each armor piece declares a `weight` class: `"light"` (cloth/padded, default), `"medium"` (leather/mail), or `"heavy"` (plate/iron). The field is optional — omitting it defaults to `"light"`. Weight is used as a **camp-screen-only passive gate**: a hero may only equip medium or heavy armor if their class lists that weight in `armor_proficiencies` (see below). Light armor is always allowed regardless of class. This gate is enforced only in the camp UI — combat systems never consult it.
 
 ## Classes (`classes.toml`)
 
@@ -247,11 +250,14 @@ off_hand     = null              # optional; second weapon
 chest        = "leather_vest"
 legs         = "leather_pants"
 feet         = "leather_boots"
-ability_ids  = ["melee_attack", "bow_shot"]
-mana_max     = 0
-rage_max     = 0
-energy_max   = 6
+ability_ids          = ["melee_attack", "bow_shot"]
+mana_max             = 0
+rage_max             = 0
+energy_max           = 6
+armor_proficiencies  = ["medium"]   # optional; lists medium/heavy weights the class is trained in
 ```
+
+`armor_proficiencies` is an optional list of armor weight classes the hero is trained to wear. Light armor is always free and should **not** be listed. An empty list (or omitting the field) means the class can only wear light armor. This is a passive gate enforced only on the camp screen — it is not checked during combat.
 
 ## Unit Templates
 

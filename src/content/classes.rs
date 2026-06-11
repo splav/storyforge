@@ -1,3 +1,4 @@
+use crate::content::armor::ArmorWeight;
 use crate::game::components::CombatStats;
 use combat_engine::{AbilityId, ArmorId, WeaponId};
 use serde::Deserialize;
@@ -17,6 +18,10 @@ pub struct ClassDef {
     pub rage_max: i32,   // 0 — нет механики ярости
     pub mana_max: i32,   // 0 — нет механики маны
     pub energy_max: i32, // 0 — нет механики энергии
+    /// Medium/Heavy armor weights this class is trained in. Light armor is always
+    /// allowed and never listed. Empty = light-only (e.g. mage/healer).
+    /// Camp-screen gate only — not enforced in combat.
+    pub armor_proficiencies: Vec<ArmorWeight>,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -51,6 +56,8 @@ struct ClassRecord {
     mana_max: i32,
     #[serde(default)]
     energy_max: i32,
+    #[serde(default)]
+    armor_proficiencies: Vec<ArmorWeight>,
 }
 
 pub const CLASSES_FILE: &str = "classes.toml";
@@ -95,6 +102,31 @@ pub fn parse_classes(path: &str, src: &str) -> Vec<ClassDef> {
             rage_max: r.rage_max,
             mana_max: r.mana_max,
             energy_max: r.energy_max,
+            armor_proficiencies: r.armor_proficiencies,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shipped_classes_have_correct_armor_proficiencies() {
+        let src = include_str!("../../assets/data/classes.toml");
+        let classes = parse_classes("assets/data/classes.toml", src);
+
+        let find = |id: &str| {
+            classes
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap_or_else(|| panic!("class '{id}' not found"))
+                .armor_proficiencies
+                .clone()
+        };
+
+        assert_eq!(find("warrior"), vec![ArmorWeight::Medium, ArmorWeight::Heavy]);
+        assert_eq!(find("ranger"),  vec![ArmorWeight::Medium]);
+        assert_eq!(find("mage"),    Vec::<ArmorWeight>::new());
+    }
 }

@@ -8,11 +8,25 @@ pub enum ArmorSlot {
     Feet,
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArmorWeight {
+    /// Cloth/padded. Anyone may wear light armor — no proficiency required.
+    #[default]
+    Light,
+    /// Leather, mail. Requires the wearer's class to have the medium proficiency.
+    Medium,
+    /// Plate, iron. Requires the heavy proficiency.
+    Heavy,
+}
+
 #[derive(Debug, Clone)]
 pub struct ArmorDef {
     pub id: ArmorId,
     pub name: String,
     pub slot: ArmorSlot,
+    pub weight: ArmorWeight,
     pub armor: i32,
     // stat bonuses
     pub max_hp: i32,
@@ -35,6 +49,8 @@ struct ArmorFile {
 struct ArmorRecord {
     id: String,
     name: String,
+    #[serde(default)]
+    weight: ArmorWeight,
     #[serde(default)]
     armor: i32,
     #[serde(default)]
@@ -62,6 +78,7 @@ pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
             id: ArmorId::from(r.id.as_str()),
             name: r.name,
             slot,
+            weight: r.weight,
             armor: r.armor,
             max_hp: r.max_hp,
             strength: r.strength,

@@ -30,7 +30,7 @@
 
 use super::button::{spawn_standard_button, ButtonStyle};
 use crate::app_state::AppState;
-use crate::content::armor::{ArmorDef, ArmorSlot};
+use crate::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
 use crate::content::content_view::ActiveContent;
 use crate::content::item_ref::{EquipmentSave, ItemRef};
 use crate::content::scenarios::active_party;
@@ -274,6 +274,26 @@ fn armor_name<'a>(id: &ArmorId, content: &'a crate::content::content_view::Conte
     content.armor.get(id).map(|d| d.name.as_str()).unwrap_or("?")
 }
 
+/// Russian label for an armor-weight class, shown on the comparison card.
+fn armor_weight_label(weight: ArmorWeight) -> &'static str {
+    match weight {
+        ArmorWeight::Light => "Лёгкая",
+        ArmorWeight::Medium => "Средняя",
+        ArmorWeight::Heavy => "Тяжёлая",
+    }
+}
+
+/// Weight class of an item — `Some` only for armor (weapons have no class).
+fn item_weight(
+    item: &ItemRef,
+    content: &crate::content::content_view::ContentView,
+) -> Option<ArmorWeight> {
+    match item {
+        ItemRef::Armor(aid) => content.armor.get(aid).map(|d| d.weight),
+        ItemRef::Weapon(_) => None,
+    }
+}
+
 /// Short display label for an item (first 8 chars to fit in the 56px cell).
 fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentView) -> String {
     let full = match item {
@@ -293,24 +313,30 @@ fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentVi
 pub struct ComparisonCard;
 
 /// One stat row in the comparison card.
+///
+/// Orientation is **role-based, not selection-based**: `equipped_val` is always
+/// the stat of the item currently worn by the hero, `incoming_val` the stat of
+/// the candidate item from the backpack. The displayed delta is therefore always
+/// `incoming − equipped` = "the change for the character", regardless of whether
+/// the player clicked the worn item or the backpack item first.
 #[derive(Debug, Clone)]
 pub struct CompareRow {
     pub label: String,
-    /// Value for the selected item (left column).
-    pub selected_val: f32,
-    /// Value for the hovered item (right column).
-    pub hovered_val: f32,
+    /// Value for the currently-equipped item (left column / baseline).
+    pub equipped_val: f32,
+    /// Value for the incoming backpack item (right column / candidate).
+    pub incoming_val: f32,
 }
 
-/// Build comparison rows for two items.
+/// Build comparison rows between the currently-equipped item and an incoming one.
 ///
 /// Returns only rows where at least one item has a non-zero value.
 /// Delegates stat extraction to `item_stats`.
 ///
 /// Pure function — no Bevy types, fully unit-testable.
 pub fn compare_items(
-    selected: &ItemRef,
-    hovered: &ItemRef,
+    equipped: &ItemRef,
+    incoming: &ItemRef,
     weapons: &std::collections::HashMap<WeaponId, WeaponDef>,
     armor: &std::collections::HashMap<ArmorId, ArmorDef>,
 ) -> Vec<CompareRow> {
@@ -320,8 +346,8 @@ pub fn compare_items(
         "СИЛ", "ЛОВ", "ТЕЛ", "ИНТ", "МУД", "ХАР",
     ];
 
-    let sel_stats = item_stats(selected, weapons, armor);
-    let hov_stats = item_stats(hovered, weapons, armor);
+    let eq_stats = item_stats(equipped, weapons, armor);
+    let in_stats = item_stats(incoming, weapons, armor);
 
     let val_of = |stats: &[(String, f32)], label: &str| -> f32 {
         stats.iter().find(|(l, _)| l == label).map_or(0.0, |(_, v)| *v)
@@ -330,18 +356,35 @@ pub fn compare_items(
     LABELS
         .iter()
         .filter_map(|label| {
-            let sv = val_of(&sel_stats, label);
-            let hv = val_of(&hov_stats, label);
-            if sv == 0.0 && hv == 0.0 {
+            let ev = val_of(&eq_stats, label);
+            let iv = val_of(&in_stats, label);
+            if ev == 0.0 && iv == 0.0 {
                 return None;
             }
             Some(CompareRow {
                 label: label.to_string(),
-                selected_val: sv,
-                hovered_val: hv,
+                equipped_val: ev,
+                incoming_val: iv,
             })
         })
         .collect()
+}
+
+/// Orient a worn-vs-incoming comparison by **role**, not selection order.
+///
+/// Fixes the sign-flip bug where the delta direction depended on which cell the
+/// player clicked first. `cell_compatible` only ever offers an Equip↔Backpack
+/// pair, so the selected cell's kind fully determines roles: returns
+/// `(worn, incoming)` with the equip-slot item as `worn`. A delta computed as
+/// `incoming − worn` is then always "the change for the hero".
+///
+/// Pure function — no Bevy types, fully unit-testable.
+fn orient_comparison<T>(selected_kind: &CellKind, selected: T, hovered: T) -> (T, T) {
+    if matches!(selected_kind, CellKind::Equip { .. }) {
+        (selected, hovered) // selected worn, hovered backpack
+    } else {
+        (hovered, selected) // selected backpack, hovered worn
+    }
 }
 
 /// How to render a cell when a selection is active.
@@ -445,6 +488,7 @@ pub fn cell_compatible(
                 .unwrap_or("");
             let eq = resolve_hero_equipment(hero_id, class_id, campaign, content);
             try_equip(&eq, slot, item.clone(), &content.weapons, &content.armor).is_ok()
+                && hero_can_wear(class_id, item, content)
         }
         // Backpack → Backpack: always incompatible (we only offer equip-slot targets).
         (CellKind::Backpack { .. }, CellKind::Backpack { .. }) => false,
@@ -462,9 +506,34 @@ pub fn cell_compatible(
                 .unwrap_or("");
             let eq = resolve_hero_equipment(hero_id, class_id, campaign, content);
             try_equip(&eq, slot, item.clone(), &content.weapons, &content.armor).is_ok()
+                && hero_can_wear(class_id, item, content)
         }
         // Equip → Equip: not supported.
         (CellKind::Equip { .. }, CellKind::Equip { .. }) => false,
+    }
+}
+
+/// Camp-only passive proficiency gate: may a hero of `class_id` wear `item`?
+///
+/// Weapons and Light armor are unrestricted. Medium/Heavy armor require the
+/// hero's class to list that weight in `armor_proficiencies`. Unknown class or
+/// unknown armor id → denied (fail-closed): the camp only ever shows real player
+/// classes, so a miss signals a content/resolution bug we want surfaced, not a
+/// mage silently granted plate. Light armor stays allowed even for an unknown
+/// class. Enforced ONLY here (camp); engine/combat never consult this.
+fn hero_can_wear(
+    class_id: &str,
+    item: &ItemRef,
+    content: &crate::content::content_view::ContentView,
+) -> bool {
+    let ItemRef::Armor(aid) = item else { return true }; // weapons: always
+    let Some(def) = content.armor.get(aid) else { return false }; // unknown item: deny
+    match def.weight {
+        ArmorWeight::Light => true, // anyone
+        w => content
+            .classes
+            .get(class_id)
+            .is_some_and(|c| c.armor_proficiencies.contains(&w)), // unknown class: deny
     }
 }
 
@@ -1028,8 +1097,9 @@ pub fn camp_interaction_system(
             let content = &active_content.0;
             let current_save = resolve_hero_equipment(&hero_id, &class_id, camp, content);
 
+            let proficient = hero_can_wear(&class_id, &item, content);
             match try_equip(&current_save, &slot, item.clone(), &content.weapons, &content.armor) {
-                Ok(result) => {
+                Ok(result) if proficient => {
                     // ── True swap: backpack item → equip slot, displaced → same backpack cell ──
 
                     // Two-handed weapon: the off-hand that gets cleared also returns
@@ -1064,6 +1134,12 @@ pub fn camp_interaction_system(
                     camp.loadouts.insert(hero_id.clone(), result.new_save);
 
                     // Clear selection and rebuild.
+                    selection.selected = None;
+                    clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
+                    rebuild.0 = true;
+                }
+                Ok(_) => {
+                    warn!("camp: '{}' lacks armor proficiency for {:?}", hero_id, item);
                     selection.selected = None;
                     clear_selection(&mut commands, &selected_entities, &mut borders, &mut backgrounds);
                     rebuild.0 = true;
@@ -1219,15 +1295,26 @@ pub fn camp_comparison_system(
     commands.entity(card_entity).with_children(|card| {
         if let Some(hov_kind) = compare_hovered {
             // ── Two-column comparison mode ───────────────────────────────
+            // Orientation is role-based, not click-order-based: the worn item is
+            // always the left/baseline column, the backpack candidate the right
+            // column, so the delta always reads as "change for the hero".
+            // `cell_compatible` only ever pairs an Equip cell with a Backpack
+            // cell, so exactly one of {selected, hovered} is each kind.
             let hov_item = cell_item(&hov_kind, &campaign, &db, &scenario_state, content)
                 .expect("hov item already validated above");
             let hov_name = match &hov_item {
                 ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
                 ItemRef::Armor(aid)  => armor_name(aid, content).to_string(),
             };
-            let rows = compare_items(&sel_item, &hov_item, &content.weapons, &content.armor);
 
-            // Header row: "Выбрано / Наведено"
+            let (worn_item, new_item) =
+                orient_comparison(&selected_kind, &sel_item, &hov_item);
+            let (worn_name, new_name) =
+                orient_comparison(&selected_kind, &sel_name, &hov_name);
+
+            let rows = compare_items(worn_item, new_item, &content.weapons, &content.armor);
+
+            // Header row: "<надето> / <новое>" (worn on the left, candidate right).
             card.spawn(Node {
                 flex_direction: FlexDirection::Row,
                 column_gap: Val::Px(8.0),
@@ -1235,7 +1322,7 @@ pub fn camp_comparison_system(
             })
             .with_children(|row| {
                 row.spawn((
-                    Text::new(sel_name),
+                    Text::new(worn_name.clone()),
                     TextFont { font: font.clone(), font_size: 12.0, ..default() },
                     TextColor(Color::srgb(0.95, 0.85, 0.5)),
                 ));
@@ -1245,15 +1332,50 @@ pub fn camp_comparison_system(
                     TextColor(Color::srgb(0.6, 0.6, 0.6)),
                 ));
                 row.spawn((
-                    Text::new(hov_name),
+                    Text::new(new_name.clone()),
                     TextFont { font: font.clone(), font_size: 12.0, ..default() },
                     TextColor(Color::srgb(0.5, 0.85, 0.95)),
                 ));
             });
 
-            // Stat rows with delta.
+            // Armor-class row (categorical, no numeric delta). Only for armor —
+            // weapons have no weight class. Both columns are the same item kind
+            // (cell_compatible never offers weapon↔armor), so both resolve.
+            if let (Some(worn_w), Some(new_w)) =
+                (item_weight(worn_item, content), item_weight(new_item, content))
+            {
+                card.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(6.0),
+                    ..default()
+                })
+                .with_children(|row| {
+                    row.spawn((
+                        Text::new(format!("{:<10}", "Класс")),
+                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(0.75, 0.75, 0.75)),
+                    ));
+                    row.spawn((
+                        Text::new(armor_weight_label(worn_w)),
+                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(0.95, 0.85, 0.5)),
+                    ));
+                    row.spawn((
+                        Text::new(" → "),
+                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(0.6, 0.6, 0.6)),
+                    ));
+                    row.spawn((
+                        Text::new(armor_weight_label(new_w)),
+                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(0.5, 0.85, 0.95)),
+                    ));
+                });
+            }
+
+            // Stat rows with delta = incoming − equipped.
             for row_data in &rows {
-                let delta = row_data.hovered_val - row_data.selected_val;
+                let delta = row_data.incoming_val - row_data.equipped_val;
                 let delta_color = if delta > 0.0 {
                     Color::srgb(0.3, 0.9, 0.3)
                 } else if delta < 0.0 {
@@ -1279,7 +1401,7 @@ pub fn camp_comparison_system(
                         TextColor(Color::srgb(0.75, 0.75, 0.75)),
                     ));
                     row.spawn((
-                        Text::new(format!("{:.0}", row_data.selected_val)),
+                        Text::new(format!("{:.0}", row_data.equipped_val)),
                         TextFont { font: font.clone(), font_size: 11.0, ..default() },
                         TextColor(Color::srgb(0.95, 0.85, 0.5)),
                     ));
@@ -1289,7 +1411,7 @@ pub fn camp_comparison_system(
                         TextColor(delta_color),
                     ));
                     row.spawn((
-                        Text::new(format!("{:.0}", row_data.hovered_val)),
+                        Text::new(format!("{:.0}", row_data.incoming_val)),
                         TextFont { font: font.clone(), font_size: 11.0, ..default() },
                         TextColor(Color::srgb(0.5, 0.85, 0.95)),
                     ));
@@ -1323,6 +1445,27 @@ pub fn camp_comparison_system(
                     TextColor(Color::srgb(0.95, 0.85, 0.5)),
                 ));
             });
+
+            // Armor-class line (armor only — weapons have no weight class).
+            if let Some(w) = item_weight(&sel_item, content) {
+                card.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(6.0),
+                    ..default()
+                })
+                .with_children(|row| {
+                    row.spawn((
+                        Text::new(format!("{:<10}", "Класс")),
+                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(0.75, 0.75, 0.75)),
+                    ));
+                    row.spawn((
+                        Text::new(armor_weight_label(w)),
+                        TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(0.95, 0.85, 0.5)),
+                    ));
+                });
+            }
 
             let stats = item_stats(&sel_item, &content.weapons, &content.armor);
             for (label, val) in &stats {
@@ -1361,10 +1504,11 @@ pub fn camp_comparison_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::armor::{ArmorDef, ArmorSlot};
+    use crate::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
     use crate::content::weapons::{HandType, WeaponDef};
     use combat_engine::{ArmorId, DiceExpr, WeaponId};
     use std::collections::HashMap;
+    use toml;
 
     // ── Test content builders ────────────────────────────────────────────────
 
@@ -1388,6 +1532,7 @@ mod tests {
             id: aid.clone(),
             name: id.to_string(),
             slot,
+            weight: ArmorWeight::Light,
             armor: 1, max_hp: 0,
             strength: 0, dexterity: 0, constitution: 0,
             intelligence: 0, wisdom: 0, charisma: 0,
@@ -1707,12 +1852,14 @@ mod tests {
         armor_val: i32,
         max_hp: i32,
         strength: i32,
+        weight: ArmorWeight,
     ) -> (ArmorId, ArmorDef) {
         let aid = ArmorId::from(id);
         let def = ArmorDef {
             id: aid.clone(),
             name: id.to_string(),
             slot,
+            weight,
             armor: armor_val,
             max_hp,
             strength,
@@ -1745,8 +1892,8 @@ mod tests {
         );
 
         let dmg = rows.iter().find(|r| r.label == "Урон").expect("Урон row present");
-        assert!((dmg.selected_val - 3.5).abs() < 0.01, "sword expected = 3.5");
-        assert!((dmg.hovered_val  - 6.0).abs() < 0.01, "axe expected = 6.0");
+        assert!((dmg.equipped_val - 3.5).abs() < 0.01, "sword expected = 3.5");
+        assert!((dmg.incoming_val - 6.0).abs() < 0.01, "axe expected = 6.0");
     }
 
     /// Two armors: compare produces "Броня", "HP", "СИЛ" rows; no "Урон" row.
@@ -1755,9 +1902,9 @@ mod tests {
         let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
         let mut armor = HashMap::new();
         // chest_a: armor=3, hp=10, str=0
-        let (id_a, def_a) = make_armor_stats("chest_a", ArmorSlot::Chest, 3, 10, 0);
+        let (id_a, def_a) = make_armor_stats("chest_a", ArmorSlot::Chest, 3, 10, 0, ArmorWeight::Light);
         // chest_b: armor=5, hp=0, str=2
-        let (id_b, def_b) = make_armor_stats("chest_b", ArmorSlot::Chest, 5, 0, 2);
+        let (id_b, def_b) = make_armor_stats("chest_b", ArmorSlot::Chest, 5, 0, 2, ArmorWeight::Light);
         armor.insert(id_a.clone(), def_a);
         armor.insert(id_b.clone(), def_b);
 
@@ -1775,12 +1922,12 @@ mod tests {
         assert!(!labels.contains(&"Урон"), "no Урон row for armor");
 
         let bronya = rows.iter().find(|r| r.label == "Броня").unwrap();
-        assert_eq!(bronya.selected_val as i32, 3);
-        assert_eq!(bronya.hovered_val  as i32, 5);
+        assert_eq!(bronya.equipped_val as i32, 3);
+        assert_eq!(bronya.incoming_val as i32, 5);
 
         let hp = rows.iter().find(|r| r.label == "HP").unwrap();
-        assert_eq!(hp.selected_val as i32, 10);
-        assert_eq!(hp.hovered_val  as i32, 0);
+        assert_eq!(hp.equipped_val as i32, 10);
+        assert_eq!(hp.incoming_val as i32, 0);
     }
 
     /// When both items have all-zero stats (plain default weapon), compare returns empty.
@@ -1833,7 +1980,7 @@ mod tests {
     fn item_stats_armor_returns_bronya_and_hp() {
         let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
         let mut armor = HashMap::new();
-        let (aid, adef) = make_armor_stats("plate", ArmorSlot::Chest, 5, 20, 0);
+        let (aid, adef) = make_armor_stats("plate", ArmorSlot::Chest, 5, 20, 0, ArmorWeight::Light);
         armor.insert(aid.clone(), adef);
 
         let stats = item_stats(&ItemRef::Armor(aid), &weapons, &armor);
@@ -2019,7 +2166,7 @@ mod tests {
         let mut armor = HashMap::new();
         let dice = DiceExpr { count: 1, sides: 8, bonus: 0 }; // expected = 4.5
         let (wid, wdef) = make_weapon_stats("longsword", HandType::MainHand, dice, 0, 0, 0);
-        let (aid, adef) = make_armor_stats("plate", ArmorSlot::Chest, 6, 0, 0);
+        let (aid, adef) = make_armor_stats("plate", ArmorSlot::Chest, 6, 0, 0, ArmorWeight::Light);
         weapons.insert(wid.clone(), wdef);
         armor.insert(aid.clone(), adef);
 
@@ -2035,7 +2182,239 @@ mod tests {
         assert!(dmg.is_some(),    "Урон row (weapon side is non-zero)");
         assert!(bronya.is_some(), "Броня row (armor side is non-zero)");
         let dmg = dmg.unwrap();
-        assert!((dmg.selected_val - 4.5).abs() < 0.01);
-        assert_eq!(dmg.hovered_val as i32, 0);
+        assert!((dmg.equipped_val - 4.5).abs() < 0.01);
+        assert_eq!(dmg.incoming_val as i32, 0);
+    }
+
+    // ── orient_comparison (role-based, not selection-order) ────────────────────
+
+    /// The delta direction must be `backpack − worn` regardless of which cell the
+    /// player selected first. Selecting the worn item first and selecting the
+    /// backpack item first must yield the same (worn, incoming) orientation.
+    #[test]
+    fn orient_comparison_is_role_based_not_click_order() {
+        let worn = ItemRef::Weapon(WeaponId::from("worn"));
+        let incoming = ItemRef::Weapon(WeaponId::from("incoming"));
+        let equip = CellKind::Equip {
+            hero_id: "aldric".into(),
+            slot: EquipSlot::MainHand,
+        };
+        let backpack = CellKind::Backpack { index: 0 };
+
+        // Case A: player selected the worn (equip) cell, hovers the backpack item.
+        let (w_a, i_a) = orient_comparison(&equip, &worn, &incoming);
+        // Case B: player selected the backpack item, hovers the worn (equip) cell.
+        // Selection-order is reversed, so selected=incoming, hovered=worn.
+        let (w_b, i_b) = orient_comparison(&backpack, &incoming, &worn);
+
+        assert_eq!(w_a, &worn,     "case A: worn resolved from equip cell");
+        assert_eq!(i_a, &incoming, "case A: incoming resolved from backpack");
+        assert_eq!(w_b, &worn,     "case B: worn still the equip-slot item");
+        assert_eq!(i_b, &incoming, "case B: incoming still the backpack item");
+    }
+
+    // ── ArmorWeight serde round-trip ─────────────────────────────────────────
+
+    #[test]
+    fn armor_weight_serde_round_trip() {
+        #[derive(serde::Deserialize)]
+        struct W { weight: ArmorWeight }
+
+        let cases = [
+            (r#"weight = "light""#,   ArmorWeight::Light),
+            (r#"weight = "medium""#,  ArmorWeight::Medium),
+            (r#"weight = "heavy""#,   ArmorWeight::Heavy),
+        ];
+        for (src, expected) in cases {
+            let w: W = toml::from_str(src).unwrap();
+            assert_eq!(w.weight, expected, "src: {src}");
+        }
+
+        // Missing field → default = Light
+        #[derive(serde::Deserialize)]
+        struct WOpt { #[serde(default)] weight: ArmorWeight }
+        let w: WOpt = toml::from_str("").unwrap();
+        assert_eq!(w.weight, ArmorWeight::Light);
+    }
+
+    // ── hero_can_wear ────────────────────────────────────────────────────────
+
+    /// Build a `ContentView` with light/medium/heavy chest pieces and
+    /// warrior/ranger/mage class defs — enough for proficiency tests.
+    fn proficiency_content() -> ContentView {
+        use crate::content::classes::ClassDef;
+        use crate::game::components::CombatStats;
+
+        let mut armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
+        let (id, def) = make_armor_stats("light_robe",   ArmorSlot::Chest, 0, 0, 0, ArmorWeight::Light);
+        armor.insert(id, def);
+        let (id, def) = make_armor_stats("mail_shirt",   ArmorSlot::Chest, 1, 0, 0, ArmorWeight::Medium);
+        armor.insert(id, def);
+        let (id, def) = make_armor_stats("full_plate",   ArmorSlot::Chest, 3, 0, 0, ArmorWeight::Heavy);
+        armor.insert(id, def);
+
+        let blank_stats = CombatStats { max_hp: 10, strength: 0, dexterity: 0,
+            constitution: 0, intelligence: 0, wisdom: 0, charisma: 0 };
+        let make_class = |id: &str, profs: Vec<ArmorWeight>| ClassDef {
+            id: id.to_string(),
+            name: id.to_string(),
+            stats: blank_stats.clone(),
+            speed: 3,
+            abilities: vec![],
+            main_hand: WeaponId::from(""),
+            off_hand: None,
+            chest: ArmorId::from(""),
+            legs: ArmorId::from(""),
+            feet: ArmorId::from(""),
+            rage_max: 0, mana_max: 0, energy_max: 0,
+            armor_proficiencies: profs,
+        };
+
+        let mut classes = HashMap::new();
+        classes.insert("warrior".to_string(), make_class("warrior", vec![ArmorWeight::Medium, ArmorWeight::Heavy]));
+        classes.insert("ranger".to_string(),  make_class("ranger",  vec![ArmorWeight::Medium]));
+        classes.insert("mage".to_string(),    make_class("mage",    vec![]));
+
+        ContentView { armor, classes, ..ContentView::default() }
+    }
+
+    #[test]
+    fn hero_can_wear_light_armor_always_allowed() {
+        let content = proficiency_content();
+        let item = ItemRef::Armor(ArmorId::from("light_robe"));
+        for class_id in ["warrior", "ranger", "mage", "unknown_class"] {
+            assert!(hero_can_wear(class_id, &item, &content),
+                "light armor must be allowed for '{class_id}'");
+        }
+    }
+
+    #[test]
+    fn hero_can_wear_medium_armor_proficiency() {
+        let content = proficiency_content();
+        let item = ItemRef::Armor(ArmorId::from("mail_shirt"));
+        assert!(hero_can_wear("warrior", &item, &content),  "warrior can wear medium");
+        assert!(hero_can_wear("ranger",  &item, &content),  "ranger can wear medium");
+        assert!(!hero_can_wear("mage",   &item, &content),  "mage cannot wear medium");
+        assert!(!hero_can_wear("unknown_class", &item, &content), "unknown class cannot wear medium");
+    }
+
+    #[test]
+    fn hero_can_wear_heavy_armor_proficiency() {
+        let content = proficiency_content();
+        let item = ItemRef::Armor(ArmorId::from("full_plate"));
+        assert!(hero_can_wear("warrior",       &item, &content),  "warrior can wear heavy");
+        assert!(!hero_can_wear("ranger",       &item, &content),  "ranger cannot wear heavy");
+        assert!(!hero_can_wear("mage",         &item, &content),  "mage cannot wear heavy");
+        assert!(!hero_can_wear("unknown_class",&item, &content),  "unknown class cannot wear heavy");
+    }
+
+    #[test]
+    fn hero_can_wear_weapon_always_allowed() {
+        let content = proficiency_content();
+        let item = ItemRef::Weapon(WeaponId::from("any_sword"));
+        for class_id in ["warrior", "mage", "unknown_class"] {
+            assert!(hero_can_wear(class_id, &item, &content),
+                "weapons must be allowed for '{class_id}'");
+        }
+    }
+
+    #[test]
+    fn hero_can_wear_unknown_armor_id_denied() {
+        let content = proficiency_content();
+        let item = ItemRef::Armor(ArmorId::from("nonexistent_armor"));
+        // Even a proficient class gets denied if the armor id is unknown.
+        assert!(!hero_can_wear("warrior", &item, &content));
+    }
+
+    /// `item_weight` drives the comparison-card class line: armor → its weight,
+    /// weapons → None (no class line), unknown armor → None.
+    #[test]
+    fn item_weight_resolves_armor_only() {
+        let content = proficiency_content();
+        assert_eq!(
+            item_weight(&ItemRef::Armor(ArmorId::from("mail_shirt")), &content),
+            Some(ArmorWeight::Medium),
+        );
+        assert_eq!(
+            item_weight(&ItemRef::Armor(ArmorId::from("full_plate")), &content),
+            Some(ArmorWeight::Heavy),
+        );
+        assert_eq!(
+            item_weight(&ItemRef::Weapon(WeaponId::from("any_sword")), &content),
+            None,
+            "weapons have no weight class",
+        );
+        assert_eq!(
+            item_weight(&ItemRef::Armor(ArmorId::from("nope")), &content),
+            None,
+            "unknown armor id → None",
+        );
+    }
+
+    // ── Proficiency gate in cell_compatible ──────────────────────────────────
+
+    /// A mage with a pre-equipped heavy plate can still swap in a light robe
+    /// from the backpack (gate checks the INCOMING item, not the worn one).
+    #[test]
+    fn cell_compatible_mage_can_swap_out_heavy_with_light() {
+        // Build a content view where mage has no armor proficiencies.
+        use crate::content::classes::ClassDef;
+        use crate::game::components::CombatStats;
+
+        let blank_stats = CombatStats { max_hp: 10, strength: 0, dexterity: 0,
+            constitution: 0, intelligence: 0, wisdom: 0, charisma: 0 };
+
+        let mage_class = ClassDef {
+            id: "mage".to_string(),
+            name: "Mage".to_string(),
+            stats: blank_stats,
+            speed: 4, abilities: vec![],
+            main_hand: WeaponId::from("staff"),
+            off_hand: None,
+            chest: ArmorId::from("light_robe"),
+            legs: ArmorId::from("cloth_pants"),
+            feet: ArmorId::from("cloth_shoes"),
+            rage_max: 0, mana_max: 10, energy_max: 0,
+            armor_proficiencies: vec![],
+        };
+
+        let mut armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
+        let (id, def) = make_armor_stats("light_robe", ArmorSlot::Chest, 0, 0, 0, ArmorWeight::Light);
+        armor.insert(id, def);
+        let (id, def) = make_armor_stats("full_plate", ArmorSlot::Chest, 3, 0, 0, ArmorWeight::Heavy);
+        armor.insert(id, def);
+
+        let mut classes = HashMap::new();
+        classes.insert("mage".to_string(), mage_class);
+
+        let content = ContentView { armor: armor.clone(), classes, ..ContentView::default() };
+
+        // Mage currently wearing full_plate (pre-seeded loadout).
+        let (db, ss, mut campaign, _) = compat_fixture("mage_hero", "mage", HashMap::new(), armor);
+        let loadout = crate::content::item_ref::EquipmentSave {
+            main_hand: None,
+            off_hand: None,
+            chest: ArmorId::from("full_plate"),
+            legs: ArmorId::from("cloth_pants"),
+            feet: ArmorId::from("cloth_shoes"),
+        };
+        campaign.loadouts.insert("mage_hero".to_string(), loadout);
+        // Light robe is in backpack at index 0, heavy plate also at index 1.
+        campaign.stash = vec![
+            ItemRef::Armor(ArmorId::from("light_robe")),
+            ItemRef::Armor(ArmorId::from("full_plate")),
+        ];
+
+        let light_bp = CellKind::Backpack { index: 0 };
+        let heavy_bp = CellKind::Backpack { index: 1 };
+        let chest_slot = CellKind::Equip { hero_id: "mage_hero".to_string(), slot: EquipSlot::Chest };
+
+        // Light robe in backpack → mage chest slot: COMPATIBLE (incoming is light).
+        assert!(cell_compatible(&light_bp, &chest_slot, &campaign, &db, &ss, &content),
+            "mage should be able to swap out heavy plate by equipping a light robe");
+
+        // Heavy plate in backpack → mage chest slot: NOT compatible (mage lacks heavy proficiency).
+        assert!(!cell_compatible(&heavy_bp, &chest_slot, &campaign, &db, &ss, &content),
+            "mage should NOT be able to equip a heavy plate from backpack");
     }
 }
