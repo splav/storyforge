@@ -32,6 +32,7 @@ fn armor_piece(id: &str, slot: ArmorSlot, armor: i32) -> ArmorDef {
         intelligence: 0,
         wisdom: 0,
         charisma: 0,
+        mana: 0,
     }
 }
 
@@ -55,6 +56,7 @@ fn armor_with_bonus(
         intelligence,
         wisdom: 0,
         charisma: 0,
+        mana: 0,
     }
 }
 
@@ -192,4 +194,70 @@ fn weapon_armor_counts_in_total() {
     );
     let eq = equip("shield_sword", "chest", "legs", "feet");
     assert_eq!(db.equipment_armor(&eq), 4, "chest(1) + weapon(3)");
+}
+
+// ── equipment_mana_bonus ─────────────────────────────────────────────────────
+
+fn armor_with_mana(id: &str, slot: ArmorSlot, mana: i32) -> ArmorDef {
+    ArmorDef {
+        id: id.into(),
+        name: id.into(),
+        slot,
+        weight: ArmorWeight::Light,
+        armor: 0,
+        max_hp: 0,
+        strength: 0,
+        dexterity: 0,
+        constitution: 0,
+        intelligence: 0,
+        wisdom: 0,
+        charisma: 0,
+        mana,
+    }
+}
+
+#[test]
+fn mana_bonus_from_chest_armor() {
+    let db = db_with(
+        vec![weapon("sword", HandType::MainHand)],
+        vec![
+            armor_with_mana("mage_robe", ArmorSlot::Chest, 1),
+            armor_piece("legs", ArmorSlot::Legs, 0),
+            armor_piece("feet", ArmorSlot::Feet, 0),
+        ],
+    );
+    let eq = equip("sword", "mage_robe", "legs", "feet");
+    assert_eq!(db.equipment_mana_bonus(&eq), 1, "mage_robe gives +1 mana");
+}
+
+#[test]
+fn mana_bonus_sums_across_armor_slots() {
+    let db = db_with(
+        vec![weapon("sword", HandType::MainHand)],
+        vec![
+            armor_with_mana("chest", ArmorSlot::Chest, 1),
+            armor_with_mana("legs", ArmorSlot::Legs, 2),
+            armor_with_mana("feet", ArmorSlot::Feet, 0),
+        ],
+    );
+    let eq = equip("sword", "chest", "legs", "feet");
+    assert_eq!(
+        db.equipment_mana_bonus(&eq),
+        3,
+        "chest(1) + legs(2) + feet(0) = 3"
+    );
+}
+
+#[test]
+fn mana_bonus_zero_for_non_magical_armor() {
+    let db = db_with(
+        vec![weapon("sword", HandType::MainHand)],
+        vec![
+            armor_piece("heavy_plate", ArmorSlot::Chest, 3),
+            armor_piece("legs", ArmorSlot::Legs, 1),
+            armor_piece("feet", ArmorSlot::Feet, 1),
+        ],
+    );
+    let eq = equip("sword", "heavy_plate", "legs", "feet");
+    assert_eq!(db.equipment_mana_bonus(&eq), 0);
 }

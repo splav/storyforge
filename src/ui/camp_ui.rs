@@ -377,6 +377,7 @@ pub fn compare_items(
     const LABELS: &[&str] = &[
         "Урон",
         "Сила закл.",
+        "Мана",
         "Броня",
         "HP",
         "СИЛ",
@@ -466,6 +467,7 @@ pub fn item_stats(
         intelligence,
         wisdom,
         charisma,
+        mana,
     ) = match item {
         ItemRef::Weapon(wid) => {
             if let Some(def) = weapons.get(wid) {
@@ -480,9 +482,10 @@ pub fn item_stats(
                     def.intelligence as f32,
                     def.wisdom as f32,
                     def.charisma as f32,
+                    0.0, // weapons carry no mana bonus
                 )
             } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             }
         }
         ItemRef::Armor(aid) => {
@@ -498,9 +501,10 @@ pub fn item_stats(
                     def.intelligence as f32,
                     def.wisdom as f32,
                     def.charisma as f32,
+                    def.mana as f32,
                 )
             } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             }
         }
     };
@@ -508,6 +512,7 @@ pub fn item_stats(
     let candidates: &[(&str, f32)] = &[
         ("Урон", damage),
         ("Сила закл.", spell_power),
+        ("Мана", mana),
         ("Броня", armor_val),
         ("HP", max_hp),
         ("СИЛ", strength),
@@ -1853,6 +1858,7 @@ mod tests {
             intelligence: 0,
             wisdom: 0,
             charisma: 0,
+            mana: 0,
         };
         (aid, def)
     }
@@ -2249,6 +2255,7 @@ mod tests {
             intelligence: 0,
             wisdom: 0,
             charisma: 0,
+            mana: 0,
         };
         (aid, def)
     }
@@ -2414,6 +2421,60 @@ mod tests {
             &armor,
         );
         assert!(stats.is_empty());
+    }
+
+    /// Armor with mana > 0 yields a "Мана" row; weapon never does.
+    #[test]
+    fn item_stats_armor_with_mana_yields_mana_row() {
+        let weapons: HashMap<WeaponId, WeaponDef> = HashMap::new();
+        let mut armor = HashMap::new();
+        let aid = ArmorId::from("mage_robe");
+        let def = ArmorDef {
+            id: aid.clone(),
+            name: "mage_robe".into(),
+            slot: ArmorSlot::Chest,
+            weight: ArmorWeight::Light,
+            armor: 0,
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+            mana: 2,
+        };
+        armor.insert(aid.clone(), def);
+
+        let stats = item_stats(&ItemRef::Armor(aid), &weapons, &armor);
+        let labels: Vec<&str> = stats.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(
+            labels.contains(&"Мана"),
+            "armor with mana should show Мана row"
+        );
+        let mana_row = stats.iter().find(|(l, _)| l == "Мана").unwrap();
+        assert!((mana_row.1 - 2.0).abs() < 0.01);
+    }
+
+    /// Weapon never yields a "Мана" row even when mana was the caller's intent.
+    #[test]
+    fn item_stats_weapon_has_no_mana_row() {
+        let dice = DiceExpr {
+            count: 1,
+            sides: 6,
+            bonus: 0,
+        };
+        let mut weapons = HashMap::new();
+        let (wid, wdef) = make_weapon_stats("staff", HandType::MainHand, dice, 0, 0, 0);
+        weapons.insert(wid.clone(), wdef);
+        let armor: HashMap<ArmorId, ArmorDef> = HashMap::new();
+
+        let stats = item_stats(&ItemRef::Weapon(wid), &weapons, &armor);
+        let labels: Vec<&str> = stats.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(
+            !labels.contains(&"Мана"),
+            "weapons must not show a Мана row"
+        );
     }
 
     // ── cell_compatible helpers ───────────────────────────────────────────────

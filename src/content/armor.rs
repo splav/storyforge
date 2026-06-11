@@ -35,6 +35,9 @@ pub struct ArmorDef {
     pub intelligence: i32,
     pub wisdom: i32,
     pub charisma: i32,
+    /// Flat bonus added to the wearer's mana pool at spawn (casters only —
+    /// see `ContentView::equipment_mana_bonus`). 0 for non-magical armor.
+    pub mana: i32,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -66,6 +69,8 @@ struct ArmorRecord {
     wisdom: i32,
     #[serde(default)]
     charisma: i32,
+    #[serde(default)]
+    mana: i32,
 }
 
 pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
@@ -86,6 +91,7 @@ pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
             intelligence: r.intelligence,
             wisdom: r.wisdom,
             charisma: r.charisma,
+            mana: r.mana,
         })
         .collect()
 }

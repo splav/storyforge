@@ -230,9 +230,12 @@ name   = "Латная кираса"
 armor  = 2
 weight = "heavy"      # light (default) | medium | heavy
 # optional stat bonuses
+# mana = 1            # flat bonus added to the wearer's mana pool at spawn (casters only)
 ```
 
-Each armor piece declares a `weight` class: `"light"` (cloth/padded, default), `"medium"` (leather/mail), or `"heavy"` (plate/iron). The field is optional — omitting it defaults to `"light"`. Weight is used as a **camp-screen-only passive gate**: a hero may only equip medium or heavy armor if their class lists that weight in `armor_proficiencies` (see below). Light armor is always allowed regardless of class. This gate is enforced only in the camp UI — combat systems never consult it.
+Each armor piece declares a `weight` class: `"light"` (cloth/padded, default), `"medium"` (leather/mail), or `"heavy"` (plate/iron).
+
+The optional `mana` field grants a flat bonus to the wearer's mana pool at spawn. It only augments an **existing** pool — gear never creates a mana pool for a non-caster (a class with `mana_max = 0` receives no `Mana` component regardless of armor). Only the three armor slots (chest/legs/feet) contribute to this bonus; weapons are intentionally excluded. The field is optional — omitting it defaults to `"light"`. Weight is used as a **camp-screen-only passive gate**: a hero may only equip medium or heavy armor if their class lists that weight in `armor_proficiencies` (see below). Light armor is always allowed regardless of class. This gate is enforced only in the camp UI — combat systems never consult it.
 
 ## Classes (`classes.toml`)
 

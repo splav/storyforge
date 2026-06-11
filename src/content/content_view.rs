@@ -89,6 +89,18 @@ impl ContentView {
         }
         total
     }
+
+    /// Flat mana-pool bonus from worn armor. Sums the three armor slots' `mana`.
+    /// Weapons are intentionally excluded (no weapon carries mana today); the
+    /// armor-only shape makes that exclusion explicit — adding weapon-mana later
+    /// is a deliberate change, not a silent flip.
+    pub fn equipment_mana_bonus(&self, equipment: &Equipment) -> i32 {
+        [&equipment.chest, &equipment.legs, &equipment.feet]
+            .into_iter()
+            .filter_map(|id| self.armor.get(id))
+            .map(|a| a.mana)
+            .sum()
+    }
 }
 
 impl ContentView {

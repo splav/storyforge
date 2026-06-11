@@ -330,6 +330,7 @@ fn build_class_hero(
 
     let effective = active_content.effective_stats(&cls.stats, &equipment);
     let armor = active_content.equipment_armor(&equipment);
+    let mana_bonus = active_content.equipment_mana_bonus(&equipment);
 
     // Persistent statuses (PERMANENT_DURATION; unit is own applier — mirrors spawn_combatants).
     let statuses_vec: Vec<ActiveStatus> = party_statuses
@@ -344,7 +345,7 @@ fn build_class_hero(
 
     let bridge_pools = enum_map! {
         PoolKind::Hp     => Some((effective.max_hp, effective.max_hp)),
-        PoolKind::Mana   => (cls.mana_max > 0).then_some((cls.mana_max, cls.mana_max)),
+        PoolKind::Mana   => (cls.mana_max > 0).then_some((cls.mana_max + mana_bonus, cls.mana_max + mana_bonus)),
         PoolKind::Rage   => (cls.rage_max > 0).then_some((0, cls.rage_max)),
         PoolKind::Energy => (cls.energy_max > 0).then_some((cls.energy_max, cls.energy_max)),
         PoolKind::Ap     => Some((1, 1)),
@@ -443,6 +444,7 @@ fn build_template_member(
 
     let effective = active_content.effective_stats(&tpl.stats, &equipment);
     let armor = active_content.equipment_armor(&equipment);
+    let mana_bonus = active_content.equipment_mana_bonus(&equipment);
 
     // initial_pools.hp override — mirrors spawn_combatants template branch.
     let initial_hp = tpl
@@ -467,7 +469,7 @@ fn build_template_member(
 
     let bridge_pools = enum_map! {
         PoolKind::Hp     => Some((initial_hp, effective.max_hp)),
-        PoolKind::Mana   => (tpl.resources.mana_max > 0).then_some((tpl.resources.mana_max, tpl.resources.mana_max)),
+        PoolKind::Mana   => (tpl.resources.mana_max > 0).then_some((tpl.resources.mana_max + mana_bonus, tpl.resources.mana_max + mana_bonus)),
         PoolKind::Rage   => (tpl.resources.rage_max > 0).then_some((0, tpl.resources.rage_max)),
         PoolKind::Energy => (tpl.resources.energy_max > 0).then_some((tpl.resources.energy_max, tpl.resources.energy_max)),
         PoolKind::Ap     => Some((1, 1)),

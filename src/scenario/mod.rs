@@ -1495,6 +1495,7 @@ mod tests {
                 intelligence: 0,
                 wisdom: 0,
                 charisma: 0,
+                mana: 0,
             },
         );
         content

@@ -101,6 +101,7 @@ pub fn spawn_combatants(
             };
             let effective = content.effective_stats(&tpl.stats, &equipment);
             let armor = content.equipment_armor(&equipment);
+            let mana_bonus = content.equipment_mana_bonus(&equipment);
             let role = infer_profile(
                 &tpl.ability_ids,
                 effective.max_hp,
@@ -141,7 +142,7 @@ pub fn spawn_combatants(
             });
             // Pool components — for templates that declare them.
             if tpl.resources.mana_max > 0 {
-                ec.insert(Mana::new(tpl.resources.mana_max));
+                ec.insert(Mana::new(tpl.resources.mana_max + mana_bonus));
             }
             if tpl.resources.rage_max > 0 {
                 ec.insert(Rage::new(tpl.resources.rage_max));
@@ -250,6 +251,7 @@ pub fn spawn_combatants(
         };
         let effective = content.effective_stats(&cls.stats, &equipment);
         let armor = content.equipment_armor(&equipment);
+        let mana_bonus = content.equipment_mana_bonus(&equipment);
         let role = infer_profile(&cls.abilities, effective.max_hp, armor, content, tag_cache);
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
@@ -268,7 +270,7 @@ pub fn spawn_combatants(
             ec.insert(Rage::new(cls.rage_max));
         }
         if cls.mana_max > 0 {
-            ec.insert(Mana::new(cls.mana_max));
+            ec.insert(Mana::new(cls.mana_max + mana_bonus));
         }
         if cls.energy_max > 0 {
             ec.insert(Energy::new(cls.energy_max));

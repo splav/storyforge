@@ -36,3 +36,6 @@ mod ai_snapshot;
 
 #[path = "combat/ai_no_abilities.rs"]
 mod ai_no_abilities;
+
+#[path = "combat/mana_gear.rs"]
+mod mana_gear;
