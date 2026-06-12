@@ -1,5 +1,5 @@
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, TargetType};
 use crate::content::content_view::ContentView;
 use crate::content::statuses::StatusDef;
@@ -60,7 +60,7 @@ pub fn status_applications<'a, 'c: 'a>(
 
 /// Sum of projected damage over the first `duration` rounds of the
 /// target's damage horizon. Rounds-up fractional durations (a
-/// stun-for-2.5-rounds touches 3 rounds). Falls back to `target.threat
+/// stun-for-2.5-rounds touches 3 rounds). Falls back to `target.cache.threat
 /// × duration` when the horizon is empty (legacy logs, uninitialised
 /// fixtures) so CC / stun / blocks-mana formulas stay continuous with
 /// the pre-#6 behaviour.
@@ -69,8 +69,11 @@ pub fn status_applications<'a, 'c: 'a>(
 /// be denied if we removed their actions for `duration` rounds". Used
 /// by `status_score` skips_turn / blocks_mana branches and the
 /// CC-factor valuation in `factors::offensive`.
-pub fn horizon_window_sum(target: &UnitSnapshot, duration: f32) -> f32 {
-    horizon_window_sum_raw(&target.damage_horizon, target.threat, duration)
+pub fn horizon_window_sum(
+    target: crate::combat::ai::world::snapshot::UnitView<'_>,
+    duration: f32,
+) -> f32 {
+    horizon_window_sum_raw(&target.cache.damage_horizon, target.cache.threat, duration)
 }
 
 /// Raw implementation shared by `horizon_window_sum` (takes `&UnitSnapshot`)
@@ -261,56 +264,6 @@ pub fn estimate_damage_horizon(
 }
 
 // ── Internals ──────────────────────────────────────────────────────────────
-
-/// Aggregate HP-equivalent value of the statuses `def` applies to `target`.
-/// Crate-visible — delegated to by `policy::status::value` (step 4.7).
-/// Retained for parity tests in `policy/status.rs`; will be deleted in step 4.12
-/// once all consumers have migrated to `policy::status::value`.
-#[allow(dead_code)]
-pub(crate) fn status_score(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
-    // HP-equivalent scoring — counts BOTH signs of damage_taken_bonus /
-    // armor_bonus (.abs()) because a buff on an ally and a debuff on an
-    // enemy are both "value to the caster". For CC-denial scoring see
-    // `factors::offensive::status_cc_value`.
-    status_applications(def, content)
-        .map(|(sd, d)| {
-            let mut total = 0.0f32;
-            // Stun: deny target's projected damage over `d` rounds.
-            // `horizon_window_sum` reads damage_horizon (DPR-correct);
-            // falls back to `threat × d` on empty horizon (old logs).
-            if sd.skips_turn {
-                total += horizon_window_sum(target, d);
-            }
-            // Vulnerability: extra damage taken per hit for d rounds.
-            if sd.bonuses.damage_taken_bonus != 0 {
-                total += sd.bonuses.damage_taken_bonus.abs() as f32 * d;
-            }
-            // Armor delta: negative = shred on enemy, positive = buff on ally.
-            if sd.bonuses.armor_bonus != 0 {
-                total += sd.bonuses.armor_bonus.abs() as f32 * d;
-            }
-            // DoT: expected tick damage × duration.
-            if let Some(ref dice) = sd.dot_dice {
-                total += dice.expected() * d;
-            }
-            // %HP DoT (e.g. exhaustion).
-            if sd.hp_percent_dot > 0 {
-                let tick_dmg = (target.max_hp as f32 * sd.hp_percent_dot as f32 / 100.0).ceil();
-                total += tick_dmg * d;
-            }
-            // Silence (blocks mana abilities): partial stun — target can
-            // still basic-attack, so worth ~half the projected denial.
-            if sd.blocks_mana_abilities {
-                total += 0.5 * horizon_window_sum(target, d);
-            }
-            // Speed penalty: reduces tactical options.
-            if sd.bonuses.speed_bonus < 0 {
-                total += (-sd.bonuses.speed_bonus) as f32 * d;
-            }
-            total
-        })
-        .sum()
-}
 
 /// One AoO hit triggered by a single Move step.
 #[derive(Debug, Clone, Copy)]
@@ -625,60 +578,42 @@ mod tests {
     /// `threat`. Pins the key user-visible effect of #6-B.
     #[test]
     fn stun_value_devalues_resource_starved_target() {
-        use crate::combat::ai::config::role::AxisProfile;
-        use crate::combat::ai::world::tags::AiTags;
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::world::snapshot::UnitView;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 
-        fn make_target(id: u32, threat: f32, horizon: Vec<f32>) -> UnitSnapshot {
-            UnitSnapshot {
-                entity: bevy::prelude::Entity::from_raw_u32(id).unwrap(),
-                team: Team::Player,
-                role: AxisProfile {
-                    tank: 0.5,
-                    melee: 0.5,
-                    ..Default::default()
-                },
-                pos: hex_from_offset(0, 0),
-                hp: 20,
-                max_hp: 20,
-                armor: 0,
-                armor_bonus: 0,
-                magic_resist: 0,
-                damage_taken_bonus: 0,
-                action_points: 1,
-                max_ap: 1,
-                movement_points: 3,
-                base_speed: 3,
-                speed: 3,
-                mana: None,
-                rage: None,
-                energy: None,
-                abilities: Vec::new(),
-                threat,
-                tags: AiTags::empty(),
-                max_attack_range: 1,
-                summoner: None,
-                reactions_left: 0,
-                aoo_expected_damage: None,
-                statuses: Vec::new(),
-                caster_ctx: Default::default(),
-                crit_fail_effect: Default::default(),
-                damage_horizon: horizon,
-                ai_tuning_override: None,
-                forced_mode: None,
-            }
+        fn make_pair(
+            id: u32,
+            threat: f32,
+            horizon: Vec<f32>,
+        ) -> (
+            combat_engine::state::Unit,
+            crate::combat::ai::world::cache::UnitAiCache,
+        ) {
+            UnitBuilder::new(id, Team::Player, hex_from_offset(0, 0))
+                .threat(threat)
+                .damage_horizon(horizon)
+                .build_pair()
         }
 
         // Both targets have the SAME peak (`threat = 10`). The sustained
         // fighter keeps hitting every round; the burst mage fired twice
         // and ran out of mana.
-        let sustained = make_target(1, 10.0, vec![10.0, 10.0, 10.0, 10.0, 10.0]);
-        let burst = make_target(2, 10.0, vec![10.0, 10.0, 0.0, 0.0, 0.0]);
+        let (su, sc) = make_pair(1, 10.0, vec![10.0, 10.0, 10.0, 10.0, 10.0]);
+        let (bu, bc) = make_pair(2, 10.0, vec![10.0, 10.0, 0.0, 0.0, 0.0]);
+        let sustained = UnitView {
+            state: &su,
+            cache: &sc,
+        };
+        let burst = UnitView {
+            state: &bu,
+            cache: &bc,
+        };
 
         // horizon_window_sum over a 3-round stun:
-        let sustained_stun = horizon_window_sum(&sustained, 3.0);
-        let burst_stun = horizon_window_sum(&burst, 3.0);
+        let sustained_stun = horizon_window_sum(sustained, 3.0);
+        let burst_stun = horizon_window_sum(burst, 3.0);
         assert!(
             burst_stun < sustained_stun,
             "burst mage stun value {burst_stun} must be < sustained {sustained_stun}",

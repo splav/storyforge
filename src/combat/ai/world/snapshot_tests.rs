@@ -1123,6 +1123,7 @@ mod computation_tests {
 mod env_severity_snapshot_tests {
     use super::*;
     use crate::combat::ai::scoring::policy::env_severity::severity;
+    use crate::combat::ai::world::snapshot::UnitView;
     use crate::content::content_view::ContentView;
     use crate::game::hex::hex_from_offset;
     use combat_engine::state::{EnvId, EnvKind, EnvObject, Team as EngineTeam, TeamSet};
@@ -1159,7 +1160,12 @@ mod env_severity_snapshot_tests {
     #[test]
     fn snapshot_populates_env_severity_for_visible_traps() {
         let content = ContentView::load_global_for_tests();
-        let neutral_ref = UnitSnapshot::neutral_reference();
+        let (neutral_ref_u, neutral_ref_c) =
+            crate::combat::ai::scoring::policy::env_severity::neutral_reference_pair();
+        let neutral_ref = UnitView {
+            state: &neutral_ref_u,
+            cache: &neutral_ref_c,
+        };
         let ai_team = EngineTeam::Enemy;
 
         // One trap owned by the AI team (visible), one neutral unrevealed (hidden).
@@ -1179,12 +1185,12 @@ mod env_severity_snapshot_tests {
         let mut env_severity: std::collections::HashMap<EnvId, f32> =
             std::collections::HashMap::new();
         for env_obj in &environment {
-            let sev = severity(&env_obj.ability, &content, &neutral_ref);
+            let sev = severity(&env_obj.ability, &content, neutral_ref);
             env_severity.insert(env_obj.id, sev);
         }
 
         // Visible trap: must be present with severity matching the standalone fn.
-        let expected_sev = severity(&ability_id, &content, &neutral_ref);
+        let expected_sev = severity(&ability_id, &content, neutral_ref);
         assert!(
             env_severity.contains_key(&visible_id),
             "visible (enemy-owned) trap must appear in env_severity",

@@ -10,7 +10,8 @@
 //!    `damage::value`, `friendly_fire::penalty`.
 
 use crate::combat::ai::scoring::policy;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::test_helpers::unit_snapshot_to_pair;
+use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef};
 use crate::content::content_view::ContentView;
 use crate::game::components::Team;
@@ -22,7 +23,7 @@ use combat_engine::DiceExpr;
 /// Compute the policy score for `(def, target)` directly via policy functions.
 fn via_policy(
     def: &AbilityDef,
-    target: &UnitSnapshot,
+    target: crate::combat::ai::world::snapshot::UnitView<'_>,
     ctx: &CasterContext,
     content: &ContentView,
     danger_at_target: f32,
@@ -38,16 +39,21 @@ fn via_policy(
     let expected = calc.expected();
 
     let dmg_score = if calc.is_heal {
-        let missing = (target.max_hp - target.hp) as f32;
+        let missing = (target.max_hp() - target.hp()) as f32;
         if missing <= 0.0 {
             return 0.0;
         }
         let effective = expected.min(missing);
-        let horizon_sum: f32 = target.damage_horizon.iter().sum::<f32>().max(target.threat);
+        let horizon_sum: f32 = target
+            .cache
+            .damage_horizon
+            .iter()
+            .sum::<f32>()
+            .max(target.cache.threat);
         policy::heal::value(
             effective,
-            target.max_hp,
-            target.hp,
+            target.max_hp(),
+            target.hp(),
             danger_at_target,
             horizon_sum,
         )
@@ -63,7 +69,7 @@ fn via_policy(
             )
         };
         let raw = (expected - mitigation + target.damage_taken_bonus as f32).max(0.0);
-        let progress = (raw / target.hp.max(1) as f32).min(1.0);
+        let progress = (raw / target.hp().max(1) as f32).min(1.0);
         policy::damage::value(raw, progress)
     };
 
@@ -171,7 +177,12 @@ fn policy_non_negative_for_all_scenario_fixtures() {
         "no Cast triples found in ai_scenarios fixtures — check fixture paths"
     );
 
-    for (def, target, ctx) in &triples {
+    for (def, target_snap, ctx) in &triples {
+        let (u, c) = unit_snapshot_to_pair(target_snap);
+        let target = UnitView {
+            state: &u,
+            cache: &c,
+        };
         let score = via_policy(def, target, ctx, &content, 0.0);
         assert!(
             score.is_finite() && score >= 0.0,
@@ -280,11 +291,16 @@ fn policy_non_negative_for_random_inputs() {
     for i in 0..n {
         let ability_idx = rng.next_u32() as usize % abilities.len();
         let def = abilities[ability_idx];
-        let target = random_target(&mut rng);
+        let target_snap = random_target(&mut rng);
         let ctx = random_caster_ctx(&mut rng);
         let danger = rng.next_f32() * 50.0;
 
-        let score = via_policy(def, &target, &ctx, &content, danger);
+        let (u, c) = unit_snapshot_to_pair(&target_snap);
+        let target = UnitView {
+            state: &u,
+            cache: &c,
+        };
+        let score = via_policy(def, target, &ctx, &content, danger);
         assert!(
             score.is_finite() && score >= 0.0,
             "random triple {i}: policy score must be non-negative and finite for ability={:?}: got {score}",

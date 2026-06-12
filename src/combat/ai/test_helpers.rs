@@ -401,7 +401,7 @@ impl UnitBuilder {
 
 /// Test-only conversion: UnitSnapshot → engine pair. Inlined here from former
 /// production `UnitSnapshot::as_pair` (deleted in U5/C).
-fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitAiCache) {
+pub(crate) fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitAiCache) {
     use crate::content::races::CritFailEffect as Cfe;
     use combat_engine::dice::DiceExpr as EngineDiceExpr;
     use combat_engine::state::{ActiveStatus, Team as EngineTeam, UnitId};

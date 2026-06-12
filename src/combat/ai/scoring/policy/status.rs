@@ -1,7 +1,6 @@
 //! Status effect value policies — HP-equivalent value of applied status effects.
 
 use crate::combat::ai::scoring::horizon::{horizon_window_sum, status_applications};
-use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::AbilityDef;
 use crate::content::content_view::ContentView;
 
@@ -10,7 +9,7 @@ use crate::content::content_view::ContentView;
 ///
 /// Quantifies the projected damage denied to the team by locking `target` out
 /// of their turns. Uses `damage_horizon` (DPR-correct); falls back to
-/// `target.threat × duration` on empty horizon (legacy logs / uninitialised
+/// `target.cache.threat × duration` on empty horizon (legacy logs / uninitialised
 /// fixtures).
 ///
 /// Caller is responsible for ensuring the status is a stun-class (`skips_turn`);
@@ -21,7 +20,10 @@ use crate::content::content_view::ContentView;
 /// # Arguments
 /// - `target` — the unit being stunned.
 /// - `duration` — rounds the stun lasts.
-pub fn stun_denial_value(target: &UnitSnapshot, duration: f32) -> f32 {
+pub fn stun_denial_value(
+    target: crate::combat::ai::world::snapshot::UnitView<'_>,
+    duration: f32,
+) -> f32 {
     horizon_window_sum(target, duration)
 }
 
@@ -59,7 +61,11 @@ pub fn armor_shred_value(armor_bonus: i32, duration: f32) -> f32 {
 /// `armor_bonus` via `.abs()`.
 ///
 /// Extracted 1:1 from `scoring::status_score`.
-pub fn value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
+pub fn value(
+    def: &AbilityDef,
+    target: crate::combat::ai::world::snapshot::UnitView<'_>,
+    content: &ContentView,
+) -> f32 {
     status_applications(def, content)
         .map(|(sd, d)| {
             let mut total = 0.0f32;
@@ -81,7 +87,7 @@ pub fn value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> 
             }
             // %HP DoT (e.g. exhaustion).
             if sd.hp_percent_dot > 0 {
-                let tick_dmg = (target.max_hp as f32 * sd.hp_percent_dot as f32 / 100.0).ceil();
+                let tick_dmg = (target.max_hp() as f32 * sd.hp_percent_dot as f32 / 100.0).ceil();
                 total += tick_dmg * d;
             }
             // Silence (blocks mana abilities): partial stun.
@@ -101,17 +107,9 @@ pub fn value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> 
 mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::content::content_view::ContentView;
+    use crate::combat::ai::world::snapshot::UnitView;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-
-    fn db() -> ContentView {
-        ContentView::load_global_for_tests()
-    }
-
-    fn base_target() -> UnitSnapshot {
-        UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build()
-    }
 
     #[test]
     fn vulnerability_value_zero_for_zero_bonus() {
@@ -148,51 +146,29 @@ mod tests {
 
     #[test]
     fn stun_denial_uses_horizon_window() {
-        let mut target = base_target();
-        target.damage_horizon = vec![10.0, 15.0, 20.0];
+        let (u, c) = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .damage_horizon(vec![10.0, 15.0, 20.0])
+            .build_pair();
+        let target = UnitView {
+            state: &u,
+            cache: &c,
+        };
         // Stun for 2 rounds → horizon_window_sum = 10 + 15 = 25.
-        let v = stun_denial_value(&target, 2.0);
+        let v = stun_denial_value(target, 2.0);
         assert!((v - 25.0).abs() < 1e-6);
     }
 
     #[test]
     fn stun_denial_falls_back_to_threat_on_empty_horizon() {
-        let mut target = base_target();
-        target.threat = 8.0;
+        let (u, c) = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .threat(8.0)
+            .build_pair();
+        let target = UnitView {
+            state: &u,
+            cache: &c,
+        };
         // damage_horizon empty → threat × duration = 8 × 3 = 24
-        let v = stun_denial_value(&target, 3.0);
+        let v = stun_denial_value(target, 3.0);
         assert!((v - 24.0).abs() < 1e-6);
-    }
-
-    /// `policy::status::value` must be bit-identical to `scoring::status_score`
-    /// for any (ability, target) pair.
-    #[test]
-    fn status_value_matches_scoring_status_score() {
-        use crate::combat::ai::scoring::horizon::status_score;
-        let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
-            .max_hp(100)
-            .hp(60)
-            .build();
-
-        // Test all abilities in content that have status applications.
-        let mut tested = 0usize;
-        for (id, def) in &content.abilities {
-            if !def.statuses.is_empty() {
-                let policy_val = value(def, &target, &content);
-                let legacy_val = status_score(def, &target, &content);
-                assert!(
-                    (policy_val - legacy_val).abs() < 1e-6,
-                    "status::value vs status_score diverge for {id:?}: policy={policy_val} legacy={legacy_val}"
-                );
-                tested += 1;
-            }
-        }
-        // Ensure we actually tested something — if the content has no status
-        // abilities this test would pass vacuously.
-        assert!(
-            tested > 0,
-            "no status-applying abilities found in content; test is vacuous"
-        );
     }
 }
