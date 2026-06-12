@@ -79,7 +79,11 @@ use crate::{
 ///            emitting one extra `UnitMoved`. No RNG/effect-order change; only the
 ///            event stream + post-state of such halting steps differ. Behavioral
 ///            change → SCHEMA bump (no wire-shape change).
-pub const SCHEMA_VERSION: u32 = 49;
+/// v49 → v50: `CasterContext.ranged_dice: Option<DiceExpr>` added (`#[serde(default)]`
+///            → `None` on pre-v50 traces). `EffectDef::WeaponAttack` becomes
+///            `WeaponAttack { ranged: bool, power: f32 }` with ranged weapon attack
+///            support (bow: ranged_dice + dex_mod, power multiplies dice only).
+pub const SCHEMA_VERSION: u32 = 50;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

@@ -1795,6 +1795,7 @@ fn melee_template() -> UnitTemplate {
             weapon_dice: Some(weapon_dice),
             crit_fail_outcome: CritFailOutcome::Miss,
             dex_mod: 0,
+            ranged_dice: None,
         },
         aoo_dice: Some(DiceExpr::new(2, 6, 3)), // weapon + str_mod baked in
         auras: Vec::new(),

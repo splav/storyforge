@@ -35,7 +35,6 @@ use storyforge::combat_engine::{
     DiceRng,
     EffectDef,
     PhaseEntry,
-    StatusDef,
     StatusId,
     TargetType,
 };
@@ -56,7 +55,7 @@ fn abid(s: &str) -> AbilityId {
     AbilityId(s.to_string())
 }
 
-use crate::common::engine_unit::{EngineUnitBuilder, StubContent};
+use crate::common::engine_unit::{template, EngineUnitBuilder, StubContent};
 
 /// speed=4, Ap=3, Mp=6 — replay defaults.
 fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
@@ -371,21 +370,8 @@ fn replay_endturn_advances_queue() {
     );
     state.set_turn_queue(vec![uid(1), uid(2)], 0);
 
-    struct NoContent;
-    impl ContentView for NoContent {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
-            None
-        }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
-            None
-        }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
-            None
-        }
-    }
-
     let actions = vec![Action::EndTurn { actor: uid(1) }];
-    let lines = record_then_replay(state, SEED, &NoContent, actions);
+    let lines = record_then_replay(state, SEED, &StubContent::new(), actions);
     assert_eq!(lines.len(), 1);
     // EndTurn uses no RNG
     assert_eq!(lines[0].rng_calls, 0);
@@ -410,19 +396,7 @@ fn replay_event_divergence_detected() {
     let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, SEED);
     state.set_turn_queue(vec![uid(1)], 0);
 
-    struct NoContent;
-    impl ContentView for NoContent {
-        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
-            None
-        }
-        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
-            None
-        }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
-            None
-        }
-    }
-
+    let content = StubContent::new();
     let path = vec![Hex::new(0, 0), Hex::new(1, 0)];
     let init = init_line_for(&state, SEED);
     let mut rng = DiceRng::with_seed(SEED);
@@ -434,7 +408,7 @@ fn replay_event_divergence_detected() {
             path: path.clone(),
         },
         &mut rng,
-        &NoContent,
+        &content,
     )
     .unwrap();
     let hash = post_state_hash_hex(&state);
@@ -467,7 +441,7 @@ fn replay_event_divergence_detected() {
         &mut replay_state,
         recorded.action.clone(),
         &mut replay_rng,
-        &NoContent,
+        &content,
     )
     .unwrap();
 
@@ -556,94 +530,31 @@ fn replay_rng_count_divergence_detected() {
 /// captured in `rng_calls` and the `post_state_hash` is identical on replay.
 #[test]
 fn replay_summon_initiative_hash_stable() {
-    use storyforge::combat_engine::enum_map::enum_map as em;
-    use storyforge::combat_engine::{content::CasterContext, PoolKind, RegenRule, UnitTemplate};
-
-    // ── Local content that serves a Summon ability + a unit template ─────────
-    struct SummonStub {
-        ability: AbilityDef,
-        template: UnitTemplate,
-    }
-    impl SummonStub {
-        fn new() -> Self {
-            let mut ctx = CasterContext::default();
-            ctx.dex_mod = 4; // high dex so total is distinct from the raw roll
-            let template = UnitTemplate {
-                max_hp: 6,
-                armor: 0,
-                base_speed: 4,
-                max_ap: 1,
-                mana_max: 0,
-                energy_max: 0,
-                rage_max: 0,
-                caster_context: ctx,
-                aoo_dice: None,
-                auras: Vec::new(),
-                enemy_phases: Vec::new(),
-                regen_per_pool: em! {
-                    PoolKind::Hp     => RegenRule::None,
-                    PoolKind::Mana   => RegenRule::Increment(1),
-                    PoolKind::Rage   => RegenRule::None,
-                    PoolKind::Energy => RegenRule::Increment(1),
-                    PoolKind::Ap     => RegenRule::RefillToMax,
-                    PoolKind::Mp     => RegenRule::RefillToMax,
-                },
-                initial_statuses: Vec::new(),
-                initial_pools: em! {
-                    PoolKind::Hp     => None,
-                    PoolKind::Mana   => None,
-                    PoolKind::Rage   => None,
-                    PoolKind::Energy => None,
-                    PoolKind::Ap     => None,
-                    PoolKind::Mp     => None,
-                },
-                tags: Default::default(),
-            };
-            let ability = AbilityDef {
-                key: None,
-                cost_ap: 1,
-                costs: vec![],
-                range: AbilityRange { min: 0, max: 0 },
-                target_type: TargetType::Myself,
-                aoe: AoEShape::None,
-                friendly_fire: false,
-                effect: EffectDef::Summon {
-                    template_id: "minion".into(),
-                    max_active: None,
-                },
-                statuses: vec![],
-                requires_los: false,
-                passive: vec![],
-                requires_tags: Default::default(),
-                excludes_tags: Default::default(),
-            };
-            Self { ability, template }
-        }
-    }
-    impl storyforge::combat_engine::content::ContentView for SummonStub {
-        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-            if id.0 == "summon" {
-                Some(&self.ability)
-            } else {
-                None
-            }
-        }
-        fn status_def(
-            &self,
-            _: &storyforge::combat_engine::StatusId,
-        ) -> Option<&storyforge::combat_engine::StatusDef> {
-            None
-        }
-        fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
-            if id == "minion" {
-                Some(self.template.clone())
-            } else {
-                None
-            }
-        }
-    }
-
-    let content = SummonStub::new();
+    // high dex so total is distinct from the raw roll
+    let mut minion_tpl = template();
+    minion_tpl.max_hp = 6;
+    minion_tpl.caster_context.dex_mod = 4;
+    let summon_ability = AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: vec![],
+        range: AbilityRange { min: 0, max: 0 },
+        target_type: TargetType::Myself,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        effect: EffectDef::Summon {
+            template_id: "minion".into(),
+            max_active: None,
+        },
+        statuses: vec![],
+        requires_los: false,
+        passive: vec![],
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
+    };
+    let content = StubContent::new()
+        .with_ability("summon", summon_ability)
+        .with_template("minion", minion_tpl);
 
     let summoner = EngineUnitBuilder::new(1)
         .team(Team::Player)

@@ -27,6 +27,8 @@ pub struct ArmorDef {
     pub slot: ArmorSlot,
     pub weight: ArmorWeight,
     pub stats: crate::content::item_stats::ItemStats,
+    /// Asset path relative to `assets/images/` (e.g. `"items/chain_mail.png"`).
+    pub image: Option<String>,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -62,6 +64,8 @@ struct ArmorRecord {
     mana: i32,
     #[serde(default)]
     magic_resist: i32,
+    #[serde(default)]
+    image: Option<String>,
 }
 
 pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
@@ -74,6 +78,7 @@ pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
             name: r.name,
             slot,
             weight: r.weight,
+            image: r.image,
             stats: crate::content::item_stats::ItemStats {
                 combat: crate::game::components::CombatStats {
                     max_hp: r.max_hp,

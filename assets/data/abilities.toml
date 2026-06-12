@@ -154,41 +154,40 @@ costs       = [{ resource = "energy", amount = 1 }]
 range       = 1
 
 [[abilities]]
-id           = "bow_shot"
-name         = "Выстрел из лука"
+id           = "ranged_shot"
+name         = "Дальний выстрел"
 target_type  = "single_enemy"
-effect       = "damage"
-dice_count   = 1
-dice_sides   = 8
+effect       = "weapon_attack"
+ranged       = true
 range        = 5
 min_range    = 1
 requires_los = true
 
 [[abilities]]
-id          = "paralyzing_shot"
-name        = "Парализующий выстрел"
-target_type = "single_enemy"
-effect      = "damage"
-dice_count  = 1
-dice_sides  = 4
-costs       = [{ resource = "energy", amount = 2 }]
-range       = 3
-min_range   = 2
-statuses    = [
+id           = "paralyzing_shot"
+name         = "Парализующий выстрел"
+target_type  = "single_enemy"
+effect       = "weapon_attack"
+ranged       = true
+weapon_power = 0.5
+costs        = [{ resource = "energy", amount = 2 }]
+range        = 3
+min_range    = 2
+statuses     = [
     { id = "paralyzed", on = "target", duration = 1 },
 ]
 
 [[abilities]]
-id          = "poison_shot"
-name        = "Отравленный выстрел"
-target_type = "single_enemy"
-effect      = "damage"
-dice_count  = 1
-dice_sides  = 4
-costs       = [{ resource = "energy", amount = 3 }]
-range       = 3
-min_range   = 2
-statuses    = [
+id           = "poison_shot"
+name         = "Отравленный выстрел"
+target_type  = "single_enemy"
+effect       = "weapon_attack"
+ranged       = true
+weapon_power = 0.5
+costs        = [{ resource = "energy", amount = 3 }]
+range        = 3
+min_range    = 2
+statuses     = [
     { id = "poisoned", on = "target", duration = 3 },
 ]
 

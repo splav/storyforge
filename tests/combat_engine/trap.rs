@@ -117,16 +117,18 @@ fn hazard(id: u32, col: i32) -> EnvObject {
 }
 
 /// Run a single-actor move over `cols` and return (state, events).
+/// Returns `(state, events, interrupted)` — `interrupted` mirrors `ctx.interrupted`
+/// from the engine step.
 fn run(
     mover: Unit,
     env: Vec<EnvObject>,
     cols: &[i32],
     content: &Stub,
-) -> (CombatState, Vec<Event>) {
+) -> (CombatState, Vec<Event>, bool) {
     let mut state = CombatState::new(vec![mover], 1, RoundPhase::ActorTurn, 0);
     state.environment = env;
     let path = cols.iter().map(|&c| hex_from_offset(c, 0)).collect();
-    let (events, _) = step(
+    let (events, ctx) = step(
         &mut state,
         Action::Move {
             actor: UnitId(1),
@@ -136,7 +138,7 @@ fn run(
         content,
     )
     .expect("move should succeed");
-    (state, events)
+    (state, events, ctx.interrupted)
 }
 
 fn hp(s: &CombatState, id: u64) -> i32 {
@@ -150,7 +152,7 @@ fn hp(s: &CombatState, id: u64) -> i32 {
 #[test]
 fn trap_triggers_damages_and_disappears() {
     for team in [Team::Player, Team::Enemy] {
-        let (s, ev) = run(
+        let (s, ev, _) = run(
             unit(1, team, 0, 10, None),
             vec![hazard(7, 1)],
             &[1],
@@ -166,29 +168,6 @@ fn trap_triggers_damages_and_disappears() {
             "firing must not emit EnvRevealed"
         );
     }
-}
-
-/// A trap on an intermediate hex fires on pass-through; under Wave 1 halt
-/// semantics, `HazardTriggered` is non-benign, so the mover stops AT the trap
-/// hex even when the hit is non-lethal.
-#[test]
-fn trap_fires_on_pass_through() {
-    let (s, ev) = run(
-        unit(1, Team::Player, 0, 10, None),
-        vec![hazard(1, 1)],
-        &[1, 2],
-        &Stub::new("trap", trap_ability(2, None)),
-    );
-    assert_eq!(hp(&s, 1), 8);
-    assert_eq!(
-        s.unit(UnitId(1)).unwrap().pos,
-        hex_from_offset(1, 0),
-        "halts at trap hex (Wave 1: any non-benign event interrupts remaining movement)"
-    );
-    // The trap triggered (HazardTriggered present).
-    assert!(ev
-        .iter()
-        .any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))));
 }
 
 /// A fired trap is removed; re-entering its hex does nothing.
@@ -233,7 +212,7 @@ fn trap_gone_after_firing() {
 /// the victim still gains rage from being hurt.
 #[test]
 fn trap_no_rage_to_env_but_victim_gains() {
-    let (s, _) = run(
+    let (s, _, _) = run(
         unit(1, Team::Player, 0, 10, Some((0, 10))),
         vec![hazard(1, 1)],
         &[1],
@@ -249,7 +228,7 @@ fn trap_no_rage_to_env_but_victim_gains() {
 /// path (existing dead-actor guard).
 #[test]
 fn trap_lethal_truncates_path() {
-    let (s, ev) = run(
+    let (s, ev, _) = run(
         unit(1, Team::Player, 0, 2, None),
         vec![hazard(1, 1)],
         &[1, 2],
@@ -269,7 +248,7 @@ fn trap_lethal_truncates_path() {
 /// A trap that applies a status uses an Env applier, not a phantom unit.
 #[test]
 fn trap_status_uses_env_applier() {
-    let (s, _) = run(
+    let (s, _, _) = run(
         unit(1, Team::Player, 0, 10, None),
         vec![hazard(5, 1)],
         &[1],
@@ -466,64 +445,33 @@ fn turn_start_reveal_still_fires_aoe_radius_source() {
 /// arrival and halts the remaining movement even when the hit is non-lethal.
 /// The mover's final position is the trap hex, NOT the originally requested
 /// destination.  `ctx.interrupted == true`.
+/// A trap on an intermediate hex: fires on arrival, halts the mover, and sets
+/// `ctx.interrupted`.
+///
+/// Merges: `trap_fires_on_pass_through`, `trap_on_arrival_triggers_and_halts`,
+/// and `trap_on_arrival_sets_interrupted_flag` — all used the identical fixture.
 #[test]
-fn trap_on_arrival_triggers_and_halts() {
+fn trap_on_arrival_triggers_halts_and_sets_interrupted() {
     // mover at col=0, trap at col=1, dest at col=2. Non-lethal (2 dmg, 10 hp).
-    let (s, ev) = run(
+    let (s, ev, interrupted) = run(
         unit(1, Team::Player, 0, 10, None),
         vec![hazard(1, 1)],
         &[1, 2],
         &Stub::new("trap", trap_ability(2, None)),
     );
 
-    // Trap fired.
     assert!(
         ev.iter()
             .any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))),
         "HazardTriggered must fire"
     );
-
-    // Mover halted at trap hex (Wave 1: non-benign event interrupts remaining steps).
     assert_eq!(
         s.unit(UnitId(1)).unwrap().pos,
         hex_from_offset(1, 0),
         "mover must stop AT the trap hex, not continue past it"
     );
     assert_eq!(hp(&s, 1), 8, "trap dealt 2 damage");
-
-    // ctx.interrupted is tested via the `run()` helper re-implementation below.
-    // (run() currently discards ctx; this invariant is covered by the engine-level
-    //  test in step.rs::per_step_mp_exact / aoo_leaving_two_enemies_both_fire_then_halt)
-}
-
-/// Same setup but using `step()` directly so we can inspect `ctx.interrupted`.
-#[test]
-fn trap_on_arrival_sets_interrupted_flag() {
-    let mut state = CombatState::new(
-        vec![unit(1, Team::Player, 0, 10, None)],
-        1,
-        RoundPhase::ActorTurn,
-        0,
-    );
-    state.environment = vec![hazard(1, 1)];
-
-    let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
-    let content = Stub::new("trap", trap_ability(2, None));
-    let (_, ctx) = step(
-        &mut state,
-        Action::Move {
-            actor: UnitId(1),
-            path,
-        },
-        &mut ExpectedValue,
-        &content,
-    )
-    .expect("move must succeed");
-
-    assert!(
-        ctx.interrupted,
-        "trap trigger must set ctx.interrupted = true"
-    );
+    assert!(interrupted, "trap trigger must set ctx.interrupted = true");
 }
 
 // ── Wave-3: on-move reveal ───────────────────────────────────────────────────
@@ -906,25 +854,10 @@ fn reveal_inserts_only_casters_team() {
 /// also reveal the trap to the opponent.
 #[test]
 fn owner_reveal_does_not_leak_to_opponent() {
-    use storyforge::combat_engine::content::{AbilityDef, ContentView, StatusDef};
     use storyforge::combat_engine::effect::{apply_effect, Effect};
-    use storyforge::combat_engine::AbilityId as AId;
-    use storyforge::combat_engine::StatusId as SId;
-
-    struct NoContent;
-    impl ContentView for NoContent {
-        fn ability_def(&self, _: &AId) -> Option<&AbilityDef> {
-            None
-        }
-        fn status_def(&self, _: &SId) -> Option<&StatusDef> {
-            None
-        }
-        fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
-            None
-        }
-    }
 
     let player = unit(1, Team::Player, 0, 10, None);
+    let no_content = crate::common::engine_unit::StubContent::new();
     let mut state = CombatState::new(vec![player], 1, RoundPhase::ActorTurn, 0);
     // Enemy-owned trap: enemy already sees it, player does not.
     state.environment = vec![EnvObject {
@@ -941,7 +874,7 @@ fn owner_reveal_does_not_leak_to_opponent() {
         id: EnvId(7),
         revealer: Team::Player,
     };
-    apply_effect(&mut state, &eff, &NoContent);
+    apply_effect(&mut state, &eff, &no_content);
 
     let e = &state.environment[0];
     // Enemy still sees it (via owner).

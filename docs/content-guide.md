@@ -93,12 +93,12 @@ returns `Err(NoLineOfSight)` and the cast is refused — for both player and AI.
 
 ```toml
 [[abilities]]
-id           = "bow_shot"
+id           = "ranged_shot"
 name         = "Выстрел из лука"
 target_type  = "single_enemy"
-effect       = "damage"
-dice_count   = 1
-dice_sides   = 8
+effect       = "weapon_attack"
+ranged       = true          # uses ranged_dice channel + dex_mod
+weapon_power = 1.0           # multiplier on the roll (0.5 for weaker shots)
 range        = 5
 min_range    = 1
 requires_los = true       # blocked by obstacles from [[encounters.obstacles]]
@@ -253,7 +253,7 @@ off_hand     = null              # optional; second weapon
 chest        = "leather_vest"
 legs         = "leather_pants"
 feet         = "leather_boots"
-ability_ids          = ["melee_attack", "bow_shot"]
+ability_ids          = ["melee_attack", "ranged_shot"]
 mana_max             = 0
 rage_max             = 0
 energy_max           = 6

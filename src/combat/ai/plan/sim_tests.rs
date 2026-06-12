@@ -41,6 +41,8 @@ fn ctx(str_mod: i32, int_mod: i32) -> CasterContext {
         int_mod,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     }
 }
 

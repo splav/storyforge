@@ -25,14 +25,15 @@ use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
+use crate::content::abilities::AbilityDef as BevyAbilityDef;
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
+use crate::content::statuses::StatusDef as BevyStatusDef;
 use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
-use combat_engine::{AbilityId, DiceRng};
-use std::collections::HashMap;
+use combat_engine::{AbilityId, DiceRng, StatusId};
 use std::sync::OnceLock;
 
 /// Shared empty `AbilityTagCache` for test contexts that don't exercise
@@ -335,8 +336,9 @@ impl UnitBuilder {
             int_mod: u.caster_ctx.int_mod,
             spell_power: u.caster_ctx.spell_power,
             weapon_dice: u.caster_ctx.weapon_dice,
+            ranged_dice: u.caster_ctx.ranged_dice,
             crit_fail_outcome,
-            dex_mod: 0,
+            dex_mod: u.caster_ctx.dex_mod,
         };
         let aoo_dice = u
             .aoo_expected_damage
@@ -434,8 +436,9 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         int_mod: u.caster_ctx.int_mod,
         spell_power: u.caster_ctx.spell_power,
         weapon_dice: u.caster_ctx.weapon_dice,
+        ranged_dice: u.caster_ctx.ranged_dice,
         crit_fail_outcome,
-        dex_mod: 0,
+        dex_mod: u.caster_ctx.dex_mod,
     };
     let aoo_dice = u
         .aoo_expected_damage
@@ -623,22 +626,40 @@ pub(crate) fn empty_maps() -> InfluenceMaps {
 
 // ── Content ────────────────────────────────────────────────────────────────
 
-/// Completely empty `ContentView` — every registry is a new HashMap /
-/// Vec. Tests that need a specific ability/status insert it after
-/// construction.
+/// Completely empty `ContentView`. Tests that need a specific ability/status
+/// insert it after construction.
 pub(crate) fn empty_content() -> ContentView {
-    ContentView {
-        abilities: HashMap::new(),
-        keyed_abilities: Vec::new(),
-        statuses: HashMap::new(),
-        weapons: HashMap::new(),
-        armor: HashMap::new(),
-        classes: HashMap::new(),
-        unit_templates: HashMap::new(),
-        races: HashMap::new(),
-        factions: HashMap::new(),
-        paths: HashMap::new(),
-        ..ContentView::default()
+    ContentView::default()
+}
+
+/// Wrap a pure-engine `AbilityDef` in the Bevy `AbilityDef` shell with empty
+/// bridge-only fields (no magic domains, no AI override, not a move toggle).
+pub(crate) fn bevy_ability(
+    id: &str,
+    name: &str,
+    engine: combat_engine::AbilityDef,
+) -> BevyAbilityDef {
+    BevyAbilityDef {
+        id: AbilityId::from(id),
+        name: name.into(),
+        magic_domains: vec![],
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine,
+    }
+}
+
+/// Wrap a pure-engine `StatusDef` in the Bevy `StatusDef` shell with empty
+/// bridge-only fields (no dot_dice, not AI-controlled, no buff class).
+pub(crate) fn bevy_status(id: &str, engine: combat_engine::StatusDef) -> BevyStatusDef {
+    BevyStatusDef {
+        id: StatusId::from(id),
+        name: id.into(),
+        dot_dice: None,
+        ai_controlled: false,
+        buff_class: None,
+        engine,
     }
 }
 

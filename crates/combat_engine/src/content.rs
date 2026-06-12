@@ -48,10 +48,14 @@ pub struct CasterContext {
     pub str_mod: i32,
     pub int_mod: i32,
     pub spell_power: i32,
+    /// Melee weapon dice (main/off hand that is NOT ranged).
     pub weapon_dice: Option<DiceExpr>,
+    /// Ranged weapon dice (main/off hand that IS ranged).
+    #[serde(default)]
+    pub ranged_dice: Option<DiceExpr>,
     /// Behaviour when this caster rolls a 1 on the crit-fail d20.
     pub crit_fail_outcome: CritFailOutcome,
-    /// Dexterity modifier, used for initiative rolls.
+    /// Dexterity modifier, used for initiative rolls and ranged attacks.
     /// Populated at combat init from `CombatStats.dexterity`; 0 where not
     /// derivable (e.g. TOML-loader replay path, test stubs).
     #[serde(default)]
@@ -84,8 +88,11 @@ pub struct StatusApplication {
 pub enum EffectDef {
     /// No direct damage / heal — ability only applies statuses.
     None,
-    /// Uses caster's equipped weapon dice + str_mod.
-    WeaponAttack,
+    /// Uses caster's equipped weapon dice + stat modifier.
+    /// `ranged=true`: uses `ranged_dice + dex_mod`; `ranged=false`: uses `weapon_dice + str_mod`.
+    /// `power` multiplies the DICE ONLY (stat mod always added in full).
+    /// Ability is ILLEGAL if the matching dice channel is `None`.
+    WeaponAttack { ranged: bool, power: f32 },
     /// Physical damage from a fixed dice roll + str_mod.
     Damage { dice: DiceExpr },
     /// Magical damage: spell_power + int_mod + dice, pierces armor.

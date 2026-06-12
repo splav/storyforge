@@ -6,7 +6,7 @@
 //! the T1.2.6 spec: "допускается использовать `check_legality` напрямую".
 //!
 //! Tests:
-//! - `ai_archer_skips_target_behind_obstacle`      — bow_shot + blocked LOS → NoLineOfSight
+//! - `ai_archer_skips_target_behind_obstacle`      — ranged_shot + blocked LOS → NoLineOfSight
 //! - `ai_archer_picks_alternative_target_without_los_constraint` — clear-LOS target → Ok
 //! - `player_target_selection_excludes_obstructed_enemies`       — player cast → Err(NoLineOfSight)
 
@@ -20,7 +20,7 @@ use storyforge::content::content_view::ContentView;
 use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 
-/// Load the global + campaign content (bow_shot is in global, bandit_archer in campaign).
+/// Load the global + campaign content (ranged_shot is in global, bandit_archer in campaign).
 fn load_content() -> ContentView {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let campaign_dir = manifest.join("assets/data/campaigns/bell_under_veil");
@@ -41,9 +41,9 @@ fn obstacle_set(col: i32, row: i32) -> HashSet<hexx::Hex> {
     s
 }
 
-// ── Test 1: bow_shot (requires_los=true) blocked by obstacle → NoLineOfSight ──
+// ── Test 1: ranged_shot (requires_los=true) blocked by obstacle → NoLineOfSight ──
 
-/// AI archer cannot cast bow_shot at a target whose LOS is blocked by an obstacle.
+/// AI archer cannot cast ranged_shot at a target whose LOS is blocked by an obstacle.
 ///
 /// Setup: archer at (0,0), obstacle at (2,0), target at (4,0).
 /// The obstacle sits exactly on the hex-line from archer to target.
@@ -54,9 +54,15 @@ fn ai_archer_skips_target_behind_obstacle() {
     let archer_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(4, 0);
 
+    use storyforge::combat_engine::DiceExpr;
+    use storyforge::content::abilities::CasterContext;
     let archer = UnitBuilder::new(1, Team::Enemy, archer_pos)
         .ap(2)
-        .ability_names(&["bow_shot"])
+        .ability_names(&["ranged_shot"])
+        .caster_ctx(CasterContext {
+            ranged_dice: Some(DiceExpr::new(1, 8, 0)),
+            ..Default::default()
+        })
         .build();
     let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
@@ -68,7 +74,7 @@ fn ai_archer_skips_target_behind_obstacle() {
         content: &content,
         snap: &snap,
     };
-    let bow_id = AbilityId::from("bow_shot");
+    let bow_id = AbilityId::from("ranged_shot");
 
     let result = check_legality(
         ProposedAction {
@@ -83,13 +89,13 @@ fn ai_archer_skips_target_behind_obstacle() {
     assert_eq!(
         result,
         Err(IllegalReason::NoLineOfSight),
-        "bow_shot with blocked LOS must return NoLineOfSight"
+        "ranged_shot with blocked LOS must return NoLineOfSight"
     );
 }
 
-// ── Test 2: bow_shot with clear LOS → Ok ─────────────────────────────────────
+// ── Test 2: ranged_shot with clear LOS → Ok ──────────────────────────────────
 
-/// AI archer CAN cast bow_shot at a target with clear LOS (no obstacle in path).
+/// AI archer CAN cast ranged_shot at a target with clear LOS (no obstacle in path).
 ///
 /// Setup: archer at (0,0), obstacle at (2,0) (side wall), target at (4,2).
 /// The LOS line from (0,0) to (4,2) does not pass through (2,0).
@@ -100,9 +106,15 @@ fn ai_archer_picks_alternative_target_without_los_constraint() {
     let archer_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(4, 2); // diagonal — LOS not blocked by obstacle at (2,0)
 
+    use storyforge::combat_engine::DiceExpr;
+    use storyforge::content::abilities::CasterContext;
     let archer = UnitBuilder::new(1, Team::Enemy, archer_pos)
         .ap(2)
-        .ability_names(&["bow_shot"])
+        .ability_names(&["ranged_shot"])
+        .caster_ctx(CasterContext {
+            ranged_dice: Some(DiceExpr::new(1, 8, 0)),
+            ..Default::default()
+        })
         .build();
     let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
@@ -114,7 +126,7 @@ fn ai_archer_picks_alternative_target_without_los_constraint() {
         content: &content,
         snap: &snap,
     };
-    let bow_id = AbilityId::from("bow_shot");
+    let bow_id = AbilityId::from("ranged_shot");
 
     let result = check_legality(
         ProposedAction {
@@ -128,7 +140,7 @@ fn ai_archer_picks_alternative_target_without_los_constraint() {
 
     assert!(
         result.is_ok(),
-        "bow_shot with clear LOS must be legal, got: {result:?}"
+        "ranged_shot with clear LOS must be legal, got: {result:?}"
     );
 }
 
@@ -145,9 +157,15 @@ fn player_target_selection_excludes_obstructed_enemies() {
     let player_pos = hex_from_offset(0, 0);
     let enemy_pos = hex_from_offset(4, 0);
 
+    use storyforge::combat_engine::DiceExpr;
+    use storyforge::content::abilities::CasterContext;
     let player = UnitBuilder::new(1, Team::Player, player_pos)
         .ap(2)
-        .ability_names(&["bow_shot"])
+        .ability_names(&["ranged_shot"])
+        .caster_ctx(CasterContext {
+            ranged_dice: Some(DiceExpr::new(1, 8, 0)),
+            ..Default::default()
+        })
         .build();
     let enemy = UnitBuilder::new(2, Team::Enemy, enemy_pos).build();
 
@@ -159,7 +177,7 @@ fn player_target_selection_excludes_obstructed_enemies() {
         content: &content,
         snap: &snap,
     };
-    let bow_id = AbilityId::from("bow_shot");
+    let bow_id = AbilityId::from("ranged_shot");
 
     let result = check_legality(
         ProposedAction {
@@ -174,7 +192,7 @@ fn player_target_selection_excludes_obstructed_enemies() {
     assert_eq!(
         result,
         Err(IllegalReason::NoLineOfSight),
-        "player bow_shot at obstructed enemy must be rejected with NoLineOfSight"
+        "player ranged_shot at obstructed enemy must be rejected with NoLineOfSight"
     );
 }
 

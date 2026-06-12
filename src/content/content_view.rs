@@ -285,6 +285,7 @@ mod tests {
             name: id.to_string(),
             slot: ArmorSlot::Chest,
             weight: ArmorWeight::Light,
+            image: None,
             stats: ItemStats {
                 magic_resist: mr,
                 ..Default::default()
@@ -301,7 +302,9 @@ mod tests {
             name: id.to_string(),
             hand: HandType::MainHand,
             dice: DiceExpr::new(1, 6, 0),
+            ranged: false,
             spell_power: 0,
+            image: None,
             stats: ItemStats {
                 magic_resist: mr,
                 ..Default::default()

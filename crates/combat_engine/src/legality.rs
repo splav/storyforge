@@ -103,6 +103,9 @@ pub enum IllegalReason {
     /// The target does not satisfy the ability's `requires_tags` / `excludes_tags`
     /// predicate (`SingleEnemy` and `SingleAlly` only).
     WrongTargetTags,
+    /// `WeaponAttack { ranged: true }` but the caster has no `ranged_dice`, or
+    /// `WeaponAttack { ranged: false }` but the caster has no `weapon_dice`.
+    MissingWeapon,
 }
 
 pub trait ActionState {
@@ -175,6 +178,18 @@ pub trait ActionState {
         requires: &std::collections::BTreeSet<crate::TagId>,
         excludes: &std::collections::BTreeSet<crate::TagId>,
     ) -> bool;
+
+    /// Returns `(weapon_dice, ranged_dice)` for the actor's caster context.
+    /// Used to validate WeaponAttack dice availability at legality check time.
+    /// Default returns `(None, None)` — backends that don't populate weapon dice
+    /// (Bevy legality adapter, tests without full CasterContext) always pass.
+    fn actor_weapon_channels(
+        &self,
+        actor: Self::Id,
+    ) -> (Option<crate::DiceExpr>, Option<crate::DiceExpr>) {
+        let _ = actor;
+        (None, None)
+    }
 }
 
 /// Decide whether `action` is legal against `state`.  Single-pass, no side
@@ -217,6 +232,20 @@ pub fn check_legality<S: ActionState>(
     }
 
     let mut disadvantage = actor.causes_disadvantage;
+
+    // WeaponAttack dice availability check.
+    // Illegal if the matching dice channel (melee or ranged) is absent.
+    if let crate::content::EffectDef::WeaponAttack { ranged, .. } = &def.effect {
+        let (weapon_dice, ranged_dice) = state.actor_weapon_channels(action.actor);
+        let has_dice = if *ranged {
+            ranged_dice.is_some()
+        } else {
+            weapon_dice.is_some()
+        };
+        if !has_dice {
+            return Err(IllegalReason::MissingWeapon);
+        }
+    }
 
     // Range / in-bounds.  `range.max == 0` means the ability fires in place —
     // `target_pos` is irrelevant (Myself / Ground dispatch below handles it).

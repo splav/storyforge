@@ -338,6 +338,47 @@ fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentVi
     full[..end].to_string()
 }
 
+/// Asset path (relative to `assets/images/`) of an item's icon, if it has one.
+fn item_image_path<'a>(
+    item: &ItemRef,
+    content: &'a crate::content::content_view::ContentView,
+) -> Option<&'a str> {
+    match item {
+        ItemRef::Weapon(wid) => content.weapons.get(wid)?.image.as_deref(),
+        ItemRef::Armor(aid) => content.armor.get(aid)?.image.as_deref(),
+    }
+}
+
+/// Damage label for a weapon: dice notation plus expected value, e.g.
+/// `"2d6 (7.0)"`. `None` for armor or weapons missing from content. The
+/// expected value keeps one decimal so 1d8 reads `4.5`, not a rounded `4`.
+fn weapon_damage_label(
+    item: &ItemRef,
+    content: &crate::content::content_view::ContentView,
+) -> Option<String> {
+    let ItemRef::Weapon(wid) = item else {
+        return None;
+    };
+    let dice = content.weapons.get(wid)?.dice;
+    let mut notation = format!("{}d{}", dice.count, dice.sides);
+    if dice.bonus != 0 {
+        notation.push_str(&format!("{:+}", dice.bonus));
+    }
+    Some(format!("{notation} ({:.1})", dice.expected()))
+}
+
+/// Color for a stat delta: green when the change favors the hero, red when it
+/// hurts, grey when neutral.
+fn delta_color(delta: f32) -> Color {
+    if delta > 0.0 {
+        Color::srgb(0.3, 0.9, 0.3)
+    } else if delta < 0.0 {
+        Color::srgb(0.9, 0.3, 0.3)
+    } else {
+        Color::srgb(0.6, 0.6, 0.6)
+    }
+}
+
 // ── Stat comparison card ─────────────────────────────────────────────────────
 
 /// Marker for the fixed comparison-card panel.
@@ -699,11 +740,13 @@ const CELL_INACTIVE_BG: Color = Color::srgba(0.08, 0.08, 0.07, 0.4);
 
 // ── Cell spawn helper ─────────────────────────────────────────────────────────
 
-/// Spawns a square 56×56 Button cell with the given label and style.
+/// Spawns a square 56×56 Button cell. If `icon` is `Some`, renders an image
+/// filling the cell; otherwise renders the text `label` as fallback.
 fn spawn_cell<'a>(
     parent: &'a mut ChildSpawnerCommands,
     font: Handle<Font>,
     label: impl Into<String>,
+    icon: Option<Handle<Image>>,
     style: CellStyle,
 ) -> EntityCommands<'a> {
     let (border_color, bg_color, text_alpha) = match style {
@@ -727,24 +770,41 @@ fn spawn_cell<'a>(
         BackgroundColor(bg_color),
     ));
     ec.with_children(|btn| {
-        btn.spawn((
-            Text::new(label),
-            TextFont {
-                font,
-                font_size: 10.0,
-                ..default()
-            },
-            TextColor(Color::WHITE.with_alpha(text_alpha)),
-        ));
+        if let Some(handle) = icon {
+            btn.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    ..default()
+                },
+                ImageNode {
+                    image: handle,
+                    color: Color::WHITE.with_alpha(text_alpha),
+                    ..default()
+                },
+            ));
+        } else {
+            btn.spawn((
+                Text::new(label),
+                TextFont {
+                    font,
+                    font_size: 10.0,
+                    ..default()
+                },
+                TextColor(Color::WHITE.with_alpha(text_alpha)),
+            ));
+        }
     });
     ec
 }
 
 // ── Spawn helper ──────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_camp_ui(
     commands: &mut Commands,
     font: Handle<Font>,
+    asset_server: &AssetServer,
     db: &GameDb,
     scenario_state: &ScenarioState,
     campaign: &CampaignState,
@@ -905,6 +965,10 @@ fn spawn_camp_ui(
                                     Some(item) => item_abbrev(item, content),
                                     None => "—".into(),
                                 };
+                                let icon = maybe_item
+                                    .as_ref()
+                                    .and_then(|it| item_image_path(it, content))
+                                    .map(|p| asset_server.load(format!("images/{p}")));
                                 let cell_kind = CellKind::Equip {
                                     hero_id: id.clone(),
                                     slot: slot.clone(),
@@ -917,7 +981,8 @@ fn spawn_camp_ui(
                                     scenario_state,
                                     content,
                                 );
-                                let mut ec = spawn_cell(slots_row, font.clone(), label, style);
+                                let mut ec =
+                                    spawn_cell(slots_row, font.clone(), label, icon, style);
                                 ec.insert(EquipCell {
                                     hero_id: id.clone(),
                                     slot,
@@ -964,6 +1029,8 @@ fn spawn_camp_ui(
                 .with_children(|pack_grid| {
                     for (i, item) in campaign.stash.iter().enumerate() {
                         let label = item_abbrev(item, content);
+                        let icon = item_image_path(item, content)
+                            .map(|p| asset_server.load(format!("images/{p}")));
                         let cell_kind = CellKind::Backpack { index: i };
                         let style = cell_style(
                             &cell_kind,
@@ -973,7 +1040,7 @@ fn spawn_camp_ui(
                             scenario_state,
                             content,
                         );
-                        let mut ec = spawn_cell(pack_grid, font.clone(), label, style);
+                        let mut ec = spawn_cell(pack_grid, font.clone(), label, icon, style);
                         ec.insert(BackpackCell { index: i });
                         if style == CellStyle::Selected {
                             ec.insert(SelectedCellMarker);
@@ -1038,6 +1105,7 @@ pub fn setup_camp_screen(
     spawn_camp_ui(
         &mut commands,
         font,
+        &asset_server,
         &db,
         &scenario_state,
         &campaign,
@@ -1077,6 +1145,7 @@ pub fn camp_rebuild_system(
     spawn_camp_ui(
         &mut commands,
         font,
+        &asset_server,
         &db,
         &scenario_state,
         &campaign,
@@ -1420,7 +1489,9 @@ pub fn cleanup_camp_screen(
 /// Updates the stat-comparison card each frame while in `AppState::Camp`.
 ///
 /// Card visibility rules:
-/// - No selection → hidden.
+/// - Nothing selected and nothing hovered (or hovered cell has no item) → hidden.
+/// - Nothing selected but hovering a cell with an item → single-column card
+///   showing the hovered item's stats (header "Предмет").
 /// - Selection active + hovering a **compatible** cell that has an item →
 ///   two-column comparison (Выбрано / Наведено).
 /// - Selection active, but no hover / hovering the selected cell / hovering an
@@ -1432,8 +1503,7 @@ pub fn cleanup_camp_screen(
 /// receive `Interaction::Pressed` correctly.
 ///
 /// Uses a `Local` to avoid rebuilding the card children every frame.
-/// The key is `(selected, hovered_compatible_item)` — `None` for the second
-/// element means single-column mode.
+/// The key is `(anchor_kind, compare_hovered, has_selection)`.
 #[allow(clippy::too_many_arguments)]
 pub fn camp_comparison_system(
     mut commands: Commands,
@@ -1446,16 +1516,9 @@ pub fn camp_comparison_system(
     equip_cells: Query<(&Interaction, &EquipCell)>,
     backpack_cells: Query<(&Interaction, &BackpackCell)>,
     mut cards: Query<(Entity, &mut Visibility), With<ComparisonCard>>,
-    mut last: Local<Option<(CellKind, Option<CellKind>)>>,
+    mut last: Local<Option<(CellKind, Option<CellKind>, bool)>>,
 ) {
     let Ok((card_entity, mut card_vis)) = cards.single_mut() else {
-        return;
-    };
-
-    // No selection → hide card.
-    let Some(selected_kind) = selection.selected.clone() else {
-        *card_vis = Visibility::Hidden;
-        *last = None;
         return;
     };
 
@@ -1482,29 +1545,43 @@ pub fn camp_comparison_system(
         from_equip.or(from_backpack)
     };
 
-    // Determine if the hovered cell qualifies for two-column comparison.
-    // Conditions: not the selected cell, compatible, and has an item.
-    let compare_hovered: Option<CellKind> = hovered_kind.and_then(|hk| {
-        if hk == selected_kind {
-            return None; // hovering the selected cell — single-column mode
-        }
-        if !cell_compatible(
-            &selected_kind,
-            &hk,
-            &campaign,
-            &db,
-            &scenario_state,
-            content,
-        ) {
-            return None; // incompatible cell — single-column mode
-        }
-        // Must have an item to compare against.
-        cell_item(&hk, &campaign, &db, &scenario_state, content)?;
-        Some(hk)
+    let has_selection = selection.selected.is_some();
+
+    // Determine anchor: selected item if present, else hovered item with an item.
+    let anchor_kind: Option<CellKind> = selection.selected.clone().or_else(|| {
+        hovered_kind.as_ref().and_then(|hk| {
+            cell_item(hk, &campaign, &db, &scenario_state, content)?;
+            Some(hk.clone())
+        })
     });
 
-    // The card key: (selected_kind, compare_hovered).
-    let new_key = (selected_kind.clone(), compare_hovered.clone());
+    let Some(anchor_kind) = anchor_kind else {
+        *card_vis = Visibility::Hidden;
+        *last = None;
+        return;
+    };
+
+    // Determine if the hovered cell qualifies for two-column comparison.
+    // Only possible when a selection is active.
+    let compare_hovered: Option<CellKind> = if has_selection {
+        let selected_kind = selection.selected.as_ref().unwrap();
+        hovered_kind.and_then(|hk| {
+            if hk == *selected_kind {
+                return None; // hovering the selected cell — single-column mode
+            }
+            if !cell_compatible(selected_kind, &hk, &campaign, &db, &scenario_state, content) {
+                return None; // incompatible cell — single-column mode
+            }
+            // Must have an item to compare against.
+            cell_item(&hk, &campaign, &db, &scenario_state, content)?;
+            Some(hk)
+        })
+    } else {
+        None
+    };
+
+    // The card key: (anchor_kind, compare_hovered, has_selection).
+    let new_key = (anchor_kind.clone(), compare_hovered.clone(), has_selection);
 
     // Only rebuild children when the key changes.
     if *last == Some(new_key.clone()) {
@@ -1512,8 +1589,9 @@ pub fn camp_comparison_system(
         return;
     }
 
-    // Resolve selected item (required — if missing, hide).
-    let Some(sel_item) = cell_item(&selected_kind, &campaign, &db, &scenario_state, content) else {
+    // Resolve anchor item (required — if missing, hide).
+    let Some(anchor_item) = cell_item(&anchor_kind, &campaign, &db, &scenario_state, content)
+    else {
         *card_vis = Visibility::Hidden;
         *last = None;
         return;
@@ -1523,7 +1601,7 @@ pub fn camp_comparison_system(
     *card_vis = Visibility::Inherited;
 
     let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
-    let sel_name = match &sel_item {
+    let anchor_name = match &anchor_item {
         ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
         ItemRef::Armor(aid) => armor_name(aid, content).to_string(),
     };
@@ -1537,6 +1615,13 @@ pub fn camp_comparison_system(
             // column, so the delta always reads as "change for the hero".
             // `cell_compatible` only ever pairs an Equip cell with a Backpack
             // cell, so exactly one of {selected, hovered} is each kind.
+            let selected_kind = selection.selected.as_ref().unwrap();
+            let sel_item = cell_item(selected_kind, &campaign, &db, &scenario_state, content)
+                .expect("selected item already validated above");
+            let sel_name = match &sel_item {
+                ItemRef::Weapon(wid) => weapon_name(wid, content).to_string(),
+                ItemRef::Armor(aid) => armor_name(aid, content).to_string(),
+            };
             let hov_item = cell_item(&hov_kind, &campaign, &db, &scenario_state, content)
                 .expect("hov item already validated above");
             let hov_name = match &hov_item {
@@ -1544,8 +1629,8 @@ pub fn camp_comparison_system(
                 ItemRef::Armor(aid) => armor_name(aid, content).to_string(),
             };
 
-            let (worn_item, new_item) = orient_comparison(&selected_kind, &sel_item, &hov_item);
-            let (worn_name, new_name) = orient_comparison(&selected_kind, &sel_name, &hov_name);
+            let (worn_item, new_item) = orient_comparison(selected_kind, &sel_item, &hov_item);
+            let (worn_name, new_name) = orient_comparison(selected_kind, &sel_name, &hov_name);
 
             let rows = compare_items(worn_item, new_item, &content.weapons, &content.armor);
 
@@ -1637,20 +1722,26 @@ pub fn camp_comparison_system(
                 });
             }
 
-            // Stat rows with delta = incoming − equipped.
+            // Stat rows: "<current> → <new> = <coloured delta>". Damage shows
+            // dice notation + expected value (1 decimal); other stats are
+            // integers. Delta is always incoming − equipped.
             for row_data in &rows {
+                let is_damage = row_data.label == "Урон";
                 let delta = row_data.incoming_val - row_data.equipped_val;
-                let delta_color = if delta > 0.0 {
-                    Color::srgb(0.3, 0.9, 0.3)
-                } else if delta < 0.0 {
-                    Color::srgb(0.9, 0.3, 0.3)
+                let (cur_str, new_str, delta_str) = if is_damage {
+                    (
+                        weapon_damage_label(worn_item, content)
+                            .unwrap_or_else(|| format!("{:.1}", row_data.equipped_val)),
+                        weapon_damage_label(new_item, content)
+                            .unwrap_or_else(|| format!("{:.1}", row_data.incoming_val)),
+                        format!("{delta:+.1}"),
+                    )
                 } else {
-                    Color::srgb(0.6, 0.6, 0.6)
-                };
-                let delta_str = if delta > 0.0 {
-                    format!("+{:.0}", delta)
-                } else {
-                    format!("{:.0}", delta)
+                    (
+                        format!("{:.0}", row_data.equipped_val),
+                        format!("{:.0}", row_data.incoming_val),
+                        format!("{delta:+.0}"),
+                    )
                 };
 
                 card.spawn(Node {
@@ -1669,7 +1760,7 @@ pub fn camp_comparison_system(
                         TextColor(Color::srgb(0.75, 0.75, 0.75)),
                     ));
                     row.spawn((
-                        Text::new(format!("{:.0}", row_data.equipped_val)),
+                        Text::new(cur_str),
                         TextFont {
                             font: font.clone(),
                             font_size: 11.0,
@@ -1678,22 +1769,40 @@ pub fn camp_comparison_system(
                         TextColor(Color::srgb(0.95, 0.85, 0.5)),
                     ));
                     row.spawn((
-                        Text::new(format!("→ {}", delta_str)),
+                        Text::new(" → "),
                         TextFont {
                             font: font.clone(),
                             font_size: 11.0,
                             ..default()
                         },
-                        TextColor(delta_color),
+                        TextColor(Color::srgb(0.6, 0.6, 0.6)),
                     ));
                     row.spawn((
-                        Text::new(format!("{:.0}", row_data.incoming_val)),
+                        Text::new(new_str),
                         TextFont {
                             font: font.clone(),
                             font_size: 11.0,
                             ..default()
                         },
                         TextColor(Color::srgb(0.5, 0.85, 0.95)),
+                    ));
+                    row.spawn((
+                        Text::new(" = "),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.6, 0.6, 0.6)),
+                    ));
+                    row.spawn((
+                        Text::new(delta_str),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 11.0,
+                            ..default()
+                        },
+                        TextColor(delta_color(delta)),
                     ));
                 });
             }
@@ -1710,8 +1819,13 @@ pub fn camp_comparison_system(
                 ));
             }
         } else {
-            // ── Single-column mode: show selected item's stats only ──────
-            // Header: "Выбрано"
+            // ── Single-column mode: show anchor item's stats only ────────
+            // Header label: "Выбрано" when item is selected, "Предмет" when hover-only.
+            let header_label = if has_selection {
+                "Выбрано"
+            } else {
+                "Предмет"
+            };
             card.spawn(Node {
                 flex_direction: FlexDirection::Row,
                 column_gap: Val::Px(8.0),
@@ -1719,7 +1833,7 @@ pub fn camp_comparison_system(
             })
             .with_children(|row| {
                 row.spawn((
-                    Text::new("Выбрано"),
+                    Text::new(header_label),
                     TextFont {
                         font: font.clone(),
                         font_size: 11.0,
@@ -1728,7 +1842,7 @@ pub fn camp_comparison_system(
                     TextColor(Color::srgba(0.7, 0.7, 0.7, 0.8)),
                 ));
                 row.spawn((
-                    Text::new(format!(" {sel_name}")),
+                    Text::new(format!(" {anchor_name}")),
                     TextFont {
                         font: font.clone(),
                         font_size: 12.0,
@@ -1739,7 +1853,7 @@ pub fn camp_comparison_system(
             });
 
             // Armor-class line (armor only — weapons have no weight class).
-            if let Some(w) = item_weight(&sel_item, content) {
+            if let Some(w) = item_weight(&anchor_item, content) {
                 card.spawn(Node {
                     flex_direction: FlexDirection::Row,
                     column_gap: Val::Px(6.0),
@@ -1767,8 +1881,15 @@ pub fn camp_comparison_system(
                 });
             }
 
-            let stats = item_stats(&sel_item, &content.weapons, &content.armor);
+            let stats = item_stats(&anchor_item, &content.weapons, &content.armor);
             for (label, val) in &stats {
+                // Damage shows dice notation + expected value; other stats integer.
+                let value_str = if label == "Урон" {
+                    weapon_damage_label(&anchor_item, content)
+                        .unwrap_or_else(|| format!("{val:.1}"))
+                } else {
+                    format!("{val:.0}")
+                };
                 card.spawn(Node {
                     flex_direction: FlexDirection::Row,
                     column_gap: Val::Px(6.0),
@@ -1785,7 +1906,7 @@ pub fn camp_comparison_system(
                         TextColor(Color::srgb(0.75, 0.75, 0.75)),
                     ));
                     row.spawn((
-                        Text::new(format!("{:.0}", val)),
+                        Text::new(value_str),
                         TextFont {
                             font: font.clone(),
                             font_size: 11.0,
@@ -1835,7 +1956,9 @@ mod tests {
                 sides: 6,
                 bonus: 0,
             },
+            ranged: false,
             spell_power: 0,
+            image: None,
             stats: Default::default(),
         };
         (wid, def)
@@ -1848,6 +1971,7 @@ mod tests {
             name: id.to_string(),
             slot,
             weight: ArmorWeight::Light,
+            image: None,
             stats: crate::content::item_stats::ItemStats {
                 armor: 1,
                 ..Default::default()
@@ -2212,7 +2336,9 @@ mod tests {
             name: id.to_string(),
             hand,
             dice,
+            ranged: false,
             spell_power,
+            image: None,
             stats: crate::content::item_stats::ItemStats {
                 armor,
                 combat: crate::game::components::CombatStats {
@@ -2241,6 +2367,7 @@ mod tests {
             name: id.to_string(),
             slot,
             weight,
+            image: None,
             stats: crate::content::item_stats::ItemStats {
                 armor: armor_val,
                 combat: crate::game::components::CombatStats {
@@ -2346,7 +2473,9 @@ mod tests {
                 sides: 6,
                 bonus: 0,
             },
+            ranged: false,
             spell_power: 0,
+            image: None,
             stats: Default::default(),
         };
         weapons.insert(wid.clone(), def);
@@ -2422,6 +2551,7 @@ mod tests {
             name: "mage_robe".into(),
             slot: ArmorSlot::Chest,
             weight: ArmorWeight::Light,
+            image: None,
             stats: crate::content::item_stats::ItemStats {
                 mana: 2,
                 ..Default::default()
@@ -2450,6 +2580,7 @@ mod tests {
             name: "resist_robe".into(),
             slot: ArmorSlot::Chest,
             weight: ArmorWeight::Light,
+            image: None,
             stats: crate::content::item_stats::ItemStats {
                 magic_resist: 3,
                 ..Default::default()

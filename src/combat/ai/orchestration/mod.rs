@@ -653,10 +653,12 @@ mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_maps, snapshot_from_pairs, UnitBuilder};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::tags::cache::build_caches;
     use crate::combat::ai::world::tags::AbilityTag;
+    use crate::content::abilities::CasterContext;
+    use combat_engine::DiceExpr;
 
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -679,6 +681,10 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ability_names(actor_abilities)
             .ap(2)
+            .caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                ..Default::default()
+            })
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
 
@@ -923,7 +929,6 @@ mod tests {
     //   3. at full ally HP the AI does NOT heal (overheal gate) and attacks.
 
     use crate::combat::ai::plan::types::PlanStep;
-    use crate::combat::ai::test_helpers::snapshot_from_pairs;
     use crate::combat::ai::world::tags::AiTags;
     use crate::content::content_view::ContentView;
 
@@ -942,11 +947,13 @@ mod tests {
     /// Build a `BattleSnapshot` for the shepherd scenario, stamping the engine
     /// `Unit.tags` set (the field `has_tags` legality reads, distinct from the
     /// AI `AiTags`). `ally_hp` is the wounded/full HP of the symbiote ally.
+    /// `weapon_dice` controls whether the shepherd has a melee weapon equipped.
     ///
     /// Layout (row 0): shepherd actor (0,0), symbiote ally (1,0),
     /// non-symbiote ally (0,1)-ish via offset, Player enemy adjacent.
     fn shepherd_snapshot(
         ally_hp: i32,
+        with_weapon: bool,
     ) -> (
         BattleSnapshot,
         bevy::prelude::Entity, // shepherd
@@ -960,14 +967,22 @@ mod tests {
         let plain_pos = hex_from_offset(2, 0);
         let enemy_pos = hex_from_offset(0, 1);
 
-        let shepherd = UnitBuilder::new(1, Team::Enemy, actor_pos)
+        let mut shepherd_builder = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .role(shepherd_role())
             .ability_names(&["melee_attack", "shepherd_heal"])
             .ap(2)
             .mana(5, 8)
             .tags(AiTags::CAN_HEAL) // mirrors compute_unit_tags: affordable single_ally heal
-            .max_attack_range(1)
-            .build_pair();
+            .max_attack_range(1);
+
+        if with_weapon {
+            shepherd_builder = shepherd_builder.caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                ..Default::default()
+            });
+        }
+
+        let shepherd = shepherd_builder.build_pair();
 
         let symbiote = UnitBuilder::new(2, Team::Enemy, symbiote_pos)
             .hp(ally_hp)
@@ -1049,7 +1064,7 @@ mod tests {
         use crate::combat::ai::action_state::SnapshotActionState;
         use combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
 
-        let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8);
+        let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8, false);
         let content = ContentView::load_global_for_tests();
         let state = SnapshotActionState {
             content: &content,
@@ -1093,7 +1108,7 @@ mod tests {
     /// non-symbiote ally (tag predicate flows into the chosen plan via legality).
     #[test]
     fn shepherd_heals_wounded_symbiote_not_plain_ally() {
-        let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8); // 8/20 = 40%
+        let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8, false); // 8/20 = 40%, no weapon
         let result = run_shepherd_pick(&snap, shepherd);
 
         let (ability, target) =
@@ -1111,7 +1126,7 @@ mod tests {
     /// in-range enemy instead of healing.
     #[test]
     fn shepherd_attacks_when_symbiote_at_full_hp() {
-        let (snap, shepherd, _symbiote, _plain) = shepherd_snapshot(20); // full HP
+        let (snap, shepherd, _symbiote, _plain) = shepherd_snapshot(20, true); // full HP, with weapon
         let result = run_shepherd_pick(&snap, shepherd);
 
         let cast = chosen_cast(&result);

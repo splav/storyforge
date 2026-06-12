@@ -98,14 +98,10 @@ fn cast_emits_damage_result_log_entry() {
         wisdom: 10,
         charisma: 10,
     };
-    let ability_def = AbilityDef {
-        id: AbilityId::from("dmg_ability"),
-        name: "Fireball".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "dmg_ability",
+        "Fireball",
+        combat_engine::AbilityDef {
             effect: EffectDef::Damage {
                 dice: DiceExpr::new(0, 1, 5),
             },
@@ -122,7 +118,7 @@ fn cast_emits_damage_result_log_entry() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     run_cast_log_test(
         ability_def,
@@ -198,14 +194,10 @@ fn cast_emits_status_applied_log_entry() {
     use storyforge::content::abilities::{StatusApplication, StatusOn, TargetType};
 
     let status_id = StatusId::from("burning");
-    let ability_def = AbilityDef {
-        id: AbilityId::from("burning_touch"),
-        name: "Burning Touch".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "burning_touch",
+        "Burning Touch",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::None,
@@ -224,7 +216,7 @@ fn cast_emits_status_applied_log_entry() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     run_cast_log_test(
         ability_def,
@@ -266,14 +258,10 @@ fn cast_emits_mana_changed_log_entry() {
     use combat_engine::ResourceKind;
     use storyforge::content::abilities::{ResourceCost, TargetType};
 
-    let ability_def = AbilityDef {
-        id: AbilityId::from("mana_blast"),
-        name: "Mana Blast".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "mana_blast",
+        "Mana Blast",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::None,
@@ -291,7 +279,7 @@ fn cast_emits_mana_changed_log_entry() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     run_cast_log_test(
         ability_def,
@@ -357,14 +345,10 @@ fn process_action_system_routes_cast_into_engine() {
 
     // Register a Cast-able ability with a mana cost in ActiveContent.
     let zap_id = AbilityId::from("zap");
-    let zap_def = AbilityDef {
-        id: zap_id.clone(),
-        name: "zap".into(),
-        magic_domains: Vec::new(),
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let zap_def = common::apps::bridge::bevy_ability(
+        "zap",
+        "zap",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::None,
@@ -383,7 +367,7 @@ fn process_action_system_routes_cast_into_engine() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
     common::apps::bridge::insert_ability(&mut app, zap_def);
 
     common::apps::bridge::bootstrap(&mut app);
@@ -430,14 +414,10 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
     use storyforge::content::abilities::{ResourceCost, TargetType};
 
     let ability_id = AbilityId::from("cf_test_ability");
-    let ability_def = AbilityDef {
-        id: ability_id.clone(),
-        name: "CF Test".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "cf_test_ability",
+        "CF Test",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             // Use damage for d20≠1 path so the cast has a visible effect; use None for d20=1 (miss).
@@ -466,7 +446,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     let caster_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
@@ -598,14 +578,10 @@ fn cast_summon_creates_ecs_entity_synchronously() {
     let ability_id = AbilityId::from("summon_imp");
     let template_id = "imp";
 
-    let ability_def = AbilityDef {
-        id: ability_id.clone(),
-        name: "Призвать беса".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "summon_imp",
+        "Призвать беса",
+        combat_engine::AbilityDef {
             target_type: TargetType::Myself,
             range: AbilityRange { min: 0, max: 0 },
             effect: EffectDef::Summon {
@@ -623,7 +599,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     let template = UnitTemplateDef {
         id: template_id.into(),
@@ -762,14 +738,10 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
     let ability_id = AbilityId::from("summon_imp");
     let template_id = "imp";
 
-    let ability_def = AbilityDef {
-        id: ability_id.clone(),
-        name: "Призвать беса".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "summon_imp",
+        "Призвать беса",
+        combat_engine::AbilityDef {
             target_type: TargetType::Myself,
             range: AbilityRange { min: 0, max: 0 },
             effect: EffectDef::Summon {
@@ -787,7 +759,7 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     let template = UnitTemplateDef {
         id: template_id.into(),

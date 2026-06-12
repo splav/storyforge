@@ -315,7 +315,11 @@ fn ability_line(def: &AbilityDef) -> String {
 
     // Effect / dice
     match &def.effect {
-        EffectDef::WeaponAttack => parts.push("ближний бой".into()),
+        EffectDef::WeaponAttack { ranged, .. } => parts.push(if *ranged {
+            "дальний бой".into()
+        } else {
+            "ближний бой".into()
+        }),
         EffectDef::Damage { dice } => parts.push(format!("{}d{}", dice.count, dice.sides)),
         EffectDef::SpellDamage { dice } => parts.push(format!("{}d{} маг", dice.count, dice.sides)),
         EffectDef::Heal { dice } => parts.push(format!("лечение {}d{}", dice.count, dice.sides)),

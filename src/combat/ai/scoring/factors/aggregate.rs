@@ -44,7 +44,6 @@ use crate::content::abilities::EffectCalcExt;
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
-use combat_engine::modifier;
 
 /// Per-factor contribution used both in `aggregate_factors_to_score` (Pass 1) and in
 /// `PickBestStage` (step 11.4 additive composition).
@@ -310,13 +309,14 @@ pub fn build_summon_dpr_cache(
                 cache.insert(template_id.clone(), 0.0);
                 continue;
             };
-            let weapon = ctx.content.weapons.get(&tpl.equipment.main_hand);
-            let caster_ctx = CasterContext {
-                str_mod: modifier(tpl.stats.strength),
-                int_mod: modifier(tpl.stats.intelligence),
-                spell_power: weapon.map_or(0, |wd| wd.spell_power),
-                weapon_dice: weapon.map(|wd| wd.dice),
+            let equipment = crate::game::components::Equipment {
+                main_hand: Some(tpl.equipment.main_hand.clone()),
+                off_hand: tpl.equipment.off_hand.clone(),
+                chest: tpl.equipment.chest.clone(),
+                legs: tpl.equipment.legs.clone(),
+                feet: tpl.equipment.feet.clone(),
             };
+            let caster_ctx = CasterContext::new(&tpl.stats, Some(&equipment), &ctx.content.weapons);
             let abilities = Abilities(tpl.ability_ids.clone());
             let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.content);
             cache.insert(template_id.clone(), dpr);

@@ -722,6 +722,7 @@ fn make_caster_ctx(
         int_mod: bevy_ctx.int_mod,
         spell_power: bevy_ctx.spell_power,
         weapon_dice: bevy_ctx.weapon_dice,
+        ranged_dice: bevy_ctx.ranged_dice,
         crit_fail_outcome: crate::content::to_engine::crit_fail_outcome(&crit_fail_effect),
         dex_mod: modifier(stats.dexterity),
     }
@@ -735,10 +736,10 @@ fn make_aoo_dice(
     active_content: &ActiveContent,
 ) -> Option<EngineDiceExpr> {
     let has_melee = ability_ids.iter().any(|aid| {
-        active_content
-            .abilities
-            .get(aid)
-            .is_some_and(|def| matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1)
+        active_content.abilities.get(aid).is_some_and(|def| {
+            matches!(def.effect, EffectDef::WeaponAttack { ranged: false, .. })
+                && def.range.max == 1
+        })
     });
     if !has_melee {
         return None;

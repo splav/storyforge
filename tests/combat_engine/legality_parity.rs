@@ -30,7 +30,6 @@ use storyforge::combat_engine::{
     IllegalReason, LegalAction, ProposedAction, ResourceKind, StatusBonuses,
     StatusDef as EngineStatusDef, UnitTemplate,
 };
-use storyforge::content::abilities::AbilityDef as BevyAbilityDef;
 use storyforge::content::content_view::{ActiveContent, ContentView as BevyContentView};
 use storyforge::content::statuses::StatusDef as BevyStatusDef;
 use storyforge::game::bundles::CombatantBundle;
@@ -103,14 +102,10 @@ fn base_stats() -> CombatStats {
 // ── Content insertion ─────────────────────────────────────────────────────────
 
 fn insert_attack(app: &mut App) {
-    let def = BevyAbilityDef {
-        id: ATTACK_ID.into(),
-        name: "Test Attack".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: AbilityDef {
+    let def = crate::common::apps::bridge::bevy_ability(
+        ATTACK_ID,
+        "Test Attack",
+        AbilityDef {
             key: None,
             cost_ap: 1,
             costs: vec![],
@@ -127,7 +122,7 @@ fn insert_attack(app: &mut App) {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
     app.world_mut()
         .resource_mut::<ActiveContent>()
         .0
@@ -136,14 +131,10 @@ fn insert_attack(app: &mut App) {
 }
 
 fn insert_heal(app: &mut App) {
-    let def = BevyAbilityDef {
-        id: HEAL_ID.into(),
-        name: "Test Heal".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: AbilityDef {
+    let def = crate::common::apps::bridge::bevy_ability(
+        HEAL_ID,
+        "Test Heal",
+        AbilityDef {
             key: None,
             cost_ap: 1,
             costs: vec![],
@@ -160,7 +151,7 @@ fn insert_heal(app: &mut App) {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
     app.world_mut()
         .resource_mut::<ActiveContent>()
         .0
@@ -169,14 +160,10 @@ fn insert_heal(app: &mut App) {
 }
 
 fn insert_mana_spell(app: &mut App) {
-    let def = BevyAbilityDef {
-        id: MANA_SPELL_ID.into(),
-        name: "Test Mana Spell".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: AbilityDef {
+    let def = crate::common::apps::bridge::bevy_ability(
+        MANA_SPELL_ID,
+        "Test Mana Spell",
+        AbilityDef {
             key: None,
             cost_ap: 1,
             costs: vec![Cost {
@@ -196,7 +183,7 @@ fn insert_mana_spell(app: &mut App) {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
     app.world_mut()
         .resource_mut::<ActiveContent>()
         .0

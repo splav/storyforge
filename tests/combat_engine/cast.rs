@@ -445,7 +445,10 @@ fn cast_weapon_attack_uses_weapon_dice() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::WeaponAttack,
+        effect: EffectDef::WeaponAttack {
+            ranged: false,
+            power: 1.0,
+        },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("melee", ability).with_caster(
@@ -474,7 +477,9 @@ fn cast_weapon_attack_uses_weapon_dice() {
     );
 }
 
-/// WeaponAttack with no weapon_dice → no Damage effect, target hp unchanged.
+/// WeaponAttack with no weapon_dice is now illegal (MissingWeapon).
+/// Previously the cast would silently produce no damage; now the legality
+/// check rejects it before execution to prevent silent no-ops.
 #[test]
 fn cast_weapon_attack_no_damage_when_no_weapon() {
     let actor = make_unit(1, Team::Player, 0, 0);
@@ -485,10 +490,13 @@ fn cast_weapon_attack_no_damage_when_no_weapon() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::WeaponAttack,
+        effect: EffectDef::WeaponAttack {
+            ranged: false,
+            power: 1.0,
+        },
         ..single_enemy_ability()
     };
-    // CasterContext::default() has weapon_dice=None.
+    // CasterContext::default() has weapon_dice=None → MissingWeapon.
     let content = StubContent::with_ability("unarmed", ability);
 
     let action = Action::Cast {
@@ -498,13 +506,147 @@ fn cast_weapon_attack_no_damage_when_no_weapon() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
+    let result = step(&mut state, action, &mut ExpectedValue, &content).map(|(ev, _)| ev);
+    assert_eq!(
+        result,
+        Err(ActionError::Illegal(IllegalReason::MissingWeapon)),
+        "no weapon_dice must be rejected before cast"
+    );
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "hp unchanged");
+}
+
+/// WeaponAttack { ranged: true }: raw = roll(ranged_dice) * power + dex_mod.
+/// E[1d8] = 4.5 → round = 5. power=1.0. dex_mod=3. raw = 5 * 1.0 + 3 = 8. hp = 10-8=2.
+#[test]
+fn cast_ranged_weapon_attack_uses_ranged_dice_and_dex_mod() {
+    use storyforge::combat_engine::CasterContext;
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 3, 0); // hp=10, armor=0, distance=3
+
+    let mut state = state_with(vec![actor, target]);
+
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::WeaponAttack {
+            ranged: true,
+            power: 1.0,
+        },
+        range: AbilityRange { min: 0, max: 5 },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("ranged_shot", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            str_mod: 99, // must NOT be used
+            dex_mod: 3,
+            weapon_dice: None, // melee channel absent — must NOT be used
+            ranged_dice: Some(DiceExpr::new(1, 8, 0)),
+            ..Default::default()
+        },
+    );
+    content.apply_caster_contexts(&mut state);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("ranged_shot"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(3, 0),
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content).expect("ranged cast should succeed");
 
     assert_eq!(
         state.unit(UnitId(2)).unwrap().hp(),
-        10,
-        "no weapon → no damage"
+        2,
+        "hp = 10 - (5*1.0 + 3) = 2"
     );
+}
+
+/// WeaponAttack { power: 0.5 }: raw = roll(dice) * 0.5 + str_mod.
+/// E[1d8] = 4.5 → 5. raw = 5 * 0.5 + 2 = 4.5; the single late
+/// `final_dmg.round()` rounds half away from zero → 5. hp = 10-5=5.
+#[test]
+fn cast_weapon_attack_power_half_scales_dice_not_mod() {
+    use storyforge::combat_engine::CasterContext;
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0); // hp=10, armor=0
+
+    let mut state = state_with(vec![actor, target]);
+
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::WeaponAttack {
+            ranged: false,
+            power: 0.5,
+        },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("weak_strike", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            str_mod: 2,
+            weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+            ..Default::default()
+        },
+    );
+    content.apply_caster_contexts(&mut state);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("weak_strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
+
+    // E[1d8]=4.5 → 5 (ExpectedValue rounds). raw = 5*0.5+2 = 4.5 → round() = 5. hp = 10-5=5.
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        5,
+        "hp = 10 - round(5*0.5 + 2) = 5"
+    );
+}
+
+/// WeaponAttack { ranged: true } with no ranged_dice → MissingWeapon (illegal).
+#[test]
+fn cast_ranged_weapon_attack_no_ranged_dice_is_illegal() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 3, 0);
+
+    let mut state = state_with(vec![actor, target]);
+
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::WeaponAttack {
+            ranged: true,
+            power: 1.0,
+        },
+        range: AbilityRange { min: 0, max: 5 },
+        ..single_enemy_ability()
+    };
+    // CasterContext::default() has ranged_dice=None → MissingWeapon.
+    let content = StubContent::with_ability("ranged_shot", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("ranged_shot"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(3, 0),
+    };
+
+    let result = step(&mut state, action, &mut ExpectedValue, &content).map(|(ev, _)| ev);
+    assert_eq!(
+        result,
+        Err(ActionError::Illegal(IllegalReason::MissingWeapon)),
+        "no ranged_dice must be rejected before cast"
+    );
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "hp unchanged");
 }
 
 /// AoE Circle radius=1, fixed dice (0d1+2 → raw=2), str_mod=0.
@@ -1311,38 +1453,10 @@ fn cast_applies_status_to_each_aoe_target() {
 // ── Step 3.5b tests: Summon ───────────────────────────────────────────────────
 
 fn imp_template() -> UnitTemplate {
-    use storyforge::combat_engine::{PoolKind, RegenRule};
-    UnitTemplate {
-        max_hp: 8,
-        armor: 1,
-        base_speed: 4,
-        max_ap: 1,
-        mana_max: 0,
-        energy_max: 0,
-        rage_max: 0,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
-        },
-        initial_statuses: Vec::new(),
-        initial_pools: storyforge::combat_engine::enum_map::enum_map! {
-            PoolKind::Hp     => None,
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => None,
-            PoolKind::Mp     => None,
-        },
-        tags: Default::default(),
-    }
+    // imp differs from the canonical template only in armor: 1
+    let mut tpl = crate::common::engine_unit::template();
+    tpl.armor = 1;
+    tpl
 }
 
 fn summon_ability(max_active: Option<u32>) -> AbilityDef {

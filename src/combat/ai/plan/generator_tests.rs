@@ -95,6 +95,8 @@ fn depth_1_plan_set_includes_empty_and_single_casts() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -265,6 +267,8 @@ fn beam_pruning_limits_per_depth_frontier() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -311,6 +315,8 @@ fn killed_target_absent_in_second_step_enumeration() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -357,6 +363,8 @@ fn ap_exhaustion_stops_cast_extension() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -608,6 +616,8 @@ fn overheal_rejects_target_above_90_percent() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![heal.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -655,6 +665,8 @@ fn wasted_single_target_cc_on_stunned_rejected() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
 
@@ -710,6 +722,8 @@ fn aoe_cc_on_stunned_target_still_allowed() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
 
@@ -752,6 +766,8 @@ fn aoe_friendly_fire_rejected_when_hits_ally_without_enough_enemies() {
         int_mod: 4,
         spell_power: 2,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -784,6 +800,8 @@ fn aoe_friendly_fire_accepted_when_enemies_outnumber_allies_two_to_one() {
         int_mod: 4,
         spell_power: 2,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -850,6 +868,8 @@ fn generate_plans_excludes_taunt_violating_casts() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
 
@@ -1021,6 +1041,8 @@ fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![mana_bolt.id.clone(), melee.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);
@@ -1172,6 +1194,8 @@ fn rank_targets_picks_legal_when_top_k_by_rank_all_illegal() {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
     let _abilities = Abilities(vec![def.id.clone()]);
     let ctx = make_ctx(&content, &difficulty);

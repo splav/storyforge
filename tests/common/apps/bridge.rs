@@ -22,7 +22,7 @@
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
-use combat_engine::{AbilityId, DiceExpr, WeaponId};
+use combat_engine::{AbilityId, DiceExpr, StatusId, WeaponId};
 use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
 use storyforge::combat::ai::log::AiLogger;
 use storyforge::combat::ai::log::PendingAiLogEntries;
@@ -325,6 +325,33 @@ pub fn insert_ability(app: &mut App, def: AbilityDef) {
         .insert(def.id.clone(), def);
 }
 
+/// Wrap a pure-engine `AbilityDef` in the Bevy `AbilityDef` shell with empty
+/// bridge-only fields (no magic domains, no AI override, not a move toggle).
+pub fn bevy_ability(id: &str, name: &str, engine: combat_engine::AbilityDef) -> AbilityDef {
+    AbilityDef {
+        id: AbilityId::from(id),
+        name: name.into(),
+        magic_domains: vec![],
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine,
+    }
+}
+
+/// Wrap a pure-engine `StatusDef` in the Bevy `StatusDef` shell with empty
+/// bridge-only fields (no dot_dice, not AI-controlled, no buff class).
+pub fn bevy_status(id: &str, engine: combat_engine::StatusDef) -> StatusDef {
+    StatusDef {
+        id: StatusId::from(id),
+        name: id.into(),
+        dot_dice: None,
+        ai_controlled: false,
+        buff_class: None,
+        engine,
+    }
+}
+
 // ─── Melee content builder ────────────────────────────────────────────────────
 
 /// Builder for a synthetic melee `ContentView` (weapon + WeaponAttack ability +
@@ -365,7 +392,9 @@ impl MeleeContent {
             name: "Test Sword".into(),
             hand: HandType::MainHand,
             dice: DiceExpr::new(1, 6, 0),
+            ranged: false,
             spell_power: 0,
+            image: None,
             stats: Default::default(),
         };
         let ability = AbilityDef {
@@ -378,7 +407,10 @@ impl MeleeContent {
             engine: combat_engine::AbilityDef {
                 target_type: storyforge::content::abilities::TargetType::SingleEnemy,
                 range: AbilityRange::MELEE,
-                effect: EffectDef::WeaponAttack,
+                effect: EffectDef::WeaponAttack {
+                    ranged: false,
+                    power: 1.0,
+                },
                 costs: vec![],
                 cost_ap: 1,
                 aoe: AoEShape::None,

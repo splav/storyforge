@@ -10,18 +10,14 @@ use std::collections::HashMap;
 
 use storyforge::combat_engine::{
     action::Action,
-    content::ContentView,
     dice::{DiceRng, ExpectedValue},
     event::Event,
     state::{CombatState, RoundPhase, Unit, UnitId},
     step::step,
-    AbilityDef, AbilityId, AbilityRange, AoEShape, EffectDef, PoolKind, RegenRule, StatusDef,
-    StatusId, TargetType, UnitTemplate,
+    AbilityDef, AbilityId, AbilityRange, AoEShape, EffectDef, TargetType,
 };
 
-use storyforge::combat_engine::enum_map::enum_map;
-
-use crate::common::engine_unit::EngineUnitBuilder;
+use crate::common::engine_unit::{template, EngineUnitBuilder, StubContent};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -200,111 +196,24 @@ fn reconcile_does_not_touch_index() {
 // ── Helpers for Wave 4 ────────────────────────────────────────────────────────
 
 /// Minimal `ContentView` that serves one summon ability + one unit template.
-struct SummonContent {
-    ability_id: AbilityId,
-    ability: AbilityDef,
-    template_id: String,
-    template: UnitTemplate,
-    status_def: StatusDef,
-}
-
-impl SummonContent {
-    fn new(ability_id: &str, template_id: &str, template: UnitTemplate) -> Self {
-        let ability = AbilityDef {
-            key: None,
-            cost_ap: 1,
-            costs: vec![],
-            range: AbilityRange { min: 0, max: 0 },
-            target_type: TargetType::Myself,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            effect: EffectDef::Summon {
-                template_id: template_id.into(),
-                max_active: None,
-            },
-            statuses: vec![],
-            requires_los: false,
-            passive: vec![],
-            requires_tags: Default::default(),
-            excludes_tags: Default::default(),
-        };
-        Self {
-            ability_id: AbilityId::from(ability_id),
-            ability,
+fn summon_ability(template_id: &str) -> AbilityDef {
+    AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: vec![],
+        range: AbilityRange { min: 0, max: 0 },
+        target_type: TargetType::Myself,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        effect: EffectDef::Summon {
             template_id: template_id.into(),
-            template,
-            status_def: StatusDef {
-                causes_disadvantage: false,
-                blocks_mana_abilities: false,
-                forces_targeting: false,
-                skips_turn: false,
-                hp_percent_dot: 0,
-                heal_per_tick: 0,
-                bonuses: storyforge::combat_engine::StatusBonuses {
-                    armor_bonus: 0,
-                    damage_taken_bonus: 0,
-                    speed_bonus: 0,
-                },
-            },
-        }
-    }
-}
-
-impl ContentView for SummonContent {
-    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
-        if id == &self.ability_id {
-            Some(&self.ability)
-        } else {
-            None
-        }
-    }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
-        Some(&self.status_def)
-    }
-    fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
-        if id == self.template_id {
-            Some(self.template.clone())
-        } else {
-            None
-        }
-    }
-}
-
-/// Build a minimal `UnitTemplate` for a summoned unit; optionally set `dex_mod`
-/// on the caster_context so we can verify the dex modifier is applied to the roll.
-fn summon_template(dex_mod: i32) -> UnitTemplate {
-    let mut ctx: storyforge::combat_engine::CasterContext = Default::default();
-    ctx.dex_mod = dex_mod;
-    UnitTemplate {
-        max_hp: 8,
-        armor: 0,
-        base_speed: 4,
-        max_ap: 1,
-        mana_max: 0,
-        energy_max: 0,
-        rage_max: 0,
-        caster_context: ctx,
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        regen_per_pool: enum_map! {
-            PoolKind::Hp     => RegenRule::None,
-            PoolKind::Mana   => RegenRule::Increment(1),
-            PoolKind::Rage   => RegenRule::None,
-            PoolKind::Energy => RegenRule::Increment(1),
-            PoolKind::Ap     => RegenRule::RefillToMax,
-            PoolKind::Mp     => RegenRule::RefillToMax,
+            max_active: None,
         },
-        initial_statuses: Vec::new(),
-        initial_pools: enum_map! {
-            PoolKind::Hp     => None,
-            PoolKind::Mana   => None,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => None,
-            PoolKind::Mp     => None,
-        },
-        tags: Default::default(),
+        statuses: vec![],
+        requires_los: false,
+        passive: vec![],
+        requires_tags: Default::default(),
+        excludes_tags: Default::default(),
     }
 }
 
@@ -331,7 +240,11 @@ fn summon_rolls_initiative_and_acts_next_round() {
     // Enemy   (uid=2, Enemy,  initiative=5)  at (5,0) — guarantees a non-empty
     //         enemy list so the phase never jumps to Victory immediately.
     let dex_mod = 3;
-    let content = SummonContent::new("summon", "imp", summon_template(dex_mod));
+    let mut imp_tpl = template();
+    imp_tpl.caster_context.dex_mod = dex_mod;
+    let content = StubContent::new()
+        .with_ability("summon", summon_ability("imp"))
+        .with_template("imp", imp_tpl);
 
     let mut summoner = EngineUnitBuilder::new(1)
         .team(Team::Player)

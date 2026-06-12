@@ -98,13 +98,14 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
         weapon_dice: bevy_ctx.weapon_dice,
         crit_fail_outcome,
         dex_mod: 0,
+        ranged_dice: None,
     };
     // aoo_dice — mirror bootstrap AoO eligibility.
     let has_melee = tpl.ability_ids.iter().any(|aid| {
-        content
-            .abilities
-            .get(aid)
-            .is_some_and(|def| matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1)
+        content.abilities.get(aid).is_some_and(|def| {
+            matches!(def.effect, EffectDef::WeaponAttack { ranged: false, .. })
+                && def.range.max == 1
+        })
     });
     let str_mod = bevy_ctx.str_mod;
     let aoo_dice = if has_melee {
@@ -193,7 +194,17 @@ impl AbilityExt for AbilityDef {
 fn effect_eq(a: &EffectDef, b: &EffectDef) -> bool {
     use EffectDef::*;
     match (a, b) {
-        (None, None) | (WeaponAttack, WeaponAttack) | (RestoreResources, RestoreResources) => true,
+        (None, None) | (RestoreResources, RestoreResources) => true,
+        (
+            WeaponAttack {
+                ranged: ra,
+                power: pa,
+            },
+            WeaponAttack {
+                ranged: rb,
+                power: pb,
+            },
+        ) => ra == rb && (pa - pb).abs() < f32::EPSILON,
         (Damage { dice: da }, Damage { dice: db }) => da == db,
         (SpellDamage { dice: da }, SpellDamage { dice: db }) => da == db,
         (Heal { dice: da }, Heal { dice: db }) => da == db,

@@ -490,7 +490,7 @@ mod tests {
         let p = infer_profile(
             &ids(&[
                 "melee_attack",
-                "bow_shot",
+                "ranged_shot",
                 "paralyzing_shot",
                 "field_medic",
                 "poison_shot",

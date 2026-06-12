@@ -9,7 +9,7 @@ use bevy::prelude::*;
 
 use combat_engine::{AbilityId, DiceExpr, StatusId};
 use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
-use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
+use storyforge::content::abilities::{AbilityRange, AoEShape, EffectDef};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{CombatStats, Team, Vital};
@@ -30,14 +30,10 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
 
     let ability_id = AbilityId::from("phase_nuke");
     // 0d1+60 → constant 60 damage, strength=0 so str_mod=0, boss armor=0.
-    let ability_def = AbilityDef {
-        id: ability_id.clone(),
-        name: "Phase Nuke".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "phase_nuke",
+        "Phase Nuke",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::Damage {
@@ -54,7 +50,7 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     let mut app = common::apps::bridge::bridge_app();
     common::apps::bridge::insert_ability(&mut app, ability_def);
@@ -234,14 +230,10 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
 
     // Register a minimal cast ability (no damage needed — we just need AP cost).
     let ability_id = AbilityId::from("exhausting_zap");
-    let ability_def = AbilityDef {
-        id: ability_id.clone(),
-        name: "Exhausting Zap".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "exhausting_zap",
+        "Exhausting Zap",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::None,
@@ -256,7 +248,7 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
     common::apps::bridge::insert_ability(&mut app, ability_def);
 
     let hero = common::apps::bridge::spawn_unit(
@@ -386,14 +378,10 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
 
     // Register ability (AP=1, no damage, just to trigger exhaustion).
     let ability_id = AbilityId::from("final_strike");
-    let ability_def = AbilityDef {
-        id: ability_id.clone(),
-        name: "Final Strike".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "final_strike",
+        "Final Strike",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::None,
@@ -408,7 +396,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
     common::apps::bridge::insert_ability(&mut app, ability_def);
 
     // Register a poison StatusDef with hp_percent_dot=10 so ticking it would
@@ -421,18 +409,14 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
         .statuses
         .insert(
             poison_id.clone(),
-            storyforge::content::statuses::StatusDef {
-                id: poison_id.clone(),
-                name: "Hero Poison".into(),
-                dot_dice: None,
-                ai_controlled: false,
-                buff_class: None,
-                engine: combat_engine::StatusDef {
+            common::apps::bridge::bevy_status(
+                "hero_poison",
+                combat_engine::StatusDef {
                     hp_percent_dot: 10,
                     heal_per_tick: 0,
                     ..Default::default()
                 },
-            },
+            ),
         );
 
     let hero = common::apps::bridge::spawn_unit(
@@ -619,14 +603,10 @@ fn phase_transition_updates_ecs_tags_component() {
     let boss_hex = hex_from_offset(1, 0);
 
     let ability_id = AbilityId::from("tag_nuke");
-    let ability_def = AbilityDef {
-        id: ability_id.clone(),
-        name: "Tag Nuke".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
+    let ability_def = common::apps::bridge::bevy_ability(
+        "tag_nuke",
+        "Tag Nuke",
+        combat_engine::AbilityDef {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::Damage {
@@ -643,7 +623,7 @@ fn phase_transition_updates_ecs_tags_component() {
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
         },
-    };
+    );
 
     let mut app = common::apps::bridge::bridge_app();
     common::apps::bridge::insert_ability(&mut app, ability_def);

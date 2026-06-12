@@ -68,7 +68,10 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
         friendly_fire: def.friendly_fire,
         effect: match &def.effect {
             EffectDef::None => EngineEffectDef::None,
-            EffectDef::WeaponAttack => EngineEffectDef::WeaponAttack,
+            EffectDef::WeaponAttack { ranged, power } => EngineEffectDef::WeaponAttack {
+                ranged: *ranged,
+                power: *power,
+            },
             EffectDef::Damage { dice } => EngineEffectDef::Damage { dice: *dice },
             EffectDef::SpellDamage { dice } => EngineEffectDef::SpellDamage { dice: *dice },
             EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },

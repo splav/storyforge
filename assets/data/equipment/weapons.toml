@@ -4,6 +4,7 @@ name        = "Короткий меч"
 hand        = "main_hand"
 dice_count  = 1
 dice_sides  = 8
+image       = "items/short_sword.png"
 
 [[weapons]]
 id          = "long_sword"
@@ -11,6 +12,7 @@ name        = "Длинный меч"
 hand        = "main_hand"
 dice_count  = 2
 dice_sides  = 6
+image       = "items/long_sword.png"
 
 [[weapons]]
 id          = "staff"
@@ -19,6 +21,7 @@ hand        = "two_handed"
 dice_count  = 1
 dice_sides  = 6
 spell_power = 1
+image       = "items/staff.png"
 
 [[weapons]]
 id          = "dagger"
@@ -26,6 +29,7 @@ name        = "Кинжал"
 hand        = "main_hand"
 dice_count  = 1
 dice_sides  = 4
+image       = "items/dagger.png"
 
 [[weapons]]
 id          = "greatsword"
@@ -33,6 +37,7 @@ name        = "Двуручный меч"
 hand        = "two_handed"
 dice_count  = 2
 dice_sides  = 8
+image       = "items/greatsword.png"
 
 # Награда за босса главы II (Тибор Колм). Тяжёлый одноручный тесак:
 # урон выше длинного меча (2d8) + бонус к силе — апгрейд для воина.
@@ -43,6 +48,7 @@ hand        = "main_hand"
 dice_count  = 2
 dice_sides  = 8
 strength    = 1
+image       = "items/kolm_cleaver.png"
 
 # Природное оружие зверей (псы, волки, ловчие птицы): укус/когти.
 # Не снаряжается игроком — задаётся в шаблонах животных как main_hand.
@@ -64,6 +70,7 @@ hand        = "main_hand"
 dice_count  = 1
 dice_sides  = 4
 spell_power = 1
+image       = "items/lancet.png"
 
 # Искра — оружие-устройство Обруча: оправа из металла с гранёной Слезой Завесы.
 # Магическая сила заложена в самом устройстве (spell_power), а не в носителе —
@@ -77,3 +84,35 @@ hand        = "main_hand"
 dice_count  = 1
 dice_sides  = 4
 spell_power = 2
+image       = "items/spark_device.png"
+
+# Щиты — off-hand "оружие" без атаки: дайс 0 (атак-дайс берётся только из
+# main_hand, поэтому off-hand 0d0 нигде не катается), вся ценность в +armor.
+# В карточке лагеря строка "Урон" не показывается (expected 0 отфильтрован).
+# image добавить после генерации иконки (items/<id>.png).
+[[weapons]]
+id          = "leather_shield"
+name        = "Кожаный щит"
+hand        = "off_hand"
+dice_count  = 0
+dice_sides  = 0
+armor       = 1
+image       = "items/leather_shield.png"
+
+[[weapons]]
+id          = "bow"
+name        = "Лук"
+hand        = "main_hand"
+ranged      = true
+dice_count  = 1
+dice_sides  = 8
+image       = "items/bow.png"
+
+[[weapons]]
+id          = "wooden_shield"
+name        = "Деревянный щит"
+hand        = "off_hand"
+dice_count  = 0
+dice_sides  = 0
+armor       = 2
+image       = "items/wooden_shield.png"

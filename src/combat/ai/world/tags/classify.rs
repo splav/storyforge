@@ -90,7 +90,7 @@ pub fn derive_ability_tags<L: StatusTagLookup>(
     // Offensive: any direct damage effect.
     if matches!(
         def.effect,
-        EffectDef::WeaponAttack | EffectDef::Damage { .. } | EffectDef::SpellDamage { .. }
+        EffectDef::WeaponAttack { .. } | EffectDef::Damage { .. } | EffectDef::SpellDamage { .. }
     ) {
         s.insert_tag(AbilityTag::Offensive);
     }

@@ -909,6 +909,8 @@ mod tests {
             int_mod: 0,
             spell_power: 0,
             weapon_dice: None,
+            dex_mod: 0,
+            ranged_dice: None,
         };
         let _abilities = crate::game::components::Abilities(Vec::new());
         let mut content = empty_content();

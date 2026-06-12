@@ -427,9 +427,9 @@ fn engine_sees_magister_as_ally_of_hero() {
 #[test]
 fn apply_initial_statuses_engine_side() {
     use storyforge::combat_engine::{
-        content::{ContentView as EngineContentView, StatusBonuses, StatusDef, UnitTemplate},
+        content::StatusDef,
         state::{CombatState, RoundPhase, UnitId},
-        AbilityId, PoolKind, RegenRule, StatusId as EngineStatusId,
+        StatusId as EngineStatusId,
     };
 
     let unit_id = UnitId(1);
@@ -446,69 +446,22 @@ fn apply_initial_statuses_engine_side() {
     let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
 
     // Stub ContentView: test_template has initial_statuses = ["stunned"].
-    struct StubWithTemplate;
-    static STUNNED_DEF: std::sync::LazyLock<StatusDef> = std::sync::LazyLock::new(|| StatusDef {
-        skips_turn: true,
-        ..Default::default()
-    });
+    let mut test_tpl = crate::common::engine_unit::template();
+    test_tpl.max_hp = 10;
+    test_tpl.base_speed = 3;
+    test_tpl.max_ap = 1;
+    test_tpl.initial_statuses = vec![EngineStatusId::from("stunned")];
+    let content = crate::common::engine_unit::StubContent::new()
+        .with_status(
+            EngineStatusId::from("stunned"),
+            StatusDef {
+                skips_turn: true,
+                ..Default::default()
+            },
+        )
+        .with_template("test_template", test_tpl);
 
-    impl EngineContentView for StubWithTemplate {
-        fn status_bonuses(&self, _: &EngineStatusId) -> StatusBonuses {
-            StatusBonuses::default()
-        }
-        fn status_def(&self, id: &EngineStatusId) -> Option<&StatusDef> {
-            if id.0.as_str() == "stunned" {
-                Some(&STUNNED_DEF)
-            } else {
-                None
-            }
-        }
-        fn ability_def(
-            &self,
-            _: &AbilityId,
-        ) -> Option<&storyforge::combat_engine::content::AbilityDef> {
-            None
-        }
-        fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
-            if id == "test_template" {
-                Some(UnitTemplate {
-                    max_hp: 10,
-                    armor: 0,
-                    base_speed: 3,
-                    max_ap: 1,
-                    mana_max: 0,
-                    energy_max: 0,
-                    rage_max: 0,
-                    caster_context: Default::default(),
-                    aoo_dice: None,
-                    auras: vec![],
-                    enemy_phases: vec![],
-                    regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
-                        PoolKind::Hp     => RegenRule::None,
-                        PoolKind::Mana   => RegenRule::Increment(1),
-                        PoolKind::Rage   => RegenRule::None,
-                        PoolKind::Energy => RegenRule::Increment(1),
-                        PoolKind::Ap     => RegenRule::RefillToMax,
-                        PoolKind::Mp     => RegenRule::RefillToMax,
-                    },
-                    initial_statuses: vec![EngineStatusId::from("stunned")],
-                    initial_pools: storyforge::combat_engine::enum_map::enum_map! {
-                        PoolKind::Hp     => None,
-                        PoolKind::Mana   => None,
-                        PoolKind::Rage   => None,
-                        PoolKind::Energy => None,
-                        PoolKind::Ap     => None,
-                        PoolKind::Mp     => None,
-                    },
-                    tags: Default::default(),
-                })
-            } else {
-                None
-            }
-        }
-    }
-
-    state.apply_initial_statuses(&StubWithTemplate);
+    state.apply_initial_statuses(&content);
 
     let unit = state.unit(unit_id).expect("unit must be in state");
     let stunned = unit
@@ -527,7 +480,7 @@ fn apply_initial_statuses_engine_side() {
     );
 
     // Idempotency: call again — stunned must not be duplicated.
-    state.apply_initial_statuses(&StubWithTemplate);
+    state.apply_initial_statuses(&content);
     let unit = state.unit(unit_id).expect("unit must still be in state");
     let stunned_count = unit
         .statuses

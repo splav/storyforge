@@ -24,6 +24,7 @@ fn armor_piece(id: &str, slot: ArmorSlot, armor: i32) -> ArmorDef {
         name: id.into(),
         slot,
         weight: ArmorWeight::Light,
+        image: None,
         stats: storyforge::content::item_stats::ItemStats {
             armor,
             ..Default::default()
@@ -43,6 +44,7 @@ fn armor_with_bonus(
         name: id.into(),
         slot,
         weight: ArmorWeight::Light,
+        image: None,
         stats: storyforge::content::item_stats::ItemStats {
             armor,
             combat: storyforge::game::components::CombatStats {
@@ -62,7 +64,9 @@ fn weapon(id: &str, hand: HandType) -> WeaponDef {
         name: id.into(),
         hand,
         dice: DiceExpr::new(1, 6, 0),
+        ranged: false,
         spell_power: 0,
+        image: None,
         stats: Default::default(),
     }
 }
@@ -73,7 +77,9 @@ fn weapon_with_bonus(id: &str, strength: i32, armor: i32) -> WeaponDef {
         name: id.into(),
         hand: HandType::MainHand,
         dice: DiceExpr::new(1, 6, 0),
+        ranged: false,
         spell_power: 0,
+        image: None,
         stats: storyforge::content::item_stats::ItemStats {
             armor,
             combat: storyforge::game::components::CombatStats {
@@ -194,6 +200,7 @@ fn armor_with_mana(id: &str, slot: ArmorSlot, mana: i32) -> ArmorDef {
         name: id.into(),
         slot,
         weight: ArmorWeight::Light,
+        image: None,
         stats: storyforge::content::item_stats::ItemStats {
             mana,
             ..Default::default()

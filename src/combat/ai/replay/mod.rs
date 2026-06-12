@@ -212,9 +212,9 @@ pub fn primary_effect_from_steps(steps: &[PlanStep], content: &ContentView) -> O
     })?;
     let def = content.abilities.get(&ability_id)?;
     let label = match &def.effect {
-        EffectDef::Damage { .. } | EffectDef::SpellDamage { .. } | EffectDef::WeaponAttack => {
-            "Damage"
-        }
+        EffectDef::Damage { .. }
+        | EffectDef::SpellDamage { .. }
+        | EffectDef::WeaponAttack { .. } => "Damage",
         EffectDef::Heal { .. } => "Heal",
         EffectDef::GrantMovement { .. } => "GrantMovement",
         EffectDef::RestoreResources => "RestoreResources",

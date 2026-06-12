@@ -253,6 +253,8 @@ fn random_caster_ctx(rng: &mut Lcg) -> CasterContext {
         } else {
             None
         },
+        dex_mod: 0,
+        ranged_dice: None,
     }
 }
 

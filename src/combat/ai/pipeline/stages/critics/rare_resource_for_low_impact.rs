@@ -223,6 +223,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             })
             .build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();

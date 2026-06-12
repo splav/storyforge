@@ -37,7 +37,7 @@ pub fn severity(ability: &AbilityId, content: &ContentView, neutral_ref: &UnitSn
         EffectDef::SpellDamage { dice } => dice.expected(),
         // Non-damage variants contribute zero to the damage component.
         EffectDef::None => 0.0,
-        EffectDef::WeaponAttack => 0.0,
+        EffectDef::WeaponAttack { .. } => 0.0,
         EffectDef::Heal { .. } => 0.0,
         EffectDef::GrantMovement { .. } => 0.0,
         EffectDef::RestoreResources => 0.0,

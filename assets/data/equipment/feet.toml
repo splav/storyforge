@@ -3,21 +3,25 @@ id     = "iron_boots"
 name   = "Железные сапоги"
 armor  = 1
 weight = "heavy"
+image  = "items/iron_boots.png"
 
 [[items]]
 id     = "heavy_boots"
 name   = "Тяжёлые сапоги"
 armor  = 0
 weight = "heavy"
+image  = "items/heavy_boots.png"
 
 [[items]]
 id     = "leather_boots"
 name   = "Кожаные ботинки"
 armor  = 0
 weight = "medium"
+image  = "items/leather_boots.png"
 
 [[items]]
 id     = "cloth_shoes"
 name   = "Тканевая обувь"
 armor  = 0
 weight = "light"
+image  = "items/cloth_shoes.png"

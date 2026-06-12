@@ -604,7 +604,13 @@ fn effect_line_ru(def: &AbilityDef, ctx: Option<&CasterContext>) -> String {
         EffectDef::Damage { dice } | EffectDef::SpellDamage { dice } | EffectDef::Heal { dice } => {
             format!("{}d{}", dice.count, dice.sides)
         }
-        EffectDef::WeaponAttack => "атака оружием".into(),
+        EffectDef::WeaponAttack { ranged, .. } => {
+            if *ranged {
+                "дальняя атака оружием".into()
+            } else {
+                "атака оружием".into()
+            }
+        }
         EffectDef::Summon {
             template_id,
             max_active,

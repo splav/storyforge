@@ -1471,7 +1471,9 @@ mod tests {
                     sides: 6,
                     bonus: 0,
                 },
+                ranged: false,
                 spell_power: 0,
+                image: None,
                 stats: Default::default(),
             },
         );
@@ -1482,6 +1484,7 @@ mod tests {
                 name: "Plate Y".into(),
                 slot: ArmorSlot::Chest,
                 weight: ArmorWeight::Light,
+                image: None,
                 stats: crate::content::item_stats::ItemStats {
                     armor: 3,
                     ..Default::default()

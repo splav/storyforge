@@ -491,6 +491,8 @@ mod tests {
         int_mod: 0,
         spell_power: 0,
         weapon_dice: None,
+        dex_mod: 0,
+        ranged_dice: None,
     };
 
     /// Free-attack warrior: one ability, no cost, cost_ap=1. Horizon over 5

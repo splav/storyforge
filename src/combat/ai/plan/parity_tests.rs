@@ -18,13 +18,15 @@ mod tests {
     use crate::combat::ai::plan::sim::SimState;
     use crate::combat::ai::plan::types::PlanStep;
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder,
+        bevy_ability, bevy_status, empty_content, empty_status_tag_cache, snapshot_from,
+        UnitBuilder,
     };
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost,
         StatusApplication, StatusOn, TargetType,
     };
+    use crate::content::content_view::ContentView;
     use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -53,6 +55,8 @@ mod tests {
             int_mod: 0,
             spell_power: 0,
             weapon_dice: None,
+            dex_mod: 0,
+            ranged_dice: None,
         }
     }
 
@@ -112,6 +116,8 @@ mod tests {
             int_mod: 0,
             spell_power: 0,
             weapon_dice: None,
+            dex_mod: 0,
+            ranged_dice: None,
         };
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .caster_ctx(ctx.clone())
@@ -170,6 +176,8 @@ mod tests {
             int_mod: 3,
             spell_power: 0,
             weapon_dice: None,
+            dex_mod: 0,
+            ranged_dice: None,
         };
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .caster_ctx(ctx.clone())
@@ -273,6 +281,8 @@ mod tests {
             int_mod: 2,
             spell_power: 0,
             weapon_dice: None,
+            dex_mod: 0,
+            ranged_dice: None,
         };
         let actor = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .caster_ctx(ctx.clone())
@@ -446,14 +456,10 @@ mod tests {
         let actor_id = actor.entity;
 
         let mut content = empty_content();
-        let def = AbilityDef {
-            id: AbilityId::from("summon_spirit"),
-            name: "Summon Spirit".into(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            ai_tags_override: None,
-            is_move_toggle: false,
-            engine: combat_engine::AbilityDef {
+        let def = bevy_ability(
+            "summon_spirit",
+            "Summon Spirit",
+            combat_engine::AbilityDef {
                 target_type: TargetType::Myself,
                 range: AbilityRange { min: 0, max: 0 },
                 effect: EffectDef::Summon {
@@ -474,7 +480,7 @@ mod tests {
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
             },
-        };
+        );
         content.abilities.insert(def.id.clone(), def.clone());
 
         let before_count = 1usize;
@@ -623,12 +629,11 @@ mod tests {
         use crate::combat::ai::world::tags::cache::StatusBonuses;
         use crate::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
         use crate::content::abilities::{
-            AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication,
-            StatusOn, TargetType,
+            AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn,
+            TargetType,
         };
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
-        use combat_engine::AbilityId;
         use combat_engine::StatusId;
 
         // Build a cache with "haste" → speed_bonus=+2.
@@ -645,14 +650,10 @@ mod tests {
         );
 
         // Build a self-haste ability.
-        let haste_def = AbilityDef {
-            id: AbilityId::from("cast_haste"),
-            name: "Haste".into(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            ai_tags_override: None,
-            is_move_toggle: false,
-            engine: combat_engine::AbilityDef {
+        let haste_def = bevy_ability(
+            "cast_haste",
+            "Haste",
+            combat_engine::AbilityDef {
                 target_type: TargetType::Myself,
                 range: AbilityRange { min: 0, max: 0 },
                 effect: EffectDef::None,
@@ -671,19 +672,11 @@ mod tests {
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
             },
-        };
+        );
 
-        use crate::content::content_view::ContentView;
-        use crate::content::statuses::StatusDef;
-        use std::collections::HashMap;
-
-        let haste_status = StatusDef {
-            id: haste_id.clone(),
-            name: "Haste".into(),
-            dot_dice: None,
-            ai_controlled: false,
-            buff_class: None,
-            engine: combat_engine::StatusDef {
+        let haste_status = bevy_status(
+            "haste",
+            combat_engine::StatusDef {
                 bonuses: combat_engine::StatusBonuses {
                     armor_bonus: 0,
                     damage_taken_bonus: 0,
@@ -696,21 +689,9 @@ mod tests {
                 heal_per_tick: 0,
                 causes_disadvantage: false,
             },
-        };
+        );
 
-        let mut content = ContentView {
-            abilities: HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: HashMap::new(),
-            weapons: HashMap::new(),
-            armor: HashMap::new(),
-            classes: HashMap::new(),
-            unit_templates: HashMap::new(),
-            races: HashMap::new(),
-            factions: HashMap::new(),
-            paths: HashMap::new(),
-            ..ContentView::default()
-        };
+        let mut content = ContentView::default();
         content
             .abilities
             .insert(haste_def.id.clone(), haste_def.clone());
@@ -743,6 +724,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             },
             &content,
             false,
@@ -765,28 +748,22 @@ mod tests {
         use crate::combat::ai::plan::types::PlanStep;
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::content::abilities::{
-            AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication,
-            StatusOn, TargetType,
+            AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn,
+            TargetType,
         };
         use crate::content::content_view::ContentView;
-        use crate::content::statuses::StatusDef;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
         use combat_engine::final_damage_f32;
+        use combat_engine::DiceExpr;
         use combat_engine::StatusId;
-        use combat_engine::{AbilityId, DiceExpr};
-        use std::collections::HashMap;
 
         let stone_skin_id = StatusId::from("stone_skin");
 
         // stone_skin: armor_bonus=+5.
-        let stone_skin_def = StatusDef {
-            id: stone_skin_id.clone(),
-            name: "Stone Skin".into(),
-            dot_dice: None,
-            ai_controlled: false,
-            buff_class: None,
-            engine: combat_engine::StatusDef {
+        let stone_skin_def = bevy_status(
+            "stone_skin",
+            combat_engine::StatusDef {
                 bonuses: combat_engine::StatusBonuses {
                     armor_bonus: 5,
                     damage_taken_bonus: 0,
@@ -799,17 +776,13 @@ mod tests {
                 heal_per_tick: 0,
                 causes_disadvantage: false,
             },
-        };
+        );
 
         // Buff ability: SingleEnemy (so it reaches a target in tests).
-        let buff_def = AbilityDef {
-            id: AbilityId::from("stone_skin_cast"),
-            name: "Stone Skin".into(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            ai_tags_override: None,
-            is_move_toggle: false,
-            engine: combat_engine::AbilityDef {
+        let buff_def = bevy_ability(
+            "stone_skin_cast",
+            "Stone Skin",
+            combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 3 },
                 effect: EffectDef::None,
@@ -828,17 +801,13 @@ mod tests {
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
             },
-        };
+        );
 
         // Damage ability: 1d6 (EV=3.5→4) + str_mod=4 → raw=8.
-        let atk_def = AbilityDef {
-            id: AbilityId::from("strike"),
-            name: "Strike".into(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            ai_tags_override: None,
-            is_move_toggle: false,
-            engine: combat_engine::AbilityDef {
+        let atk_def = bevy_ability(
+            "strike",
+            "Strike",
+            combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 3 },
                 effect: EffectDef::Damage {
@@ -855,21 +824,9 @@ mod tests {
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
             },
-        };
+        );
 
-        let mut content = ContentView {
-            abilities: HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: HashMap::new(),
-            weapons: HashMap::new(),
-            armor: HashMap::new(),
-            classes: HashMap::new(),
-            unit_templates: HashMap::new(),
-            races: HashMap::new(),
-            factions: HashMap::new(),
-            paths: HashMap::new(),
-            ..ContentView::default()
-        };
+        let mut content = ContentView::default();
         content
             .abilities
             .insert(buff_def.id.clone(), buff_def.clone());
@@ -906,6 +863,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             })
             .build_pair();
 
@@ -928,6 +887,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             },
             &content,
             false,
@@ -953,6 +914,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             },
             &content,
             false,
@@ -1094,13 +1057,12 @@ mod tests {
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::combat::ai::world::tags::StatusTagCache;
         use crate::content::abilities::{
-            AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
+            AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
         };
         use crate::content::content_view::ContentView;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
-        use combat_engine::{AbilityId, DiceExpr};
-        use std::collections::HashMap;
+        use combat_engine::DiceExpr;
 
         // attacker: Enemy at (0,0), rage=(5,10), ap=1, threat=5.0
         let attacker_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
@@ -1110,6 +1072,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             })
             .build_pair();
         // defender: Player at (1,0), rage=(3,10), ap=0, mp=0, threat=0.0, max_attack_range=0
@@ -1124,14 +1088,10 @@ mod tests {
         let attacker_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
         let defender_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
 
-        let strike_def = AbilityDef {
-            id: AbilityId::from("strike"),
-            name: "Strike".into(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            ai_tags_override: None,
-            is_move_toggle: false,
-            engine: combat_engine::AbilityDef {
+        let strike_def = bevy_ability(
+            "strike",
+            "Strike",
+            combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 1 },
                 effect: EffectDef::Damage {
@@ -1148,21 +1108,9 @@ mod tests {
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
             },
-        };
+        );
 
-        let mut content = ContentView {
-            abilities: HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: HashMap::new(),
-            weapons: HashMap::new(),
-            armor: HashMap::new(),
-            classes: HashMap::new(),
-            unit_templates: HashMap::new(),
-            races: HashMap::new(),
-            factions: HashMap::new(),
-            paths: HashMap::new(),
-            ..ContentView::default()
-        };
+        let mut content = ContentView::default();
         content
             .abilities
             .insert(strike_def.id.clone(), strike_def.clone());
@@ -1182,6 +1130,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             },
             &content,
             false,
@@ -1212,13 +1162,12 @@ mod tests {
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::combat::ai::world::tags::StatusTagCache;
         use crate::content::abilities::{
-            AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
+            AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
         };
         use crate::content::content_view::ContentView;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
-        use combat_engine::{AbilityId, DiceExpr};
-        use std::collections::HashMap;
+        use combat_engine::DiceExpr;
 
         let make_unit = |id: u32, team: Team, col: i32, rage: Option<(i32, i32)>| {
             let mut b = UnitBuilder::new(id, team, hex_from_offset(col, 0)).max_attack_range(5);
@@ -1242,14 +1191,10 @@ mod tests {
         let d2_id = bevy::prelude::Entity::from_raw_u32(3).expect("valid");
         let d3_id = bevy::prelude::Entity::from_raw_u32(4).expect("valid");
 
-        let blast_def = AbilityDef {
-            id: AbilityId::from("blast"),
-            name: "Blast".into(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            ai_tags_override: None,
-            is_move_toggle: false,
-            engine: combat_engine::AbilityDef {
+        let blast_def = bevy_ability(
+            "blast",
+            "Blast",
+            combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 5 },
                 effect: EffectDef::SpellDamage {
@@ -1266,21 +1211,9 @@ mod tests {
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
             },
-        };
+        );
 
-        let mut content = ContentView {
-            abilities: HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: HashMap::new(),
-            weapons: HashMap::new(),
-            armor: HashMap::new(),
-            classes: HashMap::new(),
-            unit_templates: HashMap::new(),
-            races: HashMap::new(),
-            factions: HashMap::new(),
-            paths: HashMap::new(),
-            ..ContentView::default()
-        };
+        let mut content = ContentView::default();
         content
             .abilities
             .insert(blast_def.id.clone(), blast_def.clone());
@@ -1300,6 +1233,8 @@ mod tests {
                 int_mod: 0,
                 spell_power: 0,
                 weapon_dice: None,
+                dex_mod: 0,
+                ranged_dice: None,
             },
             &content,
             false,
@@ -1417,6 +1352,8 @@ mod tests {
             int_mod,
             spell_power: 0,
             weapon_dice: None,
+            dex_mod: 0,
+            ranged_dice: None,
         };
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))

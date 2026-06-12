@@ -630,7 +630,8 @@ pub fn build_snapshot(
 
             let has_melee_weapon_attack = abilities.0.iter().any(|id| {
                 content.abilities.get(id).is_some_and(|def| {
-                    matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
+                    matches!(def.effect, EffectDef::WeaponAttack { ranged: false, .. })
+                        && def.range.max == 1
                 })
             });
             let aoo_expected_damage = if has_melee_weapon_attack {

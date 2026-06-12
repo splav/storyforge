@@ -521,16 +521,17 @@ fn build_engine_template_from_def(
         int_mod: bevy_ctx.int_mod,
         spell_power: bevy_ctx.spell_power,
         weapon_dice: bevy_ctx.weapon_dice,
+        ranged_dice: bevy_ctx.ranged_dice,
         crit_fail_outcome: crate::content::to_engine::crit_fail_outcome(&crit_fail_effect),
         dex_mod: modifier(tpl.stats.dexterity),
     };
 
     // AoO dice: unit needs a melee WeaponAttack ability (range.max == 1) + weapon dice.
     let has_melee = tpl.ability_ids.iter().any(|aid| {
-        active_content
-            .abilities
-            .get(aid)
-            .is_some_and(|def| matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1)
+        active_content.abilities.get(aid).is_some_and(|def| {
+            matches!(def.effect, EffectDef::WeaponAttack { ranged: false, .. })
+                && def.range.max == 1
+        })
     });
     let aoo_dice = if has_melee {
         bevy_ctx.weapon_dice.map(|core_dice| {
@@ -2171,6 +2172,7 @@ pub fn bootstrap_combat_state(
             int_mod: bevy_ctx.int_mod,
             spell_power: bevy_ctx.spell_power,
             weapon_dice: bevy_ctx.weapon_dice,
+            ranged_dice: bevy_ctx.ranged_dice,
             crit_fail_outcome: crate::content::to_engine::crit_fail_outcome(&crit_fail_outcome),
             dex_mod: modifier(stats.dexterity),
         };
@@ -2192,7 +2194,8 @@ pub fn bootstrap_combat_state(
         };
         let has_melee = abilities.0.iter().any(|aid| {
             active_content.abilities.get(aid).is_some_and(|def| {
-                matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
+                matches!(def.effect, EffectDef::WeaponAttack { ranged: false, .. })
+                    && def.range.max == 1
             })
         });
         if !has_melee {

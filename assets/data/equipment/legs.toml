@@ -3,15 +3,18 @@ id     = "plate_greaves"
 name   = "Латные поножи"
 armor  = 1
 weight = "heavy"
+image  = "items/plate_greaves.png"
 
 [[items]]
 id     = "leather_pants"
 name   = "Кожаные штаны"
 armor  = 0
 weight = "medium"
+image  = "items/leather_pants.png"
 
 [[items]]
 id     = "cloth_pants"
 name   = "Тканевые штаны"
 armor  = 0
 weight = "light"
+image  = "items/cloth_pants.png"

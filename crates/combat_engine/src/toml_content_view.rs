@@ -176,6 +176,12 @@ struct AbilityRecord {
     /// Tags the target must NOT have.  `SingleEnemy`/`SingleAlly` only.
     #[serde(default)]
     excludes_tags: Vec<String>,
+    /// `weapon_attack` only: `true` → ranged dice + dex_mod channel.
+    #[serde(default)]
+    ranged: bool,
+    /// `weapon_attack` only: dice multiplier (1.0 = full; 0.5 = weakened shot).
+    #[serde(default = "default_weapon_power")]
+    weapon_power: f32,
 }
 
 #[derive(Deserialize)]
@@ -196,6 +202,10 @@ fn default_range() -> u32 {
 }
 fn default_cost_ap() -> i32 {
     1
+}
+
+fn default_weapon_power() -> f32 {
+    1.0
 }
 
 // ---- statuses ----------------------------------------------------------------
@@ -251,6 +261,9 @@ struct WeaponRecord {
     /// Spell power bonus carried by this weapon (mirrors bridge `WeaponDef.spell_power`).
     #[serde(default)]
     spell_power: i32,
+    /// Ranged weapon flag — `true` populates `CasterContext.ranged_dice` instead of `weapon_dice`.
+    #[serde(default)]
+    ranged: bool,
 }
 
 /// Weapon stats relevant to engine stat computation.
@@ -260,6 +273,7 @@ struct WeaponStats {
     /// `None` if dice_count or dice_sides is 0 (weapon has no attack dice).
     dice: Option<DiceExpr>,
     spell_power: i32,
+    ranged: bool,
 }
 
 // ---- armor (chest / legs / feet) --------------------------------------------
@@ -323,6 +337,8 @@ struct StatsRecord {
     strength: i32,
     #[serde(default)]
     intelligence: i32,
+    #[serde(default)]
+    dexterity: i32,
 }
 
 #[derive(Deserialize)]
@@ -400,7 +416,10 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
 
     let effect = match r.effect.as_str() {
         "" | "none" => EffectDef::None,
-        "weapon_attack" => EffectDef::WeaponAttack,
+        "weapon_attack" => EffectDef::WeaponAttack {
+            ranged: r.ranged,
+            power: r.weapon_power,
+        },
         "damage" => EffectDef::Damage {
             dice: need_dice(r.dice_count, r.dice_sides),
         },
@@ -587,6 +606,7 @@ fn load_weapons(data_dir: &Path) -> Result<HashMap<String, WeaponStats>, LoadErr
                 max_hp: r.max_hp,
                 dice,
                 spell_power: r.spell_power,
+                ranged: r.ranged,
             },
         );
     }
@@ -683,8 +703,8 @@ fn convert_template(
     let mut max_hp = r.stats.max_hp;
     let mut equipment_armor = 0i32;
 
-    // Main-hand weapon lookup (used also for caster_context).
-    let main_hand_stats = weapons.get(r.equipment.main_hand.as_str());
+    // Main-hand weapon lookup (used for stat accumulation below).
+    let _main_hand_stats = weapons.get(r.equipment.main_hand.as_str());
 
     // Weapons: main_hand + optional off_hand.
     for weapon_id in [Some(&r.equipment.main_hand), r.equipment.off_hand.as_ref()]
@@ -708,19 +728,38 @@ fn convert_template(
 
     // ── CasterContext ─────────────────────────────────────────────────────────
     // Mirrors CasterContext::new(stats, equip, weapons) in src/content/abilities.rs.
+    // Single source of truth: melee_dice = first non-ranged slot; ranged_dice = first ranged slot.
     let str_mod = stat_modifier(r.stats.strength);
     let int_mod = stat_modifier(r.stats.intelligence);
-    let spell_power = main_hand_stats.map_or(0, |w| w.spell_power);
-    let weapon_dice = main_hand_stats.and_then(|w| w.dice);
+    let dex_mod = stat_modifier(r.stats.dexterity);
+    let mut weapon_dice: Option<DiceExpr> = None;
+    let mut ranged_dice: Option<DiceExpr> = None;
+    let mut spell_power = 0i32;
+    for weapon_id in [Some(&r.equipment.main_hand), r.equipment.off_hand.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        if let Some(w) = weapons.get(weapon_id.as_str()) {
+            if w.ranged {
+                if ranged_dice.is_none() {
+                    ranged_dice = w.dice;
+                }
+            } else if weapon_dice.is_none() {
+                weapon_dice = w.dice;
+                spell_power = w.spell_power;
+            }
+        }
+    }
     let caster_context = crate::content::CasterContext {
         str_mod,
         int_mod,
         spell_power,
         weapon_dice,
+        ranged_dice,
         // Engine-side TOML loader defaults to Miss; bridge bootstrap reads this
         // from the unit's CombatPath component.
         crit_fail_outcome: crate::content::CritFailOutcome::Miss,
-        dex_mod: 0,
+        dex_mod,
     };
 
     // ── AoO dice ──────────────────────────────────────────────────────────────
@@ -729,7 +768,10 @@ fn convert_template(
     // Mirrors bootstrap_combat_state AoO loop in engine_bridge.rs.
     let has_melee = r.ability_ids.iter().any(|aid| {
         abilities.get(aid.as_str()).is_some_and(|def| {
-            matches!(def.effect, crate::content::EffectDef::WeaponAttack) && def.range.max == 1
+            matches!(
+                def.effect,
+                crate::content::EffectDef::WeaponAttack { ranged: false, .. }
+            ) && def.range.max == 1
         })
     });
     let aoo_dice = if has_melee {

@@ -238,7 +238,14 @@ fn status_combo_negative_speed_and_dot_yields_soft_cc_and_dot() {
 #[test]
 fn ability_weapon_attack_yields_offensive() {
     use crate::content::abilities::{EffectDef, TargetType};
-    let def = make_ability(EffectDef::WeaponAttack, TargetType::SingleEnemy, vec![]);
+    let def = make_ability(
+        EffectDef::WeaponAttack {
+            ranged: false,
+            power: 1.0,
+        },
+        TargetType::SingleEnemy,
+        vec![],
+    );
     assert_eq!(
         derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
         AbilityTagSet::OFFENSIVE

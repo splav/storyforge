@@ -411,6 +411,8 @@ mod tests {
             int_mod: 0,
             spell_power: 0,
             weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+            ranged_dice: None,
+            dex_mod: 0,
         }
     }
 

@@ -191,6 +191,16 @@ impl<'a> ActionState for EngineCheckState<'a> {
             .unit(target)
             .is_some_and(|u| requires.is_subset(&u.tags) && excludes.is_disjoint(&u.tags))
     }
+
+    fn actor_weapon_channels(
+        &self,
+        actor: crate::state::UnitId,
+    ) -> (Option<crate::DiceExpr>, Option<crate::DiceExpr>) {
+        self.state
+            .unit(actor)
+            .map(|u| (u.caster_context.weapon_dice, u.caster_context.ranged_dice))
+            .unwrap_or((None, None))
+    }
 }
 
 // ── EngineTargetState ─────────────────────────────────────────────────────────
@@ -278,9 +288,18 @@ fn effect_for_target(
                 magic: true,
             })
         }
-        EffectDef::WeaponAttack => {
-            let dice = caster.weapon_dice?;
-            let raw = (roll!(dice) + caster.str_mod) as f32;
+        EffectDef::WeaponAttack { ranged, power } => {
+            let dice = if *ranged {
+                caster.ranged_dice
+            } else {
+                caster.weapon_dice
+            }?;
+            let m = if *ranged {
+                caster.dex_mod
+            } else {
+                caster.str_mod
+            };
+            let raw = roll!(dice) as f32 * power + m as f32;
             Some(Effect::Damage {
                 target,
                 raw,

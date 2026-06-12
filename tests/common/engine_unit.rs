@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use hexx::Hex;
 use storyforge::combat_engine::{
     content::{AbilityDef, CasterContext, ContentView, StatusDef, UnitTemplate},
+    enum_map::enum_map,
     state::{ActiveStatus, Team, Unit, UnitId},
     AbilityId, DiceExpr, PoolKind, RegenRule, StatusId, TagId,
 };
@@ -315,6 +316,7 @@ impl EngineUnitBuilder {
 pub struct StubContent {
     abilities: HashMap<AbilityId, AbilityDef>,
     statuses: HashMap<StatusId, StatusDef>,
+    templates: HashMap<String, UnitTemplate>,
 }
 
 impl StubContent {
@@ -322,6 +324,7 @@ impl StubContent {
         Self {
             abilities: HashMap::new(),
             statuses: HashMap::new(),
+            templates: HashMap::new(),
         }
     }
 
@@ -332,6 +335,11 @@ impl StubContent {
 
     pub fn with_status(mut self, id: StatusId, def: StatusDef) -> Self {
         self.statuses.insert(id, def);
+        self
+    }
+
+    pub fn with_template(mut self, id: impl Into<String>, tpl: UnitTemplate) -> Self {
+        self.templates.insert(id.into(), tpl);
         self
     }
 }
@@ -351,7 +359,47 @@ impl ContentView for StubContent {
         self.statuses.get(id)
     }
 
-    fn unit_template(&self, _: &str) -> Option<UnitTemplate> {
-        None
+    fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
+        self.templates.get(id).cloned()
+    }
+}
+
+// ── Canonical template helper ─────────────────────────────────────────────────
+
+/// Canonical `UnitTemplate` for summon tests: empty pools, standard regen rules.
+///
+/// Callers that need custom stats (hp, speed, dex_mod) take the returned value
+/// and mutate the fields they care about.
+pub fn template() -> UnitTemplate {
+    UnitTemplate {
+        max_hp: 8,
+        armor: 0,
+        base_speed: 4,
+        max_ap: 1,
+        mana_max: 0,
+        energy_max: 0,
+        rage_max: 0,
+        caster_context: CasterContext::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
+        regen_per_pool: enum_map! {
+            PoolKind::Hp     => RegenRule::None,
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
+        initial_statuses: Vec::new(),
+        initial_pools: enum_map! {
+            PoolKind::Hp     => None,
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => None,
+            PoolKind::Mp     => None,
+        },
+        tags: Default::default(),
     }
 }

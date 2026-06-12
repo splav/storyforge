@@ -3,24 +3,28 @@ id     = "heavy_plate"
 name   = "Тяжёлая кираса"
 armor  = 3
 weight = "heavy"
+image  = "items/heavy_plate.png"
 
 [[items]]
 id     = "plate_armor"
 name   = "Латная кираса"
 armor  = 2
 weight = "heavy"
+image  = "items/plate_armor.png"
 
 [[items]]
 id     = "chainmail"
 name   = "Кольчуга"
 armor  = 1
 weight = "medium"
+image  = "items/chainmail.png"
 
 [[items]]
 id     = "leather_vest"
 name   = "Кожаный жилет"
 armor  = 1
 weight = "medium"
+image  = "items/leather_vest.png"
 
 [[items]]
 id     = "mage_robe"
@@ -28,6 +32,7 @@ name   = "Мантия мага"
 armor  = 0
 weight = "light"
 mana   = 1
+image  = "items/mage_robe.png"
 
 # Награда за главу I (Колокольная крипта). Лёгкий заговорённый поддоспешник:
 # защита без веса лат — особенно ценен хрупкому магу/следопыту.
@@ -37,3 +42,4 @@ name   = "Заговорённый поддоспешник"
 armor  = 2
 max_hp = 3
 weight = "light"
+image  = "items/warded_jerkin.png"

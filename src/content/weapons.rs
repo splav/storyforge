@@ -14,8 +14,11 @@ pub struct WeaponDef {
     pub name: String,
     pub hand: HandType,
     pub dice: DiceExpr,
+    pub ranged: bool,
     pub spell_power: i32, // added to spell damage / healing formulas
     pub stats: crate::content::item_stats::ItemStats,
+    /// Asset path relative to `assets/images/` (e.g. `"items/short_sword.png"`).
+    pub image: Option<String>,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -53,6 +56,10 @@ struct WeaponRecord {
     charisma: i32,
     #[serde(default)]
     magic_resist: i32,
+    #[serde(default)]
+    ranged: bool,
+    #[serde(default)]
+    image: Option<String>,
 }
 
 fn default_hand() -> String {
@@ -89,7 +96,9 @@ pub fn parse_weapons(path: &str, src: &str) -> Vec<WeaponDef> {
             id: WeaponId::from(r.id.as_str()),
             name: r.name,
             dice: DiceExpr::new(r.dice_count, r.dice_sides, 0),
+            ranged: r.ranged,
             spell_power: r.spell_power,
+            image: r.image,
             stats: crate::content::item_stats::ItemStats {
                 combat: crate::game::components::CombatStats {
                     max_hp: r.max_hp,

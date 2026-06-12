@@ -26,9 +26,14 @@ pub trait EffectCalcExt {
 impl EffectCalcExt for EffectDef {
     fn calc(&self, ctx: &CasterContext) -> Option<EffectCalc> {
         match self {
-            EffectDef::WeaponAttack => Some(EffectCalc {
-                dice: ctx.weapon_dice,
-                bonus: ctx.str_mod,
+            EffectDef::WeaponAttack { ranged, power } => Some(EffectCalc {
+                dice: if *ranged {
+                    ctx.ranged_dice
+                } else {
+                    ctx.weapon_dice
+                },
+                bonus: if *ranged { ctx.dex_mod } else { ctx.str_mod },
+                power: *power,
                 pierces_armor: false,
                 magic: false,
                 is_heal: false,
@@ -36,6 +41,7 @@ impl EffectCalcExt for EffectDef {
             EffectDef::Damage { dice } => Some(EffectCalc {
                 dice: Some(*dice),
                 bonus: ctx.str_mod,
+                power: 1.0,
                 pierces_armor: false,
                 magic: false,
                 is_heal: false,
@@ -43,6 +49,7 @@ impl EffectCalcExt for EffectDef {
             EffectDef::SpellDamage { dice } => Some(EffectCalc {
                 dice: Some(*dice),
                 bonus: ctx.int_mod + ctx.spell_power,
+                power: 1.0,
                 // SpellDamage uses magic_resist, not armor — engine matches this
                 // via Effect::Damage { magic: true }. pierces_armor=false because
                 // mitigation selection (armor vs magic_resist) happens via the
@@ -54,6 +61,7 @@ impl EffectCalcExt for EffectDef {
             EffectDef::Heal { dice } => Some(EffectCalc {
                 dice: Some(*dice),
                 bonus: ctx.int_mod + ctx.spell_power,
+                power: 1.0,
                 pierces_armor: false,
                 magic: false,
                 is_heal: true,
@@ -123,7 +131,14 @@ pub struct CasterContext {
     pub str_mod: i32,
     pub int_mod: i32,
     pub spell_power: i32,
+    /// Melee weapon dice (first non-ranged weapon found in main/off-hand).
     pub weapon_dice: Option<DiceExpr>,
+    /// Ranged weapon dice (first ranged weapon found in main/off-hand).
+    #[serde(default)]
+    pub ranged_dice: Option<DiceExpr>,
+    /// Dexterity modifier for ranged attacks and initiative.
+    #[serde(default)]
+    pub dex_mod: i32,
 }
 
 impl CasterContext {
@@ -132,14 +147,37 @@ impl CasterContext {
         equip: Option<&Equipment>,
         weapons: &std::collections::HashMap<WeaponId, WeaponDef>,
     ) -> Self {
-        let weapon_def = equip
-            .and_then(|e| e.main_hand.as_ref())
-            .and_then(|w| weapons.get(w));
+        // Single source of truth for the melee/ranged dice-source rule.
+        // melee_dice  = first of [main_hand, off_hand] that is NOT ranged → its dice.
+        // ranged_dice = first of [main_hand, off_hand] that IS ranged → its dice.
+        let slots: [Option<&WeaponId>; 2] = equip.map_or([None, None], |e| {
+            [e.main_hand.as_ref(), e.off_hand.as_ref()]
+        });
+        let mut weapon_dice: Option<DiceExpr> = None;
+        let mut ranged_dice: Option<DiceExpr> = None;
+        let mut spell_power = 0i32;
+        for slot in slots.into_iter().flatten() {
+            if let Some(wd) = weapons.get(slot) {
+                if wd.ranged {
+                    if ranged_dice.is_none() {
+                        ranged_dice = Some(wd.dice);
+                    }
+                } else {
+                    if weapon_dice.is_none() {
+                        weapon_dice = Some(wd.dice);
+                        // spell_power comes from the first melee weapon (original behaviour)
+                        spell_power = wd.spell_power;
+                    }
+                }
+            }
+        }
         Self {
             str_mod: modifier(stats.strength),
             int_mod: modifier(stats.intelligence),
-            spell_power: weapon_def.map_or(0, |wd| wd.spell_power),
-            weapon_dice: weapon_def.map(|wd| wd.dice),
+            spell_power,
+            weapon_dice,
+            ranged_dice,
+            dex_mod: modifier(stats.dexterity),
         }
     }
 }
@@ -148,6 +186,7 @@ impl CasterContext {
 pub struct EffectCalc {
     pub dice: Option<DiceExpr>,
     pub bonus: i32,
+    pub power: f32,
     pub pierces_armor: bool,
     /// True for spell damage — engine uses magic_resist instead of armor.
     pub magic: bool,
@@ -156,7 +195,10 @@ pub struct EffectCalc {
 
 impl EffectCalc {
     pub fn expected(&self) -> f32 {
-        self.dice.as_ref().map_or(0.0, |d| d.expected()) + self.bonus as f32
+        self.dice
+            .as_ref()
+            .map_or(0.0, |d| d.expected() * self.power)
+            + self.bonus as f32
     }
 }
 
@@ -172,6 +214,10 @@ fn default_range() -> u32 {
 }
 fn default_cost_ap() -> i32 {
     1
+}
+
+fn default_weapon_power() -> f32 {
+    1.0
 }
 
 #[derive(Deserialize)]
@@ -224,6 +270,12 @@ struct AbilityRecord {
     /// Tags the target must NOT have.  `SingleEnemy`/`SingleAlly` only.
     #[serde(default)]
     excludes_tags: Vec<String>,
+    /// `weapon_attack` only: `true` → uses ranged_dice + dex_mod.
+    #[serde(default)]
+    ranged: bool,
+    /// `weapon_attack` only: dice multiplier (default 1.0); stat mod always full.
+    #[serde(default = "default_weapon_power")]
+    weapon_power: f32,
 }
 
 #[derive(Deserialize)]
@@ -282,7 +334,13 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
             };
             let (effect, is_move_toggle) = match r.effect.as_str() {
                 "" | "none" => (EffectDef::None, false),
-                "weapon_attack" => (EffectDef::WeaponAttack, false),
+                "weapon_attack" => (
+                    EffectDef::WeaponAttack {
+                        ranged: r.ranged,
+                        power: r.weapon_power,
+                    },
+                    false,
+                ),
                 "damage" => (
                     EffectDef::Damage {
                         dice: need_dice(&r.id, r.dice_count, r.dice_sides),
@@ -443,6 +501,8 @@ mod tests {
             int_mod,
             spell_power,
             weapon_dice,
+            dex_mod: 0,
+            ranged_dice: None,
         }
     }
 
@@ -452,7 +512,12 @@ mod tests {
     fn weapon_attack_uses_str_and_weapon_dice() {
         let weapon = DiceExpr::new(2, 6, 0);
         let c = ctx(4, 0, 0, Some(weapon));
-        let calc = EffectDef::WeaponAttack.calc(&c).unwrap();
+        let calc = EffectDef::WeaponAttack {
+            ranged: false,
+            power: 1.0,
+        }
+        .calc(&c)
+        .unwrap();
         assert_eq!(calc.bonus, 4);
         assert_eq!(calc.dice.unwrap().count, 2);
         assert!(!calc.pierces_armor);
@@ -522,7 +587,12 @@ mod tests {
     #[test]
     fn expected_without_dice_is_bonus_only() {
         let c = ctx(3, 0, 0, None); // no weapon dice
-        let calc = EffectDef::WeaponAttack.calc(&c).unwrap();
+        let calc = EffectDef::WeaponAttack {
+            ranged: false,
+            power: 1.0,
+        }
+        .calc(&c)
+        .unwrap();
         assert!((calc.expected() - 3.0).abs() < 0.01);
     }
 
@@ -567,5 +637,147 @@ ai_tags_override = ["mobility"]
             Some(vec!["mobility".to_string()]),
             "ai_tags_override must round-trip through TOML deserialization"
         );
+    }
+
+    // ── CasterContext::new dice-source rule ──────────────────────────────────
+
+    fn base_stats() -> CombatStats {
+        CombatStats {
+            strength: 10, // modifier = 0
+            dexterity: 10,
+            intelligence: 10,
+            ..Default::default()
+        }
+    }
+
+    fn make_weapon(id: &str, dice: DiceExpr, ranged: bool) -> (WeaponId, WeaponDef) {
+        let wid = WeaponId::from(id);
+        let def = WeaponDef {
+            id: wid.clone(),
+            name: id.to_string(),
+            hand: crate::content::weapons::HandType::MainHand,
+            dice,
+            ranged,
+            spell_power: 0,
+            stats: Default::default(),
+            image: None,
+        };
+        (wid, def)
+    }
+
+    /// bow (ranged) in main + dagger (melee) in off-hand →
+    /// weapon_dice = dagger, ranged_dice = bow.
+    #[test]
+    fn caster_ctx_new_bow_plus_dagger_routes_both_channels() {
+        let bow_dice = DiceExpr::new(1, 8, 0);
+        let dagger_dice = DiceExpr::new(1, 4, 0);
+        let (bow_id, bow_def) = make_weapon("bow", bow_dice, true);
+        let (dagger_id, dagger_def) = make_weapon("dagger", dagger_dice, false);
+
+        let weapons: std::collections::HashMap<WeaponId, WeaponDef> =
+            [(bow_id.clone(), bow_def), (dagger_id.clone(), dagger_def)].into();
+
+        let equip = Equipment {
+            main_hand: Some(bow_id),
+            off_hand: Some(dagger_id),
+            chest: combat_engine::ArmorId::from(""),
+            legs: combat_engine::ArmorId::from(""),
+            feet: combat_engine::ArmorId::from(""),
+        };
+        let ctx = CasterContext::new(&base_stats(), Some(&equip), &weapons);
+        assert_eq!(ctx.weapon_dice, Some(dagger_dice), "melee = dagger");
+        assert_eq!(ctx.ranged_dice, Some(bow_dice), "ranged = bow");
+    }
+
+    /// Two-handed melee only → ranged_dice = None.
+    #[test]
+    fn caster_ctx_new_melee_only_has_no_ranged_dice() {
+        let sword_dice = DiceExpr::new(1, 8, 0);
+        let (sword_id, sword_def) = make_weapon("sword", sword_dice, false);
+        let weapons: std::collections::HashMap<WeaponId, WeaponDef> =
+            [(sword_id.clone(), sword_def)].into();
+
+        let equip = Equipment {
+            main_hand: Some(sword_id),
+            off_hand: None,
+            chest: combat_engine::ArmorId::from(""),
+            legs: combat_engine::ArmorId::from(""),
+            feet: combat_engine::ArmorId::from(""),
+        };
+        let ctx = CasterContext::new(&base_stats(), Some(&equip), &weapons);
+        assert_eq!(ctx.weapon_dice, Some(sword_dice), "melee = sword");
+        assert_eq!(
+            ctx.ranged_dice, None,
+            "no ranged weapon → ranged_dice = None"
+        );
+    }
+
+    /// Ranged main + empty off-hand → weapon_dice = None.
+    #[test]
+    fn caster_ctx_new_ranged_only_has_no_melee_dice() {
+        let bow_dice = DiceExpr::new(1, 8, 0);
+        let (bow_id, bow_def) = make_weapon("bow", bow_dice, true);
+        let weapons: std::collections::HashMap<WeaponId, WeaponDef> =
+            [(bow_id.clone(), bow_def)].into();
+
+        let equip = Equipment {
+            main_hand: Some(bow_id),
+            off_hand: None,
+            chest: combat_engine::ArmorId::from(""),
+            legs: combat_engine::ArmorId::from(""),
+            feet: combat_engine::ArmorId::from(""),
+        };
+        let ctx = CasterContext::new(&base_stats(), Some(&equip), &weapons);
+        assert_eq!(
+            ctx.weapon_dice, None,
+            "no melee weapon → weapon_dice = None"
+        );
+        assert_eq!(ctx.ranged_dice, Some(bow_dice), "ranged = bow");
+    }
+
+    // ── EffectCalc::expected power math ──────────────────────────────────────
+
+    /// WeaponAttack power=0.5: expected = dice.expected() * 0.5 + bonus.
+    /// E[2d6] = 7.0. power=0.5. str_mod=3 (bonus). expected = 7.0*0.5 + 3 = 6.5.
+    #[test]
+    fn effect_calc_expected_scales_by_power() {
+        let weapon = DiceExpr::new(2, 6, 0); // E = 7.0
+        let c = CasterContext {
+            str_mod: 3,
+            weapon_dice: Some(weapon),
+            ..Default::default()
+        };
+        let calc = EffectDef::WeaponAttack {
+            ranged: false,
+            power: 0.5,
+        }
+        .calc(&c)
+        .unwrap();
+        assert!(
+            (calc.expected() - 6.5).abs() < 0.01,
+            "E[2d6]*0.5 + 3 = 6.5, got {}",
+            calc.expected()
+        );
+    }
+
+    /// Ranged WeaponAttack: calc uses ranged_dice + dex_mod, ignores str/weapon.
+    #[test]
+    fn ranged_weapon_attack_uses_dex_mod_and_ranged_dice() {
+        let bow = DiceExpr::new(1, 8, 0);
+        let c = CasterContext {
+            str_mod: 99, // must NOT be used
+            dex_mod: 4,
+            weapon_dice: None,
+            ranged_dice: Some(bow),
+            ..Default::default()
+        };
+        let calc = EffectDef::WeaponAttack {
+            ranged: true,
+            power: 1.0,
+        }
+        .calc(&c)
+        .unwrap();
+        assert_eq!(calc.bonus, 4, "bonus = dex_mod");
+        assert_eq!(calc.dice.unwrap().sides, 8, "dice = ranged (1d8)");
     }
 }

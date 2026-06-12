@@ -123,6 +123,24 @@ impl ActionState for SnapshotActionState<'_> {
             .unit(target)
             .is_some_and(|v| requires.is_subset(&v.tags) && excludes.is_disjoint(&v.tags))
     }
+
+    fn actor_weapon_channels(
+        &self,
+        actor: Entity,
+    ) -> (
+        Option<combat_engine::DiceExpr>,
+        Option<combat_engine::DiceExpr>,
+    ) {
+        self.snap
+            .unit(actor)
+            .map(|v| {
+                (
+                    v.cache.caster_ctx.weapon_dice,
+                    v.cache.caster_ctx.ranged_dice,
+                )
+            })
+            .unwrap_or((None, None))
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -134,7 +152,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
     use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
     use crate::content::abilities::{
-        AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, TargetType,
+        AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost, TargetType,
     };
     use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
@@ -153,7 +171,10 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 2 },
-                effect: EffectDef::WeaponAttack,
+                effect: EffectDef::WeaponAttack {
+                    ranged: false,
+                    power: 1.0,
+                },
                 costs: Vec::new(),
                 cost_ap: 1,
                 aoe: AoEShape::None,
@@ -209,6 +230,10 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ap(2)
             .ability_names(&["strike"])
+            .caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                ..Default::default()
+            })
             .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
             .ap(2)
@@ -327,6 +352,10 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ap(2)
             .ability_names(&["strike"])
+            .caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                ..Default::default()
+            })
             .build();
         // Max range 2, target at distance 5.
         let far = hex_from_offset(5, 0);
@@ -359,6 +388,10 @@ mod tests {
         let mut actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ap(2)
             .ability_names(&["strike"])
+            .caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                ..Default::default()
+            })
             .build();
         actor.statuses.push(ActiveStatusView {
             id: StatusId::from("disoriented"),
@@ -413,6 +446,10 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ap(2)
             .ability_names(&["strike"])
+            .caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                ..Default::default()
+            })
             .build();
         let mut content = empty_content();
         let def = attack_ability();
@@ -444,6 +481,10 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ap(2)
             .ability_names(&["strike"])
+            .caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                ..Default::default()
+            })
             .build();
         let corpse = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
             .hp(0)
