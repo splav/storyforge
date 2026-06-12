@@ -3,7 +3,7 @@ use super::render::{
     HexBorder, HexCellLink, HexGridOffset, HexHover, HexHpLabel, HexManaLabel, HexMaterials,
     HexNameLabel, HexStatusBadge, STATUS_BADGE_SLOTS,
 };
-use crate::combat::engine_bridge::CombatStateRes;
+use crate::combat::bridge::CombatStateRes;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ActiveContent;
 use crate::content::statuses::StatusDef;

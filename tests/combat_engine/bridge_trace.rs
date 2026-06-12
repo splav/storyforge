@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 
-use storyforge::combat::engine_bridge::CombatStateRes;
+use storyforge::combat::bridge::CombatStateRes;
 use storyforge::combat::DiceRngRes;
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::Team;

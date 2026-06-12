@@ -81,7 +81,7 @@ The file replicates `EcsContentView`'s mapping inline because it's `pub(crate)`
 invisible to the test.
 
 **Fix:** make the real mapping testable — `#[cfg(test)]` re-export, a
-`pub(crate)` white-box inline test in `engine_bridge.rs`, or a small
+`pub(crate)` white-box inline test in `src/combat/bridge/`, or a small
 `pub`-for-tests facade. Then compare `TomlContentView` against the *actual*
 `EcsContentView` output.
 **Bonus:** derive `PartialEq` on `EffectDef` (and friends) to delete the ~60

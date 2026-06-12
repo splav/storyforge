@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use combat_engine::{ArmorId, WeaponId};
 use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::combat::engine_bridge::{
+use storyforge::combat::bridge::{
     apply_bridge_queues_pre_projection, bootstrap_combat_state, BridgeQueues, CombatStateRes,
     UnitIdMap,
 };

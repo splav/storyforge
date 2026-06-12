@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 
 use combat_engine::StatusId;
-use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
+use storyforge::combat::bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::{
     ActionPoints, ActiveStatus, Reactions, StatusEffects, Team, Vital,
@@ -382,7 +382,7 @@ fn from_ecs_round1_aggregates_preseeded_status_bonuses() {
     use combat_engine::{
         StatusBonuses, StatusDef as EngineStatusDef, StatusId, PERMANENT_DURATION,
     };
-    use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
+    use storyforge::combat::bridge::{entity_to_uid, CombatStateRes};
     use storyforge::content::content_view::ActiveContent;
     use storyforge::content::statuses::StatusDef;
     use storyforge::game::components::{ActiveStatus, StatusEffects};

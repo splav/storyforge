@@ -15,7 +15,7 @@ use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig}
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::build_snapshot;
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
-use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap};
+use crate::combat::bridge::{CombatStateRes, UnitIdMap};
 use crate::combat::DiceRngRes;
 use crate::content::content_view::{ActiveContent, ContentView};
 use crate::content::settings::GameSettings;

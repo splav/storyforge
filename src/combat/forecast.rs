@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use combat_engine::{action::Action, event::Event, preview::preview_action, PoolKind, StatusId};
 
-use crate::combat::engine_bridge::{build_ecs_content_view, CombatStateRes, UnitIdMap};
+use crate::combat::bridge::{build_ecs_content_view, CombatStateRes, UnitIdMap};
 use crate::content::content_view::ActiveContent;
 use crate::game::resources::{
     ActionForecast, ForecastEntry, ForecastKind, HexPositions, SelectionState, UiDirty,

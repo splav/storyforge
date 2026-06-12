@@ -10,7 +10,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 use combat_engine::{state::RoundPhase, AbilityId, PoolKind};
-use storyforge::combat::engine_bridge::{CombatStateRes, UnitIdMap};
+use storyforge::combat::bridge::{CombatStateRes, UnitIdMap};
 use storyforge::combat::forecast::compute_forecast;
 use storyforge::content::content_view::ActiveContent;
 use storyforge::game::hex::hex_from_offset;

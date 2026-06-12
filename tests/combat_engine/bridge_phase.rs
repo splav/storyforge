@@ -8,7 +8,7 @@
 use bevy::prelude::*;
 
 use combat_engine::{AbilityId, DiceExpr, StatusId};
-use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
+use storyforge::combat::bridge::{entity_to_uid, CombatStateRes};
 use storyforge::content::abilities::{AbilityRange, AoEShape, EffectDef};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
@@ -367,7 +367,7 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
 /// Must pass both pre- and post-S6.
 #[test]
 fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
-    use storyforge::combat::engine_bridge::entity_to_uid;
+    use storyforge::combat::bridge::entity_to_uid;
     use storyforge::combat_engine::state::ActiveStatus as EngineActiveStatus;
     use storyforge::content::abilities::TargetType;
 
@@ -509,7 +509,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
 fn phase_def_tags_carried_into_engine_phase_entry() {
     use combat_engine::TagId;
     use std::collections::BTreeSet;
-    use storyforge::combat::engine_bridge::CombatStateRes;
+    use storyforge::combat::bridge::CombatStateRes;
     use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
     use storyforge::game::components::EnemyPhases;
 

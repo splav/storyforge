@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 
-use storyforge::combat::engine_bridge::{from_ecs, UnitIdMap};
+use storyforge::combat::bridge::{from_ecs, UnitIdMap};
 use storyforge::combat_engine::state::{CombatState, Team};
 use storyforge::content::content_view::ActiveContent;
 use storyforge::game::bundles::CombatantBundle;

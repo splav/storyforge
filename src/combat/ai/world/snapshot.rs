@@ -7,7 +7,7 @@ use crate::combat::ai::world::cache::{AiCache, UnitAiCache};
 use crate::combat::ai::world::tags::cache::StatusBonuses;
 use crate::combat::ai::world::tags::StatusTagSet;
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
-use crate::combat::engine_bridge::UnitIdMap;
+use crate::combat::bridge::UnitIdMap;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;

@@ -26,7 +26,7 @@ use combat_engine::{
     TeamRelation, PERMANENT_DURATION,
 };
 
-use crate::combat::engine_bridge::{build_ecs_content_view, build_unit, UnitBuildInput};
+use crate::combat::bridge::{build_ecs_content_view, build_unit, UnitBuildInput};
 use crate::content::{
     abilities::{CasterContext as BevyCasterContext, EffectDef},
     content_view::{ActiveContent, ContentView},

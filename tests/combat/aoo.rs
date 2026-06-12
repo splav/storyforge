@@ -121,7 +121,7 @@ fn opportunity_once_per_round() {
     assert_eq!(aoo_events(&app).len(), 1, "first move triggers AoO");
 
     {
-        use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
+        use storyforge::combat::bridge::{entity_to_uid, CombatStateRes};
         use storyforge::combat_engine::PoolKind;
         let hero_uid = entity_to_uid(hero);
         let mut state = app.world_mut().resource_mut::<CombatStateRes>();

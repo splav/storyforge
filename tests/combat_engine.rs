@@ -1,4 +1,4 @@
-//! Test binary for `crates/combat_engine/` + `src/combat/engine_bridge.rs`.
+//! Test binary for `crates/combat_engine/` + `src/combat/bridge/`.
 //!
 //! All engine-layer integration tests compile into this single binary so a
 //! lib-level change triggers one relink instead of seven.  Module files live

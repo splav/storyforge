@@ -1,7 +1,7 @@
-# Combat Bridge — engine_bridge.rs
+# Combat Bridge — src/combat/bridge/
 
-`src/combat/engine_bridge.rs` (~1815 lines) is the single file that talks to
-both Bevy ECS and the pure engine. Nothing else may call `step()` directly
+`src/combat/bridge/` is the single module that talks to
+both Bevy ECS and the pure engine (split into per-concern submodules: `ids`, `bootstrap`, `content_view`, `translate`, `process`, `project`, `queues`, `phases`; all items re-exported flat from `mod.rs`). Nothing else may call `step()` directly
 from the game side (only the AI sim does, via `plan/sim.rs`).
 
 For the engine internals (`step`, `CombatState`, `ContentView`, determinism),
@@ -22,7 +22,7 @@ For combat start/teardown/restart flows, see [`lifecycle.md`](lifecycle.md).
                              │ (Move / Cast / EndTurn)
                              ▼
               ┌─────────────────────────────────┐
-              │  Bridge — engine_bridge.rs       │
+              │  Bridge — src/combat/bridge/     │
               │  process_action_system           │
               │  project_state_to_ecs            │
               │  translate_events / translate_one│
@@ -78,7 +78,7 @@ Post-Phase A, translation is unified into two functions:
 | Function | Role |
 |----------|------|
 | `translate_events(events, &mut ctx)` | Iterates `Vec<Event>`; calls `translate_one` for each |
-| `translate_one(event, &mut ctx)` | Single exhaustive `match` over all `Event` variants (lines 809–1073) |
+| `translate_one(event, &mut ctx)` | Single exhaustive `match` over all `Event` variants (`bridge/translate.rs`) |
 
 `TranslateCtx<'a>` bundles all mutable output sinks:
 - `log: &mut CombatLog` — text entries for the combat log
@@ -146,7 +146,7 @@ Two bridge-side systems deleted in V3:
 ## 4. ECS-projected components (D6 contract)
 
 `project_state_to_ecs` writes these components — and **only
-`engine_bridge.rs`** may write them (enforced by
+the `src/combat/bridge/` module** may write them (enforced by
 `tests/projection_isolation.rs`):
 
 | Component | Field(s) written |
@@ -173,7 +173,7 @@ Allowed write exceptions documented in
 
 ## 5. EcsContentView
 
-`EcsContentView` (defined in `engine_bridge.rs`) is the live-combat
+`EcsContentView` (defined in `bridge/content_view.rs`) is the live-combat
 implementation of the engine's `ContentView` trait. It reads from
 `Res<ActiveContent>` for ability and status definitions, and computes real
 `StatusBonuses` (including `armor_bonus`, `speed_bonus`) from the active

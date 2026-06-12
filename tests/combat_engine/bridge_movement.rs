@@ -8,7 +8,7 @@
 use bevy::prelude::*;
 
 use combat_engine::{AbilityId, StatusId, WeaponId};
-use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
+use storyforge::combat::bridge::{entity_to_uid, CombatStateRes};
 use storyforge::combat::DiceRngRes;
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::statuses::StatusDef;
@@ -164,7 +164,7 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
 /// Stunned-filter test: a stunned (skips_turn=true) adjacent enemy must be
 /// excluded from `aoo_per_unit` so the engine fires zero AoOs on disengage.
 ///
-/// Pins the filter block at engine_bridge.rs lines 279-291: if the filter is
+/// Pins the filter block at bridge/bootstrap.rs (from_ecs filter block): if the filter is
 /// removed, the enemy would fire AoO and the player's HP would drop.
 #[test]
 fn aoo_does_not_fire_from_stunned_enemy() {

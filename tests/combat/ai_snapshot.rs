@@ -11,7 +11,7 @@ use crate::common::{apps::engine::*, fixtures::*};
 use storyforge::combat::ai::config::difficulty::DifficultyProfile;
 use storyforge::combat::ai::config::role::AxisProfile;
 use storyforge::combat::ai::world::snapshot::build_snapshot;
-use storyforge::combat::engine_bridge::{CombatStateRes, UnitIdMap};
+use storyforge::combat::bridge::{CombatStateRes, UnitIdMap};
 use storyforge::game::components::{AiCombatantQ, Combatant, Dead, StatusEffects};
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::hex_map::HexMap;

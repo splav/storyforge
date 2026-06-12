@@ -19,7 +19,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 use combat_engine::AbilityId;
-use storyforge::combat::engine_bridge::{bootstrap_combat_state, entity_to_uid, CombatStateRes};
+use storyforge::combat::bridge::{bootstrap_combat_state, entity_to_uid, CombatStateRes};
 use storyforge::combat::legality_adapter::BevyActions;
 use storyforge::combat_engine::content::{
     ContentView as EngineContentView, Cost, TargetType as EngineTargetType,
@@ -53,7 +53,7 @@ const TAUNT_STATUS: &str = "taunt";
 /// Thin `EngineContentView` wrapper over `&BevyContentView`.
 ///
 /// Mirrors exactly what `EcsContentView` (pub(crate)) does in
-/// `src/combat/engine_bridge.rs`, so the engine adapter sees the same content
+/// `src/combat/bridge/`, so the engine adapter sees the same content
 /// as the Bevy adapter.
 struct TestEngineContent<'a>(&'a BevyContentView);
 

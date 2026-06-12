@@ -22,7 +22,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use bevy::prelude::Entity;
 use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
 use storyforge::combat::ai::world::snapshot::BattleSnapshot;
-use storyforge::combat::engine_bridge::entity_to_uid;
+use storyforge::combat::bridge::entity_to_uid;
 use storyforge::combat_engine::{
     action::Action,
     content::ContentView as EngineContentView,

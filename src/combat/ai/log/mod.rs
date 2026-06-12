@@ -742,7 +742,7 @@ pub fn close_ai_log_on_combat_exit(mut logger: ResMut<AiLogger>) {
 /// across subsequent AwaitCommand entries (round transitions).
 pub fn write_engine_trace_init_system(
     mut trace_writer: ResMut<engine_trace::EngineTraceWriter>,
-    combat_state: Option<Res<crate::combat::engine_bridge::CombatStateRes>>,
+    combat_state: Option<Res<crate::combat::bridge::CombatStateRes>>,
     rng: Option<Res<crate::combat::DiceRngRes>>,
     session: Option<Res<CombatLogSession>>,
 ) {

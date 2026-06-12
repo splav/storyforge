@@ -18,7 +18,7 @@ use crate::content::content_view::ContentView;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
-use crate::combat::engine_bridge::entity_to_uid;
+use crate::combat::bridge::entity_to_uid;
 use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},

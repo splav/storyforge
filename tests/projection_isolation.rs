@@ -1,6 +1,6 @@
 //! Phase 6 D6 contract guard: engine-projected ECS components must only be
 //! written by `project_state_to_ecs` (and adjacent helpers) inside
-//! `src/combat/engine_bridge.rs`. Direct writes from production code outside
+//! `src/combat/bridge/`. Direct writes from production code outside
 //! the bridge break replay determinism — the engine stops being authoritative
 //! for state.
 //!
@@ -18,7 +18,7 @@
 //!
 //! # Allowed files
 //!
-//! - `src/combat/engine_bridge.rs` — the projector itself + phase-transition
+//! - `src/combat/bridge/` — the projector itself + phase-transition
 //!   helper that preserves the `hp <= max_hp` invariant after a max_hp delta.
 //!
 //! # Skipped subtrees
@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 /// Files where engine-projected mutations are legitimate.
 const ALLOWED_FILES: &[&str] = &[
     // The projector itself + phase_transition's hp/max_hp invariant fix-up.
-    "src/combat/engine_bridge.rs",
+    "src/combat/bridge/",
 ];
 
 /// Subtrees skipped entirely (sim state, not ECS-projected).
@@ -101,7 +101,7 @@ fn engine_projected_components_only_written_by_bridge() {
             for (pattern, desc) in FORBIDDEN_PATTERNS {
                 if line.contains(pattern) {
                     violations.push(format!(
-                        "{}:{}: {} mutated outside engine_bridge.rs\n    | {}",
+                        "{}:{}: {} mutated outside the bridge module\n    | {}",
                         file.display(),
                         lineno + 1,
                         desc,
@@ -115,7 +115,7 @@ fn engine_projected_components_only_written_by_bridge() {
     assert!(
         violations.is_empty(),
         "Engine-projected ECS components must only be written by \
-         `project_state_to_ecs` inside `src/combat/engine_bridge.rs`. \
+         `project_state_to_ecs` inside `src/combat/bridge/`. \
          If the new callsite is legitimate (e.g. a spawn path), add the \
          file to `ALLOWED_FILES` in `tests/projection_isolation.rs` with \
          a one-line justification.\n\nViolations:\n{}",

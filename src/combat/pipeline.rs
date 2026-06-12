@@ -7,8 +7,8 @@
 use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
-use crate::combat::engine_bridge::{
-    self as engine_bridge, apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
+use crate::combat::bridge::{
+    self as bridge, apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
     bootstrap_combat_state, process_action_system, project_state_to_ecs,
     reset_engine_mirrors_on_exit_combat, reset_engine_mirrors_on_restart, BridgeQueues,
     CombatStateRes, UnitIdMap,
@@ -88,7 +88,7 @@ impl Plugin for CombatPipelinePlugin {
                 apply_bridge_queues_pre_projection,
                 project_state_to_ecs,
                 apply_bridge_queues_post_projection,
-                engine_bridge::apply_phase_overrides_system,
+                bridge::apply_phase_overrides_system,
                 super::ai::log::flush_pending_ai_log_system,
             )
                 .chain()

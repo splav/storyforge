@@ -180,7 +180,7 @@ enemies = []
 fn bootstrap_combat_state_populates_blocked_hexes() {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
-    use storyforge::combat::engine_bridge::{bootstrap_combat_state, CombatStateRes};
+    use storyforge::combat::bridge::{bootstrap_combat_state, CombatStateRes};
     use storyforge::game::resources::CombatBlockedHexes;
 
     // Use the shared bridge_app harness which registers all required resources.
@@ -189,7 +189,7 @@ fn bootstrap_combat_state_populates_blocked_hexes() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<CombatStateRes>()
-        .init_resource::<storyforge::combat::engine_bridge::UnitIdMap>()
+        .init_resource::<storyforge::combat::bridge::UnitIdMap>()
         .init_resource::<storyforge::game::resources::HexPositions>()
         .init_resource::<storyforge::game::resources::HexCorpses>()
         .init_resource::<storyforge::game::resources::TurnQueue>()
@@ -211,7 +211,7 @@ fn bootstrap_combat_state_populates_blocked_hexes() {
             token: Handle::default(),
             ring: Handle::default(),
         })
-        .init_resource::<storyforge::combat::engine_bridge::BridgeQueues>()
+        .init_resource::<storyforge::combat::bridge::BridgeQueues>()
         .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
         .init_resource::<storyforge::combat::ai::log::AiLogger>()
         .init_resource::<storyforge::combat::ai::log::PendingAiLogEntries>();

@@ -75,7 +75,7 @@ fn partial_move_subtracts_pool_and_allows_second_move() {
 
 #[test]
 fn move_rejected_when_path_longer_than_pool() {
-    use storyforge::combat::engine_bridge::CombatStateRes;
+    use storyforge::combat::bridge::CombatStateRes;
 
     let mut app = movement_app();
 
@@ -94,7 +94,7 @@ fn move_rejected_when_path_longer_than_pool() {
     {
         let id_map = app
             .world()
-            .resource::<storyforge::combat::engine_bridge::UnitIdMap>();
+            .resource::<storyforge::combat::bridge::UnitIdMap>();
         let uid = id_map.get_id(hero).expect("hero must be in id_map");
         let mut cs = app.world_mut().resource_mut::<CombatStateRes>();
         if let Some(u) = cs.0.unit_mut(uid) {

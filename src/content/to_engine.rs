@@ -2,7 +2,7 @@
 //!
 //! This module is the canonical place for translating Bevy/content-layer types
 //! (`CritFailEffect`, `AbilityDef`, `StatusDef`) into their pure-engine
-//! equivalents.  Both `engine_bridge` (ECS path) and `combat/ai/plan/sim`
+//! equivalents.  Both `combat::bridge` (ECS path) and `combat/ai/plan/sim`
 //! (AI simulation path) delegate to these helpers so the mapping logic lives
 //! in exactly one place.
 //!

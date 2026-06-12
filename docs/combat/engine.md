@@ -145,7 +145,7 @@ Two implementations:
 
 | Impl | Where | Used for |
 |------|-------|----------|
-| `EcsContentView` | `src/combat/engine_bridge.rs` | Live combat — reads `Res<ActiveContent>` |
+| `EcsContentView` |  `src/combat/bridge/content_view.rs` | Live combat — reads `Res<ActiveContent>` |
 | `TomlContentView` | `crates/combat_engine/src/toml_content_view.rs` | Offline tools: `replay_engine_trace`, benchmarks |
 
 `EcsContentView::status_bonuses` reads real `armor_bonus` / `speed_bonus`

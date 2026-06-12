@@ -8,9 +8,7 @@
 use bevy::prelude::*;
 
 use crate::common::{apps::engine::*, fixtures::*};
-use storyforge::combat::engine_bridge::{
-    apply_bridge_queues_pre_projection, bootstrap_combat_state,
-};
+use storyforge::combat::bridge::{apply_bridge_queues_pre_projection, bootstrap_combat_state};
 use storyforge::combat::turn_order::build_turn_order;
 use storyforge::game::components::ActiveCombatant;
 use storyforge::game::hex::hex_from_offset;
@@ -487,7 +485,7 @@ fn current_actor_dies_mid_move_settles_on_next() {
 #[test]
 fn combat_2_starts_clean_after_combat_1() {
     use bevy::ecs::system::RunSystemOnce;
-    use storyforge::combat::engine_bridge::{
+    use storyforge::combat::bridge::{
         reset_engine_mirrors_on_exit_combat, BridgeQueues, CombatStateRes, UnitIdMap,
     };
 
@@ -583,7 +581,7 @@ fn combat_2_starts_clean_after_combat_1() {
 #[test]
 fn combat_2_bootstraps_fresh_after_combat_1() {
     use bevy::ecs::system::RunSystemOnce;
-    use storyforge::combat::engine_bridge::{
+    use storyforge::combat::bridge::{
         reset_engine_mirrors_on_exit_combat, CombatStateRes, UnitIdMap,
     };
     use storyforge::game::resources::PresetInitiative;

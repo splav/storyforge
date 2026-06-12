@@ -14,7 +14,7 @@ Each layer tests its own contract; cross-layer concerns sit at the higher layer.
 | Layer | Where | What it tests | Setup cost |
 |---|---|---|---|
 | **Pure engine** | `tests/combat_engine/*.rs` (e.g. `replay.rs`, `serde_roundtrip.rs`, `rng_count.rs`, `purity.rs`, `aura_determinism.rs`, `trace_helpers.rs`) | `storyforge::combat_engine::*` only — no Bevy, no ECS in the test body. Replay, serde, RNG counting, determinism. | Lowest. Manual `CombatState` construction. |
-| **Engine + bridge** | `tests/combat_engine/*.rs` (e.g. `bridge_movement.rs`, `bridge_cast.rs`, `bridge_projector.rs`, `bridge_phase.rs`, `bridge_trace.rs`, `legality_parity.rs`) | `engine_bridge.rs` — ECS projection, message translation, content view. | Medium. Bevy `App` with minimal plugins. |
+| **Engine + bridge** | `tests/combat_engine/*.rs` (e.g. `bridge_movement.rs`, `bridge_cast.rs`, `bridge_projector.rs`, `bridge_phase.rs`, `bridge_trace.rs`, `legality_parity.rs`) | модуль `src/combat/bridge/` — ECS projection, message translation, content view. | Medium. Bevy `App` with minimal plugins. |
 | **Full app** | `tests/combat/*.rs` | End-to-end combat scenarios, AI decisions, animations. | Highest. Full `MinimalPlugins` + content load. |
 | **Inline unit (engine-internal)** | `#[cfg(test)] mod tests` inside `crates/combat_engine/src/*.rs` | White-box tests of crate-**private** internals (e.g. `start_actor_turn`, content-hash, turn-queue). | Module-local. **Only built under `-p combat_engine` / `--workspace`** — see "Running" note below. |
 | **Inline unit (storyforge)** | `#[cfg(test)] mod tests` inside `src/*.rs` (or sibling `<name>_tests.rs` via `#[path]`) | Single-function or struct-level contracts. | Module-local. |

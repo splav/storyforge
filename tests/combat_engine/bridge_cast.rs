@@ -8,7 +8,7 @@
 use bevy::prelude::*;
 
 use combat_engine::{AbilityId, DiceExpr, StatusId};
-use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
+use storyforge::combat::bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
 use storyforge::content::content_view::ActiveContent;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};

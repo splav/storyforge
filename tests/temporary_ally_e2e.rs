@@ -16,7 +16,7 @@ use bevy::prelude::*;
 
 use storyforge::app_state::CombatPhase;
 use storyforge::combat::advance_turn::check_victory_system;
-use storyforge::combat::engine_bridge::{CombatStateRes, UnitIdMap};
+use storyforge::combat::bridge::{CombatStateRes, UnitIdMap};
 use storyforge::combat::turn_order::build_turn_order;
 use storyforge::content::content_view::ContentView;
 use storyforge::content::encounters::load_encounters_from_str;

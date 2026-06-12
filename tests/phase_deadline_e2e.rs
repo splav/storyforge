@@ -11,9 +11,7 @@ use bevy::prelude::*;
 
 use storyforge::app_state::CombatPhase;
 use storyforge::combat::advance_turn::check_phase_deadline_system;
-use storyforge::combat::engine_bridge::{
-    apply_phase_overrides_system, BridgeQueues, PhaseOverrideIntent,
-};
+use storyforge::combat::bridge::{apply_phase_overrides_system, BridgeQueues, PhaseOverrideIntent};
 use storyforge::content::encounters::VictoryCondition;
 use storyforge::game::components::{Combatant, Dead, Faction, Team, VictoryTarget, Vital};
 use storyforge::game::resources::{

@@ -42,7 +42,7 @@ use combat_engine::{
     trace::{parse_init, parse_step, post_state_hash_hex, InitLine, StepLine, SCHEMA_VERSION},
     DiceRng,
 };
-use storyforge::combat::engine_bridge::build_ecs_content_view;
+use storyforge::combat::bridge::build_ecs_content_view;
 use storyforge::content::content_view::{ActiveContent, ContentView};
 
 // ── Args ──────────────────────────────────────────────────────────────────────

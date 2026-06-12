@@ -18,7 +18,7 @@ use storyforge::combat::ai::plan::types::PlanStep;
 use storyforge::combat::ai::test_helpers::{ent, snapshot_from};
 use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
-use storyforge::combat::engine_bridge::entity_to_uid;
+use storyforge::combat::bridge::entity_to_uid;
 use storyforge::combat_engine::{
     action::Action,
     content::ContentView as EngineContentView,

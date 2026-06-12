@@ -14,7 +14,7 @@ use storyforge::combat::ai::test_helpers::{ent, snapshot_from_pairs, UnitBuilder
 use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 use storyforge::combat::ai::world::tags::StatusTagCache;
 
-use storyforge::combat::engine_bridge::entity_to_uid;
+use storyforge::combat::bridge::entity_to_uid;
 use storyforge::combat_engine::StatusId;
 use storyforge::combat_engine::{
     action::Action,

@@ -143,7 +143,7 @@ Bevy ECS тактическая RPG. Состояния: `AppState` (Boot → St
 |----------|-----------|
 | [Architecture](docs/architecture.md) | Top-level state machines, module map, content resolution, UI dirty flags, persistence |
 | [Combat — Engine](docs/combat/engine.md) | Pure engine: `step` API, `ContentView`, `Unit`, determinism contract |
-| [Combat — Bridge](docs/combat/bridge.md) | `engine_bridge.rs` — ECS projection, system schedule, event translators |
+| [Combat — Bridge](docs/combat/bridge.md) | модуль `src/combat/bridge/` — ECS projection, system schedule, event translators |
 | [Combat — Pipeline](docs/combat/pipeline.md) | Chain, EndTurn ownership, edge cases, animation blocking |
 | [Combat — Lifecycle](docs/combat/lifecycle.md) | Combat start/end, bootstrap, restart, dynamic spawn |
 | [Mechanics](docs/mechanics.md) | Характеристики, урон, лечение, мана/ярость, статусы, инициатива |

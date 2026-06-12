@@ -25,7 +25,7 @@ use std::io::BufRead;
 use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
 use storyforge::combat::ai::log::{ActorTickEvent, AiLogger, PendingAiLogEntries, SCHEMA_VERSION};
 use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::combat::engine_bridge::{
+use storyforge::combat::bridge::{
     apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
     bootstrap_combat_state, entity_to_uid, process_action_system, project_state_to_ecs,
     BridgeQueues, CombatStateRes, UnitIdMap,

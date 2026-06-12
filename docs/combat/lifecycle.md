@@ -41,7 +41,7 @@ per-turn loop begins.
 
 ## 2. Bootstrap idempotency
 
-`bootstrap_combat_state` (in `engine_bridge.rs:1528`) is **one-shot per
+`bootstrap_combat_state` (in `src/combat/bridge/bootstrap.rs`) is **one-shot per
 encounter**:
 
 ```rust
@@ -72,7 +72,7 @@ On Victory or Defeat `AppState::Combat` is exited:
 
 ```
 OnExit(AppState::Combat)
-  └── reset_engine_mirrors_on_exit_combat  (engine_bridge.rs:1687)
+  └── reset_engine_mirrors_on_exit_combat  (bridge/queues.rs)
         ├── CombatStateRes  → cleared (units vec emptied)
         ├── UnitIdMap       → cleared
         └── PendingPhaseTransitions → cleared
@@ -92,7 +92,7 @@ in-place reset:
 
 ```
 RestartCombat message
-  └── reset_engine_mirrors_on_restart  (engine_bridge.rs:1700)
+  └── reset_engine_mirrors_on_restart  (bridge/queues.rs)
         ├── CombatStateRes  → cleared
         ├── UnitIdMap       → cleared
         └── PendingPhaseTransitions → cleared

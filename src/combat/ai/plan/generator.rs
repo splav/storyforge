@@ -19,7 +19,7 @@ use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::combat::engine_bridge::entity_to_uid;
+use crate::combat::bridge::entity_to_uid;
 #[cfg(test)]
 use crate::content::abilities::EffectCalcExt;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};

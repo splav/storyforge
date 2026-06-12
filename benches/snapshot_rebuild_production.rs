@@ -53,7 +53,7 @@ use storyforge::combat::ai::config::difficulty::DifficultyProfile;
 use storyforge::combat::ai::config::role::AxisProfile;
 use storyforge::combat::ai::world::snapshot::build_snapshot;
 use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::combat::engine_bridge::{
+use storyforge::combat::bridge::{
     apply_bridge_queues_post_projection, apply_bridge_queues_pre_projection,
     bootstrap_combat_state, process_action_system, project_state_to_ecs, BridgeQueues,
     CombatStateRes, UnitIdMap,
@@ -206,6 +206,7 @@ fn spawn_scenario(app: &mut App) {
         .spawn(hero_bundle(
             hero_stats,
             0,
+            0, // magic_resist
             3,
             vec![MELEE_ATTACK.into()],
             test_equipment(),
@@ -218,6 +219,7 @@ fn spawn_scenario(app: &mut App) {
         .spawn(hero_bundle(
             hero2_stats,
             0,
+            0, // magic_resist
             3,
             vec![MELEE_ATTACK.into()],
             test_equipment(),
@@ -235,6 +237,7 @@ fn spawn_scenario(app: &mut App) {
         .spawn(enemy_bundle(
             enemy_stats,
             0,
+            0, // magic_resist
             3,
             vec![MELEE_ATTACK.into()],
             test_equipment(),
@@ -247,6 +250,7 @@ fn spawn_scenario(app: &mut App) {
         .spawn(enemy_bundle(
             enemy_stats2,
             0,
+            0, // magic_resist
             3,
             vec![MELEE_ATTACK.into()],
             test_equipment(),
@@ -262,6 +266,7 @@ fn spawn_scenario(app: &mut App) {
                 ..base_stats()
             },
             0,
+            0, // magic_resist
             3,
             vec![MELEE_ATTACK.into()],
             test_equipment(),
@@ -278,6 +283,7 @@ fn spawn_scenario(app: &mut App) {
         .spawn(enemy_bundle(
             enemy4_stats,
             0,
+            0, // magic_resist
             3,
             vec![MELEE_ATTACK.into()],
             test_equipment(),
