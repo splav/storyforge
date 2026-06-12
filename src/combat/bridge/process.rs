@@ -10,8 +10,7 @@ use crate::content::content_view::ActiveContent;
 use crate::game::bundles::enemy_bundle;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    AuraSource, CombatPath, Dead, EnemyPhases, Energy, Equipment, Faction, Mana, Rage, SummonedBy,
-    UnitToken,
+    CombatPath, Energy, Equipment, Faction, Mana, Rage, SummonedBy, UnitToken,
 };
 use crate::game::hex::LAYOUT;
 use crate::game::messages::ActionInput;
@@ -22,7 +21,7 @@ use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 use super::*;
 use combat_engine::{action::Action, event::Event, step::step};
 
-// ── VisualAssets / ContentParams SystemParam newtypes ────────────────────────
+// ── VisualAssets SystemParam newtype ──────────────────────────────────────────
 
 /// Bundles rendering-only Bevy resources used by `process_action_system`
 /// and `spawn_ecs_entity_from_engine_unit`.
@@ -37,17 +36,6 @@ pub struct VisualAssets<'w, 's> {
     pub mats: Res<'w, HexMaterials>,
     pub token_mesh: Res<'w, TokenMesh>,
     pub tag_cache: Res<'w, AbilityTagCache>,
-}
-
-/// Bundles the ECS queries that `build_ecs_content_view` needs to build the
-/// engine content adapter.  Decouples content-data reads from visual resources
-/// in system signatures.
-///
-/// Used by `process_action_system` and `bootstrap_combat_state`.
-#[derive(SystemParam)]
-pub struct ContentParams<'w, 's> {
-    pub aura_q: Query<'w, 's, (Entity, &'static AuraSource), Without<Dead>>,
-    pub phases_q: Query<'w, 's, (Entity, &'static EnemyPhases)>,
 }
 
 // ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
