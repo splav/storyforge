@@ -12,7 +12,6 @@ pub mod plan;
 pub mod repair;
 pub mod replay;
 pub mod scoring;
-pub mod sim;
 pub mod system;
 pub mod world;
 

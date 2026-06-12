@@ -1,10 +1,11 @@
 //! AoE hit enumeration for the AI scoring layer.
 //!
-//! Parallel to `effects_state::compute_affected_targets` (which lives in the
-//! shared core and returns `Vec<Entity>` for sim / real resolution). This
-//! helper works on snapshot references so scoring can read threat /
-//! role / HP without re-looking-up, and splits the hits by team relative to
-//! the caster.
+//! The canonical target enumeration lives in the engine
+//! (`combat_engine::targeting::compute_affected_targets`, used by `step()`);
+//! the cell set passed in here comes from engine `aoe_cells` via `aoe_area`.
+//! This helper only buckets the units standing in that area by team relative
+//! to the caster, returning snapshot `UnitView`s so scoring can read threat /
+//! role / HP without re-looking-up.
 //!
 //! `self_hit` is reported separately from `allies` so callers don't have to
 //! remember that `BattleSnapshot::allies_of` includes the actor itself — a

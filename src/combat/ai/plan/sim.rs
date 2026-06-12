@@ -119,11 +119,10 @@ impl<'a> SimState<'a> {
         self.snapshot
     }
 
-    /// Apply one plan step to the simulated state, returning per-step
-    /// effects. `disadvantage` propagates into `compute_ability_outcome`
-    /// and through to `ExpectedValue::roll_dice`, which discounts the
-    /// dice roll using `DiceExpr::expected_disadvantage` (per-die
-    /// formula).
+    /// Apply one plan step to the simulated state via engine `step()`,
+    /// returning per-step effects. Disadvantage is derived inside the
+    /// engine from the actual cast distance; the `disadvantage` parameter
+    /// is kept for call-site compatibility but no longer feeds the roll.
     pub fn apply_step(
         &mut self,
         step: &PlanStep,

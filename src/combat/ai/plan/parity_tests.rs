@@ -1,26 +1,22 @@
-//! Property-battery for shared-core ↔ sim parity; extends automatically as
-//! new abilities land in content.
+//! Invariant tests for the plan sim (`SimState::apply_step`, which drives the
+//! real engine `step()` with expected-value dice).
 //!
-//! Two layers:
+//! **Layer 1** — focused invariant per outcome kind (damage, heal, resource
+//! grant, …). Each test constructs an explicit fixture, calls
+//! `SimState::apply_step`, and asserts the exact state-delta formula.
 //!
-//! **Layer 1** — focused invariant per `OutcomePrimary` variant. Each test
-//! constructs an explicit fixture, calls `SimState::apply_step`, and asserts
-//! the exact state delta formula for that variant.
+//! **Layer 1b** — drift-dimension parity: status-reflow speed, armor-buff
+//! mitigation, AoO damage/reactions, rage gain — asserted against the engine
+//! damage formulas (`final_damage_f32`).
 //!
-//! **Layer 2** — property sweep over every ability in `assets/data/abilities.toml`.
-//! For each ability it builds a minimal snapshot, runs `compute_ability_outcome`
-//! to get the expected outcome, runs `SimState::apply_step` on a parallel copy,
-//! and asserts HP delta, status presence, cost deductions, and kill detection
-//! all agree.
+//! Historical note: a Layer-2 property sweep compared `SimState` against the
+//! hand-rolled `ai/sim` resolution core. Post-unisim the sim *is* the engine,
+//! so the sweep became a tautology and was deleted along with `ai/sim/`.
 
 #[cfg(test)]
 mod tests {
     use crate::combat::ai::plan::sim::SimState;
     use crate::combat::ai::plan::types::PlanStep;
-    use crate::combat::ai::sim::effects_outcome::{
-        compute_ability_outcome, ExpectedValue, OutcomePrimary,
-    };
-    use crate::combat::ai::sim::effects_state::{compute_affected_targets, TargetRef, TargetState};
     use crate::combat::ai::test_helpers::{
         empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder,
     };
@@ -29,8 +25,6 @@ mod tests {
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost,
         StatusApplication, StatusOn, TargetType,
     };
-    use crate::content::content_view::ContentView;
-    use crate::content::races::CritFailEffect;
     use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -38,27 +32,14 @@ mod tests {
     use combat_engine::final_damage_f32;
     use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
 
-    // ── Whitelist of known divergences between sim and production ─────────────
+    // ── Known sim/production divergences (referenced by tests below) ──────────
     //
-    // Listed here for documentation; referenced in test comments where relevant.
+    //   1. Summon — the plan sim does not spawn new units (offline, out of scope);
+    //      `summon_leaves_snapshot_unit_count_unchanged` pins this.
     //
-    // KNOWN_DIVERGENCES:
-    //   1. Summon — sim's `apply_primary` is a no-op for `OutcomePrimary::Summon`.
-    //      Production spawns a new unit; sim cannot do that offline (out of scope).
-    //      The property sweep skips these abilities rather than asserting state changes.
-    //
-    //   2. ManaOverload / crit-fail — sim always passes `crit_failed: false` to
-    //      `compute_ability_outcome` (see sim.rs ~line 165). Production rolls the
-    //      crit-fail die and may produce `CritOutcome::ManaOverload` or a
-    //      primary-skipping crit. The parity tests never exercise crit-fail paths;
-    //      all assertions hold on the no-crit branch only.
-    //
-    //   3. ToggleMoveMode / "move" ability — pure UI toggle, never goes through the
-    //      resolution pipeline in either backend. The sweep skips it.
-    //
-    //   4. WeaponAttack with no weapon_dice — `EffectDef::calc` returns an
-    //      `EffectCalc` with `dice: None`, so raw = 0 + str_mod. Sim and production
-    //      agree; no action needed.
+    //   2. Crit-fail — the sim never rolls crit-fail dice; production may produce
+    //      `CritOutcome::ManaOverload` or a primary-skipping crit. All assertions
+    //      hold on the no-crit branch only.
 
     // ── Shared fixture helpers ─────────────────────────────────────────────────
 
@@ -601,376 +582,6 @@ mod tests {
         );
     }
 
-    // ── Layer 2: property sweep across all content abilities ──────────────────
-
-    /// For every ability in the global content file this test:
-    ///
-    /// 1. Builds a minimal snapshot with sufficient resources (`can_afford`).
-    /// 2. Calls `compute_ability_outcome` (shared core) to get the expected outcome.
-    /// 3. Calls `SimState::apply_step` on a copy of that snapshot.
-    /// 4. Asserts: HP delta per affected target, status presence + duration,
-    ///    cost deductions, kill detection.
-    ///
-    /// Abilities in `SWEEP_SKIP` are excluded per the whitelist above.
-    #[test]
-    fn property_sweep_all_content_abilities() {
-        let content = ContentView::load_global_for_tests();
-        use crate::combat::ai::world::tags::cache::build_caches;
-        let (status_tag_cache, _) = build_caches(&content);
-
-        // Abilities skipped in the sweep (see KNOWN_DIVERGENCES whitelist).
-        let sweep_skip: &[&str] = &[
-            "move",                // ToggleMoveMode: pure UI, never enters resolution pipeline
-            "summon_storm_spirit", // Summon: sim is a no-op by design (divergence #1)
-        ];
-        // Additional engine-phase skip: WeaponAttack requires weapon_dice on the
-        // caster; engine returns None from effect_for_target without it, while
-        // the old sim applied max(1, 0) damage via str_mod fallback. Skip all
-        // WeaponAttack abilities in the zero_ctx sweep to avoid this divergence.
-        // Re-enable when the sweep populates weapon_dice in build_actor_for.
-        let is_weapon_attack = |def: &AbilityDef| matches!(def.effect, EffectDef::WeaponAttack);
-
-        let mut tested = 0usize;
-        let mut skipped = 0usize;
-
-        // Stable iteration order for deterministic test output.
-        let mut ability_ids: Vec<_> = content.abilities.keys().cloned().collect();
-        ability_ids.sort_by(|a, b| a.0.cmp(&b.0));
-
-        for ability_id in &ability_ids {
-            let def = &content.abilities[ability_id];
-
-            // Tag-gated abilities (requires/excludes_tags) are target-specific: the
-            // generic fixture target carries no tags, so legality refuses the cast
-            // (engine sim) while the AI outcome builder predicts the effect → divergence.
-            // In real play the AI only ever targets legal (tag-matching) units, so this
-            // is unreachable; the sweep can't exercise it. Covered by dedicated tag tests.
-            let tag_gated = !def.requires_tags.is_empty() || !def.excludes_tags.is_empty();
-            if sweep_skip.contains(&ability_id.0.as_str()) || is_weapon_attack(def) || tag_gated {
-                skipped += 1;
-                continue;
-            }
-
-            // Build actor + optional target depending on target_type.
-            let actor_pos = hex_from_offset(0, 0);
-            let target_pos = hex_from_offset(1, 0);
-
-            let actor = build_actor_for(def, actor_pos);
-            // Engine enforces team rules: SingleAlly must target same team as actor.
-            let target = match def.target_type {
-                TargetType::SingleAlly => build_ally(target_pos),
-                _ => build_target(target_pos),
-            };
-            let actor_id = actor.entity;
-            let target_id = target.entity;
-
-            // Pick primary target entity for the cast.
-            let primary_target = match def.target_type {
-                TargetType::Myself | TargetType::Ground | TargetType::Environment => actor_id,
-                TargetType::SingleEnemy | TargetType::SingleAlly => target_id,
-            };
-            let primary_target_pos = match def.target_type {
-                TargetType::Myself | TargetType::Ground | TargetType::Environment => actor_pos,
-                TargetType::SingleEnemy | TargetType::SingleAlly => target_pos,
-            };
-
-            // Use zero caster context for determinism; str_mod / int_mod can be
-            // non-zero without breaking parity — the same ctx is fed to both paths.
-            let ctx = zero_ctx();
-
-            let units = vec![actor.clone(), target.clone()];
-            let snap_base = snapshot_from(units.clone(), 1);
-
-            // Derive disadvantage flag the same way check_legality does: short-range
-            // penalty when the cast distance is below the ability's min_range.
-            // This must match the engine path so the reference outcome agrees with sim.
-            let cast_dist = actor_pos.unsigned_distance_to(primary_target_pos);
-            let disadvantage = def.range.max > 0 && cast_dist < def.range.min;
-
-            // --- Shared-core outcome (reference) ---
-            let affected = {
-                let state = SnapshotTargetStateHelper(&snap_base);
-                compute_affected_targets(actor_id, def, primary_target, primary_target_pos, &state)
-            };
-            let mut ev_dice = ExpectedValue;
-            let expected_outcome = compute_ability_outcome(
-                actor_id,
-                def,
-                affected,
-                &ctx,
-                disadvantage,
-                /* crit_failed */ false,
-                &CritFailEffect::Miss,
-                &mut ev_dice,
-            );
-
-            // --- Sim ---
-            let mut sim = SimState::from_snapshot(&snap_base, actor_id, &status_tag_cache);
-            sim.apply_step(
-                &PlanStep::Cast {
-                    ability: ability_id.clone(),
-                    target: primary_target,
-                    target_pos: primary_target_pos,
-                },
-                &ctx,
-                &content,
-                false,
-            );
-
-            // ---- Assertions ----
-
-            let label = &ability_id.0;
-
-            // HP delta for each affected target.
-            for &ent in &expected_outcome.affected {
-                let before_hp = units
-                    .iter()
-                    .find(|u| u.entity == ent)
-                    .map(|u| u.hp)
-                    .unwrap_or(0);
-                let before_armor = units
-                    .iter()
-                    .find(|u| u.entity == ent)
-                    .map(|u| u.armor + u.armor_bonus)
-                    .unwrap_or(0);
-                let before_dtb = units
-                    .iter()
-                    .find(|u| u.entity == ent)
-                    .map(|u| u.damage_taken_bonus)
-                    .unwrap_or(0);
-
-                let after = sim.unit(ent);
-
-                match &expected_outcome.primary {
-                    OutcomePrimary::Damage { raw, pierces_armor } => {
-                        let dealt = final_damage_f32(
-                            *raw as f32,
-                            before_armor as f32,
-                            before_dtb as f32,
-                            *pierces_armor,
-                        );
-                        let expected_hp = (before_hp as f32 - dealt).max(0.0) as i32;
-                        let actual_hp = after.map(|u| u.hp()).unwrap_or(0);
-                        assert_eq!(
-                            actual_hp, expected_hp,
-                            "[{label}] hp mismatch for {:?}: before={before_hp} dealt={dealt} expected={expected_hp} actual={actual_hp}",
-                            ent,
-                        );
-                    }
-                    OutcomePrimary::Heal { amount } => {
-                        // No pre-existing DoT in our fixture target, so delta = min(missing, amount).
-                        let missing = (20 - before_hp).max(0);
-                        let effective = (*amount).min(missing);
-                        let expected_hp = before_hp + effective;
-                        let actual_hp = after.map(|u| u.hp()).unwrap_or(0);
-                        assert_eq!(
-                            actual_hp, expected_hp,
-                            "[{label}] heal hp mismatch: expected={expected_hp} actual={actual_hp}",
-                        );
-                    }
-                    // Other primaries don't touch HP of affected units.
-                    _ => {}
-                }
-            }
-
-            // Status applications: each `outcome.statuses[i]` present on target with correct fields.
-            for sa in &expected_outcome.statuses {
-                let unit_after = sim.unit(sa.target);
-                let Some(u) = unit_after else {
-                    // Unit may be dead (killed); statuses don't apply to corpses.
-                    continue;
-                };
-                let found = u.statuses.iter().find(|s| s.id == sa.status);
-                assert!(
-                    found.is_some(),
-                    "[{label}] status '{}' not found on {:?} after cast; present: {:?}",
-                    sa.status.0,
-                    sa.target,
-                    u.statuses.iter().map(|s| &s.id.0).collect::<Vec<_>>(),
-                );
-                if let Some(s) = found {
-                    assert_eq!(
-                        s.rounds_remaining, sa.duration_rounds,
-                        "[{label}] status '{}' rounds_remaining={} expected={}",
-                        sa.status.0, s.rounds_remaining, sa.duration_rounds,
-                    );
-                    // dot_per_tick: engine always sets 0 (Phase 3 deferred — DoT
-                    // roll is not yet emitted by `step()`). Skip the assertion
-                    // here; re-enable when Phase 3 wires DoT into ApplyStatus.
-                    // TODO(Phase 3): assert dot_per_tick matches StatusDef.dot_dice.
-                }
-            }
-
-            // skips_turn statuses → HARD_CC tag via status cache.
-            for sa in &expected_outcome.statuses {
-                if let Some(sd) = content.statuses.get(&sa.status) {
-                    if sd.skips_turn {
-                        if let Some(u) = sim.unit(sa.target) {
-                            assert!(
-                                u.is_stunned(&status_tag_cache),
-                                "[{label}] status '{}' skips_turn but HARD_CC not set on {:?}",
-                                sa.status.0,
-                                sa.target,
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Costs: AP and each resource deducted on the actor.
-            // After U4, snapshot.units is frozen; read via snapshot.unit() which
-            // resolves through the live snapshot.state (engine Unit via Deref).
-            if let Some(actor_after) = sim.unit(actor_id) {
-                // AP.
-                let expected_ap = (actor.action_points - def.cost_ap).max(0);
-                assert_eq!(
-                    actor_after.pools[combat_engine::PoolKind::Ap]
-                        .map(|(c, _)| c)
-                        .unwrap_or(0),
-                    expected_ap,
-                    "[{label}] AP after={} expected={}",
-                    actor_after.pools[combat_engine::PoolKind::Ap]
-                        .map(|(c, _)| c)
-                        .unwrap_or(0),
-                    expected_ap,
-                );
-                // Per-resource costs.
-                for cost in &def.costs {
-                    let before = resource_of(&actor, cost.resource);
-                    let after_r = resource_of_view(&actor_after, cost.resource);
-                    let expected_r = (before - cost.amount).max(0);
-                    assert_eq!(
-                        after_r, expected_r,
-                        "[{label}] {:?} after={} expected={}",
-                        cost.resource, after_r, expected_r,
-                    );
-                }
-            }
-
-            // Lethal damage: killed units appear in StepOutcome AND have hp=0.
-            // (We re-run apply_step here separately to capture the StepOutcome.)
-            {
-                let mut sim2 = SimState::from_snapshot(
-                    &snapshot_from(units.clone(), 1),
-                    actor_id,
-                    empty_status_tag_cache(),
-                );
-                let step_outcome = sim2.apply_step(
-                    &PlanStep::Cast {
-                        ability: ability_id.clone(),
-                        target: primary_target,
-                        target_pos: primary_target_pos,
-                    },
-                    &ctx,
-                    &content,
-                    false,
-                );
-                for &killed_ent in &step_outcome.killed {
-                    let corpse = sim2
-                        .snapshot
-                        .unit(killed_ent)
-                        .expect("corpse stays in snapshot");
-                    assert_eq!(
-                        corpse.hp(),
-                        0,
-                        "[{label}] killed entity {:?} has hp={}",
-                        killed_ent,
-                        corpse.hp(),
-                    );
-                    assert!(!corpse.is_alive(), "[{label}] killed entity still alive?");
-                }
-                // Any entity with hp=0 after damage must appear in killed list.
-                for &ent in &expected_outcome.affected {
-                    if matches!(&expected_outcome.primary, OutcomePrimary::Damage { .. })
-                        && sim2.snapshot.unit(ent).is_some_and(|u| u.hp() == 0)
-                    {
-                        assert!(
-                            step_outcome.killed.contains(&ent),
-                            "[{label}] {:?} has hp=0 but not in killed list",
-                            ent,
-                        );
-                    }
-                }
-            }
-
-            tested += 1;
-        }
-
-        assert!(tested > 0, "sweep tested no abilities (all skipped?)");
-        // Sanity: we should skip exactly the whitelist entries that exist in content.
-        let _ = skipped; // informational
-    }
-
-    // ── Helpers for the property sweep ────────────────────────────────────────
-
-    /// Build an actor with enough resources to afford any typical ability:
-    /// large mana + rage + energy pools. AP = 2 so it can always pay at least 1.
-    fn build_actor_for(def: &AbilityDef, pos: crate::game::hex::Hex) -> UnitSnapshot {
-        let mut b = UnitBuilder::new(1, Team::Enemy, pos)
-            .ap(2)
-            .speed(3)
-            .hp(20)
-            .max_hp(20);
-        // Determine required resources from costs and over-provision.
-        for cost in &def.costs {
-            let amount = cost.amount + 10;
-            b = match cost.resource {
-                ResourceKind::Mana => b.mana(amount, amount + 5),
-                ResourceKind::Rage => b.rage(amount, amount + 5),
-                ResourceKind::Energy => b.energy(amount, amount + 5),
-                ResourceKind::Hp => b.hp(amount + 10).max_hp(amount + 20),
-            };
-        }
-        b.build()
-    }
-
-    /// A generic enemy (opponent) target at a fixed position.
-    fn build_target(pos: crate::game::hex::Hex) -> UnitSnapshot {
-        UnitBuilder::new(2, Team::Player, pos)
-            .hp(20)
-            .max_hp(20)
-            .build()
-    }
-
-    /// An ally (same team as actor = Enemy) target for SingleAlly abilities.
-    fn build_ally(pos: crate::game::hex::Hex) -> UnitSnapshot {
-        UnitBuilder::new(2, Team::Enemy, pos)
-            .hp(14)
-            .max_hp(20)
-            .build()
-    }
-
-    /// Helper: get current resource amount from a unit snapshot.
-    fn resource_of(u: &UnitSnapshot, kind: ResourceKind) -> i32 {
-        match kind {
-            ResourceKind::Hp => u.hp,
-            ResourceKind::Mana => u.mana.map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Rage => u.rage.map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Energy => u.energy.map(|(c, _)| c).unwrap_or(0),
-        }
-    }
-
-    /// Helper: get current resource amount from a `UnitView` (engine `Unit` via Deref).
-    /// Used post-U4 where post-step reads go through `snapshot.unit()` instead of
-    /// `snapshot.unit_snapshot()` (which reads frozen `snap.units`).
-    fn resource_of_view(
-        u: &crate::combat::ai::world::snapshot::UnitView<'_>,
-        kind: ResourceKind,
-    ) -> i32 {
-        match kind {
-            ResourceKind::Hp => u.hp(),
-            ResourceKind::Mana => u.pools[combat_engine::PoolKind::Mana]
-                .map(|(c, _)| c)
-                .unwrap_or(0),
-            ResourceKind::Rage => u.pools[combat_engine::PoolKind::Rage]
-                .map(|(c, _)| c)
-                .unwrap_or(0),
-            ResourceKind::Energy => u.pools[combat_engine::PoolKind::Energy]
-                .map(|(c, _)| c)
-                .unwrap_or(0),
-        }
-    }
-
     /// Blank `StatusDef` used when only presence/dedup matters, not dot semantics.
     fn blank_status_def(id: &str) -> StatusDef {
         StatusDef {
@@ -988,27 +599,6 @@ mod tests {
                 heal_per_tick: 0,
                 causes_disadvantage: false,
             },
-        }
-    }
-
-    // ── Thin TargetState adapter for compute_affected_targets in tests ─────────
-
-    struct SnapshotTargetStateHelper<'a>(&'a BattleSnapshot);
-
-    impl TargetState for SnapshotTargetStateHelper<'_> {
-        fn actor_pos(&self, actor: Entity) -> Option<crate::game::hex::Hex> {
-            self.0.unit(actor).map(|u| u.pos)
-        }
-        fn unit_at_cell(&self, pos: crate::game::hex::Hex) -> Option<TargetRef> {
-            let u = self.0.unit_at(pos)?;
-            Some(TargetRef {
-                entity: u.entity(),
-                team: u.team,
-                alive: true,
-            })
-        }
-        fn team_of(&self, entity: Entity) -> Option<Team> {
-            self.0.unit(entity).map(|u| u.team)
         }
     }
 

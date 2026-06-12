@@ -169,9 +169,9 @@ AI выбирает действие для вражеских юнитов (и 
 | `src/bin/replay_ai_log.rs` | CLI executor (uses `replay::*` library). |
 | `src/bin/mine_ai_logs.rs` | Aggregated log analytics. |
 
-### Shared effects core (вне `ai/`)
+### Sim = engine (unisim)
 
-`src/combat/effects_math.rs`, `effects_state.rs`, `effects_outcome.rs` — единый источник истины для разрешения способности. Production pipeline (`combat/resolution.rs`) и AI sim (`combat/ai/plan/sim.rs`) вызывают один и тот же `compute_ability_outcome`; различаются backend'ами (RNG vs EV, Bevy components vs snapshot). См. [`ability-resolution.md`](ability-resolution.md).
+Отдельного «shared effects core» нет (удалён после unisim-миграции): AI plan sim (`combat/ai/plan/sim.rs::SimState`) клонирует engine `CombatState` и вызывает тот же `combat_engine::step()`, что и боевой pipeline — только с `ExpectedValue` dice вместо RNG. Дрейф sim↔real исключён по построению. См. «Mid-plan reflow» ниже и [`docs/combat/engine.md`](../combat/engine.md) §5.
 
 ## Owner map: куда класть новое
 
@@ -199,52 +199,21 @@ AI выбирает действие для вражеских юнитов (и 
 
 ## Mid-plan reflow
 
-Step 12 made the plan sim (`plan/sim.rs::SimState`) accurate for multi-step plans by mirroring the real combat pipeline's state transitions. Four drifts were closed; three mechanisms are described here.
+Post-unisim весь reflow внутри плана делает движок: `SimState::apply_step` прогоняет каждый Move/Cast через настоящий `combat_engine::step()` (с `ExpectedValue` dice), который сам применяет урон, статусы, AoO при движении, rage gain и смерть; `apply_endturn` тикает статусы через `tick_actor_statuses`. Отдельной sim-математики и ручного зеркалирования механик нет. AI-слою остаются три вещи:
 
-### `base_speed` / `speed` split
+### `UnitSnapshot.refresh_aggregates`
 
-`UnitSnapshot.base_speed` is the unmodified move budget (from equipment/stats at snapshot time, without any status modifiers). `speed = base_speed + Σ(active speed bonuses from statuses)`. The `speed` field is what pathfinding and reach checks consume.
+`UnitSnapshot` (frozen-on-construction view, см. [snapshot.md](snapshot.md)) держит производные поля `speed = base_speed + Σ(speed bonuses)`, `armor_bonus = Σ(armor_amount)`, `damage_taken_bonus = Σ(vuln_amount)` и теги `IS_STUNNED` (есть статус с `HARD_CC`) / `FORCES_TARGETING` (`COMPULSION`). `add_status` / `remove_status` пересчитывают их автоматически через `refresh_aggregates(&StatusTagCache)`; при ручной мутации `statuses` обязан вызвать caller. Остальные биты `AiTags` (`LOW_HP`, `MELEE_ONLY`, …) capability-derived при построении snapshot'а и `refresh_aggregates` не трогаются. Эти поля читают scoring-leaf'ы и reach; сим-шаги через движок их не используют. (`base_speed` сериализуется с schema v36; для v35-логов реконструктор ставит `base_speed = speed`.)
 
-`base_speed` is serialized explicitly in schema v36+. v35 logs lack the field; the post-load reconstructor in `parse_actor_tick` sets `base_speed = speed` (safe: no v35 corpus had active speed-bonus statuses that differed from base at snapshot construction time).
+### AoO estimation для critics
 
-### `refresh_aggregates` contract
-
-`UnitSnapshot::refresh_aggregates(&mut self, status_tags: &StatusTagCache)` recomputes the following derived fields from `base_speed` + the active status list:
-
-- `speed = base_speed + Σ(status.speed_bonus)`
-- `armor_bonus = Σ(status.armor_amount)`
-- `damage_taken_bonus = Σ(status.vuln_amount)`
-- `IS_STUNNED` tag — set iff any active status has `HARD_CC` in the cache
-- `FORCES_TARGETING` tag — set iff any has `COMPULSION`
-
-All other `AiTags` bits (`LOW_HP`, `MELEE_ONLY`, `CAN_HEAL`, `HAS_AOE`, …) are capability-derived at snapshot construction and are **not** touched by `refresh_aggregates`.
-
-`add_status` / `remove_status` call `refresh_aggregates` automatically. The sim's `apply_statuses` calls it manually after bulk status mutations (to handle the case where statuses are pushed/removed in a loop and we want a single refresh at the end).
-
-Order within a cast: `apply_primary` (damage/heal, reads current `armor_bonus`) runs **before** `apply_statuses` (adds new statuses + refresh). This mirrors `combat/resolution.rs` → `apply_effects.rs` order: damage events are emitted before status apply events.
-
-### AoO propagation
-
-`apply_move` (in `SimState`) scans each Move step for adjacency-leaving transitions against every enemy with `reactions_left > 0` and `aoo_expected_damage.is_some()`. When a transition leaves adjacency:
-
-1. Pre-mitigation AoO damage is fetched from `enemy.aoo_expected_damage`.
-2. Final damage is computed using the actor's current `armor + armor_bonus` (reflects any armor buffs applied earlier in the plan via `refresh_aggregates`).
-3. `actor.hp -= applied_damage`; `outcome.self_damage += applied_damage`.
-4. `enemy.reactions_left` is decremented (clamped ≥ 0) — each enemy can AoO at most once per plan.
-
-The scan is extracted into `scoring/horizon.rs::scan_aoo_hits_for_step` (pure function), which `expected_aoo_damage` (whole-plan helper for critics) also uses internally.
-
-### Rage rule
-
-Per damage event in `apply_primary` (Damage arm): attacker gains +1 rage, defender gains +1 rage (both clamped to `max`). For AoE with N targets the attacker receives +N rage total (one per hit), each defender +1. Mirrors `combat/apply_effects.rs:117-129`.
-
-AoO damage in `apply_move` triggers the same rage rule: the AoO-provoking actor (defender of the AoO) gains +1 rage, and the AoO-dealing enemy (attacker) gains +1 rage.
+Реальный AoO применяет движок внутри `step(Move)`. Для дешёвой оценки без полного step'а (critics, horizon) есть pure-функция `scoring/horizon.rs::scan_aoo_hits_for_step` и whole-plan helper `expected_aoo_damage`, работающие по `aoo_expected_damage` из `UnitAiCache`.
 
 ### Mid-plan death truncation
 
-After each `apply_step`, the plan generator (`generator.rs::enumerate_next_steps`) checks `sim.actor_unit().map(|a| a.hp <= 0).unwrap_or(true)`. If true, the branch terminates — no further steps are appended. This prevents the forward-model death blindness where a dead actor could "earn" Cast damage credit in subsequent sim steps.
+После каждого `apply_step` генератор (`generator.rs::enumerate_next_steps`) проверяет, жив ли актёр (`sim.actor_unit()` возвращает `None` для мёртвого), и обрывает ветку — мёртвый актёр не может «заработать» очки последующими Cast-шагами.
 
-See [`docs/ai/rework/step12_plan.md`](rework/step12_plan.md) and [`docs/ai/rework/unisim.md`](rework/unisim.md) for the full design rationale.
+См. [`rework/step12_plan.md`](rework/step12_plan.md) и [`rework/unisim.md`](rework/unisim.md) — историю миграции.
 
 ---
 
@@ -254,7 +223,6 @@ See [`docs/ai/rework/step12_plan.md`](rework/step12_plan.md) and [`docs/ai/rewor
 |---|---|
 | [decision-cycle.md](decision-cycle.md) | Цикл `pick_action`, порядок stage-ов, `GrantMovement` mid-turn. |
 | [pipeline.md](pipeline.md) | `PRODUCTION_PIPELINE`, `StageSpec` validator, `ScoreTrace` algebra, plan generation hard constraints. |
-| [ability-resolution.md](ability-resolution.md) | `TargetState`, `DiceSource`, `compute_ability_outcome`, drift sim↔real. |
 | [snapshot.md](snapshot.md) | `BattleSnapshot`, `UnitSnapshot`, `AiTags`, `AbilityTag` / `StatusTag`. |
 | [intent.md](intent.md) | `TacticalIntent`, intent selection, viability guard, intent-scoring, `ProtectSelf` mask. |
 | [scoring.md](scoring.md) | Factors (10 осей), outcome vector, terminal-axes, repair, role weights. |
