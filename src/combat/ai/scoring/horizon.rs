@@ -76,7 +76,7 @@ pub fn horizon_window_sum(
     horizon_window_sum_raw(&target.cache.damage_horizon, target.cache.threat, duration)
 }
 
-/// Raw implementation shared by `horizon_window_sum` (takes `&UnitSnapshot`)
+/// Raw implementation shared by `horizon_window_sum` (takes `UnitView`)
 /// and `stun_denial_value` (takes `UnitView` whose AI metrics live in `cache`).
 fn horizon_window_sum_raw(damage_horizon: &[f32], threat: f32, duration: f32) -> f32 {
     if damage_horizon.is_empty() {

@@ -158,26 +158,7 @@ impl PlanSnapshot {
 /// Stable hash over active status ids + remaining durations.
 /// Changes when a status is applied, removed, or ticked down.
 /// Public for use by `StoredGoalContext::check_continuation` (step 6.6).
-pub fn status_hash(statuses: &[crate::combat::ai::world::snapshot::ActiveStatusView]) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    // Sort by id for a deterministic hash regardless of application order.
-    let mut pairs: Vec<_> = statuses
-        .iter()
-        .map(|s| (&s.id, s.rounds_remaining))
-        .collect();
-    pairs.sort_by_key(|(id, _)| id.0.as_str());
-    for (id, rounds) in pairs {
-        id.hash(&mut h);
-        rounds.hash(&mut h);
-    }
-    h.finish()
-}
-
-/// Variant of [`status_hash`] for callers that have engine `ActiveStatus`
-/// slices (e.g. via `UnitView::statuses()`). Produces identical hashes for
-/// the same logical status set — only the slice element type differs.
+/// Takes an engine `ActiveStatus` slice (e.g. via `UnitView::statuses()`).
 pub fn status_hash_engine(statuses: &[combat_engine::state::ActiveStatus]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};

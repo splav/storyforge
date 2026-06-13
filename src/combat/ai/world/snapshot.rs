@@ -1,21 +1,17 @@
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::config::role::AxisProfile;
-use crate::combat::ai::config::tuning::AiTuningOverride;
 use crate::combat::ai::scoring::{applies_cc, estimate_damage_horizon, estimate_st_damage};
 use crate::combat::ai::world::cache::{AiCache, UnitAiCache};
-#[cfg(test)]
-use crate::combat::ai::world::tags::cache::StatusBonuses;
 use crate::combat::ai::world::tags::StatusTagSet;
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::combat::bridge::UnitIdMap;
-use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
+use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
-use crate::content::races::CritFailEffect;
 use crate::game::components::{Abilities, AiCombatantQ, Combatant, StatusEffects, Team};
 use crate::game::hex::Hex;
 use crate::game::hex_map::HexMap;
 use bevy::prelude::*;
-use combat_engine::{AbilityId, ResourceKind, StatusId};
+use combat_engine::ResourceKind;
 use std::collections::HashMap;
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
@@ -72,131 +68,6 @@ impl<'de> serde::Deserialize<'de> for BattleSnapshot {
         snap.rebuild_index();
         Ok(snap)
     }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct UnitSnapshot {
-    #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
-    pub entity: Entity,
-    pub team: Team,
-    pub role: AxisProfile,
-    #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
-    pub pos: Hex,
-    pub hp: i32,
-    pub max_hp: i32,
-    pub armor: i32,
-    pub armor_bonus: i32,
-    /// Magic damage mitigation. Mirrors `armor` for physical damage.
-    /// Schema: additive field, `#[serde(default)]` → 0 on old logs.
-    #[serde(default)]
-    pub magic_resist: i32,
-    pub damage_taken_bonus: i32,
-    /// Remaining AP for this turn.
-    pub action_points: i32,
-    /// Full AP pool (for partial-spend reasoning).
-    pub max_ap: i32,
-    /// Movement budget remaining right now. Zero means the unit can't walk.
-    pub movement_points: i32,
-    /// Base move budget without status modifiers. Always equals
-    /// `speed - sum(active speed bonuses from statuses)`.
-    /// Schema v36+ (bumped in step 12.4): serialized explicitly.
-    /// v35 logs deserialise as 0 via `#[serde(default)]`; post-load
-    /// reconstructor in `parse_actor_tick` sets `base_speed = speed`
-    /// (safe assumption: speed-bonus statuses very rare in v35 corpus).
-    #[serde(default)]
-    pub base_speed: i32,
-    /// Base speed + status speed_bonus. Used for pathfinding range estimates
-    /// and utility scoring; not the live budget (see `movement_points`).
-    pub speed: i32,
-    pub mana: Option<(i32, i32)>,
-    pub rage: Option<(i32, i32)>,
-    pub energy: Option<(i32, i32)>,
-    pub abilities: Vec<AbilityId>,
-    pub threat: f32,
-    #[serde(with = "crate::combat::ai::log::serde_helpers::ai_tags")]
-    pub tags: AiTags,
-    /// Max range of any offensive (SingleEnemy) ability. Used for reach checks
-    /// in intent selection (e.g., "is this enemy killable this turn?").
-    pub max_attack_range: u32,
-    /// Entity of the summoner, if this unit was summoned.
-    #[serde(with = "crate::combat::ai::log::serde_helpers::entity_opt")]
-    pub summoner: Option<Entity>,
-    /// Remaining opportunity reactions this round. Zero means no AoO this turn.
-    /// (Schema v2+: default `1` on v1 logs — every current unit has `max=1`.)
-    #[serde(default = "default_reactions_left")]
-    pub reactions_left: i32,
-    /// Pre-armor expected damage this unit would inflict via an AoO
-    /// (dice.expected + str_mod). `None` if the unit cannot make an opportunity
-    /// attack (no melee weapon_attack ability, or no equipped weapon).
-    /// Schema v2+: absent on v1 logs → `None`.
-    #[serde(default)]
-    pub aoo_expected_damage: Option<f32>,
-    /// Active status effects on this unit — mirrors the `StatusEffects`
-    /// component (minus the `applier` Entity, which isn't needed for AI
-    /// reasoning). Sim mutates this list on per-step status applications so
-    /// that downstream steps see status-derived bonuses / DoT cleanse / stun.
-    /// Schema v3+: absent on older logs → empty vec.
-    ///
-    /// **Convention**: lib code MUST mutate via `add_status` / `remove_status`
-    /// so that `refresh_aggregates` is called atomically. Field stays `pub`
-    /// because external bin crates (mining, replay) construct test fixtures
-    /// via struct literal — `pub(crate)` would block that. Invariant safety
-    /// inside lib is a convention enforced by code review, not the type system.
-    #[serde(default)]
-    pub statuses: Vec<ActiveStatusView>,
-    /// Caster parameters (str/int mod, spell power, weapon dice). Derived
-    /// from stats + equipment at snapshot time; kept here so every scoring
-    /// call site reads the actor's caster data from the same source as its
-    /// HP/AP/abilities (one entity ⇒ one row).
-    /// Schema v3+: absent on older logs → `CasterContext::default()`.
-    #[serde(default)]
-    pub caster_ctx: CasterContext,
-    /// Actor's crit-fail behaviour (from the combat path definition). Lives
-    /// on the snapshot so scoring doesn't need a separate per-actor context;
-    /// pairs naturally with `caster_ctx` — both are facts about "this
-    /// entity's combat shape" at snapshot time.
-    /// Schema v3+: absent on older logs → `CritFailEffect::Miss`.
-    #[serde(default)]
-    pub crit_fail_effect: CritFailEffect,
-    /// Projected damage per future round under AP + resource budgets, as
-    /// produced by `estimate_damage_horizon`. `damage_horizon[i]` is the
-    /// expected single-target damage this unit deals `i+1` rounds from
-    /// now. Length matches `DifficultyProfile.damage_horizon_rounds`
-    /// (typically 5). Sum over a relevant duration window captures "how
-    /// much damage this unit is projected to deliver while a stun / heal
-    /// window is in effect" — DPR-correct where plain `threat` over-counts
-    /// resource-limited burst casters.
-    ///
-    /// Schema v4+: absent on older logs → empty vec; CC/heal scoring
-    /// reading horizon falls back to `threat`-only behaviour when empty.
-    #[serde(default)]
-    pub damage_horizon: Vec<f32>,
-    /// Per-actor AiTuning override, propagated from the unit's template
-    /// (`ai_tuning_override` in unit_templates.toml). `None` for units without
-    /// a quirk — which is every unit in the current content, see step 2.7 of
-    /// ai_rework_plan.md. Consumed once in `pick_action` via
-    /// `AiTuning::apply_override`.
-    ///
-    /// Schema v18+: absent on v≤17 logs → `None`.
-    // TODO(step 2.7): wire UnitTemplateDef.ai_tuning_override → a Bevy component
-    // → read it here in build_snapshot when the first quirk is introduced.
-    #[serde(default)]
-    pub ai_tuning_override: Option<AiTuningOverride>,
-    /// When set, overrides the evaluation mode for every plan this unit generates.
-    /// Sourced from a boss phase transition (`ai_behavior` field in PhaseDef).
-    /// Schema: additive field, `#[serde(default)]` → `None` on old logs.
-    #[serde(default)]
-    pub forced_mode: Option<crate::combat::ai::adapt::EvaluationMode>,
-}
-
-/// Snapshot-shaped mirror of `ActiveStatus` (components.rs). Drops `applier`
-/// since the AI layer never needs to know who put the status on — only the
-/// status id, duration, and per-tick DoT damage are consulted.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct ActiveStatusView {
-    pub id: StatusId,
-    pub rounds_remaining: u32,
-    pub dot_per_tick: i32,
 }
 
 /// Borrowed view of one unit: engine gameplay state + AI-derived metrics.
@@ -322,158 +193,8 @@ impl<'a> UnitView<'a> {
     }
 }
 
-fn default_reactions_left() -> i32 {
-    1
-}
-
-impl UnitSnapshot {
-    /// `hp > 0`. Snapshot keeps dead units (for death-triggered effects,
-    /// resurrection, and honest replay logs); accessors like `enemies_of`
-    /// filter them out by default. Use this directly when a call site needs
-    /// both "alive?" and "pos occupied?" (the classic case — movement
-    /// stop-blockers — counts corpses even though they're not enemies).
-    pub fn is_alive(&self) -> bool {
-        self.hp > 0
-    }
-
-    /// Effective HP: raw HP plus base and status armor — the real damage
-    /// budget needed to drop this unit.
-    pub fn eff_hp(&self) -> i32 {
-        self.hp + self.armor + self.armor_bonus
-    }
-
-    /// Effective max HP, clamped ≥ 1 to protect against division.
-    pub fn eff_max_hp(&self) -> i32 {
-        (self.max_hp + self.armor + self.armor_bonus).max(1)
-    }
-
-    /// Current HP as a fraction of max HP, clamped ≥ 1 to avoid div-by-zero.
-    /// Use for threshold checks like "below 30% HP triggers LOW_HP".
-    pub fn hp_pct(&self) -> f32 {
-        self.hp as f32 / self.max_hp.max(1) as f32
-    }
-
-    /// Killability signal: `1 − eff_hp / eff_max_hp`. A 1.0 unit is dead,
-    /// 0.0 is at full effective HP. Used by `target_priority` (scoring the
-    /// focus factor) and by the planner's target enumeration (picking the
-    /// top-K most-finishable enemies for Cast candidates).
-    pub fn killability(&self) -> f32 {
-        let eff_max = self.eff_max_hp() as f32;
-        if eff_max <= 0.0 {
-            return 0.0;
-        }
-        1.0 - (self.eff_hp() as f32 / eff_max)
-    }
-
-    /// Current amount in the spendable pool for `kind`. `Option` resources
-    /// (mana/rage/energy) yield 0 when absent.
-    pub fn resource_amount(&self, kind: ResourceKind) -> i32 {
-        pool_amount(
-            kind,
-            self.hp,
-            self.mana.map(|(c, _)| c).unwrap_or(0),
-            self.rage.map(|(c, _)| c).unwrap_or(0),
-            self.energy.map(|(c, _)| c).unwrap_or(0),
-        )
-    }
-
-    /// True iff the unit has enough AP and every resource cost to cast `def`.
-    pub fn can_afford(&self, def: &AbilityDef) -> bool {
-        self.action_points >= def.cost_ap
-            && def
-                .costs
-                .iter()
-                .all(|c| self.resource_amount(c.resource) >= c.amount)
-    }
-
-    // ── Status access API ─────────────────────────────────────────────────────
-
-    /// Read-only view of active statuses.
-    pub fn statuses(&self) -> &[ActiveStatusView] {
-        &self.statuses
-    }
-
-    /// Add a status and atomically refresh derived aggregates.
-    pub fn add_status(
-        &mut self,
-        status: ActiveStatusView,
-        status_tags: &crate::combat::ai::world::tags::StatusTagCache,
-    ) {
-        self.statuses.push(status);
-        self.refresh_aggregates(status_tags);
-    }
-
-    /// Remove a status by id and atomically refresh derived aggregates.
-    /// Returns `true` if the status was present and removed.
-    pub fn remove_status(
-        &mut self,
-        id: &StatusId,
-        status_tags: &crate::combat::ai::world::tags::StatusTagCache,
-    ) -> bool {
-        let before = self.statuses.len();
-        self.statuses.retain(|s| &s.id != id);
-        let changed = self.statuses.len() != before;
-        if changed {
-            self.refresh_aggregates(status_tags);
-        }
-        changed
-    }
-
-    /// Raw mutable access to the statuses list for bulk operations (bulk-remove,
-    /// retain, tick). **Caller MUST call `refresh_aggregates` after mutating.**
-    #[allow(dead_code)]
-    pub(crate) fn statuses_mut(&mut self) -> &mut Vec<ActiveStatusView> {
-        &mut self.statuses
-    }
-
-    /// Recompute numeric derived fields (`speed`, `armor_bonus`,
-    /// `damage_taken_bonus`) from `base_speed` + active statuses.
-    ///
-    /// Numeric bonuses are summed over every active status via the cache.
-    /// All `AiTags` bits are left untouched — `IS_STUNNED` and
-    /// `FORCES_TARGETING` have been removed from the bitfield; use
-    /// `UnitView::is_stunned` / `UnitView::forces_targeting` to test those
-    /// conditions on the live status list instead.
-    pub fn refresh_aggregates(&mut self, status_tags: &StatusTagCache) {
-        let mut speed_bonus: i32 = 0;
-        let mut armor_bonus: i32 = 0;
-        let mut damage_taken_bonus: i32 = 0;
-
-        for s in &self.statuses {
-            let bonuses = status_tags.bonuses(&s.id);
-            speed_bonus += bonuses.speed_bonus;
-            armor_bonus += bonuses.armor_bonus;
-            damage_taken_bonus += bonuses.damage_taken_bonus;
-        }
-
-        self.speed = self.base_speed + speed_bonus;
-        self.armor_bonus = armor_bonus;
-        self.damage_taken_bonus = damage_taken_bonus;
-    }
-
-    /// True if any active status has the `HARD_CC` tag.
-    ///
-    /// Shim for callers that hold a `&UnitSnapshot` (deprecated path /
-    /// test fixtures). Prefer `UnitView::is_stunned` in production code.
-    pub fn is_stunned(&self, status_tags: &StatusTagCache) -> bool {
-        self.statuses
-            .iter()
-            .any(|s| status_tags.get(&s.id).contains(StatusTagSet::HARD_CC))
-    }
-
-    /// True if any active status has the `COMPULSION` tag.
-    ///
-    /// Shim for callers that hold a `&UnitSnapshot` (deprecated path /
-    /// test fixtures). Prefer `UnitView::forces_targeting` in production code.
-    pub fn forces_targeting(&self, status_tags: &StatusTagCache) -> bool {
-        self.statuses
-            .iter()
-            .any(|s| status_tags.get(&s.id).contains(StatusTagSet::COMPULSION))
-    }
-}
-
 /// Low-level resource-pool lookup. The one place that knows the
-/// `ResourceKind` match arms; everybody else — `UnitSnapshot` methods,
+/// `ResourceKind` match arms; everybody else — `UnitView` methods,
 /// `compute_tags` during snapshot construction, scarcity scoring — funnels
 /// through this so the four-arm match doesn't replicate across the crate.
 pub(crate) fn pool_amount(kind: ResourceKind, hp: i32, mana: i32, rage: i32, energy: i32) -> i32 {

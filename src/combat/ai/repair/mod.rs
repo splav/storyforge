@@ -13,7 +13,6 @@ pub mod affinity;
 pub use affinity::{compute_repair_affinity, RepairAffinity, RepairWeights};
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-use crate::combat::ai::world::snapshot::ActiveStatusView;
 use crate::combat::ai::world::tags::{StatusTag, StatusTagCache};
 use combat_engine::StatusId;
 use serde::{Deserialize, Serialize};
@@ -366,27 +365,11 @@ pub struct StatusDelta {
 ///
 /// Pure — no side effects, no allocations beyond the returned vecs.
 /// `stored` is a snapshot of `StatusId`s captured when the plan was made;
-/// `current` is the live `ActiveStatusView` slice on the actor right now.
+/// `current` is the live engine `ActiveStatus` slice on the actor right now
+/// (via `UnitView` Deref to engine `Unit`).
 ///
 /// The function compares **presence** only (not round counts / dot values),
 /// which is what matters for goal-validity classification.
-pub fn compute_status_delta(stored: &[StatusId], current: &[ActiveStatusView]) -> StatusDelta {
-    let added: Vec<StatusId> = current
-        .iter()
-        .filter(|av| !stored.contains(&av.id))
-        .map(|av| av.id.clone())
-        .collect();
-    let removed: Vec<StatusId> = stored
-        .iter()
-        .filter(|sid| !current.iter().any(|av| &av.id == *sid))
-        .cloned()
-        .collect();
-    StatusDelta { added, removed }
-}
-
-/// Variant of [`compute_status_delta`] for callers that have an engine
-/// `ActiveStatus` slice (via `UnitView` Deref to engine `Unit`). Compares
-/// `id` fields only — identical semantics to the `ActiveStatusView` form.
 pub fn compute_status_delta_engine(
     stored: &[StatusId],
     current: &[combat_engine::state::ActiveStatus],

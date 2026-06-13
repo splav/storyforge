@@ -364,10 +364,10 @@ Want to verify the test actually catches bugs?
 These are **not** blockers for writing tests, but if you notice them while
 working, they may surface in code review:
 
-- **`UnitView` and `UnitSnapshot` have duplicated methods** (`eff_hp`,
-  `eff_max_hp`, `hp_pct`, `killability`, `can_afford`, `is_alive`). Tests
-  must cover both ports independently. Production-code unification is a
-  separate refactor — not a test problem.
+- ~~`UnitView` and `UnitSnapshot` have duplicated methods~~ **RESOLVED**:
+  `UnitSnapshot` deleted; `UnitView` (engine `Unit` via Deref + `UnitAiCache`)
+  is the single per-unit view. Tests build fixtures via
+  `test_helpers::UnitBuilder` → `fixture_to_pair` and read through `UnitView`.
 - ~~`tests/combat_engine/bridge_smoke.rs` (mixed-concern monolith)~~ **RESOLVED**
   (C4): split into `bridge_movement.rs` (8 tests), `bridge_projector.rs` (4),
   `bridge_cast.rs` (7 + 2 helpers), `bridge_trace.rs` (3), `bridge_phase.rs` (3).

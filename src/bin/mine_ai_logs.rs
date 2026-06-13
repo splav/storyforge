@@ -1157,7 +1157,7 @@ impl Aggregate {
 ///
 /// Note: pact_control has ai_controlled=true only; no classify rule → Cosmetic.
 fn statuses_to_tag_labels(event: &ActorTickEvent) -> Vec<&'static str> {
-    // Find the actor's own UnitSnapshot in the snapshot.
+    // Find the actor's own engine Unit in the snapshot.
     let actor_statuses: &[combat_engine::state::ActiveStatus] = event
         .snapshot
         .state

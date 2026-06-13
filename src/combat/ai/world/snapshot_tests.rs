@@ -16,49 +16,9 @@ use super::*;
 #[cfg(test)]
 mod affordability_tests {
     use super::*;
-    use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
+    use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost};
     use crate::game::hex::hex_from_offset;
-    use combat_engine::DiceExpr;
-
-    fn base_unit() -> UnitSnapshot {
-        UnitSnapshot {
-            entity: Entity::from_raw_u32(1).expect("valid"),
-            team: Team::Enemy,
-            role: AxisProfile {
-                tank: 0.5,
-                melee: 0.5,
-                ..Default::default()
-            },
-            pos: hex_from_offset(0, 0),
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            magic_resist: 0,
-            damage_taken_bonus: 0,
-            action_points: 2,
-            max_ap: 2,
-            movement_points: 3,
-            base_speed: 3,
-            speed: 3,
-            mana: Some((5, 10)),
-            rage: Some((3, 10)),
-            energy: Some((4, 10)),
-            abilities: Vec::new(),
-            threat: 0.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 1,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-            caster_ctx: Default::default(),
-            crit_fail_effect: Default::default(),
-            damage_horizon: Vec::new(),
-            ai_tuning_override: None,
-            forced_mode: None,
-        }
-    }
+    use combat_engine::{AbilityId, DiceExpr};
 
     fn def(cost_ap: i32, costs: Vec<ResourceCost>) -> AbilityDef {
         AbilityDef {
@@ -97,7 +57,16 @@ mod affordability_tests {
 
     #[test]
     fn can_afford_covers_ap_and_all_resource_kinds() {
-        let u = base_unit();
+        use crate::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
+        let unit = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .ap(2)
+            .mana(5, 10)
+            .rage(3, 10)
+            .energy(4, 10)
+            .build();
+        let entity = unit.entity;
+        let snap = snapshot_from(vec![unit], 1);
+        let u = snap.unit(entity).expect("view");
         // (name, ap_cost, costs, expected can_afford)
         let cases: Vec<(&str, i32, Vec<ResourceCost>, bool)> = vec![
             ("free ability", 1, vec![], true),
@@ -136,14 +105,18 @@ mod affordability_tests {
 
     #[test]
     fn resource_amount_treats_absent_option_pools_as_zero() {
-        let mut u = base_unit();
-        u.mana = None;
-        u.rage = None;
-        u.energy = None;
+        use crate::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
+        // No mana/rage/energy pools (builder defaults to None).
+        let unit = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .ap(2)
+            .build();
+        let entity = unit.entity;
+        let snap = snapshot_from(vec![unit], 1);
+        let u = snap.unit(entity).expect("view");
         assert_eq!(u.resource_amount(ResourceKind::Mana), 0);
         assert_eq!(u.resource_amount(ResourceKind::Rage), 0);
         assert_eq!(u.resource_amount(ResourceKind::Energy), 0);
-        assert_eq!(u.resource_amount(ResourceKind::Hp), u.hp);
+        assert_eq!(u.resource_amount(ResourceKind::Hp), u.hp());
         // Any positive cost on an absent pool fails.
         let d = def(1, vec![cost(ResourceKind::Mana, 1)]);
         assert!(!u.can_afford(&d));
@@ -197,336 +170,10 @@ mod affordability_tests {
 }
 
 #[cfg(test)]
-mod snapshot_api_tests {
-    use super::*;
-    use crate::combat::ai::test_helpers::empty_status_tag_cache;
-    use crate::game::components::Team;
-    use crate::game::hex::hex_from_offset;
-
-    fn test_unit() -> UnitSnapshot {
-        make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty())
-    }
-
-    /// Construct a minimal `UnitSnapshot` directly for tests that call
-    /// `UnitSnapshot`-specific methods (`add_status`, `can_afford`, etc.).
-    /// Mirrors `UnitBuilder` defaults: hp/max_hp=20, ap=1/max=1, base_speed=speed.
-    fn make_snapshot_unit(
-        speed: i32,
-        tags: crate::combat::ai::world::tags::AiTags,
-    ) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
-            team: Team::Enemy,
-            role: crate::combat::ai::config::role::AxisProfile::default(),
-            pos: hex_from_offset(0, 0),
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            magic_resist: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: speed,
-            base_speed: speed,
-            speed,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: Vec::new(),
-            threat: 5.0,
-            tags,
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-            caster_ctx: Default::default(),
-            crit_fail_effect: Default::default(),
-            damage_horizon: Vec::new(),
-            ai_tuning_override: None,
-            forced_mode: None,
-        }
-    }
-
-    fn test_status(id: &str) -> ActiveStatusView {
-        ActiveStatusView {
-            id: StatusId::from(id),
-            rounds_remaining: 2,
-            dot_per_tick: 0,
-        }
-    }
-
-    // ── base_speed ────────────────────────────────────────────────────────────
-
-    /// v35 logs lack `base_speed` — deserialise as 0 via `#[serde(default)]`.
-    #[test]
-    fn base_speed_default_zero_on_v35_deserialise() {
-        // Serialize a current unit, then strip `base_speed` to simulate a v35 log.
-        let unit = test_unit();
-        let json = serde_json::to_string(&unit).expect("serialize");
-        let mut value: serde_json::Value = serde_json::from_str(&json).expect("parse");
-        value.as_object_mut().unwrap().remove("base_speed");
-        let json_v35 = serde_json::to_string(&value).unwrap();
-
-        let restored: UnitSnapshot =
-            serde_json::from_str(&json_v35).expect("deserialise v35 snapshot");
-        assert_eq!(
-            restored.base_speed, 0,
-            "base_speed absent in v35 JSON → deserialises as 0"
-        );
-        assert_eq!(restored.speed, unit.speed);
-    }
-
-    /// base_speed round-trips through JSON (v36+ schema where field is present).
-    #[test]
-    fn base_speed_serialized_on_round_trip() {
-        let mut unit = test_unit();
-        unit.base_speed = 3;
-        let json = serde_json::to_string(&unit).expect("serialize");
-        let restored: UnitSnapshot = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(restored.base_speed, 3);
-    }
-
-    #[test]
-    fn statuses_accessor_returns_immutable_slice() {
-        let mut unit = test_unit();
-        let cache = empty_status_tag_cache();
-        unit.add_status(test_status("bar"), cache);
-        let slice: &[ActiveStatusView] = unit.statuses();
-        assert_eq!(slice.len(), 1);
-        assert_eq!(slice[0].id, StatusId::from("bar"));
-    }
-
-    /// A persistent status (PERMANENT_DURATION) added at spawn is visible in
-    /// `UnitSnapshot.statuses()` and preserves `rounds_remaining`.
-    ///
-    /// This mirrors the party-status-persistence feature: heroes entering combat
-    /// with a pre-seeded "injured" status must have it reflected in the AI snapshot
-    /// so scoring/intent factors can read it.
-    #[test]
-    fn ai_snapshot_visibility_of_persistent_status() {
-        let mut unit = test_unit();
-        let cache = empty_status_tag_cache();
-
-        assert!(unit.statuses().is_empty(), "no statuses before add");
-
-        unit.add_status(
-            ActiveStatusView {
-                id: StatusId::from("injured"),
-                rounds_remaining: combat_engine::PERMANENT_DURATION,
-                dot_per_tick: 0,
-            },
-            cache,
-        );
-
-        assert_eq!(unit.statuses().len(), 1, "injured status must be visible");
-        assert_eq!(unit.statuses()[0].id, StatusId::from("injured"));
-        assert_eq!(
-            unit.statuses()[0].rounds_remaining,
-            combat_engine::PERMANENT_DURATION,
-            "permanent duration must round-trip",
-        );
-    }
-
-    // ── refresh_aggregates: speed ─────────────────────────────────────────────
-
-    /// Build a minimal `StatusTagCache` containing a single status with the
-    /// given tags and bonuses. Used by refresh_aggregates tests to avoid
-    /// needing a full `ContentView` load.
-    fn cache_with_status(id: &str, tags: StatusTagSet, bonuses: StatusBonuses) -> StatusTagCache {
-        let mut c = StatusTagCache::default();
-        let sid = StatusId::from(id);
-        c.map.insert(sid.clone(), tags);
-        c.bonuses.insert(sid, bonuses);
-        c
-    }
-
-    #[test]
-    fn apply_haste_increases_speed() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let cache = cache_with_status(
-            "haste",
-            StatusTagSet::empty(),
-            StatusBonuses {
-                speed_bonus: 2,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-            },
-        );
-        unit.add_status(test_status("haste"), &cache);
-        assert_eq!(unit.speed, 5, "base 3 + speed_bonus 2 = 5");
-    }
-
-    #[test]
-    fn apply_slow_decreases_speed() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let cache = cache_with_status(
-            "slow",
-            StatusTagSet::empty(),
-            StatusBonuses {
-                speed_bonus: -1,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-            },
-        );
-        unit.add_status(test_status("slow"), &cache);
-        assert_eq!(unit.speed, 2, "base 3 + speed_bonus -1 = 2");
-    }
-
-    #[test]
-    fn expire_haste_restores_speed() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let cache = cache_with_status(
-            "haste",
-            StatusTagSet::empty(),
-            StatusBonuses {
-                speed_bonus: 2,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-            },
-        );
-        unit.add_status(test_status("haste"), &cache);
-        assert_eq!(unit.speed, 5);
-        unit.remove_status(&StatusId::from("haste"), &cache);
-        assert_eq!(
-            unit.speed, 3,
-            "after removing haste speed returns to base 3"
-        );
-    }
-
-    #[test]
-    fn multiple_speed_statuses_stack() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let mut cache = StatusTagCache::default();
-        let haste_id = StatusId::from("haste");
-        let bless_id = StatusId::from("bless");
-        cache.map.insert(haste_id.clone(), StatusTagSet::empty());
-        cache.bonuses.insert(
-            haste_id.clone(),
-            StatusBonuses {
-                speed_bonus: 2,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-            },
-        );
-        cache.map.insert(bless_id.clone(), StatusTagSet::empty());
-        cache.bonuses.insert(
-            bless_id.clone(),
-            StatusBonuses {
-                speed_bonus: 1,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-            },
-        );
-
-        unit.add_status(test_status("haste"), &cache);
-        unit.add_status(test_status("bless"), &cache);
-        assert_eq!(unit.speed, 6, "base 3 + haste(+2) + bless(+1) = 6");
-    }
-
-    #[test]
-    fn apply_armor_buff_recomputes_armor_bonus() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let cache = cache_with_status(
-            "stone_skin",
-            StatusTagSet::empty(),
-            StatusBonuses {
-                speed_bonus: 0,
-                armor_bonus: 5,
-                damage_taken_bonus: 0,
-            },
-        );
-        unit.add_status(test_status("stone_skin"), &cache);
-        assert_eq!(unit.armor_bonus, 5);
-    }
-
-    #[test]
-    fn apply_vulnerability_recomputes_damage_taken_bonus() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let cache = cache_with_status(
-            "vuln",
-            StatusTagSet::empty(),
-            StatusBonuses {
-                speed_bonus: 0,
-                armor_bonus: 0,
-                damage_taken_bonus: 3,
-            },
-        );
-        unit.add_status(test_status("vuln"), &cache);
-        assert_eq!(unit.damage_taken_bonus, 3);
-    }
-
-    #[test]
-    fn hard_cc_status_makes_unit_is_stunned() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let cache = cache_with_status("stun", StatusTagSet::HARD_CC, StatusBonuses::default());
-        unit.add_status(test_status("stun"), &cache);
-        assert!(
-            unit.is_stunned(&cache),
-            "HARD_CC status must make is_stunned true"
-        );
-
-        unit.remove_status(&StatusId::from("stun"), &cache);
-        assert!(
-            !unit.is_stunned(&cache),
-            "removing stun must clear is_stunned"
-        );
-    }
-
-    #[test]
-    fn compulsion_status_makes_unit_forces_targeting() {
-        let mut unit = make_snapshot_unit(3, crate::combat::ai::world::tags::AiTags::empty());
-        let cache = cache_with_status(
-            "taunted",
-            StatusTagSet::COMPULSION,
-            StatusBonuses::default(),
-        );
-        unit.add_status(test_status("taunted"), &cache);
-        assert!(
-            unit.forces_targeting(&cache),
-            "COMPULSION status must make forces_targeting true"
-        );
-
-        unit.remove_status(&StatusId::from("taunted"), &cache);
-        assert!(
-            !unit.forces_targeting(&cache),
-            "removing taunt must clear forces_targeting"
-        );
-    }
-
-    #[test]
-    fn refresh_preserves_non_status_tags() {
-        let mut unit = make_snapshot_unit(3, AiTags::LOW_HP | AiTags::MELEE_ONLY);
-        let cache = cache_with_status("stun", StatusTagSet::HARD_CC, StatusBonuses::default());
-        unit.add_status(test_status("stun"), &cache);
-
-        // is_stunned reflected via lazy method (no longer a tag bit post-Path-E)
-        assert!(unit.is_stunned(&cache));
-        // Non-status-derived tag bits must be untouched by refresh_aggregates
-        assert!(
-            unit.tags.contains(AiTags::LOW_HP),
-            "LOW_HP must survive refresh"
-        );
-        assert!(
-            unit.tags.contains(AiTags::MELEE_ONLY),
-            "MELEE_ONLY must survive refresh"
-        );
-    }
-}
-
-// ── Targeted mutation-killing tests ──────────────────────────────────────────
-//
-// These tests are specifically written to catch arithmetic-operator and
-// constant-replacement mutants identified in the Phase 4b mutation baseline
-// (measurements/mutants-snapshot-before/mutants.out/missed.txt).
-// Each test function documents the mutant line(s) it targets.
-
-#[cfg(test)]
 mod computation_tests {
     use super::*;
     use crate::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
-    use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
+    use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::DiceExpr;
@@ -563,14 +210,6 @@ mod computation_tests {
         let mut d = def_ap(cost_ap);
         d.engine.costs = vec![ResourceCost { resource, amount }];
         d
-    }
-
-    // ── default_reactions_left ────────────────────────────────────────────
-    // Targets line 296:38 (replace return value with 0 / -1).
-
-    #[test]
-    fn default_reactions_left_returns_one() {
-        assert_eq!(default_reactions_left(), 1);
     }
 
     // ── UnitView (lines 239-274) ──────────────────────────────────────────

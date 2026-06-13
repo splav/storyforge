@@ -721,26 +721,22 @@ mod tests {
     /// stored and the actor currently has `["stunned"]`, the delta shows it added.
     #[test]
     fn stored_goal_context_uses_shared_compute_status_delta() {
-        use crate::combat::ai::repair::compute_status_delta;
-        use crate::combat::ai::world::snapshot::ActiveStatusView;
+        use crate::combat::ai::repair::compute_status_delta_engine;
+        use crate::combat::ai::test_helpers::status_view;
         use combat_engine::StatusId;
 
         let stored_statuses: Vec<StatusId> = vec![];
-        let current_statuses = vec![ActiveStatusView {
-            id: StatusId::from("stunned"),
-            rounds_remaining: 2,
-            dot_per_tick: 0,
-        }];
+        let current_statuses = vec![status_view("stunned", 2, 0)];
 
-        let delta = compute_status_delta(&stored_statuses, &current_statuses);
+        let delta = compute_status_delta_engine(&stored_statuses, &current_statuses);
         assert_eq!(delta.added, vec![StatusId::from("stunned")]);
         assert!(delta.removed.is_empty());
 
         // Mirror: PlanSnapshot uses the same call — ensure the functions are identical
         // by checking symmetry.
         let stored2 = vec![StatusId::from("stunned")];
-        let current2: Vec<ActiveStatusView> = vec![];
-        let delta2 = compute_status_delta(&stored2, &current2);
+        let current2: Vec<combat_engine::state::ActiveStatus> = vec![];
+        let delta2 = compute_status_delta_engine(&stored2, &current2);
         assert!(delta2.added.is_empty());
         assert_eq!(delta2.removed, vec![StatusId::from("stunned")]);
     }

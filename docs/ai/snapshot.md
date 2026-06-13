@@ -1,20 +1,21 @@
 # Snapshot & Tags
 
-*Источник: `src/combat/ai/snapshot.rs`, `src/combat/ai/tags/`.*
+*Источник: `src/combat/ai/world/snapshot.rs`, `src/combat/ai/world/cache.rs`, `src/combat/ai/world/tags/`.*
 
 ## BattleSnapshot
 
-`BattleSnapshot` — чистый снимок без Bevy-зависимостей (кроме Entity).
+`BattleSnapshot` — снимок боя без Bevy-зависимостей (кроме `Entity` в кэше). Состоит из двух половин (с schema v38 сериализуются только они):
 
-### UnitSnapshot
+- **`state: combat_engine::CombatState`** — авторитетное игровое состояние (юниты, позиции, пулы, статусы). Источник истины по геймплею.
+- **`cache: AiCache`** — AI-производные метрики per-unit (`UnitAiCache`): `threat`, `damage_horizon`, `role`, `AiTags`, `max_attack_range`, `aoo_expected_damage`, `caster_ctx`, `forced_mode`, `entity`. Строится в `build_snapshot`.
 
-- Позиция, HP / max_hp, armor.
-- Агрегаты `armor_bonus` / `damage_taken_bonus` (снимаются в build-time, обновляются через `refresh_status_aggregates` при status-mutation в sim).
-- Ресурсы (mana / rage / energy).
-- Speed (base + status_bonus на snapshot-time).
-- Список способностей.
-- **`statuses: Vec<ActiveStatusView>`** — mirror `StatusEffects` component (`id`, `rounds_remaining`, `dot_per_tick`).
-- threat, `AiTags`, `max_attack_range`, `aoo_expected_damage`, `summoner`.
+Плюс serde-skip индексы `uid_to_entity` / `entity_to_uid` (rebuild при десериализации) — единственный мост через namespace-границу engine `UnitId` ↔ Bevy `Entity` (нужен для саммонов, чьи синтетические UnitId не равны `entity.to_bits()`).
+
+### UnitView
+
+`UnitView { state: &Unit, cache: &UnitAiCache }` — borrowed-композиция двух половин, отдаётся `BattleSnapshot::unit(entity)`. `Deref` на engine `Unit`, поэтому геймплейные чтения (`hp()`, `pos`, `armor`, `statuses`) идут напрямую, а AI-метрики — через `.cache` (`view.cache.threat`). Передаётся по значению (две ссылки, 16 байт). Помимо Deref несёт хелперы: `is_alive`, `eff_hp`/`eff_max_hp`, `hp_pct`, `killability`, `resource_amount`, `can_afford`, `is_stunned`/`forces_targeting` (вычисляются из текущих статусов через `StatusTagCache` — никогда не устаревают).
+
+Отдельного `UnitSnapshot`-зеркала больше нет (удалено вместе с контрактом `refresh_aggregates`): production и тесты читают engine `Unit` через `UnitView`, агрегаты (`armor_bonus`/`speed`/`damage_taken_bonus`) пересчитывает движок через `Effect::RefreshAggregates`. Тест-фикстуры строятся билдером `test_helpers::UnitBuilder` → `UnitFixture` → `fixture_to_pair` → `(Unit, UnitAiCache)`.
 
 ### AiTags (bitflags)
 

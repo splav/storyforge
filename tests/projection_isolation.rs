@@ -4,14 +4,14 @@
 //! the bridge break replay determinism — the engine stops being authoritative
 //! for state.
 //!
-//! This test walks `src/` (skipping the AI subtree which uses its own
-//! `UnitSnapshot` sim state, not ECS components) and greps for known
-//! mutation patterns. Anything outside the allowlist is a violation.
+//! This test walks `src/` (skipping the AI subtree, which works on a cloned
+//! engine `CombatState` in its plan sim, not ECS components) and greps for
+//! known mutation patterns. Anything outside the allowlist is a violation.
 //!
 //! # Scope
 //!
 //! Guarded patterns:
-//! - `<x>.hp = <y>`              (Vital.hp / UnitSnapshot.hp)
+//! - `<x>.hp = <y>`              (Vital.hp)
 //! - `<x>.action_points = <y>`   (ActionPoints.action_points)
 //! - `<x>.movement_points = <y>` (ActionPoints.movement_points)
 //! - `<x>.remaining = <y>`       (Reactions.remaining)
@@ -23,8 +23,8 @@
 //!
 //! # Skipped subtrees
 //!
-//! - `src/combat/ai/` — sim/AI mutates its own `UnitSnapshot`, not ECS.
-//!   These mutations are unrelated to engine projection.
+//! - `src/combat/ai/` — the plan sim mutates its own cloned engine
+//!   `CombatState`, not ECS. These mutations are unrelated to engine projection.
 //!
 //! # False positives
 //!

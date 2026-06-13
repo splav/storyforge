@@ -22,7 +22,7 @@ pub use bands::{assign_band, BandReason, BandWeights, PriorityBand};
 pub use considerations::{compute_considerations, IntentConsiderations};
 pub use kinds::{IntentKind, IntentReason, TacticalIntent};
 // AiMemory + PlanSnapshot moved to memory/; re-exported for backward-compat.
-pub use crate::combat::ai::memory::{status_hash, status_hash_engine, AiMemory, PlanSnapshot};
+pub use crate::combat::ai::memory::{status_hash_engine, AiMemory, PlanSnapshot};
 pub use score::{
     cc_reach, evaluate_last_stand_step, intent_score, pursuit_move_score, IntentWeights,
 };

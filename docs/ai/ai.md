@@ -93,7 +93,7 @@ AI выбирает действие для вражеских юнитов (и 
 
 | Модуль | Назначение |
 |---|---|
-| `world/snapshot.rs` | `BattleSnapshot`, `UnitSnapshot.statuses`, `refresh_status_aggregates`. |
+| `world/snapshot.rs` | `BattleSnapshot` (engine `CombatState` + `AiCache`), `UnitView` (Deref на engine `Unit` + `.cache`). |
 | `world/influence.rs` | Карты влияния (`InfluenceMaps`, `InfluenceConfig`). |
 | `world/reservations.rs` | Координация параллельно ходящих юнитов; reset на round-start. |
 | `world/tags/` | `AbilityTag`, `StatusTag`, `AiTags` (bitflags) — single source of truth классификации. |
@@ -199,11 +199,11 @@ AI выбирает действие для вражеских юнитов (и 
 
 ## Mid-plan reflow
 
-Post-unisim весь reflow внутри плана делает движок: `SimState::apply_step` прогоняет каждый Move/Cast через настоящий `combat_engine::step()` (с `ExpectedValue` dice), который сам применяет урон, статусы, AoO при движении, rage gain и смерть; `apply_endturn` тикает статусы через `tick_actor_statuses`. Отдельной sim-математики и ручного зеркалирования механик нет. AI-слою остаются три вещи:
+Post-unisim весь reflow внутри плана делает движок: `SimState::apply_step` прогоняет каждый Move/Cast через настоящий `combat_engine::step()` (с `ExpectedValue` dice), который сам применяет урон, статусы, AoO при движении, rage gain и смерть; `apply_endturn` тикает статусы через `tick_actor_statuses`. Отдельной sim-математики и ручного зеркалирования механик нет. AI-слою остаются две вещи:
 
-### `UnitSnapshot.refresh_aggregates`
+### Производные агрегаты — engine-owned
 
-`UnitSnapshot` (frozen-on-construction view, см. [snapshot.md](snapshot.md)) держит производные поля `speed = base_speed + Σ(speed bonuses)`, `armor_bonus = Σ(armor_amount)`, `damage_taken_bonus = Σ(vuln_amount)` и теги `IS_STUNNED` (есть статус с `HARD_CC`) / `FORCES_TARGETING` (`COMPULSION`). `add_status` / `remove_status` пересчитывают их автоматически через `refresh_aggregates(&StatusTagCache)`; при ручной мутации `statuses` обязан вызвать caller. Остальные биты `AiTags` (`LOW_HP`, `MELEE_ONLY`, …) capability-derived при построении snapshot'а и `refresh_aggregates` не трогаются. Эти поля читают scoring-leaf'ы и reach; сим-шаги через движок их не используют. (`base_speed` сериализуется с schema v36; для v35-логов реконструктор ставит `base_speed = speed`.)
+Производные поля юнита (`armor_bonus`, `speed`, `damage_taken_bonus`) пересчитывает движок через `Effect::RefreshAggregates`; флаги `IS_STUNNED` / `FORCES_TARGETING` `UnitView` вычисляет на лету из текущих статусов через `StatusTagCache` (`is_stunned` / `forces_targeting`) — никогда не устаревают. AI читает всё это через `UnitView` (Deref на engine `Unit` + `.cache`); отдельного `UnitSnapshot`-зеркала и контракта `refresh_aggregates` больше нет (удалены). Capability-биты `AiTags` (`LOW_HP`, `MELEE_ONLY`, `CAN_HEAL`, …) выставляются один раз в `build_snapshot`.
 
 ### AoO estimation для critics
 
@@ -223,7 +223,7 @@ Post-unisim весь reflow внутри плана делает движок: `
 |---|---|
 | [decision-cycle.md](decision-cycle.md) | Цикл `pick_action`, порядок stage-ов, `GrantMovement` mid-turn. |
 | [pipeline.md](pipeline.md) | `PRODUCTION_PIPELINE`, `StageSpec` validator, `ScoreTrace` algebra, plan generation hard constraints. |
-| [snapshot.md](snapshot.md) | `BattleSnapshot`, `UnitSnapshot`, `AiTags`, `AbilityTag` / `StatusTag`. |
+| [snapshot.md](snapshot.md) | `BattleSnapshot`, `UnitView`, `AiTags`, `AbilityTag` / `StatusTag`. |
 | [intent.md](intent.md) | `TacticalIntent`, intent selection, viability guard, intent-scoring, `ProtectSelf` mask. |
 | [scoring.md](scoring.md) | Factors (10 осей), outcome vector, terminal-axes, repair, role weights. |
 | [policy.md](policy.md) | HP-эквивалентные value functions. |

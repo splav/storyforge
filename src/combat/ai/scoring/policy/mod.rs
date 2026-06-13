@@ -3,7 +3,7 @@
 //! Invariants:
 //! - Each policy is a pure function of (facts, minimal context).
 //! - No side effects, no shared state, no caching.
-//! - Signature: `fn name(facts, [target: &UnitSnapshot], [caster: &CasterContext]) -> f32`.
+//! - Signature: `fn name(facts, [target: UnitView], [caster: &CasterContext]) -> f32`.
 //! - Policies are stateless and swappable (forward-compat for UnitQuirks / adaptation).
 //!
 //! Read by: factors (StepFactor / PlanFactor), critics (step 10), terminal eval,

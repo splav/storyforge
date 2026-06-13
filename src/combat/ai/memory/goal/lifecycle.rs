@@ -133,7 +133,7 @@ mod tests {
             actor_rage_at_store: 0,
             // Match status_hash(&[]) — DefaultHasher seed is non-zero, so a literal 0
             // here would falsely trigger actor_status_changed before target checks run.
-            actor_status_hash: crate::combat::ai::intent::status_hash(&[]),
+            actor_status_hash: crate::combat::ai::intent::status_hash_engine(&[]),
             actor_statuses_at_store: vec![],
             target_hp_at_store: 8,
             target_pos_at_store: hex_from_offset(2, 0),

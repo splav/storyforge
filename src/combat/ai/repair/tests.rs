@@ -437,12 +437,8 @@ fn sid(s: &str) -> StatusId {
     StatusId::from(s)
 }
 
-fn active_status(id: &str) -> ActiveStatusView {
-    ActiveStatusView {
-        id: sid(id),
-        rounds_remaining: 1,
-        dot_per_tick: 0,
-    }
+fn active_status(id: &str) -> combat_engine::state::ActiveStatus {
+    crate::combat::ai::test_helpers::status_view(id, 1, 0)
 }
 
 /// New status present in `current` but not in `stored` → shows up in `added`.
@@ -450,7 +446,7 @@ fn active_status(id: &str) -> ActiveStatusView {
 fn compute_status_delta_added_diff() {
     let stored = vec![sid("burning")];
     let current = vec![active_status("burning"), active_status("stunned")];
-    let delta = compute_status_delta(&stored, &current);
+    let delta = compute_status_delta_engine(&stored, &current);
     assert_eq!(delta.added, vec![sid("stunned")]);
     assert!(delta.removed.is_empty());
 }
@@ -460,7 +456,7 @@ fn compute_status_delta_added_diff() {
 fn compute_status_delta_removed_diff() {
     let stored = vec![sid("burning"), sid("poisoned")];
     let current = vec![active_status("burning")];
-    let delta = compute_status_delta(&stored, &current);
+    let delta = compute_status_delta_engine(&stored, &current);
     assert!(delta.added.is_empty());
     assert_eq!(delta.removed, vec![sid("poisoned")]);
 }
@@ -470,7 +466,7 @@ fn compute_status_delta_removed_diff() {
 fn compute_status_delta_pure_tick_empty() {
     let stored = vec![sid("burning"), sid("poisoned")];
     let current = vec![active_status("burning"), active_status("poisoned")];
-    let delta = compute_status_delta(&stored, &current);
+    let delta = compute_status_delta_engine(&stored, &current);
     assert!(delta.added.is_empty(), "no new statuses");
     assert!(delta.removed.is_empty(), "no removed statuses");
 }
