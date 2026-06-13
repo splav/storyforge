@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn summon_bonus_matches_legacy_formula() {
         // ── 1. Test data (real content needed for a Summon ability) ──
-        let real_content = crate::content::content_view::ContentView::load_global_for_tests();
+        let real_content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let pos = hex_from_offset(0, 0);
         let maps = empty_maps();

@@ -330,7 +330,7 @@ mod tests {
         }
     }
 
-    fn empty_content() -> crate::content::content_view::ContentView {
+    fn empty_content() -> crate::content::content_view::ActiveContentData {
         crate::combat::ai::test_helpers::empty_content()
     }
 

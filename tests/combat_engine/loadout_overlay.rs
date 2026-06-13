@@ -32,7 +32,7 @@ use storyforge::scenario::combat_scene::spawn_combatants;
 
 // ── App builder ───────────────────────────────────────────────────────────────
 
-fn scenario_app(content: storyforge::content::content_view::ContentView) -> App {
+fn scenario_app(content: storyforge::content::content_view::ActiveContentData) -> App {
     use bevy::math::Vec2;
     use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
     use storyforge::combat::ai::log::{AiLogger, PendingAiLogEntries};

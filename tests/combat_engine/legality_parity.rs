@@ -30,7 +30,7 @@ use storyforge::combat_engine::{
     IllegalReason, LegalAction, ProposedAction, ResourceKind, StatusBonuses,
     StatusDef as EngineStatusDef, UnitTemplate,
 };
-use storyforge::content::content_view::{ActiveContent, ContentView as BevyContentView};
+use storyforge::content::content_view::{ActiveContent, ActiveContentData as BevyContentView};
 use storyforge::content::statuses::StatusDef as BevyStatusDef;
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::{
@@ -48,7 +48,7 @@ const MANA_SPELL_ID: &str = "test_mana_spell";
 const MANA_BLOCK_STATUS: &str = "mana_block";
 const TAUNT_STATUS: &str = "taunt";
 
-// ── Engine-side ContentView wrapper ──────────────────────────────────────────
+// ── Engine-side ActiveContentData wrapper ──────────────────────────────────────────
 
 /// Thin `EngineContentView` wrapper over `&BevyContentView`.
 ///

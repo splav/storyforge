@@ -39,7 +39,7 @@ use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::content::abilities::{EffectCalcExt, StatusOn, TargetType};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 
 /// Expected remaining acting rounds for any unit. MVP2 constant; Phase
 /// 2c will replace with `clamp(eff_hp / incoming_dpr, 0.5, 3.0)` once
@@ -82,7 +82,7 @@ pub const TRADE_WEIGHT: f32 = 0.5;
 /// Consumers (Phase 2): plan-level `trade_delta` sums `unit_value` over
 /// killed enemies / lost allies and subtracts `unit_value(self)` when
 /// the plan is self-lethal.
-pub fn unit_value(u: UnitView<'_>, content: &ContentView) -> f32 {
+pub fn unit_value(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
     if !u.is_alive() {
         return 0.0;
     }
@@ -123,7 +123,7 @@ fn offense_projection(u: UnitView<'_>) -> f32 {
 /// than to model honestly; over-counting made heavy casters dominate
 /// trades beyond their actual in-game leverage. Returns `0.0` when the
 /// unit has no heal kit.
-fn heal_projection(u: UnitView<'_>, content: &ContentView) -> f32 {
+fn heal_projection(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
     u.cache
         .abilities
         .iter()
@@ -153,7 +153,7 @@ fn heal_projection(u: UnitView<'_>, content: &ContentView) -> f32 {
 /// skips-turn status on the same target doesn't stack, and modelling
 /// "how many unstunned targets are there this round" would require a
 /// snapshot (breaking actor-agnostic).
-fn cc_projection(u: UnitView<'_>, content: &ContentView) -> f32 {
+fn cc_projection(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
     let peer_dpr = u.cache.threat.max(0.0);
     if peer_dpr <= 0.0 {
         return 0.0;
@@ -238,7 +238,7 @@ pub fn trade_delta(
     plan: &TurnPlan,
     active: UnitView<'_>,
     initial_snap: &BattleSnapshot,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> TradeBreakdown {
     let prefix_len = plan.committed_step_count();
     let mut killed_value = 0.0f32;
@@ -345,11 +345,11 @@ mod tests {
 
     // ── Fixtures ────────────────────────────────────────────────────────────
     //
-    // Tests build a minimal `ContentView` with exactly the abilities / statuses
+    // Tests build a minimal `ActiveContentData` with exactly the abilities / statuses
     // the case exercises. Keeps assertions readable — a regression pins a
     // specific formula branch rather than entangling global test content.
-    fn content() -> ContentView {
-        ContentView {
+    fn content() -> ActiveContentData {
+        ActiveContentData {
             abilities: HashMap::new(),
             keyed_abilities: Vec::new(),
             statuses: HashMap::new(),
@@ -360,7 +360,7 @@ mod tests {
             races: HashMap::new(),
             factions: HashMap::new(),
             paths: HashMap::new(),
-            ..ContentView::default()
+            ..ActiveContentData::default()
         }
     }
 

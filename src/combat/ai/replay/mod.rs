@@ -51,7 +51,7 @@ use serde::Deserialize;
 
 use crate::combat::ai::plan::PlanStep;
 use crate::content::abilities::EffectDef;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use combat_engine::AbilityId;
 
 // ── Overlay types ─────────────────────────────────────────────────────────────
@@ -205,7 +205,10 @@ fn decision_kind_from_steps(steps: &[PlanStep]) -> &'static str {
 ///
 /// Looks up the ability in `content`. Returns `None` if no Cast step exists
 /// or the ability is not found in content.
-pub fn primary_effect_from_steps(steps: &[PlanStep], content: &ContentView) -> Option<String> {
+pub fn primary_effect_from_steps(
+    steps: &[PlanStep],
+    content: &ActiveContentData,
+) -> Option<String> {
     let ability_id = steps.iter().find_map(|s| match s {
         PlanStep::Cast { ability, .. } => Some(ability.clone()),
         _ => None,
@@ -445,7 +448,7 @@ pub fn build_actual_decision(
     steps: &[PlanStep],
     final_pos: [i32; 2],
     intent_kind_str: &str,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> ActualDecision {
     let decision_kind = decision_kind_from_steps(steps).to_string();
     let cast_ability = first_cast_ability(steps).map(|id| id.0.clone());

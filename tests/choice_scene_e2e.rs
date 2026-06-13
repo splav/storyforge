@@ -6,7 +6,7 @@
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
-use storyforge::content::content_view::ContentView;
+use storyforge::content::content_view::ActiveContentData;
 use storyforge::content::scenarios::{ChoiceOption, DialogueLine, ScenarioDef, SceneDef};
 use storyforge::game::resources::{CampaignState, GameDb, ScenarioState};
 use storyforge::scenario::AdvanceScenario;
@@ -53,7 +53,7 @@ fn make_db_with_choice(options: Vec<ChoiceOption>) -> GameDb {
                 no_camp: false,
             },
         ],
-        content: ContentView::default(),
+        content: ActiveContentData::default(),
         encounters: std::collections::HashMap::new(),
     };
     let mut db = GameDb {

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use combat_engine::{AbilityId, StatusId};
 
 use super::classify::{derive_ability_tags, derive_status_tags, StatusTagLookup};
@@ -17,7 +17,7 @@ use super::{AbilityTagSet, StatusTagSet};
 
 /// Numeric bonuses carried by a status definition. Stored alongside
 /// `StatusTagSet` in `StatusTagCache` so `refresh_aggregates` can read both
-/// tags and bonuses from a single cache lookup without needing `&ContentView`.
+/// tags and bonuses from a single cache lookup without needing `&ActiveContentData`.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StatusBonuses {
     pub speed_bonus: i32,
@@ -83,7 +83,7 @@ impl AbilityTagCache {
 /// Order matters: `StatusTagCache` is built first (no deps), then
 /// `AbilityTagCache` uses it for Defensive / ApplyCC / Peel classification.
 /// Override strings are parsed here (fail-fast on unknown tag names).
-pub fn build_caches(content: &ContentView) -> (StatusTagCache, AbilityTagCache) {
+pub fn build_caches(content: &ActiveContentData) -> (StatusTagCache, AbilityTagCache) {
     // Pass 1: classify all statuses — tags and numeric bonuses in one sweep.
     let mut status_map: HashMap<StatusId, StatusTagSet> = HashMap::new();
     let mut bonuses_map: HashMap<StatusId, StatusBonuses> = HashMap::new();
@@ -150,11 +150,11 @@ fn parse_override(names: &[String], ability_id: &AbilityId) -> AbilityTagSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use combat_engine::AbilityId;
 
-    fn load_content() -> ContentView {
-        ContentView::load_global_for_tests()
+    fn load_content() -> ActiveContentData {
+        ActiveContentData::load_global_for_tests()
     }
 
     // ── Commit 2 tests ────────────────────────────────────────────────────────

@@ -128,7 +128,7 @@ fn build_10_unit_world(world: &mut World) -> (Vec<Entity>, Vec<Hex>) {
     world.insert_resource(positions);
     world.insert_resource(HexCorpses::default());
     world.insert_resource(ActiveContent(
-        storyforge::content::content_view::ContentView::load_global_for_tests(),
+        storyforge::content::content_view::ActiveContentData::load_global_for_tests(),
     ));
     (entities, hexes)
 }
@@ -240,7 +240,7 @@ fn dead_unit_is_tombstone_with_hp_zero() {
     world.insert_resource(positions);
     world.insert_resource(corpses);
     world.insert_resource(ActiveContent(
-        storyforge::content::content_view::ContentView::load_global_for_tests(),
+        storyforge::content::content_view::ActiveContentData::load_global_for_tests(),
     ));
 
     let mut id_map = UnitIdMap::default();

@@ -32,7 +32,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn plan_factor_compute_matches_legacy_intent() {
-        let content = ContentView::load_global_for_tests();
+        let content = ActiveContentData::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let world = make_test_ctx(&content, &diff);
         let tile = hex_from_offset(0, 0);

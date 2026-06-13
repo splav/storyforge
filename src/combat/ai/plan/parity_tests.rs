@@ -27,7 +27,7 @@ mod tests {
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost,
         StatusApplication, StatusOn, TargetType,
     };
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -688,7 +688,7 @@ mod tests {
             },
         );
 
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content
             .abilities
             .insert(haste_def.id.clone(), haste_def.clone());
@@ -748,7 +748,7 @@ mod tests {
             AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn,
             TargetType,
         };
-        use crate::content::content_view::ContentView;
+        use crate::content::content_view::ActiveContentData;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
         use combat_engine::final_damage_f32;
@@ -823,7 +823,7 @@ mod tests {
             },
         );
 
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content
             .abilities
             .insert(buff_def.id.clone(), buff_def.clone());
@@ -949,7 +949,7 @@ mod tests {
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::combat::ai::world::tags::StatusTagCache;
         use crate::content::abilities::CasterContext;
-        use crate::content::content_view::ContentView;
+        use crate::content::content_view::ActiveContentData;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
         use combat_engine::final_damage_f32;
@@ -975,7 +975,7 @@ mod tests {
         let snap = snapshot_from_pairs(vec![actor_pair, enemy_pair], 1);
 
         let status_tags = StatusTagCache::default();
-        let content = ContentView::default();
+        let content = ActiveContentData::default();
         let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
         let outcome = sim.apply_step(
             &PlanStep::Move {
@@ -1006,7 +1006,7 @@ mod tests {
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::combat::ai::world::tags::StatusTagCache;
         use crate::content::abilities::CasterContext;
-        use crate::content::content_view::ContentView;
+        use crate::content::content_view::ActiveContentData;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 
@@ -1026,7 +1026,7 @@ mod tests {
         let snap = snapshot_from_pairs(vec![actor_pair, enemy_pair], 1);
 
         let status_tags = StatusTagCache::default();
-        let content = ContentView::default();
+        let content = ActiveContentData::default();
         let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
         sim.apply_step(
             &PlanStep::Move {
@@ -1056,7 +1056,7 @@ mod tests {
         use crate::content::abilities::{
             AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
         };
-        use crate::content::content_view::ContentView;
+        use crate::content::content_view::ActiveContentData;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
         use combat_engine::DiceExpr;
@@ -1107,7 +1107,7 @@ mod tests {
             },
         );
 
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content
             .abilities
             .insert(strike_def.id.clone(), strike_def.clone());
@@ -1161,7 +1161,7 @@ mod tests {
         use crate::content::abilities::{
             AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
         };
-        use crate::content::content_view::ContentView;
+        use crate::content::content_view::ActiveContentData;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
         use combat_engine::DiceExpr;
@@ -1210,7 +1210,7 @@ mod tests {
             },
         );
 
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content
             .abilities
             .insert(blast_def.id.clone(), blast_def.clone());
@@ -1277,7 +1277,7 @@ mod tests {
         use crate::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
         use crate::combat::ai::world::tags::StatusTagCache;
         use crate::content::abilities::CasterContext;
-        use crate::content::content_view::ContentView;
+        use crate::content::content_view::ActiveContentData;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 
@@ -1300,7 +1300,7 @@ mod tests {
         let snap = snapshot_from_pairs(vec![actor_pair, enemy_pair], 1);
 
         let status_tags = StatusTagCache::default();
-        let content = ContentView::default();
+        let content = ActiveContentData::default();
         let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
         sim.apply_step(
             &PlanStep::Move {

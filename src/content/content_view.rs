@@ -23,7 +23,7 @@ use std::path::Path;
 
 /// Complete rules set for a scenario (or a test harness).
 #[derive(Default, Clone, Debug)]
-pub struct ContentView {
+pub struct ActiveContentData {
     pub abilities: HashMap<AbilityId, AbilityDef>,
     /// Abilities that declare a custom hotkey (`key = "..."`) — in load order.
     /// Universal: every combatant may use them.
@@ -39,7 +39,7 @@ pub struct ContentView {
     pub ai_tuning: AiTuning,
 }
 
-impl ContentView {
+impl ActiveContentData {
     /// Effective CombatStats = base + sum of all equipped weapon/armor stat bonuses.
     pub fn effective_stats(&self, base: &CombatStats, equipment: &Equipment) -> CombatStats {
         let mut s = base.clone();
@@ -113,7 +113,7 @@ impl ContentView {
     }
 }
 
-impl ContentView {
+impl ActiveContentData {
     /// Loads + merges content from global / campaign / scenario layers. Files at
     /// each layer are optional — missing files just contribute nothing. IDs are
     /// overridden wholesale: scenario beats campaign beats global.
@@ -121,7 +121,7 @@ impl ContentView {
         let global = Path::new("assets/data");
         let layers = [global, campaign_dir, scenario_dir];
 
-        let mut v = ContentView::default();
+        let mut v = ActiveContentData::default();
 
         // Each content type: read the file at every layer (if present), merge by id.
         for base in layers {
@@ -256,7 +256,7 @@ fn merge_races(
     }
 }
 
-impl ContentView {
+impl ActiveContentData {
     /// Test-only: loads the fully-merged view from the global layer ONLY
     /// (`assets/data/*.toml`), without any campaign/scenario overrides.
     /// Useful for unit tests that don't care about scenario-specific overrides.
@@ -319,7 +319,7 @@ mod tests {
         let (chest_id, chest_def) = armor_with_magic_resist("robe", 2);
         let (weapon_id, weapon_def) = weapon_with_magic_resist("focus", 1);
 
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content.armor.insert(chest_id.clone(), chest_def);
         content.weapons.insert(weapon_id.clone(), weapon_def);
 
@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn equipment_magic_resist_zero_when_no_item_has_it() {
         let (chest_id, chest_def) = armor_with_magic_resist("plain_robe", 0);
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content.armor.insert(chest_id.clone(), chest_def);
 
         let equipment = Equipment {
@@ -357,10 +357,10 @@ mod tests {
 /// Currently-active content view. Set to the current scenario's merged view
 /// on scenario entry; defaults to empty outside combat.
 #[derive(Resource, Default)]
-pub struct ActiveContent(pub ContentView);
+pub struct ActiveContent(pub ActiveContentData);
 
 impl std::ops::Deref for ActiveContent {
-    type Target = ContentView;
+    type Target = ActiveContentData;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

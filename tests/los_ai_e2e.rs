@@ -16,16 +16,16 @@ use storyforge::combat::ai::action_state::SnapshotActionState;
 use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
 use storyforge::combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
 use storyforge::combat_engine::AbilityId;
-use storyforge::content::content_view::ContentView;
+use storyforge::content::content_view::ActiveContentData;
 use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 
 /// Load the global + campaign content (ranged_shot is in global, bandit_archer in campaign).
-fn load_content() -> ContentView {
+fn load_content() -> ActiveContentData {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let campaign_dir = manifest.join("assets/data/campaigns/bell_under_veil");
     let scenario_dir = campaign_dir.join("ch2/scenarios/ch2_portside");
-    ContentView::load_layered(&campaign_dir, &scenario_dir)
+    ActiveContentData::load_layered(&campaign_dir, &scenario_dir)
 }
 
 /// An obstacle wall at col=5 blocking LOS on the east side of archer at (9,4).
@@ -208,7 +208,7 @@ fn ch2_portside_fixture_parses() {
     let scenario_dir = campaign_dir.join("ch2/scenarios/ch2_portside");
     let enc_path = scenario_dir.join("encounters.toml");
 
-    let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
+    let content = ActiveContentData::load_layered(&campaign_dir, &scenario_dir);
     let src = std::fs::read_to_string(&enc_path)
         .unwrap_or_else(|e| panic!("cannot read ch2_portside/encounters.toml: {e}"));
 

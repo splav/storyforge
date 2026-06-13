@@ -1,13 +1,13 @@
 //! Snapshot-side backend for `combat_engine::legality::ActionState`. Mirrors
 //! `combat::validation::BevyActions` but reads out of a `BattleSnapshot` +
-//! `ContentView`, for use from AI / replay / sim contexts that have no live
+//! `ActiveContentData`, for use from AI / replay / sim contexts that have no live
 //! ECS world.
 
 use combat_engine::legality::{ActionState, ActorView};
 use combat_engine::{AbilityDef, AbilityId, StatusDef, StatusId};
 
 use crate::combat::ai::world::snapshot::BattleSnapshot;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::components::Team;
 use crate::game::hex::{in_bounds, Hex};
 use bevy::prelude::Entity;
@@ -15,7 +15,7 @@ use bevy::prelude::Entity;
 /// `ActionState` impl over a `BattleSnapshot`. Holds references only;
 /// construction is cheap and the struct is short-lived (per-tick, per-check).
 pub struct SnapshotActionState<'a> {
-    pub content: &'a ContentView,
+    pub content: &'a ActiveContentData,
     pub snap: &'a BattleSnapshot,
 }
 

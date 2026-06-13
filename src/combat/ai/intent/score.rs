@@ -10,7 +10,7 @@ use crate::combat::ai::world::snapshot::UnitView;
 #[cfg(test)]
 use crate::content::abilities::EffectCalcExt;
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
@@ -78,7 +78,7 @@ pub fn pursuit_move_score(from_pos: Hex, to_pos: Hex, target_pos: Hex, reach: u3
 /// Falls back to `max_attack_range` when the actor has no CC-tagged
 /// ability (e.g. weapon-attached stun via status that doesn't fire
 /// `applies_cc`). Conservative default — won't over-promise.
-pub fn cc_reach(active: UnitView<'_>, content: &ContentView) -> u32 {
+pub fn cc_reach(active: UnitView<'_>, content: &ActiveContentData) -> u32 {
     active
         .cache
         .abilities
@@ -139,7 +139,7 @@ pub(crate) fn intent_offensive_value_on_target(
     ctx: &ScoringCtx,
     outcome: &ActionOutcomeEstimate,
     weights: &IntentWeights,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     let snap = ctx.snap;
     let needs = ctx.need_signals;

@@ -1,6 +1,6 @@
 //! Shared test helpers for the `ai/` tree. Lives in the binary only under
 //! `cfg(test)` — provides the common `UtilityContext` / `UnitSnapshot` /
-//! `InfluenceMaps` / `ContentView` scaffolding that every scoring-adjacent
+//! `InfluenceMaps` / `ActiveContentData` scaffolding that every scoring-adjacent
 //! test module used to hand-roll.
 //!
 //! Module-wide `allow(dead_code)`: items here are used only from `#[cfg(test)]`
@@ -27,7 +27,7 @@ use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::content::abilities::AbilityDef as BevyAbilityDef;
 use crate::content::abilities::CasterContext;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::content::races::CritFailEffect;
 use crate::content::statuses::StatusDef as BevyStatusDef;
 use crate::game::components::Team;
@@ -70,7 +70,7 @@ pub(crate) fn empty_caches() -> (StatusTagCache, AbilityTagCache) {
 /// `UnitSnapshot`; configure via `UnitBuilder::caster_ctx` /
 /// `UnitBuilder::ability_names` / `UnitBuilder::crit_fail_effect`.
 pub(crate) fn make_test_ctx<'a>(
-    content: &'a ContentView,
+    content: &'a ActiveContentData,
     difficulty: &'a DifficultyProfile,
 ) -> AiWorld<'a> {
     AiWorld {
@@ -510,10 +510,10 @@ pub(crate) fn empty_maps() -> InfluenceMaps {
 
 // ── Content ────────────────────────────────────────────────────────────────
 
-/// Completely empty `ContentView`. Tests that need a specific ability/status
+/// Completely empty `ActiveContentData`. Tests that need a specific ability/status
 /// insert it after construction.
-pub(crate) fn empty_content() -> ContentView {
-    ContentView::default()
+pub(crate) fn empty_content() -> ActiveContentData {
+    ActiveContentData::default()
 }
 
 /// Wrap a pure-engine `AbilityDef` in the Bevy `AbilityDef` shell with empty
@@ -624,7 +624,7 @@ impl StageTestHarness {
 
     /// Build the full context stack and run `body` with a `&mut StageCtx`.
     ///
-    /// Internally builds: `ContentView` → `AiWorld` → `BattleSnapshot` →
+    /// Internally builds: `ActiveContentData` → `AiWorld` → `BattleSnapshot` →
     /// `ScoringCtx` → `DiceRng` → `StageCtx`.  If `self.agenda` is `Some`,
     /// attaches it via `StageCtx::with_agenda` before handing ctx to `body`.
     /// Returns whatever `body` returns.
@@ -809,7 +809,7 @@ impl PoolBuilder {
 /// ```
 pub(crate) struct CriticScenario {
     actor: UnitFixture,
-    content: ContentView,
+    content: ActiveContentData,
     difficulty: crate::combat::ai::config::difficulty::DifficultyProfile,
     snap_units: Vec<UnitFixture>,
     maps: crate::combat::ai::world::influence::InfluenceMaps,

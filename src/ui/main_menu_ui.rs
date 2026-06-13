@@ -404,7 +404,7 @@ pub fn validate_and_resume(
 #[cfg(test)]
 mod tests {
     use super::{resolve_start_index, resolve_start_scene_index};
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::content::scenarios::{ScenarioDef, SceneDef};
     use std::collections::HashMap;
 
@@ -419,7 +419,7 @@ mod tests {
             name: id.into(),
             party: vec![],
             scenes,
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters: HashMap::new(),
         }
     }

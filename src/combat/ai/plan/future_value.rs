@@ -566,7 +566,7 @@ mod tests {
             escape: InfluenceMap::new(),
         };
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let snap = snapshot_from(vec![actor.clone()], 1);
@@ -604,7 +604,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let snap = snapshot_from(vec![actor.clone()], 1);
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let maps = crate::combat::ai::test_helpers::empty_maps();
@@ -634,7 +634,7 @@ mod tests {
         let far = UnitBuilder::new(3, Team::Player, hex_from_offset(10, 10)).build();
         let snap = snapshot_from(vec![actor.clone(), nearby.clone(), far.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let maps = crate::combat::ai::test_helpers::empty_maps();
@@ -702,7 +702,7 @@ mod tests {
             escape: InfluenceMap::new(),
         };
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let reservations = Reservations::default();
@@ -728,7 +728,7 @@ mod tests {
     fn empty_plans_returns_empty() {
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let snap = snapshot_from(vec![actor.clone()], 1);
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let maps = crate::combat::ai::test_helpers::empty_maps();
@@ -755,7 +755,7 @@ mod tests {
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let maps = crate::combat::ai::test_helpers::empty_maps();
@@ -802,7 +802,7 @@ mod tests {
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let maps = crate::combat::ai::test_helpers::empty_maps();
@@ -858,7 +858,7 @@ mod tests {
         let enemy_b = UnitBuilder::new(3, Team::Player, pos_b).build();
         let snap = snapshot_from(vec![actor.clone(), enemy_a.clone(), enemy_b.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let maps = crate::combat::ai::test_helpers::empty_maps();
@@ -917,7 +917,7 @@ mod tests {
         };
 
         let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let reservations = Reservations::default();
@@ -987,7 +987,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
         let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
         let maps = crate::combat::ai::test_helpers::empty_maps();

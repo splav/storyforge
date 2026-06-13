@@ -1,4 +1,4 @@
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::content::encounters::EncounterDef;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -51,7 +51,7 @@ pub struct ScenarioDef {
     pub scenes: Vec<SceneDef>,
     /// Fully-merged rules (global → campaign → scenario layers). Single source
     /// of content lookups during this scenario's combat.
-    pub content: ContentView,
+    pub content: ActiveContentData,
     /// Encounters referenced by this scenario's `Scene::Combat` scenes.
     /// Filled by the campaign loader after parsing; scoped to this scenario only.
     pub encounters: HashMap<String, EncounterDef>,
@@ -358,7 +358,7 @@ pub fn parse_scenario_body(id: &str, path: &str, src: &str) -> ScenarioDef {
         name: r.name,
         party: r.party.into_iter().map(convert_party_record).collect(),
         // Populated by the campaign loader via ContentView::load_layered.
-        content: ContentView::default(),
+        content: ActiveContentData::default(),
         encounters: HashMap::new(),
         scenes: r
             .scenes
@@ -495,7 +495,7 @@ mod tests {
                     no_camp: false,
                 },
             ],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters: HashMap::new(),
         }
     }
@@ -573,7 +573,7 @@ mod tests {
                     no_camp: false,
                 },
             ],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters: HashMap::new(),
         };
         let map = active_party_statuses(&scen, 2);
@@ -603,7 +603,7 @@ mod tests {
                 requires_flag: None,
                 no_camp: false,
             }],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters: HashMap::new(),
         };
         let map = active_party_statuses(&scen, 1);

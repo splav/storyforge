@@ -79,7 +79,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
     };
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::AbilityId;
@@ -87,9 +87,9 @@ mod tests {
     /// Shared scaffolding for the adjustments suite. Adjustment logic is
     /// actor-agnostic (reservation coordination only), so zero-caster
     /// defaults on the placeholder actor are enough.
-    fn fixture() -> (ContentView, DifficultyProfile) {
+    fn fixture() -> (ActiveContentData, DifficultyProfile) {
         (
-            ContentView::load_global_for_tests(),
+            ActiveContentData::load_global_for_tests(),
             DifficultyProfile::hard(),
         )
     }

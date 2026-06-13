@@ -34,7 +34,7 @@ fn unit(id: u32, team: Team, pos: Hex) -> UnitFixture {
 use crate::combat::ai::test_helpers::empty_maps;
 
 fn test_ctx<'a>(
-    content: &'a crate::content::content_view::ContentView,
+    content: &'a crate::content::content_view::ActiveContentData,
     difficulty: &'a DifficultyProfile,
 ) -> AiWorld<'a> {
     crate::combat::ai::test_helpers::make_test_ctx(content, difficulty)
@@ -52,7 +52,7 @@ fn annotate_plan(
     plan: &mut TurnPlan,
     actor: &UnitFixture,
     snap: &crate::combat::ai::world::snapshot::BattleSnapshot,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
     _crit_fail_chance: f32,
 ) {
     let caster_ctx = actor.caster_ctx.clone();
@@ -180,7 +180,7 @@ fn sum_factors_scale_by_step_weight() {
         .build();
     let focus = unit(2, Team::Player, hex_from_offset(1, 0)); // adjacent: ranged not needed
     let snap = snapshot_from(vec![actor.clone(), focus.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let mut difficulty = DifficultyProfile::hard();
     difficulty.plan_step_discount = 0.85;
     let _abilities = crate::game::components::Abilities(vec!["melee_attack".into()]);
@@ -268,7 +268,7 @@ fn post_goal_leaves_step_weight_purely_geometric() {
     let target = unit(2, Team::Player, hex_from_offset(1, 0));
     let other = unit(3, Team::Player, hex_from_offset(2, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone(), other.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -352,7 +352,7 @@ fn rescore_matches_full_score_under_same_intent() {
     let focus_a = unit(2, Team::Player, hex_from_offset(3, 0));
     let focus_b = unit(3, Team::Player, hex_from_offset(2, 0));
     let snap = snapshot_from(vec![actor.clone(), focus_a.clone(), focus_b.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     // Deterministic per-plan noise: rescore and a fresh-score under the
     // same intent produce identical scores regardless of profile.
     let difficulty = DifficultyProfile::epic();
@@ -411,7 +411,7 @@ fn scorer_tolerates_empty_sim_snapshots_from_deserialized_plan() {
     let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
     let enemy = unit(2, Team::Player, hex_from_offset(1, 0));
     let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let _abilities = crate::game::components::Abilities(vec!["melee_attack".into()]);
     let ctx = test_ctx(&content, &difficulty);
@@ -467,7 +467,7 @@ fn noise_is_plan_order_invariant() {
     let focus_a = unit(2, Team::Player, hex_from_offset(1, 0));
     let focus_b = unit(3, Team::Player, hex_from_offset(2, 0));
     let snap = snapshot_from(vec![actor.clone(), focus_a.clone(), focus_b.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -542,7 +542,7 @@ fn trade_bonus_favors_valuable_victim() {
         .threat(1.0)
         .build();
     let snap = snapshot_from(vec![actor.clone(), support.clone(), rat.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -640,7 +640,7 @@ fn self_lethal_kill_support_outscores_passive_under_last_stand() {
         .build();
 
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -723,7 +723,7 @@ fn pure_move_chain_intent_equals_single_pursuit() {
         .build();
     let target = unit(2, Team::Player, hex_from_offset(5, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -815,7 +815,7 @@ fn round_trip_pure_move_intent_no_credit() {
         .build();
     let target_unit = unit(2, Team::Player, target_pos);
     let snap = snapshot_from(vec![actor.clone(), target_unit.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -882,7 +882,7 @@ fn cast_after_moves_keeps_cast_intent() {
         .build();
     let target = unit(2, Team::Player, hex_from_offset(3, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -971,7 +971,7 @@ fn goal_achieved_latch_still_works() {
     let target = unit(2, Team::Player, hex_from_offset(1, 0));
     let other = unit(3, Team::Player, hex_from_offset(2, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone(), other.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1070,7 +1070,7 @@ fn cast_plus_move_tail_collapses_to_single_pursuit() {
         .build();
     let target = unit(2, Team::Player, hex_from_offset(4, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1184,7 +1184,7 @@ fn cast_plus_roundtrip_tail_no_credit() {
         .build();
     let target = UnitBuilder::new(2, Team::Player, hex_from_offset(6, 6)).build();
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let mut difficulty = DifficultyProfile::hard();
     difficulty.plan_step_discount = 0.9;
     let ctx = test_ctx(&content, &difficulty);
@@ -1268,7 +1268,7 @@ fn cast_plus_approach_tail_earns_credit() {
         .build();
     let target = unit(2, Team::Player, hex_from_offset(4, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1353,7 +1353,7 @@ fn cast_kills_then_tail_no_credit() {
         .build();
     let target = unit(2, Team::Player, hex_from_offset(4, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1456,7 +1456,7 @@ fn cast_then_cast_then_move_uses_first_cast_as_boundary() {
         .build();
     let target = unit(2, Team::Player, hex_from_offset(4, 0));
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1548,7 +1548,7 @@ fn terminal_aggregator_zero_when_all_axes_zero() {
     let actor = unit(1, Team::Enemy, pos);
     let ally = unit(2, Team::Enemy, hex_from_offset(1, 0));
     let snap = snapshot_from(vec![actor.clone(), ally.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let ctx = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1589,7 +1589,7 @@ fn terminal_aggregator_amplified_by_self_preserve() {
     let snap_low = snapshot_from(vec![actor_low.clone(), enemy.clone()], 1);
     let snap_full = snapshot_from(vec![actor_full.clone(), enemy.clone()], 1);
 
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let ctx_low = test_ctx(&content, &difficulty);
     let ctx_full = test_ctx(&content, &difficulty);
@@ -1647,7 +1647,7 @@ fn terminal_aggregator_role_weighted_distinguishes_tank_vs_ranged() {
     let snap_tank = snapshot_from(vec![actor_tank.clone(), enemy.clone()], 1);
     let snap_ranged = snapshot_from(vec![actor_ranged.clone(), enemy.clone()], 1);
 
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let ctx_tank = test_ctx(&content, &difficulty);
     let ctx_ranged = test_ctx(&content, &difficulty);
@@ -1695,7 +1695,7 @@ fn repair_bonus_zero_when_severity_invalidating() {
         .max_hp(20)
         .build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let world = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1732,7 +1732,7 @@ fn aggregate_factors_to_score_no_longer_writes_noise() {
     let pos = hex_from_offset(0, 0);
     let actor = unit(1, Team::Enemy, pos);
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1759,7 +1759,7 @@ fn factor_weights_continuation_used_when_last_goal_present() {
     let pos = hex_from_offset(0, 0);
     let actor = unit(1, Team::Enemy, pos);
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let world = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1797,7 +1797,7 @@ fn discovery_eval_used_when_no_goal() {
     let pos = hex_from_offset(0, 0);
     let actor = unit(1, Team::Enemy, pos);
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let world = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1828,7 +1828,7 @@ fn continuation_doesnt_break_protect_self_mask() {
         .build();
     let enemy = unit(2, Team::Player, hex_from_offset(1, 0));
     let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let world = test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -1870,7 +1870,7 @@ fn factor_weights_continuation_differs_from_discovery_for_non_unit_axis() {
     let pos = hex_from_offset(0, 0);
     let actor = unit(1, Team::Enemy, pos);
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let world = test_ctx(&content, &difficulty);
     let maps = empty_maps();

@@ -1,4 +1,4 @@
-//! `EcsContentView` — ECS-backed engine `ContentView` adapter.
+//! `EcsContentView` — ECS-backed engine `ActiveContentData` adapter.
 
 use bevy::prelude::*;
 
@@ -12,7 +12,7 @@ use combat_engine::modifier;
 
 // ── process_action_system ─────────────────────────────────────────────────────
 
-/// ECS-backed `ContentView` adapter for `process_action_system`.
+/// ECS-backed `ActiveContentData` adapter for `process_action_system`.
 ///
 /// After 5c.1, this struct carries only static content (active_content).
 /// Per-combat state (caster contexts, auras, AoO dice, phase triggers) now
@@ -160,7 +160,7 @@ pub fn build_ecs_content_view<'a>(content: &'a ActiveContent) -> EcsContentView<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use combat_engine::content::ContentView as EngineContentView;
     use combat_engine::StatusId;
 
@@ -177,7 +177,7 @@ mod tests {
     /// view now reports the correct bonus.
     #[test]
     fn ecs_content_view_status_bonuses_reads_real_armor_bonus() {
-        let active = ActiveContent(ContentView::load_global_for_tests());
+        let active = ActiveContent(ActiveContentData::load_global_for_tests());
         let view = build_ecs_content_view(&active);
 
         let defending = view.status_bonuses(&StatusId::from("defending"));
@@ -206,7 +206,7 @@ mod tests {
         use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
         use hexx::Hex;
 
-        let active = ActiveContent(ContentView::load_global_for_tests());
+        let active = ActiveContent(ActiveContentData::load_global_for_tests());
         let view = build_ecs_content_view(&active);
 
         let unit = Unit::new(

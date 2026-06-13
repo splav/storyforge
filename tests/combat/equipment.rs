@@ -1,6 +1,6 @@
 use combat_engine::DiceExpr;
 use storyforge::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
-use storyforge::content::content_view::ContentView;
+use storyforge::content::content_view::ActiveContentData;
 use storyforge::content::weapons::{HandType, WeaponDef};
 use storyforge::game::components::{CombatStats, Equipment};
 
@@ -102,8 +102,8 @@ fn equip(main_hand: &str, chest: &str, legs: &str, feet: &str) -> Equipment {
     }
 }
 
-fn db_with(weapons: Vec<WeaponDef>, armors: Vec<ArmorDef>) -> ContentView {
-    ContentView {
+fn db_with(weapons: Vec<WeaponDef>, armors: Vec<ArmorDef>) -> ActiveContentData {
+    ActiveContentData {
         weapons: weapons.into_iter().map(|w| (w.id.clone(), w)).collect(),
         armor: armors.into_iter().map(|a| (a.id.clone(), a)).collect(),
         ..Default::default()

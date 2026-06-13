@@ -65,7 +65,7 @@ const TEST_SEED: u64 = 0xDEAD_C0DE_1234_5678;
 // ── App builder ───────────────────────────────────────────────────────────────
 
 /// Build a headless app that can run `spawn_combatants` + `bootstrap_combat_state`.
-fn scenario_app(content: storyforge::content::content_view::ContentView) -> App {
+fn scenario_app(content: storyforge::content::content_view::ActiveContentData) -> App {
     use bevy::math::Vec2;
     use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
     use storyforge::combat::ai::log::{AiLogger, PendingAiLogEntries};

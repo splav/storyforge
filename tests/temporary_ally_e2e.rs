@@ -18,7 +18,7 @@ use storyforge::app_state::CombatPhase;
 use storyforge::combat::advance_turn::check_victory_system;
 use storyforge::combat::bridge::{CombatStateRes, UnitIdMap};
 use storyforge::combat::turn_order::build_turn_order;
-use storyforge::content::content_view::ContentView;
+use storyforge::content::content_view::ActiveContentData;
 use storyforge::content::encounters::load_encounters_from_str;
 use storyforge::content::scenarios::{active_party, parse_scenario_body};
 use storyforge::game::components::{
@@ -55,7 +55,7 @@ fn load_ch2_scenario() -> storyforge::content::scenarios::ScenarioDef {
         .unwrap_or_else(|e| panic!("cannot read scenario.toml: {e}"));
     let mut scen = parse_scenario_body("ch2_shrine", scen_path.to_str().unwrap(), &scen_src);
 
-    scen.content = ContentView::load_layered(&campaign, &dir);
+    scen.content = ActiveContentData::load_layered(&campaign, &dir);
 
     let enc_src = std::fs::read_to_string(&enc_path)
         .unwrap_or_else(|e| panic!("cannot read encounters.toml: {e}"));
@@ -251,11 +251,13 @@ fn magister_enters_combat_with_initial_hp_from_template() {
 /// At combat start, Магистр has `stunned` status with `PERMANENT_DURATION` in engine.
 ///
 /// Статусы применяются engine-side через `CombatState::apply_initial_statuses`
-/// (читает `UnitTemplate.initial_statuses` через `ContentView`).
+/// (читает `UnitTemplate.initial_statuses` через `ActiveContentData`).
 /// Для этого теста загружаем кампейн-контент, содержащий шаблон `wounded_magister`.
 #[test]
 fn magister_is_stunned_at_combat_start() {
-    use storyforge::content::content_view::{ActiveContent, ContentView as ContentViewStruct};
+    use storyforge::content::content_view::{
+        ActiveContent, ActiveContentData as ContentViewStruct,
+    };
 
     let mut app = movement_app();
 
@@ -421,7 +423,7 @@ fn engine_sees_magister_as_ally_of_hero() {
 
 /// Engine-level test: `apply_initial_statuses` applies template statuses engine-side.
 ///
-/// Uses a pure stub ContentView (no Bevy app) to verify that
+/// Uses a pure stub ActiveContentData (no Bevy app) to verify that
 /// `CombatState::apply_initial_statuses` correctly applies `initial_statuses`
 /// from the template — without any bridge-side ECS injection.
 #[test]
@@ -445,7 +447,7 @@ fn apply_initial_statuses_engine_side() {
 
     let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
 
-    // Stub ContentView: test_template has initial_statuses = ["stunned"].
+    // Stub ActiveContentData: test_template has initial_statuses = ["stunned"].
     let mut test_tpl = crate::common::engine_unit::template();
     test_tpl.max_hp = 10;
     test_tpl.base_speed = 3;

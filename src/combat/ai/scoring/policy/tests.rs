@@ -13,7 +13,7 @@ use crate::combat::ai::scoring::policy;
 use crate::combat::ai::test_helpers::{fixture_to_pair, UnitFixture};
 use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::components::Team;
 use crate::game::hex::hex_from_offset;
 use combat_engine::DiceExpr;
@@ -25,7 +25,7 @@ fn via_policy(
     def: &AbilityDef,
     target: crate::combat::ai::world::snapshot::UnitView<'_>,
     ctx: &CasterContext,
-    content: &ContentView,
+    content: &ActiveContentData,
     danger_at_target: f32,
 ) -> f32 {
     let Some(calc) = def.effect.calc(ctx) else {
@@ -82,7 +82,7 @@ fn via_policy(
 /// `ActorTickEvent` JSONL line.
 fn extract_cast_triples_from_line(
     line: &str,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> Vec<(
     AbilityDef,
     (
@@ -134,7 +134,7 @@ fn extract_cast_triples_from_line(
 /// Parse all JSONL files from `tests/ai_scenarios/snapshots/` and collect
 /// `(ability_def, engine_pair, caster_ctx)` triples.
 fn collect_scenario_triples(
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> Vec<(
     AbilityDef,
     (
@@ -185,7 +185,7 @@ fn collect_scenario_triples(
 /// from scenario fixtures.
 #[test]
 fn policy_non_negative_for_all_scenario_fixtures() {
-    let content = ContentView::load_global_for_tests();
+    let content = ActiveContentData::load_global_for_tests();
     let triples = collect_scenario_triples(&content);
 
     let n = triples.len();
@@ -288,7 +288,7 @@ fn random_caster_ctx(rng: &mut Lcg) -> CasterContext {
 /// 1000 random triples: policy score is non-negative and finite.
 #[test]
 fn policy_non_negative_for_random_inputs() {
-    let content = ContentView::load_global_for_tests();
+    let content = ActiveContentData::load_global_for_tests();
 
     let abilities: Vec<&AbilityDef> = content
         .abilities
@@ -298,7 +298,7 @@ fn policy_non_negative_for_random_inputs() {
 
     assert!(
         !abilities.is_empty(),
-        "no abilities found — check ContentView::load_global_for_tests"
+        "no abilities found — check ActiveContentData::load_global_for_tests"
     );
 
     let mut rng = Lcg(42);

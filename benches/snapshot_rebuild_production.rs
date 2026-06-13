@@ -120,7 +120,7 @@ fn build_app() -> App {
         .init_resource::<GameDb>()
         .insert_resource(ActiveContent({
             let global = std::path::Path::new("assets/data");
-            storyforge::content::content_view::ContentView::load_layered(global, global)
+            storyforge::content::content_view::ActiveContentData::load_layered(global, global)
         }))
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()

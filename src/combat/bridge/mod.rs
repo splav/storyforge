@@ -10,7 +10,7 @@
 //! |---|---|
 //! | [`ids`] | `UnitIdMap` resource, `entity_to_uid` encoding |
 //! | [`bootstrap`] | `from_ecs`, `build_unit`, `bootstrap_combat_state` (ECS → engine init) |
-//! | [`content_view`] | `EcsContentView` — engine `ContentView` backed by `ActiveContent` |
+//! | [`content_view`] | `EcsContentView` — engine `ActiveContentData` backed by `ActiveContent` |
 //! | [`translate`] | `translate_one` — exhaustive engine `Event` → CombatLog/queues match |
 //! | [`process`] | `process_action_system` (ActionInput → `step()`), dynamic summon spawn |
 //! | [`project`] | `project_state_to_ecs` — engine state → ECS read-only projection |

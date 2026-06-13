@@ -16,12 +16,12 @@
 //!         (any content file, optional — overrides campaign + global)
 //! ```
 //!
-//! For each scenario we build a fully-merged `ContentView` (global ∪ campaign ∪
+//! For each scenario we build a fully-merged `ActiveContentData` (global ∪ campaign ∪
 //! scenario, with scenario winning on id clash) and attach it as
 //! `ScenarioDef.content`. At scenario entry the runtime copies this into
 //! `ActiveContent`, which is the single source of content for combat systems.
 
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::content::encounters::load_encounters_from_str;
 use crate::content::scenarios::{parse_scenario_body, ScenarioDef};
 use serde::Deserialize;
@@ -85,7 +85,7 @@ pub fn load_campaigns() -> CampaignsLoad {
                 parse_scenario_body(scenario_id, &scen_file.display().to_string(), &scen_src);
 
             // Layered content view: global → campaign → scenario.
-            scen.content = ContentView::load_layered(&campaign_dir, &scen_dir);
+            scen.content = ActiveContentData::load_layered(&campaign_dir, &scen_dir);
 
             // Encounters resolve templates against the scenario's merged pool.
             let enc_src = std::fs::read_to_string(&enc_file)

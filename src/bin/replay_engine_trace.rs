@@ -43,7 +43,7 @@ use combat_engine::{
     DiceRng,
 };
 use storyforge::combat::bridge::build_ecs_content_view;
-use storyforge::content::content_view::{ActiveContent, ContentView};
+use storyforge::content::content_view::{ActiveContent, ActiveContentData};
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -419,7 +419,7 @@ fn main() {
         }
     };
 
-    let content_view = ContentView::load_layered(&campaign_dir, &scenario_dir);
+    let content_view = ActiveContentData::load_layered(&campaign_dir, &scenario_dir);
     let active = ActiveContent(content_view);
     let ecs_view = build_ecs_content_view(&active);
 
@@ -555,7 +555,7 @@ mod tests {
             // Skip if tree not present (shouldn't happen in this repo).
             return;
         }
-        let cv = ContentView::load_layered(&campaign_dir, &scenario_dir);
+        let cv = ActiveContentData::load_layered(&campaign_dir, &scenario_dir);
         assert!(
             cv.abilities
                 .contains_key(&combat_engine::AbilityId("whisper_from_beyond".to_owned())),

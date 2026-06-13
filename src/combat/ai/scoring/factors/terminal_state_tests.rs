@@ -57,7 +57,7 @@ fn exposure_at_end_zero_when_no_danger() {
     let actor_pos = hex_from_offset(0, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps(); // danger map is all zeros
@@ -74,7 +74,7 @@ fn exposure_at_end_high_in_dangerous_tile() {
     let actor_pos = hex_from_offset(0, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -102,7 +102,7 @@ fn exposure_at_end_non_zero_when_actor_in_enemy_threat_zone() {
     let enemy_adjacent = hex_from_offset(1, 0); // actor will end at actor_pos in danger
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -127,7 +127,7 @@ fn exposure_at_end_zero_in_safe_backline() {
     let actor_pos = hex_from_offset(5, 5); // far from any enemy
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps(); // danger map all zeros — safe backline
@@ -157,7 +157,7 @@ fn next_turn_lethality_zero_when_actor_dead_at_end() {
     let end_snap = snapshot_from(vec![dead_actor, enemy], 1);
 
     let initial_snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -180,7 +180,7 @@ fn next_turn_lethality_zero_when_no_enemies_in_reach() {
         .threat(8.0)
         .build();
     let snap = snapshot_from(vec![actor.clone(), far_enemy], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -204,7 +204,7 @@ fn next_turn_lethality_high_when_dpr_exceeds_hp() {
         .threat(12.0) // DPR=12, actor HP=5 → ratio=2.4 → clamped to 1.0
         .build();
     let snap = snapshot_from(vec![actor.clone(), enemy], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -236,7 +236,7 @@ fn next_turn_lethality_clamped_to_one() {
         .threat(20.0)
         .build();
     let snap = snapshot_from(vec![actor.clone(), e1, e2], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -264,7 +264,7 @@ fn next_turn_lethality_uses_initial_snap_when_sim_snapshots_empty() {
         .threat(8.0)
         .build();
     let initial_snap = snapshot_from(vec![actor.clone(), far_enemy], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -369,7 +369,7 @@ fn ally_rescue_zero_when_no_endangered_ally() {
         .full_hp(20)
         .build();
     let snap = snapshot_from(vec![actor.clone(), ally], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -397,7 +397,7 @@ fn ally_rescue_zero_when_endangered_ally_still_low_at_end() {
         .build();
     let initial_snap = snapshot_from(vec![actor.clone(), ally_initial], 1);
     let end_snap = snapshot_from(vec![actor.clone(), ally_end], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -427,7 +427,7 @@ fn ally_rescue_credits_low_hp_to_safe_transition() {
         .build();
     let initial_snap = snapshot_from(vec![actor.clone(), ally_initial], 1);
     let end_snap = snapshot_from(vec![actor.clone(), ally_end], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -453,7 +453,7 @@ fn ally_rescue_skips_self() {
         .max_hp(20)
         .build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -473,7 +473,7 @@ fn board_control_gain_zero_when_pos_unchanged() {
     let pos = hex_from_offset(0, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps(); // opportunity all zeros
@@ -492,7 +492,7 @@ fn board_control_gain_positive_when_moved_to_better() {
     let end_pos = hex_from_offset(1, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -522,7 +522,7 @@ fn board_control_gain_negative_when_moved_to_worse() {
     let end_pos = hex_from_offset(1, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -558,7 +558,7 @@ fn line_actionability_zero_when_no_abilities() {
     let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build(); // abilities=[]
     let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
     let snap = snapshot_from(vec![actor.clone(), enemy], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -585,7 +585,7 @@ fn line_actionability_zero_when_actor_dead_at_end() {
         .ability_names(&["melee_attack"])
         .build();
     let initial_snap = snapshot_from(vec![actor_initial.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -607,7 +607,7 @@ fn line_actionability_zero_when_no_enemies_in_range() {
         .build();
     let far_enemy = UnitBuilder::new(2, Team::Player, far_enemy_pos).build();
     let snap = snapshot_from(vec![actor.clone(), far_enemy], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -630,7 +630,7 @@ fn line_actionability_proportional_to_targets_in_range() {
     let e1 = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
     let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0)).build();
     let e3 = UnitBuilder::new(4, Team::Player, hex_from_offset(3, 0)).build();
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -667,7 +667,7 @@ fn density_value_zero_for_non_aoe_actor() {
     let e1 = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
     let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(0, 1)).build();
     let snap = snapshot_from(vec![actor.clone(), e1, e2], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -688,7 +688,7 @@ fn density_value_zero_when_no_cluster() {
         .build();
     let far_enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0)).build();
     let snap = snapshot_from(vec![actor.clone(), far_enemy], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -711,7 +711,7 @@ fn density_value_high_when_3_enemies_in_radius() {
     let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(0, 1)).build();
     let e3 = UnitBuilder::new(4, Team::Player, hex_from_offset(2, 0)).build();
     let snap = snapshot_from(vec![actor.clone(), e1, e2, e3], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps();
@@ -731,7 +731,7 @@ fn pressure_spacing_zero_when_pos_unchanged() {
     let pos = hex_from_offset(0, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let maps = empty_maps(); // ally_support all zeros
@@ -750,7 +750,7 @@ fn pressure_spacing_positive_when_moved_into_support() {
     let end_pos = hex_from_offset(1, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();
@@ -783,7 +783,7 @@ fn pressure_spacing_negative_when_moved_away() {
     let end_pos = hex_from_offset(1, 0);
     let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ContentView::load_global_for_tests();
+    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::hard();
     let world = make_test_ctx(&content, &difficulty);
     let mut maps = empty_maps();

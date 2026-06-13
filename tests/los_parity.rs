@@ -77,8 +77,8 @@ fn snapshot_blocked_los(from: Hex, to: Hex, blocked: &HashSet<Hex>) -> bool {
     let snap = BattleSnapshot::new(state, AiCache::default());
 
     // Content is not needed for is_blocked_los — use empty content view.
-    use storyforge::content::content_view::ContentView;
-    let content = ContentView::default();
+    use storyforge::content::content_view::ActiveContentData;
+    let content = ActiveContentData::default();
     let adapter = SnapshotActionState {
         content: &content,
         snap: &snap,

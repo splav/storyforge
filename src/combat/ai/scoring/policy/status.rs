@@ -2,7 +2,7 @@
 
 use crate::combat::ai::scoring::horizon::{horizon_window_sum, status_applications};
 use crate::content::abilities::AbilityDef;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 
 /// HP-equivalent value of a single stun-class status applied to `target` for
 /// `duration` rounds.
@@ -64,7 +64,7 @@ pub fn armor_shred_value(armor_bonus: i32, duration: f32) -> f32 {
 pub fn value(
     def: &AbilityDef,
     target: crate::combat::ai::world::snapshot::UnitView<'_>,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     status_applications(def, content)
         .map(|(sd, d)| {

@@ -17,7 +17,7 @@ use crate::combat::ai::world::snapshot::build_snapshot;
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::bridge::{CombatStateRes, UnitIdMap};
 use crate::combat::DiceRngRes;
-use crate::content::content_view::{ActiveContent, ContentView};
+use crate::content::content_view::{ActiveContent, ActiveContentData};
 use crate::content::settings::GameSettings;
 use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, KeepAliveTarget, StatusEffects,
@@ -143,7 +143,7 @@ fn run_ai_turn(
     session_id: &str,
     keep_alive_entities: &HashSet<Entity>,
 ) {
-    let content: &ContentView = &env.content;
+    let content: &ActiveContentData = &env.content;
     let settings = &env.settings;
     let difficulty = &env.difficulty;
     let inf_cfg = &env.inf_cfg;
@@ -443,7 +443,7 @@ fn run_ai_turn(
 pub fn has_ai_control_status(
     entity: Entity,
     statuses: &Query<&StatusEffects>,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> bool {
     statuses.get(entity).is_ok_and(|se| {
         se.0.iter()

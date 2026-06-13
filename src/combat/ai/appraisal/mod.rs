@@ -27,7 +27,7 @@ use crate::combat::ai::memory::AiMemory;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 
 /// Grouping struct for all read-only inputs to `compute_need_signals`.
 ///
@@ -44,7 +44,7 @@ pub struct AppraisalCtx<'a> {
     pub tuning: &'a AiTuning,
     pub ability_tags: &'a AbilityTagCache,
     pub status_tags: &'a StatusTagCache,
-    pub content: &'a ContentView,
+    pub content: &'a ActiveContentData,
 }
 
 /// Normalised need-signal vector. Each field in [0, 1] semantically; producers
@@ -122,7 +122,7 @@ pub(crate) mod tests {
         memory: &'a AiMemory,
         tuning: &'a AiTuning,
         maps: &'a crate::combat::ai::world::influence::InfluenceMaps,
-        content: &'a crate::content::content_view::ContentView,
+        content: &'a crate::content::content_view::ActiveContentData,
         ability_tags: &'a crate::combat::ai::world::tags::AbilityTagCache,
         status_tags: &'a crate::combat::ai::world::tags::StatusTagCache,
     ) -> AppraisalCtx<'a> {
@@ -175,7 +175,7 @@ pub(crate) mod tests {
 
     /// Build a content + ability_tag_cache with a "heal" ability tagged Rescue.
     pub fn content_with_rescue_ability() -> (
-        crate::content::content_view::ContentView,
+        crate::content::content_view::ActiveContentData,
         crate::combat::ai::world::tags::AbilityTagCache,
         crate::combat::ai::world::tags::StatusTagCache,
     ) {
@@ -191,7 +191,7 @@ pub(crate) mod tests {
 
     /// Build content + cache with a "stun" ability tagged ApplyCC.
     pub fn content_with_apply_cc_ability() -> (
-        crate::content::content_view::ContentView,
+        crate::content::content_view::ActiveContentData,
         crate::combat::ai::world::tags::AbilityTagCache,
         crate::combat::ai::world::tags::StatusTagCache,
     ) {

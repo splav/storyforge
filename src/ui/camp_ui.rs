@@ -256,7 +256,7 @@ fn resolve_hero_equipment(
     hero_id: &str,
     class_id: &str,
     campaign: &CampaignState,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> EquipmentSave {
     if let Some(saved) = campaign.loadouts.get(hero_id) {
         return saved.clone();
@@ -286,7 +286,7 @@ fn resolve_hero_equipment(
 
 fn weapon_name<'a>(
     id: &WeaponId,
-    content: &'a crate::content::content_view::ContentView,
+    content: &'a crate::content::content_view::ActiveContentData,
 ) -> &'a str {
     content
         .weapons
@@ -295,7 +295,10 @@ fn weapon_name<'a>(
         .unwrap_or("?")
 }
 
-fn armor_name<'a>(id: &ArmorId, content: &'a crate::content::content_view::ContentView) -> &'a str {
+fn armor_name<'a>(
+    id: &ArmorId,
+    content: &'a crate::content::content_view::ActiveContentData,
+) -> &'a str {
     content
         .armor
         .get(id)
@@ -315,7 +318,7 @@ fn armor_weight_label(weight: ArmorWeight) -> &'static str {
 /// Weight class of an item — `Some` only for armor (weapons have no class).
 fn item_weight(
     item: &ItemRef,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> Option<ArmorWeight> {
     match item {
         ItemRef::Armor(aid) => content.armor.get(aid).map(|d| d.weight),
@@ -324,7 +327,10 @@ fn item_weight(
 }
 
 /// Short display label for an item (first 8 chars to fit in the 56px cell).
-fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentView) -> String {
+fn item_abbrev(
+    item: &ItemRef,
+    content: &crate::content::content_view::ActiveContentData,
+) -> String {
     let full = match item {
         ItemRef::Weapon(wid) => weapon_name(wid, content),
         ItemRef::Armor(aid) => armor_name(aid, content),
@@ -341,7 +347,7 @@ fn item_abbrev(item: &ItemRef, content: &crate::content::content_view::ContentVi
 /// Asset path (relative to `assets/images/`) of an item's icon, if it has one.
 fn item_image_path<'a>(
     item: &ItemRef,
-    content: &'a crate::content::content_view::ContentView,
+    content: &'a crate::content::content_view::ActiveContentData,
 ) -> Option<&'a str> {
     match item {
         ItemRef::Weapon(wid) => content.weapons.get(wid)?.image.as_deref(),
@@ -354,7 +360,7 @@ fn item_image_path<'a>(
 /// expected value keeps one decimal so 1d8 reads `4.5`, not a rounded `4`.
 fn weapon_damage_label(
     item: &ItemRef,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> Option<String> {
     let ItemRef::Weapon(wid) = item else {
         return None;
@@ -594,7 +600,7 @@ pub fn cell_compatible(
     campaign: &CampaignState,
     db: &GameDb,
     scenario_state: &ScenarioState,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> bool {
     match (selection, target) {
         // Backpack → Equip: check whether the backpack item fits the equip slot.
@@ -650,7 +656,7 @@ pub fn cell_compatible(
 fn hero_can_wear(
     class_id: &str,
     item: &ItemRef,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> bool {
     let ItemRef::Armor(aid) = item else {
         return true;
@@ -676,7 +682,7 @@ fn cell_item(
     campaign: &CampaignState,
     db: &GameDb,
     scenario_state: &ScenarioState,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> Option<ItemRef> {
     match kind {
         CellKind::Backpack { index } => campaign.stash.get(*index).cloned(),
@@ -808,7 +814,7 @@ fn spawn_camp_ui(
     db: &GameDb,
     scenario_state: &ScenarioState,
     campaign: &CampaignState,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
     selection: &CampEquipSelection,
 ) {
     let scen = db.scenarios.get(&scenario_state.scenario_id).unwrap();
@@ -824,7 +830,7 @@ fn spawn_camp_ui(
         campaign: &CampaignState,
         db: &GameDb,
         scenario_state: &ScenarioState,
-        content: &crate::content::content_view::ContentView,
+        content: &crate::content::content_view::ActiveContentData,
     ) -> CellStyle {
         let Some(sel) = &selection.selected else {
             return CellStyle::Idle;
@@ -2637,7 +2643,7 @@ mod tests {
 
     // ── cell_compatible helpers ───────────────────────────────────────────────
 
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::content::scenarios::{PartyMemberDef, ScenarioDef};
     use crate::game::resources::{GameDb, ScenarioState};
 
@@ -2647,11 +2653,11 @@ mod tests {
         class_id: &str,
         weapons: HashMap<WeaponId, WeaponDef>,
         armor_map: HashMap<ArmorId, ArmorDef>,
-    ) -> (GameDb, ScenarioState, CampaignState, ContentView) {
-        let content = ContentView {
+    ) -> (GameDb, ScenarioState, CampaignState, ActiveContentData) {
+        let content = ActiveContentData {
             weapons,
             armor: armor_map,
-            ..ContentView::default()
+            ..ActiveContentData::default()
         };
 
         let scen_id = "test_scen".to_string();
@@ -2670,7 +2676,7 @@ mod tests {
             name: scen_id.clone(),
             party: vec![member],
             scenes: vec![],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters: HashMap::new(),
         };
 
@@ -2926,9 +2932,9 @@ mod tests {
 
     // ── hero_can_wear ────────────────────────────────────────────────────────
 
-    /// Build a `ContentView` with light/medium/heavy chest pieces and
+    /// Build a `ActiveContentData` with light/medium/heavy chest pieces and
     /// warrior/ranger/mage class defs — enough for proficiency tests.
-    fn proficiency_content() -> ContentView {
+    fn proficiency_content() -> ActiveContentData {
         use crate::content::classes::ClassDef;
         use crate::game::components::CombatStats;
 
@@ -2980,10 +2986,10 @@ mod tests {
         );
         classes.insert("mage".to_string(), make_class("mage", vec![]));
 
-        ContentView {
+        ActiveContentData {
             armor,
             classes,
-            ..ContentView::default()
+            ..ActiveContentData::default()
         }
     }
 
@@ -3136,10 +3142,10 @@ mod tests {
         let mut classes = HashMap::new();
         classes.insert("mage".to_string(), mage_class);
 
-        let content = ContentView {
+        let content = ActiveContentData {
             armor: armor.clone(),
             classes,
-            ..ContentView::default()
+            ..ActiveContentData::default()
         };
 
         // Mage currently wearing full_plate (pre-seeded loadout).

@@ -29,7 +29,7 @@ use combat_engine::{
 use crate::combat::bridge::{build_ecs_content_view, build_unit, UnitBuildInput};
 use crate::content::{
     abilities::{CasterContext as BevyCasterContext, EffectDef},
-    content_view::{ActiveContent, ContentView},
+    content_view::{ActiveContent, ActiveContentData},
     encounters::{AuraAffects, EncounterDef, EnemyDef, VictoryCondition},
     races::CritFailEffect,
     scenarios::{active_party, active_party_statuses, PartyMemberDef, ScenarioDef},
@@ -149,7 +149,7 @@ pub struct ProjectionMeta {
 /// Given the same inputs the function always produces the same `CombatState`.
 /// RNG consumption order matches the ECS bootstrap exactly.
 pub fn init_fight(
-    content: &ContentView,
+    content: &ActiveContentData,
     scenario: &ScenarioDef,
     scene_index: usize,
     encounter: &EncounterDef,

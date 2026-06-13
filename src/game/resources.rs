@@ -1,5 +1,5 @@
 use crate::content::campaigns::{load_campaigns, CampaignDef};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::content::scenarios::ScenarioDef;
 use bevy::prelude::*;
 use combat_engine::StatusId;
@@ -169,7 +169,7 @@ impl GameDb {
     }
 }
 
-fn validate_content(scen_id: &str, c: &ContentView) {
+fn validate_content(scen_id: &str, c: &ActiveContentData) {
     use crate::content::weapons::HandType;
 
     // Abilities → statuses.
@@ -620,7 +620,7 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
 
 #[cfg(test)]
 mod validate_party_status_tests {
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::content::scenarios::{PartyMemberDef, PartyStatusOp, ScenarioDef, SceneDef};
     use crate::game::resources::GameDb;
     use std::collections::HashMap;
@@ -642,8 +642,8 @@ mod validate_party_status_tests {
     /// `injured`) so party-member validation passes *before* status-op validation
     /// runs. Hand-building a consistent class equipment chain is brittle; load the
     /// actual `assets/data` view instead.
-    fn valid_content() -> ContentView {
-        ContentView::load_global_for_tests()
+    fn valid_content() -> ActiveContentData {
+        ActiveContentData::load_global_for_tests()
     }
 
     fn scenario_with_status_ops(
@@ -970,7 +970,7 @@ impl ActionForecast {
 
 #[cfg(test)]
 mod validate_choice_tests {
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::content::scenarios::{ChoiceOption, ScenarioDef, SceneDef};
     use crate::game::resources::GameDb;
     use std::collections::HashMap;
@@ -985,7 +985,7 @@ mod validate_choice_tests {
                 options,
                 requires_flag: None,
             }],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters: HashMap::new(),
         };
         let mut db = GameDb {

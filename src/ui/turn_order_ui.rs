@@ -4,7 +4,7 @@ use super::{
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, ResourceCost};
 use crate::content::armor::ArmorDef;
 use crate::content::content_view::ActiveContent;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::content::weapons::WeaponDef;
 use crate::game::components::{
     Abilities, ActiveCombatant, Combatant, Dead, Equipment, Faction, Team, Vital,
@@ -251,7 +251,7 @@ pub fn update_turn_order_tooltip(
     *vis = Visibility::Visible;
 }
 
-fn weapon_line(slot: &str, id: &WeaponId, content: &ContentView) -> String {
+fn weapon_line(slot: &str, id: &WeaponId, content: &ActiveContentData) -> String {
     if let Some(w) = content.weapons.get(id) {
         let dice_str = format!("{}d{}", w.dice.count, w.dice.sides);
         let bonuses = weapon_bonus_str(w);
@@ -265,7 +265,7 @@ fn weapon_line(slot: &str, id: &WeaponId, content: &ContentView) -> String {
     }
 }
 
-fn armor_line(slot: &str, id: &ArmorId, content: &ContentView) -> String {
+fn armor_line(slot: &str, id: &ArmorId, content: &ActiveContentData) -> String {
     if let Some(a) = content.armor.get(id) {
         let bonuses = armor_bonus_str(a);
         if bonuses.is_empty() {

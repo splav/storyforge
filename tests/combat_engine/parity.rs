@@ -83,7 +83,7 @@ fn run_sim(
     path: Vec<storyforge::game::hex::Hex>,
 ) -> BattleSnapshot {
     let status_tags = StatusTagCache::default();
-    let content = storyforge::content::content_view::ContentView::default();
+    let content = storyforge::content::content_view::ActiveContentData::default();
     let mut sim = SimState::from_snapshot(snap, actor_id, &status_tags);
     sim.apply_step(
         &PlanStep::Move { path },
@@ -94,7 +94,7 @@ fn run_sim(
     sim.into_snapshot()
 }
 
-/// ContentView adapter for parity tests. After Phase 5c.1 the engine reads
+/// ActiveContentData adapter for parity tests. After Phase 5c.1 the engine reads
 /// AoO dice directly from `Unit.aoo_dice` (set by `init_state_from_ecs`),
 /// so this stub no longer needs to materialize the dice map itself.
 struct SnapContent;

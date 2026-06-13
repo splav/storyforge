@@ -2,7 +2,7 @@ use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::repair::affinity::RepairWeights;
 use crate::combat::ai::world::tags::{AbilityTag, AbilityTagCache, AbilityTagSet};
 use crate::content::abilities::{AoEShape, EffectDef};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use bevy::prelude::*;
 use combat_engine::AbilityId;
 
@@ -219,7 +219,7 @@ pub fn infer_profile(
     abilities: &[AbilityId],
     max_hp: i32,
     total_armor: i32,
-    content: &ContentView,
+    content: &ActiveContentData,
     tag_cache: &AbilityTagCache,
 ) -> AxisProfile {
     let mut p = AxisProfile::default();
@@ -327,8 +327,8 @@ mod tests {
     const HEAL_IDX: usize = StepFactor::Heal as usize;
     use combat_engine::AbilityId;
 
-    fn db_with_cache() -> (ContentView, AbilityTagCache) {
-        let content = ContentView::load_global_for_tests();
+    fn db_with_cache() -> (ActiveContentData, AbilityTagCache) {
+        let content = ActiveContentData::load_global_for_tests();
         let (_, ac) = build_caches(&content);
         (content, ac)
     }
@@ -753,7 +753,7 @@ mod tests {
     fn infer_profile_uses_override_when_set() {
         use crate::combat::ai::world::tags::cache::build_caches;
 
-        let mut content = ContentView::load_global_for_tests();
+        let mut content = ActiveContentData::load_global_for_tests();
         let id = AbilityId::from("melee_attack");
         if let Some(def) = content.abilities.get_mut(&id) {
             def.ai_tags_override = Some(vec!["rescue".to_string()]);

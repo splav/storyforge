@@ -36,7 +36,7 @@ use storyforge::combat::{
     DiceRngRes,
 };
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
-use storyforge::content::content_view::{ActiveContent, ContentView};
+use storyforge::content::content_view::{ActiveContent, ActiveContentData};
 use storyforge::content::statuses::StatusDef;
 use storyforge::content::weapons::{HandType, WeaponDef};
 use storyforge::game::bundles::CombatantBundle;
@@ -354,7 +354,7 @@ pub fn bevy_status(id: &str, engine: combat_engine::StatusDef) -> StatusDef {
 
 // ─── Melee content builder ────────────────────────────────────────────────────
 
-/// Builder for a synthetic melee `ContentView` (weapon + WeaponAttack ability +
+/// Builder for a synthetic melee `ActiveContentData` (weapon + WeaponAttack ability +
 /// optional status definitions) used by AoO-flavoured tests.
 ///
 /// ```ignore
@@ -385,8 +385,8 @@ impl MeleeContent {
         self
     }
 
-    /// Consume the builder and produce a `ContentView` ready for `ActiveContent`.
-    pub fn into_view(self) -> ContentView {
+    /// Consume the builder and produce a `ActiveContentData` ready for `ActiveContent`.
+    pub fn into_view(self) -> ActiveContentData {
         let sword = WeaponDef {
             id: self.weapon_id.clone(),
             name: "Test Sword".into(),
@@ -423,7 +423,7 @@ impl MeleeContent {
                 excludes_tags: Default::default(),
             },
         };
-        let mut cv = ContentView::default();
+        let mut cv = ActiveContentData::default();
         cv.abilities.insert(self.ability_id.clone(), ability);
         cv.weapons.insert(self.weapon_id.clone(), sword);
         for status in self.statuses {

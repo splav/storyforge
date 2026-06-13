@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 
 use super::{build_actual_decision, run_assertion, ActualDecision, AssertResult, Overlay};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use combat_engine::DiceRng;
 
 // ── Assert pipeline ──────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ pub struct GoldenRecord {
 pub fn assert_v28_log_file(
     jsonl_path: &Path,
     overlay_path: &Path,
-    content: &ContentView,
+    content: &ActiveContentData,
     inf_cfg: &InfluenceConfig,
 ) -> Result<AssertOutcome, AssertError> {
     use crate::combat::ai::config::difficulty::DifficultyProfile;

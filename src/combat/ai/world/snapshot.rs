@@ -6,7 +6,7 @@ use crate::combat::ai::world::tags::StatusTagSet;
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::combat::bridge::UnitIdMap;
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::components::{Abilities, AiCombatantQ, Combatant, StatusEffects, Team};
 use crate::game::hex::Hex;
 use crate::game::hex_map::HexMap;
@@ -215,7 +215,7 @@ pub fn build_snapshot(
     statuses_q: &Query<&StatusEffects>,
     hex_map: &HexMap,
     roles: &Query<&AxisProfile>,
-    content: &ContentView,
+    content: &ActiveContentData,
     difficulty: &DifficultyProfile,
     mut combat_state: combat_engine::state::CombatState,
     id_map: &UnitIdMap,
@@ -598,7 +598,7 @@ use crate::game::components::AiCombatantQItem;
 fn compute_tags(
     c: &AiCombatantQItem,
     _statuses_q: &Query<&StatusEffects>,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> AiTags {
     let mut tags = AiTags::empty();
 

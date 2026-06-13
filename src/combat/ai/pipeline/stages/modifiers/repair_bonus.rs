@@ -89,7 +89,7 @@ mod tests {
     }
 
     fn make_world_and_actor<'a>(
-        content: &'a crate::content::content_view::ContentView,
+        content: &'a crate::content::content_view::ActiveContentData,
         difficulty: &'a DifficultyProfile,
         pos: Hex,
     ) -> (

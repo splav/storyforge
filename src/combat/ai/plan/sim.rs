@@ -14,7 +14,7 @@
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::content::abilities::{AbilityDef, CasterContext};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
@@ -127,7 +127,7 @@ impl<'a> SimState<'a> {
         &mut self,
         step: &PlanStep,
         caster_ctx: &CasterContext,
-        content: &ContentView,
+        content: &ActiveContentData,
         disadvantage: bool,
     ) -> StepOutcome {
         // Safety net: if the actor is already dead on entry, nothing to apply.
@@ -184,7 +184,7 @@ impl<'a> SimState<'a> {
         let actor_hp_before = actor_snap.hp();
         let actor_uid = entity_to_uid(self.actor);
 
-        // ContentView still builds per-call from snapshot (cheap; tied to
+        // ActiveContentData still builds per-call from snapshot (cheap; tied to
         // snapshot's AoO expected damage cache).
         let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
 
@@ -224,7 +224,7 @@ impl<'a> SimState<'a> {
         target: Entity,
         target_pos: Hex,
         _caster_ctx: &CasterContext,
-        content: &ContentView,
+        content: &ActiveContentData,
         _disadvantage: bool,
     ) -> StepOutcome {
         let mut outcome = StepOutcome::default();
@@ -325,7 +325,7 @@ impl<'a> SimState<'a> {
 
 // ── Engine shim helpers ───────────────────────────────────────────────────────
 
-/// `ContentView` adapter for the AI sim (5c.1: static content only).
+/// `ActiveContentData` adapter for the AI sim (5c.1: static content only).
 ///
 /// Per-combat state (caster contexts, AoO dice) lives on engine `Unit`
 /// fields in `SimState.combat_state` (set at construction from `snap.state`).
@@ -347,8 +347,8 @@ impl SnapshotContentView {
     }
 
     /// Full constructor for Cast steps: populates ability + status definitions
-    /// from the Bevy `ContentView` so that engine legality can resolve them.
-    fn with_content(_snap: &BattleSnapshot, content: &ContentView) -> Self {
+    /// from the Bevy `ActiveContentData` so that engine legality can resolve them.
+    fn with_content(_snap: &BattleSnapshot, content: &ActiveContentData) -> Self {
         let abilities = content
             .abilities
             .iter()

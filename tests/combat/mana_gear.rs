@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use storyforge::combat::ai::world::tags::AbilityTagCache;
 use storyforge::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
 use storyforge::content::classes::ClassDef;
-use storyforge::content::content_view::ContentView;
+use storyforge::content::content_view::ActiveContentData;
 use storyforge::content::encounters::{EncounterDef, VictoryCondition};
 use storyforge::content::scenarios::{PartyMemberDef, ScenarioDef, SceneDef};
 use storyforge::game::components::{CombatStats, Mana};
@@ -73,8 +73,8 @@ fn bare_armor(id: &str, slot: ArmorSlot) -> ArmorDef {
     mana_armor(id, slot, 0)
 }
 
-/// Build a minimal ContentView with mage class + armor items.
-fn content_for_mage(chest: ArmorDef, mana_max: i32) -> ContentView {
+/// Build a minimal ActiveContentData with mage class + armor items.
+fn content_for_mage(chest: ArmorDef, mana_max: i32) -> ActiveContentData {
     let mut armor = HashMap::new();
     let chest_id = chest.id.to_string();
     armor.insert(chest.id.clone(), chest);
@@ -88,15 +88,15 @@ fn content_for_mage(chest: ArmorDef, mana_max: i32) -> ContentView {
     let mut classes = HashMap::new();
     classes.insert("mage".into(), cls);
 
-    ContentView {
+    ActiveContentData {
         armor,
         classes,
-        ..ContentView::default()
+        ..ActiveContentData::default()
     }
 }
 
 /// Build a ScenarioDef with one mage party member and one encounter (no enemies).
-fn scenario_with_mage(content: ContentView) -> ScenarioDef {
+fn scenario_with_mage(content: ActiveContentData) -> ScenarioDef {
     let encounter = EncounterDef {
         id: "enc".into(),
         name: "enc".into(),

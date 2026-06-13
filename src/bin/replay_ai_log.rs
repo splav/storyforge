@@ -42,7 +42,7 @@ use storyforge::combat::ai::replay::{
 use storyforge::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::world::reservations::Reservations;
 use storyforge::combat::ai::world::tags::cache::build_caches;
-use storyforge::content::content_view::ContentView;
+use storyforge::content::content_view::ActiveContentData;
 use storyforge::game::hex::Hex;
 
 // ── Regression metrics ──────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ fn infer_content_dirs(path: &std::path::Path) -> Option<(PathBuf, PathBuf)> {
 fn golden_from_v28_event(
     event: &ActorTickEvent,
     log_path: &str,
-    content: &ContentView,
+    content: &ActiveContentData,
     inf_cfg: &InfluenceConfig,
 ) -> Result<GoldenRecord, String> {
     let actor = Entity::try_from_bits(event.actor_id)
@@ -412,7 +412,7 @@ fn main() {
             );
             (global.to_path_buf(), global.to_path_buf())
         };
-    let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
+    let content = ActiveContentData::load_layered(&campaign_dir, &scenario_dir);
     // Step 9.A/9.B: pre-build tag caches once for all replay entries.
     let (status_tag_cache, ability_tag_cache) = build_caches(&content);
     let inf_cfg = InfluenceConfig::default();

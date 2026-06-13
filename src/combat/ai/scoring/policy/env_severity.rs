@@ -19,7 +19,7 @@
 use crate::combat::ai::scoring::policy::status;
 use crate::combat::ai::world::cache::UnitAiCache;
 use crate::combat::ai::world::snapshot::UnitView;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use combat_engine::AbilityId;
 use combat_engine::EffectDef;
 
@@ -129,7 +129,11 @@ pub(crate) fn neutral_reference_pair() -> (combat_engine::state::Unit, UnitAiCac
 /// Returns `0.0` if the ability is absent from `content` or has no damage/status
 /// effect.  The match over `EffectDef` is exhaustive — a future engine variant
 /// becomes a compile error rather than a silent `0.0`.
-pub fn severity(ability: &AbilityId, content: &ContentView, neutral_ref: UnitView<'_>) -> f32 {
+pub fn severity(
+    ability: &AbilityId,
+    content: &ActiveContentData,
+    neutral_ref: UnitView<'_>,
+) -> f32 {
     let Some(def) = content.abilities.get(ability) else {
         return 0.0;
     };
@@ -160,7 +164,7 @@ mod tests {
     use crate::combat::ai::scoring::policy::status;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::content::abilities::AbilityDef;
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::{
@@ -168,8 +172,8 @@ mod tests {
         StatusApplication, TargetType,
     };
 
-    fn empty_content() -> ContentView {
-        ContentView::default()
+    fn empty_content() -> ActiveContentData {
+        ActiveContentData::default()
     }
 
     /// Build a minimal `AbilityDef` (bridge wrapper) with the given engine effect.
@@ -199,7 +203,7 @@ mod tests {
         }
     }
 
-    fn insert_ability(content: &mut ContentView, def: AbilityDef) {
+    fn insert_ability(content: &mut ActiveContentData, def: AbilityDef) {
         content.abilities.insert(def.id.clone(), def);
     }
 
@@ -307,7 +311,7 @@ mod tests {
     /// re-implementing.
     #[test]
     fn severity_status_only_ability_is_status_cost() {
-        let content = ContentView::load_global_for_tests();
+        let content = ActiveContentData::load_global_for_tests();
 
         // Find any ability that has no direct damage but applies statuses.
         let (ability_id, def) = content

@@ -125,7 +125,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::AbilityId;
@@ -142,7 +142,7 @@ mod tests {
     /// — this test only verifies dispatch/routing.
     #[test]
     fn step_factor_routes_each_variant_to_its_own_column() {
-        let content = ContentView::load_global_for_tests();
+        let content = ActiveContentData::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let world = make_test_ctx(&content, &diff);
 
@@ -227,7 +227,7 @@ mod tests {
     /// behavioural pin, not duplicated per leaf.
     #[test]
     fn step_factor_move_step_yields_zero_offensive() {
-        let content = ContentView::load_global_for_tests();
+        let content = ActiveContentData::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let world = make_test_ctx(&content, &diff);
         let tile = hex_from_offset(0, 0);

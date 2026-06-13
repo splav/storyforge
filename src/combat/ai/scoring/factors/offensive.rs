@@ -152,8 +152,8 @@ mod tests {
     use crate::game::hex::hex_from_offset;
     use combat_engine::AbilityId;
 
-    fn db() -> crate::content::content_view::ContentView {
-        crate::content::content_view::ContentView::load_global_for_tests()
+    fn db() -> crate::content::content_view::ActiveContentData {
+        crate::content::content_view::ActiveContentData::load_global_for_tests()
     }
 
     /// Step 4.10: `compute_offensive` reads new fact fields and applies

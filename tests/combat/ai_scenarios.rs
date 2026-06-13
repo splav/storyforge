@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use storyforge::combat::ai::replay::{assert_v28_log_file, AssertResult};
 use storyforge::combat::ai::world::influence::InfluenceConfig;
 use storyforge::combat::ai::world::snapshot::BattleSnapshot;
-use storyforge::content::content_view::ContentView;
+use storyforge::content::content_view::ActiveContentData;
 
 fn snapshots_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ai_scenarios/snapshots")
@@ -114,7 +114,7 @@ fn all_ai_scenarios_pass() {
     // Scenarios live on top of the global `assets/data` content — if a
     // scenario ever needs a campaign/scenario overlay, thread it here.
     let global = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/data");
-    let content = ContentView::load_layered(&global, &global);
+    let content = ActiveContentData::load_layered(&global, &global);
     let inf_cfg = InfluenceConfig::default();
 
     eprintln!("discovered {} ai scenario case(s)", pairs.len());

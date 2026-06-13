@@ -6,7 +6,7 @@ use super::{AbilityDescPanel, AbilityDescText, AbilitySlot, AbilitySlotLabel, En
 use crate::content::abilities::{
     AbilityDef, AoEShape, CasterContext, EffectCalcExt, EffectDef, StatusOn, TargetType,
 };
-use crate::content::content_view::{ActiveContent, ContentView};
+use crate::content::content_view::{ActiveContent, ActiveContentData};
 use crate::content::statuses::StatusDef;
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
@@ -144,7 +144,10 @@ pub fn spawn_ability_panel(root: &mut ChildSpawnerCommands, font: &Handle<Font>)
 
 // ── Displayed list helper ─────────────────────────────────────────────────────
 
-fn displayed_abilities(content: &ContentView, class_abilities: &[AbilityId]) -> Vec<AbilityId> {
+fn displayed_abilities(
+    content: &ActiveContentData,
+    class_abilities: &[AbilityId],
+) -> Vec<AbilityId> {
     let mut result: Vec<AbilityId> = content.keyed_abilities.clone();
     result.extend(class_abilities.iter().cloned());
     result
@@ -485,7 +488,7 @@ pub fn end_turn_button_system(
 fn build_description(
     def: &AbilityDef,
     ctx: Option<&CasterContext>,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> String {
     let mut out = String::new();
 

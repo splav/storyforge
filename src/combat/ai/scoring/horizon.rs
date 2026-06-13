@@ -1,7 +1,7 @@
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, TargetType};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::content::statuses::StatusDef;
 use crate::game::components::Abilities;
 use crate::game::hex::Hex;
@@ -10,7 +10,7 @@ use combat_engine::ResourceKind;
 
 /// True if the ability applies any status that skips the target's turn
 /// (stun, paralyse, sleep…). Single source of truth for "is this CC?".
-pub fn applies_cc(def: &AbilityDef, content: &ContentView) -> bool {
+pub fn applies_cc(def: &AbilityDef, content: &ActiveContentData) -> bool {
     def.statuses.iter().any(|sa| {
         content
             .statuses
@@ -28,7 +28,7 @@ pub fn applies_cc(def: &AbilityDef, content: &ContentView) -> bool {
 pub fn stun_denial_value(
     def: &AbilityDef,
     target: crate::combat::ai::world::snapshot::UnitView<'_>,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     status_applications(def, content)
         .filter(|(sd, _)| sd.skips_turn)
@@ -48,7 +48,7 @@ pub fn stun_denial_value(
 /// iteration shape is shared.
 pub fn status_applications<'a, 'c: 'a>(
     def: &'a AbilityDef,
-    content: &'c ContentView,
+    content: &'c ActiveContentData,
 ) -> impl Iterator<Item = (&'c StatusDef, f32)> + 'a {
     def.statuses.iter().filter_map(move |sa| {
         content
@@ -106,7 +106,7 @@ pub fn horizon_avg(target: UnitView<'_>) -> f32 {
 pub fn estimate_st_damage(
     ctx: &CasterContext,
     abilities: &Abilities,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     abilities
         .0
@@ -152,7 +152,7 @@ pub fn estimate_st_damage(
 pub fn estimate_damage_horizon(
     caster: &CasterContext,
     abilities: &Abilities,
-    content: &ContentView,
+    content: &ActiveContentData,
     max_ap_per_round: i32,
     mana: Option<(i32, i32)>, // (current, max)
     rage: Option<(i32, i32)>,
@@ -364,12 +364,12 @@ mod tests {
     use combat_engine::{AbilityId, DiceExpr, StatusId};
     use std::collections::HashMap;
 
-    fn content_with(abs: Vec<AbilityDef>) -> ContentView {
+    fn content_with(abs: Vec<AbilityDef>) -> ActiveContentData {
         let mut map: HashMap<AbilityId, AbilityDef> = HashMap::new();
         for d in abs {
             map.insert(d.id.clone(), d);
         }
-        ContentView {
+        ActiveContentData {
             abilities: map,
             keyed_abilities: Vec::new(),
             statuses: HashMap::new(),
@@ -380,7 +380,7 @@ mod tests {
             races: HashMap::new(),
             factions: HashMap::new(),
             paths: HashMap::new(),
-            ..ContentView::default()
+            ..ActiveContentData::default()
         }
     }
 

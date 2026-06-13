@@ -20,7 +20,7 @@ use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::scoring::stun_denial_value;
 use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 
 pub fn compute(
     ctx: &ScoringCtx,
@@ -149,7 +149,7 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
 /// Returns true if the caster has at least one ability with no resource cost.
 /// Reads abilities from the actor's own cache — same source
 /// `SnapshotActionState::actor_knows_ability` uses, so no dual-list drift.
-fn has_free_attack(active: UnitView<'_>, content: &ContentView) -> bool {
+fn has_free_attack(active: UnitView<'_>, content: &ActiveContentData) -> bool {
     active.cache.abilities.iter().any(|id| {
         content
             .abilities
@@ -169,7 +169,7 @@ mod tests {
     };
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::*;
@@ -180,9 +180,9 @@ mod tests {
     /// doesn't alter outcomes — `UnitBuilder` defaults suffice for the
     /// actor. If a future test needs INT-mod-sensitive behaviour, set
     /// `UnitBuilder::caster_ctx(...)` on the active unit explicitly.
-    fn scarcity_fixture() -> (ContentView, DifficultyProfile) {
+    fn scarcity_fixture() -> (ActiveContentData, DifficultyProfile) {
         (
-            ContentView::load_global_for_tests(),
+            ActiveContentData::load_global_for_tests(),
             DifficultyProfile::default(),
         )
     }

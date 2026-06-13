@@ -11,12 +11,12 @@ use combat_engine::AbilityId;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-fn load_content() -> crate::content::content_view::ContentView {
-    crate::content::content_view::ContentView::load_global_for_tests()
+fn load_content() -> crate::content::content_view::ActiveContentData {
+    crate::content::content_view::ActiveContentData::load_global_for_tests()
 }
 
 fn build_status_lookup(
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> HashMap<StatusId, StatusTagSet> {
     content
         .statuses
@@ -25,7 +25,7 @@ fn build_status_lookup(
         .collect()
 }
 
-fn ability(id: &str, content: &crate::content::content_view::ContentView) -> AbilityDef {
+fn ability(id: &str, content: &crate::content::content_view::ActiveContentData) -> AbilityDef {
     content
         .abilities
         .get(&AbilityId::from(id))
@@ -33,7 +33,7 @@ fn ability(id: &str, content: &crate::content::content_view::ContentView) -> Abi
         .clone()
 }
 
-fn status_def(id: &str, content: &crate::content::content_view::ContentView) -> StatusDef {
+fn status_def(id: &str, content: &crate::content::content_view::ActiveContentData) -> StatusDef {
     content
         .statuses
         .get(&StatusId::from(id))

@@ -161,7 +161,7 @@ fn bench_move_10units_engine(c: &mut Criterion) {
 fn bench_move_10units_legacy(c: &mut Criterion) {
     let (snap, actor_id, path) = build_scenario();
     let status_tags = StatusTagCache::default();
-    let content = storyforge::content::content_view::ContentView::default();
+    let content = storyforge::content::content_view::ActiveContentData::default();
 
     c.bench_function("bench_move_10units_legacy", |b| {
         b.iter(|| {

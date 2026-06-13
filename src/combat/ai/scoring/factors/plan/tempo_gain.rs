@@ -122,7 +122,7 @@ mod tests {
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 0)).build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
@@ -157,7 +157,7 @@ mod tests {
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 0)).build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
@@ -197,7 +197,7 @@ mod tests {
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 0)).build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
@@ -239,7 +239,7 @@ mod tests {
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
         let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();

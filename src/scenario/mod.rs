@@ -294,7 +294,7 @@ pub fn write_victory_flags(
 /// Returns `None` (and logs a warning) if the id is unknown.
 pub fn resolve_reward(
     id: &str,
-    content: &crate::content::content_view::ContentView,
+    content: &crate::content::content_view::ActiveContentData,
 ) -> Option<ItemRef> {
     use combat_engine::{ArmorId, WeaponId};
     let weapon_id = WeaponId::from(id);
@@ -417,7 +417,7 @@ pub fn current_on_defeat(db: &GameDb, scenario: &ScenarioState) -> OnDefeat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::content::encounters::{
         EncounterDef, ObjectiveDef, VictoryCondition, DEFAULT_TARGET_MARKER,
     };
@@ -436,7 +436,7 @@ mod tests {
                 on_victory_flags: flags.into_iter().map(str::to_string).collect(),
                 requires_flag: None,
             }],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters: HashMap::new(),
         }
     }
@@ -474,7 +474,7 @@ mod tests {
                 on_victory_flags: vec![],
                 requires_flag: None,
             }],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters,
         }
     }
@@ -1115,7 +1115,7 @@ mod tests {
             name: "s1".into(),
             party: vec![],
             scenes,
-            content: crate::content::content_view::ContentView::default(),
+            content: crate::content::content_view::ActiveContentData::default(),
             encounters: HashMap::new(),
         }
     }
@@ -1451,7 +1451,7 @@ mod tests {
     // ── write_victory_rewards tests ──────────────────────────────────────
 
     /// Build a `ContentView` with one weapon and one armor item for reward tests.
-    fn rewards_content() -> ContentView {
+    fn rewards_content() -> ActiveContentData {
         use crate::content::armor::{ArmorDef, ArmorSlot, ArmorWeight};
         use crate::content::weapons::{HandType, WeaponDef};
         use combat_engine::{ArmorId, DiceExpr, WeaponId};
@@ -1459,7 +1459,7 @@ mod tests {
         let weapon_id = WeaponId::from("sword_x");
         let armor_id = ArmorId::from("plate_y");
 
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content.weapons.insert(
             weapon_id.clone(),
             WeaponDef {
@@ -1495,7 +1495,7 @@ mod tests {
     }
 
     /// Build a `ScenarioDef` with a combat scene whose encounter has the given rewards.
-    fn scenario_with_rewards(reward_ids: Vec<&str>, content: ContentView) -> ScenarioDef {
+    fn scenario_with_rewards(reward_ids: Vec<&str>, content: ActiveContentData) -> ScenarioDef {
         use crate::content::encounters::EncounterDef;
         let enc = EncounterDef {
             id: "enc".into(),
@@ -1586,7 +1586,7 @@ mod tests {
     /// Encounter with no rewards leaves stash unchanged.
     #[test]
     fn victory_rewards_empty_encounter_is_noop() {
-        let scenario = scenario_with_rewards(vec![], ContentView::default());
+        let scenario = scenario_with_rewards(vec![], ActiveContentData::default());
         let db = make_db(scenario);
 
         let mut app = App::new();

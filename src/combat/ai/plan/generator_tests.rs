@@ -922,7 +922,7 @@ fn generate_plans_excludes_los_blocked_cast() {
     };
 
     let snap_has_cast_at = |snap: &crate::combat::ai::world::snapshot::BattleSnapshot,
-                            content: &crate::content::content_view::ContentView,
+                            content: &crate::content::content_view::ActiveContentData,
                             difficulty: &DifficultyProfile,
                             actor_id,
                             target_id| {

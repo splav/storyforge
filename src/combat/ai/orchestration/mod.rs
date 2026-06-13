@@ -24,7 +24,7 @@ use crate::combat::ai::plan::{generate_plans, TurnPlan};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use combat_engine::{AbilityId, DiceRng};
@@ -140,7 +140,7 @@ pub enum MoveOrigin {
 /// AI pay the same odds) — sits alongside `content` and `difficulty` as
 /// "how this world works for every actor".
 pub struct AiWorld<'a> {
-    pub content: &'a ContentView,
+    pub content: &'a ActiveContentData,
     pub difficulty: &'a DifficultyProfile,
     pub tuning: &'a AiTuning,
     pub crit_fail_chance: f32,
@@ -506,7 +506,7 @@ mod tests {
         actor_abilities: &[&str],
         use_content_cache: bool,
     ) -> Vec<crate::combat::ai::outcome::PlanAnnotation> {
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let (status_tag_cache, ability_tag_cache) = build_caches(&content);
         let difficulty = DifficultyProfile::default();
 
@@ -624,7 +624,7 @@ mod tests {
         let enemy_pos = hex_from_offset(0, 0);
         let actor_pos = hex_from_offset(1, 0);
 
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let (status_tag_cache, ability_tag_cache) =
             crate::combat::ai::world::tags::cache::build_caches(&content);
         let difficulty = DifficultyProfile::default();
@@ -694,7 +694,7 @@ mod tests {
     fn pick_action_override_propagates_to_annotation() {
         // Actor with melee_attack; override it to MOBILITY.
         // Plans with Cast(melee_attack) must show MOBILITY, not OFFENSIVE.
-        let content_base = crate::content::content_view::ContentView::load_global_for_tests();
+        let content_base = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let mut content = content_base.clone();
         let ability_id = combat_engine::AbilityId::from("melee_attack");
         if let Some(def) = content.abilities.get_mut(&ability_id) {
@@ -765,7 +765,7 @@ mod tests {
 
     use crate::combat::ai::plan::types::PlanStep;
     use crate::combat::ai::world::tags::AiTags;
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
 
     /// A pure support shepherd (support axis = 1.0) so ProtectAlly triggers at
     /// the 70% HP threshold (`select_intent`: threshold = 0.5 + support*0.2).
@@ -847,7 +847,7 @@ mod tests {
     }
 
     fn run_shepherd_pick(snap: &BattleSnapshot, actor: bevy::prelude::Entity) -> PickResult {
-        let content = ContentView::load_global_for_tests();
+        let content = ActiveContentData::load_global_for_tests();
         let (status_tag_cache, ability_tag_cache) = build_caches(&content);
         let difficulty = DifficultyProfile::default();
         let maps = empty_maps();
@@ -900,7 +900,7 @@ mod tests {
         use combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
 
         let (snap, shepherd, symbiote, plain) = shepherd_snapshot(8, false);
-        let content = ContentView::load_global_for_tests();
+        let content = ActiveContentData::load_global_for_tests();
         let state = SnapshotActionState {
             content: &content,
             snap: &snap,

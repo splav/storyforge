@@ -17,7 +17,7 @@ use crate::combat::ai::scoring::status_applications;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectCalcExt};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::content::races::CritFailEffect;
 use crate::game::components::Team;
 use bevy::prelude::Entity;
@@ -173,7 +173,7 @@ pub fn hypothetical(
     def: &AbilityDef,
     target: &combat_engine::state::Unit,
     caster: &CasterContext,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> ActionOutcomeEstimate {
     // ── Damage fact ──
     let enemy_damage = if let Some(calc) = def.effect.calc(caster) {
@@ -260,7 +260,7 @@ pub fn estimate_kill_soon(
     def: &AbilityDef,
     target: &combat_engine::state::Unit,
     caster: &CasterContext,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     let Some(calc) = def.effect.calc(caster) else {
         return 0.0;
@@ -319,7 +319,7 @@ fn already_pending_dot(target: &combat_engine::state::Unit) -> f32 {
 fn dot_tick_sum_for_ability(
     def: &AbilityDef,
     target: &combat_engine::state::Unit,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     status_applications(def, content)
         .map(|(sd, dur)| {
@@ -461,7 +461,7 @@ pub(crate) fn aoe_p_kill_soon(
     actor_team: crate::game::components::Team,
     pre_snap: &BattleSnapshot,
     caster: &CasterContext,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     use crate::combat::ai::scoring::factors::aoe_area;
     let area = aoe_area(def, target_pos, caster_tile);
@@ -496,7 +496,7 @@ pub(crate) fn build_status_facts(
     caster_tile: crate::game::hex::Hex,
     actor_team: crate::game::components::Team,
     pre_snap: &BattleSnapshot,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> StatusFacts {
     use crate::combat::ai::scoring::factors::aoe_area;
     use crate::content::abilities::AoEShape;

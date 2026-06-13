@@ -1,4 +1,4 @@
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use bevy::prelude::*;
 
 use combat_engine::{
@@ -242,7 +242,7 @@ impl CombatEvent {
     pub fn format<L: Localizer>(
         &self,
         name: impl Fn(Entity) -> String,
-        content: &ContentView,
+        content: &ActiveContentData,
         crit_fail_die: u32,
         _loc: &L,
     ) -> Option<String> {

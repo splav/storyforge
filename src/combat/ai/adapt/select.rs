@@ -17,7 +17,7 @@ use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
 use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 
 /// Sum of damage the actor is guaranteed to take from active status
 /// effects before their next meaningful action — i.e. the pending DoT
@@ -37,7 +37,7 @@ use crate::content::content_view::ContentView;
 /// Used by `select_evaluation_modes` to detect the `ProtectSelfFutile` case —
 /// "contract can be satisfied spatially, but DoT will kill the actor
 /// anyway before he acts again".
-pub fn pending_dot_before_next_action(active: UnitView<'_>, content: &ContentView) -> i32 {
+pub fn pending_dot_before_next_action(active: UnitView<'_>, content: &ActiveContentData) -> i32 {
     let mut total = 0i32;
     for s in active.statuses() {
         if s.rounds_remaining == 0 {
@@ -76,7 +76,7 @@ fn plan_has_self_rescue(
     plan: &TurnPlan,
     active: UnitView<'_>,
     initial: &BattleSnapshot,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> bool {
     let post = plan.sim_snapshots.last().unwrap_or(initial);
     let Some(actor_post) = post.unit(active.entity()) else {

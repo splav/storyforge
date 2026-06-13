@@ -8,16 +8,16 @@
 
 use super::*;
 use crate::combat::ai::test_helpers::{fixture_to_pair, snapshot_from, UnitBuilder};
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::components::Team;
 use crate::game::hex::hex_from_offset;
 use combat_engine::{AbilityId, StatusId};
 
-fn db() -> ContentView {
-    ContentView::load_global_for_tests()
+fn db() -> ActiveContentData {
+    ActiveContentData::load_global_for_tests()
 }
 
-fn get_def<'a>(content: &'a ContentView, id: &str) -> &'a AbilityDef {
+fn get_def<'a>(content: &'a ActiveContentData, id: &str) -> &'a AbilityDef {
     content
         .abilities
         .get(&AbilityId::from(id))

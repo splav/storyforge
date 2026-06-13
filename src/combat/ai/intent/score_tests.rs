@@ -8,7 +8,7 @@ use crate::combat::ai::test_helpers::{
 };
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::tags::AiTags;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use crate::game::components::Team;
 use crate::game::hex::{hex_from_offset, Hex};
 use combat_engine::AbilityId;
@@ -120,7 +120,7 @@ fn flee_step_farther_move_positive() {
     let actor = UnitBuilder::new(1, Team::Player, actor_pos).build();
     let enemy = UnitBuilder::new(2, Team::Enemy, enemy_pos).build();
     let snap = snapshot_from(vec![actor.clone(), enemy], 1);
-    let content = ContentView::load_global_for_tests();
+    let content = ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let maps = empty_maps();
     let reservations = Reservations::default();
@@ -146,7 +146,7 @@ fn flee_step_closer_move_non_positive() {
     let actor = UnitBuilder::new(1, Team::Player, actor_pos).build();
     let enemy = UnitBuilder::new(2, Team::Enemy, enemy_pos).build();
     let snap = snapshot_from(vec![actor.clone(), enemy], 1);
-    let content = ContentView::load_global_for_tests();
+    let content = ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let maps = empty_maps();
     let reservations = Reservations::default();
@@ -173,7 +173,7 @@ fn flee_step_offensive_cast_lowest() {
     let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
 
     let (ability_id, def) = flee_test_offensive_ability("flee_test_hit");
-    let mut content = ContentView::load_global_for_tests();
+    let mut content = ActiveContentData::load_global_for_tests();
     content.abilities.insert(ability_id.clone(), def);
 
     let difficulty = DifficultyProfile::default();
@@ -205,7 +205,7 @@ fn flee_step_self_heal_positive() {
     let snap = snapshot_from(vec![actor.clone(), enemy], 1);
 
     let (ability_id, def) = flee_test_heal_ability("flee_test_heal");
-    let mut content = ContentView::load_global_for_tests();
+    let mut content = ActiveContentData::load_global_for_tests();
     content.abilities.insert(ability_id.clone(), def);
 
     let difficulty = DifficultyProfile::default();
@@ -235,7 +235,7 @@ fn flee_step_no_enemies_returns_zero() {
     // Only one unit (the actor/player) — no enemies in the snapshot.
     let actor = UnitBuilder::new(1, Team::Player, actor_pos).build();
     let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = ContentView::load_global_for_tests();
+    let content = ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let maps = empty_maps();
     let reservations = Reservations::default();
@@ -268,7 +268,7 @@ fn reposition_penalizes_worse_tile() {
         .tags(AiTags::MELEE_ONLY)
         .build();
     let snap = snapshot_from(vec![active.clone(), enemy], 1);
-    let content = ContentView::load_global_for_tests();
+    let content = ActiveContentData::load_global_for_tests();
     let intent = TacticalIntent::Reposition;
     let difficulty = DifficultyProfile::default();
 
@@ -502,7 +502,7 @@ fn focus_target_pursuit_enters_bubble_above_viability() {
     let target = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0)).build();
     let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
     let maps = empty_maps();
-    let content = ContentView::load_global_for_tests();
+    let content = ActiveContentData::load_global_for_tests();
     let difficulty = DifficultyProfile::default();
     let intent = TacticalIntent::FocusTarget {
         target: target.entity,

@@ -2,7 +2,7 @@
 //! content loaded from `assets/data/`.
 //!
 //! Strategy: load both views from the same source, then for every id in the
-//! bridge `ContentView`, assert the engine-typed outputs are equal.
+//! bridge `ActiveContentData`, assert the engine-typed outputs are equal.
 //!
 //! `EcsContentView` is `pub(crate)` in the bridge, so we replicate its
 //! mapping logic here — which is exactly what the parity test should guard
@@ -16,7 +16,7 @@ use storyforge::combat_engine::{
     content::ContentView as EngineContentView, AbilityDef, AbilityId, EffectDef, StatusApplication,
     StatusBonuses, StatusDef, StatusId, TomlContentView, UnitTemplate,
 };
-use storyforge::content::content_view::ContentView as BridgeContentView;
+use storyforge::content::content_view::ActiveContentData as BridgeContentView;
 // BridgeEffectDef removed — EffectDef is now pub use combat_engine::EffectDef in bridge.
 use storyforge::game::components::Equipment;
 
@@ -394,7 +394,7 @@ fn environment_ability_parity_scout_traps() {
         content::ContentView as EngineContentView, AoEShape, EffectDef, PassiveTrigger, TargetType,
         TomlContentView,
     };
-    use storyforge::content::content_view::ContentView as BridgeContentView;
+    use storyforge::content::content_view::ActiveContentData as BridgeContentView;
 
     let data_dir = std::path::Path::new("assets/data");
 

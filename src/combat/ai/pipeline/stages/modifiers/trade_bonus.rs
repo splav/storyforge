@@ -70,7 +70,7 @@ mod tests {
         };
 
         // ── 2. Context (uses real content for melee_attack ability) ──
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let snap = snapshot_from(vec![actor.clone()], 1);
         let maps = empty_maps();
@@ -136,7 +136,7 @@ mod tests {
             .build();
 
         // ── 2. Context ──
-        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let snap = snapshot_from(vec![actor.clone(), support.clone(), rat.clone()], 1);
         let maps = empty_maps();

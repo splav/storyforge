@@ -53,7 +53,7 @@ pub fn movement_app() -> App {
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
         .insert_resource(ActiveContent(
-            storyforge::content::content_view::ContentView::load_global_for_tests(),
+            storyforge::content::content_view::ActiveContentData::load_global_for_tests(),
         ))
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()

@@ -537,7 +537,7 @@ mod env_severity_snapshot_tests {
     use super::*;
     use crate::combat::ai::scoring::policy::env_severity::severity;
     use crate::combat::ai::world::snapshot::UnitView;
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::game::hex::hex_from_offset;
     use combat_engine::state::{EnvId, EnvKind, EnvObject, Team as EngineTeam, TeamSet};
 
@@ -572,7 +572,7 @@ mod env_severity_snapshot_tests {
     /// `combat_state.environment` (after `retain(|e| e.visible_to(ai_team))`).
     #[test]
     fn snapshot_populates_env_severity_for_visible_traps() {
-        let content = ContentView::load_global_for_tests();
+        let content = ActiveContentData::load_global_for_tests();
         let (neutral_ref_u, neutral_ref_c) =
             crate::combat::ai::scoring::policy::env_severity::neutral_reference_pair();
         let neutral_ref = UnitView {

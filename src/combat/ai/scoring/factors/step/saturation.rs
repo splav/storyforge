@@ -17,7 +17,7 @@ use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::content::abilities::StatusOn;
-use crate::content::content_view::ContentView;
+use crate::content::content_view::ActiveContentData;
 use bevy::prelude::Entity;
 use combat_engine::AbilityId;
 
@@ -52,7 +52,7 @@ fn buff_saturation_penalty(
     target: Entity,
     caster: Entity,
     pre_snap: &BattleSnapshot,
-    content: &ContentView,
+    content: &ActiveContentData,
 ) -> f32 {
     let Some(def) = content.abilities.get(ability) else {
         return 0.0;
@@ -102,7 +102,7 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, TargetType,
     };
-    use crate::content::content_view::ContentView;
+    use crate::content::content_view::ActiveContentData;
     use crate::content::statuses::{BuffClass, StatusDef};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -170,8 +170,8 @@ mod tests {
         }
     }
 
-    fn content_with(ability: AbilityDef, status: StatusDef) -> ContentView {
-        let mut c = ContentView::default();
+    fn content_with(ability: AbilityDef, status: StatusDef) -> ActiveContentData {
+        let mut c = ActiveContentData::default();
         c.abilities.insert(ability.id.clone(), ability);
         c.statuses.insert(status.id.clone(), status);
         c
@@ -207,7 +207,7 @@ mod tests {
         let snap = snap_with(vec![target.clone(), caster.clone()]);
 
         let ability = ability_applying("buff_armor", "defending", StatusOn::Target);
-        let mut content = ContentView::default();
+        let mut content = ActiveContentData::default();
         content.abilities.insert(ability.id.clone(), ability);
         content
             .statuses

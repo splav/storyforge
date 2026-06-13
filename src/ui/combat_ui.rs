@@ -431,7 +431,7 @@ mod tests {
     }
 
     fn make_db(on_defeat: OnDefeat) -> GameDb {
-        use crate::content::content_view::ContentView;
+        use crate::content::content_view::ActiveContentData;
         use crate::content::scenarios::{ScenarioDef, SceneDef};
         let enc = EncounterDef {
             id: "enc".into(),
@@ -456,7 +456,7 @@ mod tests {
                 on_victory_flags: vec![],
                 requires_flag: None,
             }],
-            content: ContentView::default(),
+            content: ActiveContentData::default(),
             encounters,
         };
         let mut db = GameDb {
