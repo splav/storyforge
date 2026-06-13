@@ -387,7 +387,7 @@ mod tests {
         scores: Vec<f32>,
         raw: Vec<crate::combat::ai::scoring::factors::PlanFactorValues>,
         adaptations: Vec<Option<crate::combat::ai::outcome::AdaptationData>>,
-        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::test_helpers::UnitFixture,
         snap: &crate::combat::ai::world::snapshot::BattleSnapshot,
         intent: TacticalIntent,
         critic_multiplier: f32,

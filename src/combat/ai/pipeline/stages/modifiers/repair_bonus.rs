@@ -94,7 +94,7 @@ mod tests {
         pos: Hex,
     ) -> (
         AiWorld<'a>,
-        crate::combat::ai::world::snapshot::UnitSnapshot,
+        crate::combat::ai::test_helpers::UnitFixture,
         BattleSnapshot,
     ) {
         let world = AiWorld {
@@ -164,7 +164,7 @@ mod tests {
 
     fn make_modifier_ctx<'w, 's, 'a>(
         stage: &'a StageCtx<'w, 's>,
-        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::test_helpers::UnitFixture,
         snap: &'s crate::combat::ai::world::snapshot::BattleSnapshot,
         world: &'w AiWorld<'w>,
         summon_dpr: &'a HashMap<String, f32>,

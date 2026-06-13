@@ -97,8 +97,8 @@ fn buff_saturation_penalty(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::test_helpers::{snapshot_from, status_view, UnitFixture};
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, TargetType,
     };
@@ -108,12 +108,12 @@ mod tests {
     use crate::game::hex::hex_from_offset;
     use combat_engine::{AbilityId, StatusId};
 
-    fn make_unit(id: u32) -> UnitSnapshot {
+    fn make_unit(id: u32) -> UnitFixture {
         crate::combat::ai::test_helpers::UnitBuilder::new(id, Team::Enemy, hex_from_offset(0, 0))
             .build()
     }
 
-    fn snap_with(units: Vec<UnitSnapshot>) -> BattleSnapshot {
+    fn snap_with(units: Vec<UnitFixture>) -> BattleSnapshot {
         snapshot_from(units, 1)
     }
 
@@ -181,11 +181,7 @@ mod tests {
     #[test]
     fn redundant_buff_penalized() {
         let mut target = make_unit(1);
-        target.statuses.push(ActiveStatusView {
-            id: StatusId::from("defending"),
-            rounds_remaining: 1,
-            dot_per_tick: 0,
-        });
+        target.statuses.push(status_view("defending", 1, 0));
         let caster = make_unit(2);
         let snap = snap_with(vec![target.clone(), caster.clone()]);
         let ability = ability_applying("buff_armor", "defending", StatusOn::Target);
@@ -206,11 +202,7 @@ mod tests {
     #[test]
     fn different_buff_class_not_penalized() {
         let mut target = make_unit(1);
-        target.statuses.push(ActiveStatusView {
-            id: StatusId::from("haste_buff"),
-            rounds_remaining: 1,
-            dot_per_tick: 0,
-        });
+        target.statuses.push(status_view("haste_buff", 1, 0));
         let caster = make_unit(2);
         let snap = snap_with(vec![target.clone(), caster.clone()]);
 
@@ -259,11 +251,7 @@ mod tests {
     fn self_buff_penalized_when_caster_has_class() {
         let target = make_unit(1);
         let mut caster = make_unit(2);
-        caster.statuses.push(ActiveStatusView {
-            id: StatusId::from("defending"),
-            rounds_remaining: 1,
-            dot_per_tick: 0,
-        });
+        caster.statuses.push(status_view("defending", 1, 0));
         let snap = snap_with(vec![target.clone(), caster.clone()]);
         let ability = ability_applying("self_shield", "defending", StatusOn::MySelf);
         let status = armor_buff_status("defending");

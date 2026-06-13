@@ -2,11 +2,11 @@ use super::*;
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
+use crate::combat::ai::test_helpers::UnitFixture;
 use crate::combat::ai::test_helpers::{
     empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
 };
 use crate::combat::ai::world::reservations::Reservations;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::combat::ai::world::tags::AiTags;
 use crate::content::content_view::ContentView;
 use crate::game::components::Team;
@@ -24,7 +24,7 @@ fn maps_with_dangers(tiles: &[(Hex, f32)]) -> crate::combat::ai::world::influenc
     m
 }
 
-fn dummy_unit(pos: Hex) -> UnitSnapshot {
+fn dummy_unit(pos: Hex) -> UnitFixture {
     UnitBuilder::new(0, Team::Enemy, pos)
         .tags(AiTags::MELEE_ONLY)
         .build()

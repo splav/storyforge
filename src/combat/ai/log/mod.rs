@@ -49,7 +49,7 @@ use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
 use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::game::hex::Hex;
 use combat_engine::AbilityId;
 
@@ -319,59 +319,6 @@ pub struct CombatLogHeader<'a> {
     pub event_type: &'static str, // always "combat_log_header"
     pub schema_version: u32,
     pub session_id: &'a str,
-}
-
-#[derive(Serialize)]
-pub struct AiLogEntry<'a> {
-    pub schema_version: u32,
-    /// Fight folder name shared with `engine.jsonl` init line (D11).
-    pub session_id: &'a str,
-    /// Half-open engine step range `[start, end_exclusive)` that this AI
-    /// decision corresponds to. Populated by `flush_pending_ai_log_system`
-    /// after `process_action_system` runs; `None` when the engine trace
-    /// writer was not open at flush time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub engine_step_range: Option<(u64, u64)>,
-    pub plan_id: u64,
-    pub timestamp_ms: u128,
-    pub decision_time_ms: u64,
-    pub round: u32,
-    pub actor_id: u64,
-    pub actor_name: &'a str,
-    pub actor_pos: [i32; 2],
-    pub actor_ap: i32,
-    pub actor_max_ap: i32,
-    pub actor_mp: i32,
-    pub actor_max_mp: i32,
-    pub plans_evaluated: usize,
-    pub plans_shown: usize,
-    pub snapshot: &'a BattleSnapshot,
-    pub intent: IntentBlock<'a>,
-    pub plans: Vec<PlanLogEntry<'a>>,
-    pub committed_decision: DecisionBlock,
-    /// True when the killable gate (step-3) fired on this entry. Stub
-    /// `false` until step-3 ships; then populated by `apply_killable_gate`
-    /// caller via `build_entry`.
-    pub gate_applied: bool,
-    /// Number of plans the gate masked to `-inf`. Stub `0` until step-3 ships.
-    pub gate_pruned_count: usize,
-    /// True if the actor is in a survival regime this decision — intent
-    /// is `ProtectSelf` or selection_kind indicates panic fallback. Derived
-    /// in `build_entry` from the intent block; stable across log versions.
-    pub survival_mode_active: bool,
-    /// True if any plan in the pool has `evaluation_mode == LastStand`.
-    /// Derived in `build_entry` from the plan_entries slice.
-    pub last_stand_active: bool,
-    /// Frozen difficulty profile used by this decision. Makes the log
-    /// self-contained for replay: re-running with the same profile
-    /// reproduces the same scores without relying on external defaults.
-    pub difficulty: DifficultyProfileSnapshot,
-    /// Persistent memory state of this actor immediately before pick_action.
-    /// `None` when AiMemory is at default (no prior decisions this combat).
-    pub ai_memory: Option<AiMemorySnapshot>,
-    /// Team-wide reservation state immediately before pick_action (before
-    /// this actor's own reservations are written for the round).
-    pub reservations: ReservationsSnapshot,
 }
 
 #[derive(Serialize)]
@@ -809,68 +756,6 @@ fn compute_data_dir_hash() -> String {
         .collect();
     let digest = combat_engine::content_hash::hash_content(&refs);
     combat_engine::content_hash::format_hex(&digest)
-}
-
-/// Build an entry for a given decision. Caller fills the `plans` list and
-/// provides the snapshot + intent + actor data via its owning scope.
-/// `session_id` comes from `CombatLogSession` resource (D11).
-pub fn build_entry<'a>(
-    session_id: &'a str,
-    plan_id: u64,
-    decision_time_ms: u64,
-    active: &'a UnitSnapshot,
-    actor_name: &'a str,
-    snapshot: &'a BattleSnapshot,
-    intent: IntentBlock<'a>,
-    plans_evaluated: usize,
-    plans_shown: usize,
-    plan_entries: Vec<PlanLogEntry<'a>>,
-    decision: &AiDecision,
-    gate_applied: bool,
-    gate_pruned_count: usize,
-    difficulty: &DifficultyProfile,
-    memory: &AiMemory,
-    reservations_snap: ReservationsSnapshot,
-) -> AiLogEntry<'a> {
-    // P7: LastStand is no longer a TacticalIntent variant; survival_mode_active
-    // covers ProtectSelf intents and adapt-triggered LastStand (via evaluation_mode_reason).
-    let survival_mode_active = matches!(intent.intent, TacticalIntent::ProtectSelf)
-        || intent.selection_kind.starts_with("protect_self")
-        || intent.evaluation_mode_reason.is_some();
-
-    let last_stand_active = plan_entries
-        .iter()
-        .any(|p| matches!(p.evaluation_mode, EvaluationMode::LastStand));
-
-    AiLogEntry {
-        schema_version: SCHEMA_VERSION,
-        session_id,
-        engine_step_range: None,
-        plan_id,
-        timestamp_ms: now_ms(),
-        decision_time_ms,
-        round: snapshot.state.round,
-        actor_id: active.entity.to_bits(),
-        actor_name,
-        actor_pos: [active.pos.x, active.pos.y],
-        actor_ap: active.action_points,
-        actor_max_ap: active.max_ap,
-        actor_mp: active.movement_points,
-        actor_max_mp: active.speed,
-        plans_evaluated,
-        plans_shown,
-        snapshot,
-        intent,
-        plans: plan_entries,
-        committed_decision: DecisionBlock::from(decision),
-        gate_applied,
-        gate_pruned_count,
-        survival_mode_active,
-        last_stand_active,
-        difficulty: DifficultyProfileSnapshot::from(difficulty),
-        ai_memory: AiMemorySnapshot::from_memory(memory),
-        reservations: reservations_snap,
-    }
 }
 
 // (Plan divergence log types removed in v27 clean-break — divergence data

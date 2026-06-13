@@ -22,13 +22,10 @@ pub(crate) use rescue_ally::ally_threat_proxy;
 
 use serde::{Deserialize, Serialize};
 
-use crate::combat::ai::memory::AiMemory;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
-// UnitSnapshot used in #[cfg(test)] make_ctx helper below.
 use crate::combat::ai::config::tuning::AiTuning;
+use crate::combat::ai::memory::AiMemory;
 use crate::combat::ai::world::influence::InfluenceMaps;
-#[cfg(test)]
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::content::content_view::ContentView;
 
@@ -109,7 +106,7 @@ pub(crate) mod tests {
         }
     }
 
-    pub fn snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> BattleSnapshot {
+    pub fn snap(units: Vec<crate::combat::ai::test_helpers::UnitFixture>) -> BattleSnapshot {
         snapshot_from(units, 1)
     }
 
@@ -120,7 +117,7 @@ pub(crate) mod tests {
     /// must already be present in the snapshot (built via `snapshot_from`).
     #[allow(clippy::too_many_arguments)]
     pub fn make_ctx<'a>(
-        active: &'a UnitSnapshot,
+        active: &'a crate::combat::ai::test_helpers::UnitFixture,
         battle_snap: &'a BattleSnapshot,
         memory: &'a AiMemory,
         tuning: &'a AiTuning,

@@ -10,8 +10,8 @@
 //!    `damage::value`, `friendly_fire::penalty`.
 
 use crate::combat::ai::scoring::policy;
-use crate::combat::ai::test_helpers::unit_snapshot_to_pair;
-use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
+use crate::combat::ai::test_helpers::{fixture_to_pair, UnitFixture};
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef};
 use crate::content::content_view::ContentView;
 use crate::game::components::Team;
@@ -78,15 +78,21 @@ fn via_policy(
 
 // ── Scenario-based invariant tests ────────────────────────────────────────────
 
-/// Extract all `(ability_def, target_snapshot, caster_ctx)` triples from an
+/// Extract all `(ability_def, engine_pair, caster_ctx)` triples from an
 /// `ActorTickEvent` JSONL line.
 fn extract_cast_triples_from_line(
     line: &str,
     content: &ContentView,
-) -> Vec<(AbilityDef, UnitSnapshot, CasterContext)> {
+) -> Vec<(
+    AbilityDef,
+    (
+        combat_engine::state::Unit,
+        crate::combat::ai::world::cache::UnitAiCache,
+    ),
+    CasterContext,
+)> {
     use crate::combat::ai::log::ActorTickEvent;
     use crate::combat::ai::plan::types::PlanStep;
-    use crate::combat::ai::test_helpers::unit_view_to_snapshot;
 
     let Ok(event) = serde_json::from_str::<ActorTickEvent>(line) else {
         return vec![];
@@ -115,17 +121,28 @@ fn extract_cast_triples_from_line(
             let Some(target_view) = event.snapshot.unit(*target) else {
                 continue;
             };
-            triples.push((def, unit_view_to_snapshot(target_view), caster_ctx.clone()));
+            triples.push((
+                def,
+                (target_view.state.clone(), target_view.cache.clone()),
+                caster_ctx.clone(),
+            ));
         }
     }
     triples
 }
 
 /// Parse all JSONL files from `tests/ai_scenarios/snapshots/` and collect
-/// `(ability_def, target_snapshot, caster_ctx)` triples.
+/// `(ability_def, engine_pair, caster_ctx)` triples.
 fn collect_scenario_triples(
     content: &ContentView,
-) -> Vec<(AbilityDef, UnitSnapshot, CasterContext)> {
+) -> Vec<(
+    AbilityDef,
+    (
+        combat_engine::state::Unit,
+        crate::combat::ai::world::cache::UnitAiCache,
+    ),
+    CasterContext,
+)> {
     use std::io::BufRead;
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let snapshots_dir = manifest.join("tests/ai_scenarios/snapshots");
@@ -177,11 +194,10 @@ fn policy_non_negative_for_all_scenario_fixtures() {
         "no Cast triples found in ai_scenarios fixtures — check fixture paths"
     );
 
-    for (def, target_snap, ctx) in &triples {
-        let (u, c) = unit_snapshot_to_pair(target_snap);
+    for (def, pair, ctx) in &triples {
         let target = UnitView {
-            state: &u,
-            cache: &c,
+            state: &pair.0,
+            cache: &pair.1,
         };
         let score = via_policy(def, target, ctx, &content, 0.0);
         assert!(
@@ -212,7 +228,7 @@ impl Lcg {
     }
 }
 
-fn random_target(rng: &mut Lcg) -> UnitSnapshot {
+fn random_target(rng: &mut Lcg) -> UnitFixture {
     use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::test_helpers::UnitBuilder;
     let hp = rng.next_range(1, 100);
@@ -291,11 +307,11 @@ fn policy_non_negative_for_random_inputs() {
     for i in 0..n {
         let ability_idx = rng.next_u32() as usize % abilities.len();
         let def = abilities[ability_idx];
-        let target_snap = random_target(&mut rng);
+        let target_fixture = random_target(&mut rng);
         let ctx = random_caster_ctx(&mut rng);
         let danger = rng.next_f32() * 50.0;
 
-        let (u, c) = unit_snapshot_to_pair(&target_snap);
+        let (u, c) = fixture_to_pair(&target_fixture);
         let target = UnitView {
             state: &u,
             cache: &c,

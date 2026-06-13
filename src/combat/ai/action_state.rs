@@ -148,9 +148,9 @@ impl ActionState for SnapshotActionState<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
-    use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
+    use crate::combat::ai::test_helpers::{
+        empty_content, snapshot_from, status_view, UnitBuilder, UnitFixture,
+    };
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost, TargetType,
     };
@@ -220,7 +220,7 @@ mod tests {
         }
     }
 
-    fn snapshot_with(units: Vec<UnitSnapshot>) -> BattleSnapshot {
+    fn snapshot_with(units: Vec<UnitFixture>) -> BattleSnapshot {
         snapshot_from(units, 1)
     }
 
@@ -298,11 +298,7 @@ mod tests {
             .mana(10, 10)
             .ability_names(&["mana_bolt"])
             .build();
-        actor.statuses.push(ActiveStatusView {
-            id: StatusId::from("broken_faith"),
-            rounds_remaining: 3,
-            dot_per_tick: 0,
-        });
+        actor.statuses.push(status_view("broken_faith", 3, 0));
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
         let mut content = empty_content();
         let def = mana_spell();
@@ -393,11 +389,7 @@ mod tests {
                 ..Default::default()
             })
             .build();
-        actor.statuses.push(ActiveStatusView {
-            id: StatusId::from("disoriented"),
-            rounds_remaining: 2,
-            dot_per_tick: 0,
-        });
+        actor.statuses.push(status_view("disoriented", 2, 0));
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
         let mut content = empty_content();
         let def = attack_ability();

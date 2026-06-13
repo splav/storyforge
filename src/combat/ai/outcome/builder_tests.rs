@@ -7,7 +7,7 @@
 //! builder's pub(crate) items through the file-level `use super::*;` below.
 
 use super::*;
-use crate::combat::ai::test_helpers::{snapshot_from, unit_snapshot_to_engine_unit, UnitBuilder};
+use crate::combat::ai::test_helpers::{fixture_to_pair, snapshot_from, UnitBuilder};
 use crate::content::content_view::ContentView;
 use crate::game::components::Team;
 use crate::game::hex::hex_from_offset;
@@ -43,11 +43,12 @@ fn melee_caster(str_mod: i32) -> CasterContext {
 #[test]
 fn estimate_kill_soon_is_zero_when_direct_damage_kills() {
     let content = db();
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
             .hp(1)
             .build(),
-    );
+    )
+    .0;
     let ks = estimate_kill_soon(
         get_def(&content, "melee_attack"),
         &target,
@@ -69,7 +70,7 @@ fn estimate_kill_soon_fires_on_pending_dot() {
     let snap_unit = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
         .full_hp(5)
         .build();
-    let mut target = unit_snapshot_to_engine_unit(&snap_unit);
+    let (mut target, _) = fixture_to_pair(&snap_unit);
     target.statuses = vec![ActiveStatus {
         id: combat_engine::StatusId::from("poisoned"),
         rounds_remaining: 2,
@@ -89,11 +90,12 @@ fn estimate_kill_soon_fires_on_pending_dot() {
 #[test]
 fn estimate_kill_soon_fires_on_new_dot_from_ability() {
     let content = db();
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
             .full_hp(5)
             .build(),
-    );
+    )
+    .0;
     let c = CasterContext::default();
     let ks = estimate_kill_soon(get_def(&content, "poison_shot"), &target, &c, &content);
     assert_eq!(ks, 1.0, "direct 2.5 + new DoT 7.5 = 10 ≥ hp=5 → kill_soon");
@@ -103,11 +105,12 @@ fn estimate_kill_soon_fires_on_new_dot_from_ability() {
 #[test]
 fn estimate_kill_soon_zero_when_combined_insufficient() {
     let content = db();
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
             .full_hp(100)
             .build(),
-    );
+    )
+    .0;
     let ks = estimate_kill_soon(
         get_def(&content, "melee_attack"),
         &target,
@@ -129,11 +132,12 @@ fn estimate_kill_soon_rounds_expected_to_match_sim() {
         weapon_dice: Some(DiceExpr::new(1, 6, 0)),
         ..Default::default()
     };
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
             .hp(6)
             .build(),
-    );
+    )
+    .0;
     let ks = estimate_kill_soon(
         get_def(&content, "melee_attack"),
         &target,
@@ -205,7 +209,7 @@ fn hypothetical_enemy_damage_obeys_power_armor_floor_invariants() {
     // Helper: run hypothetical with given str_mod and target armor.
     let dmg = |str_mod: i32, armor: i32| -> f32 {
         let caster = melee_caster(str_mod);
-        let target = unit_snapshot_to_engine_unit(
+        let (target, _) = fixture_to_pair(
             &UnitBuilder::new(1, Team::Enemy, fixed_pos)
                 .full_hp(200)
                 .armor(armor)
@@ -246,11 +250,12 @@ fn hypothetical_kill_now_when_damage_exceeds_hp() {
     let content = db();
     let def = get_def(&content, "melee_attack");
     let caster = melee_caster(5); // high str_mod for guaranteed kill
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0))
             .hp(1)
             .build(),
-    );
+    )
+    .0;
 
     let est = hypothetical(def, &target, &caster, &content);
     assert_eq!(est.p_kill_now, 1.0, "should detect kill when net_dmg >= hp");
@@ -266,11 +271,12 @@ fn hypothetical_cc_zero_for_melee_attack() {
     let content = db();
     let def = get_def(&content, "melee_attack");
     let caster = melee_caster(0);
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0))
             .full_hp(20)
             .build(),
-    );
+    )
+    .0;
     let est = hypothetical(def, &target, &caster, &content);
     assert_eq!(
         est.cc_turns_applied, 0.0,
@@ -425,7 +431,7 @@ fn heal_def_inner() -> AbilityDef {
 }
 
 fn make_snap(
-    units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>,
+    units: Vec<crate::combat::ai::test_helpers::UnitFixture>,
 ) -> crate::combat::ai::world::snapshot::BattleSnapshot {
     let n = units.len() as u32;
     snapshot_from(units, n)
@@ -582,11 +588,12 @@ fn cc_turns_applied_for_stun_ability() {
 #[test]
 fn hp_restored_zero_for_full_hp_target() {
     let def = heal_def_inner();
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .full_hp(20)
             .build(),
-    );
+    )
+    .0;
     let caster = CasterContext::default();
 
     let restored = estimate_hp_restored(&def, &target, &caster);
@@ -598,12 +605,13 @@ fn hp_restored_zero_for_full_hp_target() {
 fn hp_restored_clamped_to_missing_hp() {
     let def = heal_def_inner(); // 2d6 expected = 7
                                 // Target with missing_hp = 3 (less than expected 7)
-    let target = unit_snapshot_to_engine_unit(
+    let target = fixture_to_pair(
         &UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .full_hp(20)
             .hp(17) // missing = 3
             .build(),
-    );
+    )
+    .0;
     let caster = CasterContext::default();
 
     let restored = estimate_hp_restored(&def, &target, &caster);

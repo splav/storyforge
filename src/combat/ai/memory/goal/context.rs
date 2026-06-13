@@ -430,7 +430,7 @@ mod tests {
     /// Build a minimal `BattleSnapshot` with the dummy actor (id=1) plus an
     /// optional extra unit. The dummy actor is always present so that
     /// `snap.unit(ent(1))` succeeds for `extract_goal_context` calls.
-    fn snap_with_unit(unit: crate::combat::ai::world::snapshot::UnitSnapshot) -> BattleSnapshot {
+    fn snap_with_unit(unit: crate::combat::ai::test_helpers::UnitFixture) -> BattleSnapshot {
         snapshot_from(vec![dummy_actor_snapshot(), unit], 1)
     }
 
@@ -440,7 +440,7 @@ mod tests {
     }
 
     // Dummy actor snapshot for tests that don't care about severity-check fields.
-    fn dummy_actor_snapshot() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+    fn dummy_actor_snapshot() -> crate::combat::ai::test_helpers::UnitFixture {
         UnitBuilder::new(1, Team::Enemy, Hex::ZERO).build()
     }
 

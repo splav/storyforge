@@ -21,7 +21,8 @@ mod tests {
         bevy_ability, bevy_status, empty_content, empty_status_tag_cache, snapshot_from,
         UnitBuilder,
     };
-    use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::test_helpers::{status_view, UnitFixture};
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost,
         StatusApplication, StatusOn, TargetType,
@@ -45,7 +46,7 @@ mod tests {
 
     // ── Shared fixture helpers ─────────────────────────────────────────────────
 
-    fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
+    fn snap(units: Vec<UnitFixture>) -> BattleSnapshot {
         snapshot_from(units, 1)
     }
 
@@ -292,11 +293,7 @@ mod tests {
             .max_hp(20)
             .build();
         // Pre-attach a DoT with dot_per_tick = 4.
-        target_unit.statuses.push(ActiveStatusView {
-            id: StatusId::from("poison"),
-            rounds_remaining: 2,
-            dot_per_tick: 4,
-        });
+        target_unit.statuses.push(status_view("poison", 2, 4));
         let actor_id = actor.entity;
         let target_id = target_unit.entity;
 

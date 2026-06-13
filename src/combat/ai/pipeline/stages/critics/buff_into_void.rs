@@ -116,9 +116,9 @@ mod tests {
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
-        assert_critic_fires, assert_critic_passes, run_critic, CriticScenarioBuilder, UnitBuilder,
+        assert_critic_fires, assert_critic_passes, run_critic, status_view, CriticScenarioBuilder,
+        UnitBuilder,
     };
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
     };
@@ -188,11 +188,7 @@ mod tests {
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let mut target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
-        target.statuses = vec![ActiveStatusView {
-            id: StatusId::from("shield"),
-            rounds_remaining: 2,
-            dot_per_tick: 0,
-        }];
+        target.statuses = vec![status_view("shield", 2, 0)];
 
         let scn = CriticScenarioBuilder::new(caster)
             .with_units(vec![target])

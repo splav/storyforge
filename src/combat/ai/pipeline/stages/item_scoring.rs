@@ -260,10 +260,10 @@ mod tests {
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, snapshot_from,
-        PoolBuilder, StageTestHarness, UnitBuilder,
+        PoolBuilder, StageTestHarness, UnitBuilder, UnitFixture,
     };
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use combat_engine::DiceRng;
@@ -321,7 +321,7 @@ mod tests {
         plans: Vec<TurnPlan>,
         annotations: Vec<PlanAnnotation>,
         agenda: &Agenda,
-        actor: UnitSnapshot,
+        actor: UnitFixture,
         snap: BattleSnapshot,
     ) -> ScoredPool {
         let maps = empty_maps();

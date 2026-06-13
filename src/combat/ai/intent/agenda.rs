@@ -434,14 +434,10 @@ mod tests {
         id: u32,
         team: Team,
         pos: crate::game::hex::Hex,
-    ) -> crate::combat::ai::world::snapshot::UnitSnapshot {
+    ) -> crate::combat::ai::test_helpers::UnitFixture {
         let mut unit = UnitBuilder::new(id, team, pos).build();
         unit.statuses
-            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
-                id: "taunt".into(),
-                rounds_remaining: 1,
-                dot_per_tick: 0,
-            });
+            .push(crate::combat::ai::test_helpers::status_view("taunt", 1, 0));
         unit
     }
 

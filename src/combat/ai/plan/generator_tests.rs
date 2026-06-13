@@ -11,10 +11,10 @@
 use super::*;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::test_helpers::snapshot_from;
+use crate::combat::ai::test_helpers::UnitFixture;
 use crate::combat::ai::test_helpers::{
     empty_content, empty_maps, empty_status_tag_cache, ent, UnitBuilder,
 };
-use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::{
     AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
 };
@@ -29,7 +29,7 @@ use combat_engine::{AbilityId, DiceExpr};
 /// through `ctx.actor.abilities` without per-test ability setup.
 /// Tests that specifically exercise unknown-ability rejection use
 /// `UnitBuilder::ability_names(&[])` directly.
-fn unit(id: u32, team: Team, pos: Hex, hp: i32, max_ap: i32) -> UnitSnapshot {
+fn unit(id: u32, team: Team, pos: Hex, hp: i32, max_ap: i32) -> UnitFixture {
     UnitBuilder::new(id, team, pos)
         .hp(hp)
         .ap(max_ap)
@@ -640,16 +640,12 @@ fn overheal_rejects_target_above_90_percent() {
 
 #[test]
 fn wasted_single_target_cc_on_stunned_rejected() {
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
+    use crate::combat::ai::test_helpers::status_view;
     use crate::combat::ai::world::tags::cache::build_caches;
 
     let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
     let mut stunned = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-    stunned.statuses.push(ActiveStatusView {
-        id: StatusId::from("stun"),
-        rounds_remaining: 1,
-        dot_per_tick: 0,
-    });
+    stunned.statuses.push(status_view("stun", 1, 0));
     let awake = unit(3, Team::Player, hex_from_offset(0, 1), 20, 1);
 
     let def = stun_def("stun_bolt", 5, AoEShape::None);
@@ -698,16 +694,12 @@ fn wasted_single_target_cc_on_stunned_rejected() {
 fn aoe_cc_on_stunned_target_still_allowed() {
     // AoE CC keeps the candidate: dropping the whole blast because one
     // enemy in it is stunned is wrong — others in the area still benefit.
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
+    use crate::combat::ai::test_helpers::status_view;
     use crate::combat::ai::world::tags::cache::build_caches;
 
     let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
     let mut stunned = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-    stunned.statuses.push(ActiveStatusView {
-        id: StatusId::from("stun"),
-        rounds_remaining: 1,
-        dot_per_tick: 0,
-    });
+    stunned.statuses.push(status_view("stun", 1, 0));
 
     let def = stun_def("aoe_stun", 5, AoEShape::Circle { radius: 1 });
     let mut content = empty_content();
@@ -821,16 +813,12 @@ fn aoe_friendly_fire_accepted_when_enemies_outnumber_allies_two_to_one() {
 
 #[test]
 fn generate_plans_excludes_taunt_violating_casts() {
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
+    use crate::combat::ai::test_helpers::status_view;
     use crate::combat::ai::world::tags::cache::build_caches;
 
     let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
     let mut taunter = unit(2, Team::Player, hex_from_offset(5, 0), 20, 1);
-    taunter.statuses.push(ActiveStatusView {
-        id: StatusId::from("taunt"),
-        rounds_remaining: 1,
-        dot_per_tick: 0,
-    });
+    taunter.statuses.push(status_view("taunt", 1, 0));
     let adjacent_non_taunter = unit(3, Team::Player, hex_from_offset(1, 0), 20, 1);
     let actor_id = actor.entity;
     let taunter_id = taunter.entity;
@@ -987,18 +975,14 @@ fn generate_plans_excludes_los_blocked_cast() {
 /// Now `check_legality` gates every Cast candidate and filters them out.
 #[test]
 fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
+    use crate::combat::ai::test_helpers::status_view;
     use combat_engine::ResourceKind;
 
     // Actor has broken_faith + enough mana + both a mana spell and a
     // no-cost melee fallback.
     let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 2);
     actor.mana = Some((10, 10));
-    actor.statuses.push(ActiveStatusView {
-        id: StatusId::from("broken_faith"),
-        rounds_remaining: 3,
-        dot_per_tick: 0,
-    });
+    actor.statuses.push(status_view("broken_faith", 3, 0));
     let enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
     let actor_id = actor.entity;
 
@@ -1225,7 +1209,7 @@ fn rank_targets_picks_legal_when_top_k_by_rank_all_illegal() {
 /// over-estimating disoriented unit's damage.
 #[test]
 fn disadvantage_status_discounts_plan_damage_estimate() {
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
+    use crate::combat::ai::test_helpers::status_view;
     use crate::content::statuses::StatusDef;
     use combat_engine::StatusId;
 
@@ -1293,11 +1277,7 @@ fn disadvantage_status_discounts_plan_damage_estimate() {
 
     // Under disadvantage status.
     let mut dis_actor = base_actor();
-    dis_actor.statuses.push(ActiveStatusView {
-        id: StatusId::from("disoriented"),
-        rounds_remaining: 3,
-        dot_per_tick: 0,
-    });
+    dis_actor.statuses.push(status_view("disoriented", 3, 0));
     let snap_dis = snapshot_from(vec![dis_actor, target], 1);
     let plans_dis = generate_plans(actor_id, &ctx, &snap_dis, &maps);
     let dmg_dis: f32 = cast_damage_sum(&plans_dis);
@@ -1658,7 +1638,6 @@ fn single_step_lethal_move_still_recorded() {
 /// Spec §8 gotcha: "Wire conservatively — single tick per branch."
 #[test]
 fn apply_endturn_ticks_status_exactly_once_per_branch() {
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::combat::ai::world::tags::cache::build_caches;
     use crate::content::statuses::StatusDef;
     use combat_engine::StatusId;
@@ -1692,10 +1671,14 @@ fn apply_endturn_ticks_status_exactly_once_per_branch() {
     // snapshot_to_combat_state sets applier = entity_to_uid(unit.entity)
     // for every status, so this actor's own status will be ticked.
     let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 30, 2);
-    actor.statuses = vec![ActiveStatusView {
+    // applier must match actor_uid (entity.to_bits()) so tick_actor_statuses picks it up.
+    actor.statuses = vec![combat_engine::state::ActiveStatus {
         id: poison_id.clone(),
         rounds_remaining: 3,
         dot_per_tick: 3,
+        applier: combat_engine::state::EffectSource::Unit(combat_engine::state::UnitId(
+            actor.entity.to_bits(),
+        )),
     }];
     let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
     let actor_id = actor.entity;

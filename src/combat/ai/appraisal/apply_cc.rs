@@ -43,7 +43,7 @@ mod tests {
     };
     use crate::combat::ai::appraisal::tests::{default_memory, make_ctx, snap};
     use crate::combat::ai::config::tuning::AiTuning;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, status_view, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -118,13 +118,7 @@ mod tests {
             .threat(8.0)
             .damage_horizon(vec![8.0])
             .build();
-        enemy
-            .statuses
-            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
-                id: "stunned".into(),
-                rounds_remaining: 1,
-                dot_per_tick: 0,
-            });
+        enemy.statuses.push(status_view("stunned", 1, 0));
 
         let memory = default_memory();
         let tuning = AiTuning::default();

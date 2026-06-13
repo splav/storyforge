@@ -333,8 +333,8 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::pipeline::stages::sanity::sanity_adjust_plans;
     use crate::combat::ai::plan::PlanStep;
+    use crate::combat::ai::test_helpers::{status_view, UnitFixture};
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::UnitSnapshot;
 
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, UnitBuilder,
@@ -564,7 +564,7 @@ mod tests {
     /// given actor state. Real generator emits one snapshot per step; we
     /// pair a placeholder Cast step with the injected post-state so the
     /// `sim_snapshots.len() == steps.len()` shape invariant holds.
-    fn rescue_plan(actor_post: UnitSnapshot) -> TurnPlan {
+    fn rescue_plan(actor_post: UnitFixture) -> TurnPlan {
         let post_snap = snapshot_from(vec![actor_post.clone()], 1);
         TurnPlan {
             steps: vec![PlanStep::Cast {
@@ -608,13 +608,7 @@ mod tests {
             .max_hp(20)
             .build();
         let mut actor_with_dot = actor.clone();
-        actor_with_dot
-            .statuses
-            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
-                id: StatusId::from("poison"),
-                rounds_remaining: 1,
-                dot_per_tick: 4,
-            });
+        actor_with_dot.statuses.push(status_view("poison", 1, 4));
 
         let mut plans = vec![skip_plan(actor_with_dot.pos)];
         let snap = snapshot_from(vec![actor_with_dot.clone()], 1);
@@ -665,13 +659,7 @@ mod tests {
             .hp(2)
             .max_hp(20)
             .build();
-        actor_doomed
-            .statuses
-            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
-                id: StatusId::from("poison"),
-                rounds_remaining: 1,
-                dot_per_tick: 4,
-            });
+        actor_doomed.statuses.push(status_view("poison", 1, 4));
         // Post-plan: self-heal raises HP to 12, DoT still pending (heal
         // didn't cleanse). 12 > 4 → rescue holds.
         let mut actor_healed = actor_doomed.clone();
@@ -720,13 +708,7 @@ mod tests {
             .hp(2)
             .max_hp(20)
             .build();
-        actor_doomed
-            .statuses
-            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
-                id: StatusId::from("poison"),
-                rounds_remaining: 1,
-                dot_per_tick: 4,
-            });
+        actor_doomed.statuses.push(status_view("poison", 1, 4));
         // Post-plan: statuses vec cleared (cleanse). HP unchanged.
         let mut actor_cleansed = actor_doomed.clone();
         actor_cleansed.statuses.clear();
@@ -774,13 +756,7 @@ mod tests {
             .max_hp(40)
             .build();
         let mut actor_sick = actor.clone();
-        actor_sick
-            .statuses
-            .push(crate::combat::ai::world::snapshot::ActiveStatusView {
-                id: StatusId::from("exhaustion"),
-                rounds_remaining: 1,
-                dot_per_tick: 0, // the flat-damage channel is empty
-            });
+        actor_sick.statuses.push(status_view("exhaustion", 1, 0));
         let mut content = empty_content();
         content.statuses.insert(
             StatusId::from("exhaustion"),

@@ -18,13 +18,12 @@ use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
 use crate::combat::ai::intent::{assign_band, AiMemory, IntentReason, TacticalIntent};
 use crate::combat::ai::log::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
-use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::pipeline::stages::pick_best::commit_plan;
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::combat::ai::plan::{generate_plans, TurnPlan};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::reservations::Reservations;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::content_view::ContentView;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
@@ -479,170 +478,6 @@ pub fn pick_action(
         base_scored,
         band: (band, band_reason),
         agenda,
-    }
-}
-
-/// Write one JSONL decision log entry from a `PickResult`.
-///
-/// Reads scores, raw_factors, adaptation, and sanity data directly from
-/// `result.pool.annotations` rather than from separate parallel vecs.
-/// Called by the orchestrator (`enemy_turn.rs`) after `pick_action` returns.
-pub fn write_decision_log_from_result(
-    logger: &mut AiLogger,
-    decision_time_ms: u64,
-    actor: Entity,
-    active: &UnitSnapshot,
-    snap: &BattleSnapshot,
-    content: &ContentView,
-    result: &PickResult,
-    debug_names: &HashMap<Entity, String>,
-    difficulty: &DifficultyProfile,
-    memory: &AiMemory,
-    reservations_snap: crate::combat::ai::log::ReservationsSnapshot,
-) {
-    use crate::combat::ai::adapt::EvaluationMode;
-
-    let plan_id = logger.next_plan_id();
-    let pool = &result.pool;
-    let plans = &pool.plans;
-    let best_idx = result.best_idx;
-
-    let active_view = snap
-        .unit(active.entity)
-        .expect("active unit must be in snapshot for log");
-    let actor_value = crate::combat::ai::scoring::trade::unit_value(active_view, content);
-
-    // Rank plans by final (adapted) score, keep top-10 for size budget.
-    // Pre-compute evaluation modes (owned) so plan_to_log_entry borrows them
-    // with the same lifetime as pool.annotations.
-    let evaluation_modes: Vec<EvaluationMode> = pool
-        .annotations
-        .iter()
-        .map(|ann| {
-            ann.adaptation
-                .as_ref()
-                .map(|a| a.mode)
-                .unwrap_or(EvaluationMode::Default)
-        })
-        .collect();
-
-    let mut indexed: Vec<(usize, f32)> = pool
-        .annotations
-        .iter()
-        .enumerate()
-        .map(|(i, a)| (i, a.score))
-        .collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let shown = indexed.len().min(10);
-    let plan_entries: Vec<_> = indexed
-        .iter()
-        .take(shown)
-        .enumerate()
-        .map(|(rank, &(idx, score))| {
-            let ann = &pool.annotations[idx];
-            let br = crate::combat::ai::scoring::trade::trade_delta(
-                &plans[idx],
-                active_view,
-                snap,
-                content,
-            );
-            let trade = TradeBlock {
-                delta: br.delta,
-                killed: br.killed_value,
-                lost: br.lost_value,
-                self_lost: br.self_lost,
-                self_lethal: br.self_lethal,
-                score: crate::combat::ai::scoring::trade::trade_score(&br, actor_value),
-            };
-            let adaptation_reason = ann.adaptation.as_ref().map(|d| &d.reason);
-            let base_score = result.base_scored.get(idx).copied().unwrap_or(score);
-            // Derive sanity hits from score_trace (TLE-3a: legacy ann.sanity removed).
-            let sanity_breakdown: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit> = {
-                use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
-                ann.score_trace
-                    .multipliers
-                    .iter()
-                    .filter(|m| matches!(m.kind, MultiplierKind::Sanity))
-                    .filter_map(|m| {
-                        if let Some(MultiplierDetail::Sanity { rule }) = &m.detail {
-                            Some(crate::combat::ai::pipeline::stages::sanity::SanityHit {
-                                rule: *rule,
-                                multiplier: m.value,
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            };
-            log::plan_to_log_entry(
-                &plans[idx],
-                rank + 1,
-                idx == best_idx,
-                &ann.factors,
-                &ann.terminal,
-                base_score,
-                score,
-                &evaluation_modes[idx],
-                adaptation_reason,
-                trade,
-                sanity_breakdown,
-            )
-        })
-        .collect();
-
-    let actor_name = debug_names
-        .get(&actor)
-        .map(|s| s.as_str())
-        .unwrap_or("<unknown>");
-    let reason_text = result.intent_reason.to_string();
-    let intent_block = IntentBlock {
-        intent: &result.intent,
-        selection_kind: result.intent_reason.code(),
-        reason_text: &reason_text,
-        reason: &result.intent_reason,
-        evaluation_mode_reason: result.evaluation_mode_reason.as_ref(),
-    };
-
-    // gate_stats: KillableGateStage emits GateHit(source="killable_gate") into score_trace.
-    // Derive applied/pruned_count from score_trace.gates (TLE-3a: legacy contract field removed).
-    let gate_applied = pool.annotations.iter().any(|a| {
-        a.score_trace
-            .gates
-            .iter()
-            .any(|g| g.source == "killable_gate")
-    });
-    let gate_pruned_count = pool
-        .annotations
-        .iter()
-        .filter(|a| {
-            a.score_trace
-                .gates
-                .iter()
-                .any(|g| g.source == "killable_gate")
-        })
-        .count();
-
-    let entry = log::build_entry(
-        "", // session_id — this function is superseded by write_actor_tick_log; pass empty
-        plan_id,
-        decision_time_ms,
-        active,
-        actor_name,
-        snap,
-        intent_block,
-        plans.len(),
-        shown,
-        plan_entries,
-        &result.decision,
-        gate_applied,
-        gate_pruned_count,
-        difficulty,
-        memory,
-        reservations_snap,
-    );
-    if let Err(e) = logger.write_entry(&entry) {
-        warn!("AI log write failed: {}", e);
     }
 }
 

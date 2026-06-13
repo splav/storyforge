@@ -11,14 +11,13 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder};
-use storyforge::combat::ai::world::snapshot::UnitSnapshot;
+use storyforge::combat::ai::test_helpers::{snapshot_from, UnitBuilder, UnitFixture};
 use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 
 // ── Scenario construction ────────────────────────────────────────────────────
 
-fn make_mid_encounter_units() -> Vec<UnitSnapshot> {
+fn make_mid_encounter_units() -> Vec<UnitFixture> {
     // 2 player units
     let p1 = UnitBuilder::new(1, Team::Player, hex_from_offset(2, 3))
         .full_hp(35)

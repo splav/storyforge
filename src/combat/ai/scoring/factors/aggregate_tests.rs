@@ -15,15 +15,15 @@ use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues, StepFactor};
 use crate::combat::ai::test_helpers::make_scoring_ctx;
 use crate::combat::ai::test_helpers::snapshot_from;
+use crate::combat::ai::test_helpers::UnitFixture;
 use crate::combat::ai::world::reservations::Reservations;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::components::Team;
 use crate::game::hex::{hex_from_offset, Hex};
 
 /// Scorer-suite defaults: AP=2 (enough for a 1-AP cast), melee bruiser
 /// with one `melee_attack` ability. Mirrors the pre-builder factory.
-fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
+fn unit(id: u32, team: Team, pos: Hex) -> UnitFixture {
     crate::combat::ai::test_helpers::UnitBuilder::new(id, team, pos)
         .ap(2)
         .tags(AiTags::MELEE_ONLY)
@@ -50,7 +50,7 @@ fn test_ctx<'a>(
 /// factors would be 0 for all manually-built plans.
 fn annotate_plan(
     plan: &mut TurnPlan,
-    actor: &UnitSnapshot,
+    actor: &UnitFixture,
     snap: &crate::combat::ai::world::snapshot::BattleSnapshot,
     content: &crate::content::content_view::ContentView,
     _crit_fail_chance: f32,
@@ -361,7 +361,7 @@ fn rescore_matches_full_score_under_same_intent() {
     let maps = empty_maps();
     let reservations = Reservations::default();
 
-    let mk_plan = |target: &UnitSnapshot| TurnPlan {
+    let mk_plan = |target: &UnitFixture| TurnPlan {
         steps: vec![PlanStep::Cast {
             ability: "melee_attack".into(),
             target: target.entity,
@@ -478,7 +478,7 @@ fn noise_is_plan_order_invariant() {
         target: focus_a.entity,
     };
 
-    let mk_plan = |target: &UnitSnapshot| TurnPlan {
+    let mk_plan = |target: &UnitFixture| TurnPlan {
         steps: vec![PlanStep::Cast {
             ability: "melee_attack".into(),
             target: target.entity,
@@ -571,7 +571,7 @@ fn trade_bonus_favors_valuable_victim() {
     // trade_bonus is PLAN_MODIFIERS[1]
     let trade_modifier = PLAN_MODIFIERS[1];
 
-    let mk_kill_plan = |victim: &UnitSnapshot| TurnPlan {
+    let mk_kill_plan = |victim: &UnitFixture| TurnPlan {
         steps: vec![PlanStep::Cast {
             ability: "melee_attack".into(),
             target: victim.entity,

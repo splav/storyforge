@@ -374,7 +374,7 @@ fn ai_sim_and_prod_hazard_costs_agree() {
         .armor(5)
         .build();
 
-    let make_snap = |actor: storyforge::combat::ai::world::snapshot::UnitSnapshot| {
+    let make_snap = |actor: storyforge::combat::ai::test_helpers::UnitFixture| {
         let mut s = snapshot_from(vec![actor], 1);
         s.state.environment.push(EnvObject {
             id: trap_id,

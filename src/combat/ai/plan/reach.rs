@@ -92,12 +92,12 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
 mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::UnitFixture;
     use crate::combat::ai::test_helpers::{unit, UnitBuilder};
-    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
-    fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
+    fn snap(units: Vec<UnitFixture>) -> BattleSnapshot {
         snapshot_from(units, 1)
     }
 

@@ -15,8 +15,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use bevy::prelude::Entity;
 use storyforge::combat::ai::plan::sim::SimState;
 use storyforge::combat::ai::plan::types::PlanStep;
-use storyforge::combat::ai::test_helpers::{ent, snapshot_from};
-use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use storyforge::combat::ai::test_helpers::{ent, snapshot_from, UnitFixture};
+use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
 use storyforge::combat::bridge::entity_to_uid;
 use storyforge::combat_engine::{
@@ -32,8 +32,8 @@ use storyforge::game::hex::hex_from_offset;
 
 // ── Shared scenario setup ─────────────────────────────────────────────────────
 
-fn make_unit_snap(id: u32, team: Team, col: i32, row: i32, aoo: Option<f32>) -> UnitSnapshot {
-    UnitSnapshot {
+fn make_unit_snap(id: u32, team: Team, col: i32, row: i32, aoo: Option<f32>) -> UnitFixture {
+    UnitFixture {
         entity: ent(id),
         team,
         role: Default::default(),
@@ -83,7 +83,7 @@ fn build_scenario() -> (BattleSnapshot, Entity, Vec<storyforge::game::hex::Hex>)
     // hex_from_offset(0,1) is a neighbor of (1,0) in even-r coordinates.
     let enemy_b = make_unit_snap(3, Team::Enemy, 0, 1, Some(5.0));
 
-    let fillers: Vec<UnitSnapshot> = (4u32..=10)
+    let fillers: Vec<UnitFixture> = (4u32..=10)
         .map(|id| make_unit_snap(id, Team::Enemy, 10 + id as i32, 5, None))
         .collect();
 

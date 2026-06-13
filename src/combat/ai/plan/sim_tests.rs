@@ -12,7 +12,7 @@ use super::*;
 use crate::combat::ai::test_helpers::{
     empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder,
 };
-use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
+use crate::combat::ai::test_helpers::{status_view, UnitFixture};
 use crate::content::abilities::{
     AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
 };
@@ -23,7 +23,7 @@ use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
 /// Sim-suite defaults: mana 5/10 (enough for simple casts), armor as
 /// override. `hp` also explicit because armor+hp tests are the whole
 /// point of this module.
-fn unit(id: u32, team: Team, pos: Hex, hp: i32, armor: i32) -> UnitSnapshot {
+fn unit(id: u32, team: Team, pos: Hex, hp: i32, armor: i32) -> UnitFixture {
     UnitBuilder::new(id, team, pos)
         .hp(hp)
         .armor(armor)
@@ -31,7 +31,7 @@ fn unit(id: u32, team: Team, pos: Hex, hp: i32, armor: i32) -> UnitSnapshot {
         .build()
 }
 
-fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
+fn snap(units: Vec<UnitFixture>) -> BattleSnapshot {
     snapshot_from(units, 1)
 }
 
@@ -421,11 +421,7 @@ fn heal_cleanses_dot_before_restoring_hp() {
         .caster_ctx(ctx(0, 2))
         .build();
     let mut ally = unit(2, Team::Player, hex_from_offset(1, 0), 10, 0);
-    ally.statuses.push(ActiveStatusView {
-        id: StatusId::from("poison"),
-        rounds_remaining: 2,
-        dot_per_tick: 3,
-    });
+    ally.statuses.push(status_view("poison", 2, 3));
     let healer_id = healer.entity;
     let ally_id = ally.entity;
 

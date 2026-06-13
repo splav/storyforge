@@ -22,7 +22,7 @@ use crate::combat::ai::scoring::factors::PlanFactorValues;
 use crate::combat::ai::world::cache::{AiCache, UnitAiCache};
 use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::world::reservations::Reservations;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::content::abilities::AbilityDef as BevyAbilityDef;
@@ -88,16 +88,15 @@ pub(crate) fn make_test_ctx<'a>(
 /// own the `maps` / `reservations` so a single test can pre-seed specific
 /// tiles/reservations before handing them in.
 ///
-/// U2/C4: takes `active: &UnitSnapshot` for test-site compat (entity lookup);
-/// the actor must be present in the snapshot — panics with a clear message if not.
-/// Internally resolves `UnitView` and populates `ctx.active`; `UnitSnapshot` is
-/// not stored in the ctx anymore.
+/// Takes `active: &UnitFixture` — the fixture's `entity` is used to resolve
+/// the corresponding `UnitView` from the snapshot. The fixture must be
+/// present in the snapshot — panics with a clear message if not.
 pub(crate) fn make_scoring_ctx<'a>(
     world: &'a AiWorld<'a>,
     snap: &'a BattleSnapshot,
     maps: &'a InfluenceMaps,
     reservations: &'a Reservations,
-    active: &'a UnitSnapshot,
+    active: &'a UnitFixture,
 ) -> ScoringCtx<'a, 'a> {
     let active_view = snap.unit(active.entity).expect(
         "test fixture: active must be in snap — pass an entity present in snapshot_from(...)",
@@ -113,14 +112,166 @@ pub(crate) fn make_scoring_ctx<'a>(
     }
 }
 
-// ── Unit snapshot builder ──────────────────────────────────────────────────
+// ── Unit fixture ─────────────────────────────────────────────────────────────
 
-/// Fluent builder for `UnitSnapshot` test fixtures. Replaces the 10 copies
-/// of `fn unit(...)` that previously hand-rolled 24-field struct literals
-/// with slightly-different defaults in each test module. Call sites override
+/// Test-only plain-data struct that mirrors `UnitSnapshot` fields.
+///
+/// **No serde derives** — this is only for test construction, not wire logging.
+/// **No aggregate-refresh methods** — tests set `speed`/`armor_bonus`/
+/// `damage_taken_bonus` explicitly; the engine refreshes aggregates via
+/// `Effect::RefreshAggregates` during `step()`.
+///
+/// The `statuses` field stores engine `combat_engine::state::ActiveStatus`
+/// directly (NOT `ActiveStatusView`). Use the [`status_view`] helper to
+/// construct status entries.
+#[derive(Clone, Debug)]
+pub struct UnitFixture {
+    pub entity: bevy::prelude::Entity,
+    pub team: Team,
+    pub role: crate::combat::ai::config::role::AxisProfile,
+    pub pos: Hex,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub armor: i32,
+    pub armor_bonus: i32,
+    pub magic_resist: i32,
+    pub damage_taken_bonus: i32,
+    pub action_points: i32,
+    pub max_ap: i32,
+    pub movement_points: i32,
+    pub base_speed: i32,
+    pub speed: i32,
+    pub mana: Option<(i32, i32)>,
+    pub rage: Option<(i32, i32)>,
+    pub energy: Option<(i32, i32)>,
+    pub abilities: Vec<crate::combat_engine::AbilityId>,
+    pub threat: f32,
+    pub tags: AiTags,
+    pub max_attack_range: u32,
+    pub summoner: Option<bevy::prelude::Entity>,
+    pub reactions_left: i32,
+    pub aoo_expected_damage: Option<f32>,
+    /// Engine `ActiveStatus` values. Use [`status_view`] to fabricate entries.
+    pub statuses: Vec<combat_engine::state::ActiveStatus>,
+    pub caster_ctx: CasterContext,
+    pub crit_fail_effect: CritFailEffect,
+    pub damage_horizon: Vec<f32>,
+    pub ai_tuning_override: Option<crate::combat::ai::config::tuning::AiTuningOverride>,
+    pub forced_mode: Option<crate::combat::ai::adapt::EvaluationMode>,
+}
+
+/// Fabricate a `combat_engine::state::ActiveStatus` for test fixtures.
+///
+/// `applier` is always `EffectSource::Unit(UnitId(0))` — a sentinel adequate
+/// for test scenarios that do not exercise applier-attribution logic.
+pub(crate) fn status_view(id: &str, rounds: u32, dot: i32) -> combat_engine::state::ActiveStatus {
+    combat_engine::state::ActiveStatus {
+        id: combat_engine::StatusId::from(id),
+        rounds_remaining: rounds,
+        dot_per_tick: dot,
+        applier: combat_engine::state::EffectSource::Unit(combat_engine::state::UnitId(0)),
+    }
+}
+
+/// Convert a `UnitFixture` into the engine pair `(Unit, UnitAiCache)`.
+///
+/// This is the single canonical conversion path — `UnitBuilder::build_pair`
+/// delegates here, eliminating the former duplicated `unit_snapshot_to_pair`.
+pub(crate) fn fixture_to_pair(
+    u: &UnitFixture,
+) -> (
+    combat_engine::state::Unit,
+    crate::combat::ai::world::cache::UnitAiCache,
+) {
+    use crate::content::races::CritFailEffect as Cfe;
+    use combat_engine::state::{Team as EngineTeam, UnitId};
+    use combat_engine::CritFailOutcome as Out;
+    let team = match u.team {
+        Team::Player => EngineTeam::Player,
+        Team::Enemy => EngineTeam::Enemy,
+    };
+    let uid = UnitId(u.entity.to_bits());
+    let crit_fail_outcome = match &u.crit_fail_effect {
+        Cfe::Miss => Out::Miss,
+        Cfe::ManaOverload => Out::DoubleCost,
+        Cfe::BrokenFaith => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
+        Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
+        Cfe::Exhaustion => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
+        Cfe::PactControl => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
+    };
+    let caster_context = combat_engine::CasterContext {
+        str_mod: u.caster_ctx.str_mod,
+        int_mod: u.caster_ctx.int_mod,
+        spell_power: u.caster_ctx.spell_power,
+        weapon_dice: u.caster_ctx.weapon_dice,
+        ranged_dice: u.caster_ctx.ranged_dice,
+        crit_fail_outcome,
+        dex_mod: u.caster_ctx.dex_mod,
+    };
+    let aoo_dice = u
+        .aoo_expected_damage
+        .map(|raw| combat_engine::DiceExpr::new(0, 1, raw.round() as i32));
+    let engine_unit = combat_engine::state::Unit::new(
+        uid,
+        team,
+        u.pos,
+        u.armor,
+        u.magic_resist,
+        u.armor_bonus,
+        u.damage_taken_bonus,
+        u.base_speed,
+        u.speed,
+        u.reactions_left,
+        1,
+        u.statuses.clone(),
+        u.summoner
+            .map(|e| combat_engine::state::UnitId(e.to_bits())),
+        None, // initiative: not yet rolled
+        caster_context,
+        aoo_dice,
+        Vec::new(),
+        Vec::new(),
+        combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => Some((u.hp, u.max_hp)),
+            combat_engine::PoolKind::Mana   => u.mana,
+            combat_engine::PoolKind::Rage   => u.rage,
+            combat_engine::PoolKind::Energy => u.energy,
+            combat_engine::PoolKind::Ap     => Some((u.action_points, u.max_ap)),
+            combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
+        },
+        combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+        },
+        None,
+    );
+    let ai_cache = crate::combat::ai::world::cache::UnitAiCache {
+        entity: u.entity,
+        role: u.role,
+        threat: u.threat,
+        tags: u.tags,
+        max_attack_range: u.max_attack_range,
+        aoo_expected_damage: u.aoo_expected_damage,
+        damage_horizon: u.damage_horizon.clone(),
+        crit_fail_effect: u.crit_fail_effect.clone(),
+        ai_tuning_override: u.ai_tuning_override.clone(),
+        abilities: u.abilities.clone(),
+        caster_ctx: u.caster_ctx.clone(),
+        forced_mode: u.forced_mode,
+    };
+    (engine_unit, ai_cache)
+}
+
+// ── Unit fixture builder ───────────────────────────────────────────────────
+
+/// Fluent builder for [`UnitFixture`] test fixtures. Call sites override
 /// only the fields that matter for their scenario (`.hp(5).tags(LOW_HP)`).
 pub struct UnitBuilder {
-    inner: UnitSnapshot,
+    inner: UnitFixture,
 }
 
 #[allow(dead_code)] // full chain kept for future tests; used ones rotate.
@@ -131,10 +282,10 @@ impl UnitBuilder {
     /// threat=5.0, max_attack_range=1, role=Bruiser, tags=empty.
     pub fn new(id: u32, team: Team, pos: Hex) -> Self {
         Self {
-            inner: UnitSnapshot {
+            inner: UnitFixture {
                 entity: Entity::from_raw_u32(id).expect("valid entity id"),
                 team,
-                role: AxisProfile {
+                role: crate::combat::ai::config::role::AxisProfile {
                     tank: 0.5,
                     melee: 0.5,
                     ranged: 0.0,
@@ -272,10 +423,7 @@ impl UnitBuilder {
         self.inner.damage_taken_bonus = bonus;
         self
     }
-    pub fn statuses(
-        mut self,
-        statuses: Vec<crate::combat::ai::world::snapshot::ActiveStatusView>,
-    ) -> Self {
+    pub fn statuses(mut self, statuses: Vec<combat_engine::state::ActiveStatus>) -> Self {
         self.inner.statuses = statuses;
         self
     }
@@ -295,7 +443,7 @@ impl UnitBuilder {
         self.inner.forced_mode = mode;
         self
     }
-    pub fn build(self) -> UnitSnapshot {
+    pub fn build(self) -> UnitFixture {
         self.inner
     }
 
@@ -304,209 +452,15 @@ impl UnitBuilder {
     /// a `BattleSnapshot` via the authoritative `BattleSnapshot::new(state, cache)`
     /// constructor instead of the legacy `new_from_unit_snapshots`.
     pub fn build_pair(self) -> (combat_engine::state::Unit, UnitAiCache) {
-        use crate::content::races::CritFailEffect as Cfe;
-        use combat_engine::state::{ActiveStatus, Team as EngineTeam, UnitId};
-        use combat_engine::CritFailOutcome as Out;
-        let u = &self.inner;
-        let team = match u.team {
-            Team::Player => EngineTeam::Player,
-            Team::Enemy => EngineTeam::Enemy,
-        };
-        let uid = UnitId(u.entity.to_bits());
-        let statuses: Vec<ActiveStatus> = u
-            .statuses
-            .iter()
-            .map(|s| ActiveStatus {
-                id: s.id.clone(),
-                rounds_remaining: s.rounds_remaining,
-                dot_per_tick: s.dot_per_tick,
-                applier: combat_engine::state::EffectSource::Unit(uid),
-            })
-            .collect();
-        let crit_fail_outcome = match &u.crit_fail_effect {
-            Cfe::Miss => Out::Miss,
-            Cfe::ManaOverload => Out::DoubleCost,
-            Cfe::BrokenFaith => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
-            Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
-            Cfe::Exhaustion => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
-            Cfe::PactControl => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
-        };
-        let caster_context = combat_engine::CasterContext {
-            str_mod: u.caster_ctx.str_mod,
-            int_mod: u.caster_ctx.int_mod,
-            spell_power: u.caster_ctx.spell_power,
-            weapon_dice: u.caster_ctx.weapon_dice,
-            ranged_dice: u.caster_ctx.ranged_dice,
-            crit_fail_outcome,
-            dex_mod: u.caster_ctx.dex_mod,
-        };
-        let aoo_dice = u
-            .aoo_expected_damage
-            .map(|raw| combat_engine::DiceExpr::new(0, 1, raw.round() as i32));
-        let engine_unit = combat_engine::state::Unit::new(
-            uid,
-            team,
-            u.pos,
-            u.armor,
-            u.magic_resist,
-            u.armor_bonus,
-            u.damage_taken_bonus,
-            u.base_speed,
-            u.speed,
-            u.reactions_left,
-            1,
-            statuses,
-            u.summoner
-                .map(|e| combat_engine::state::UnitId(e.to_bits())),
-            None, // initiative: not yet rolled
-            caster_context,
-            aoo_dice,
-            Vec::new(),
-            Vec::new(),
-            combat_engine::enum_map::enum_map! {
-                combat_engine::PoolKind::Hp     => Some((u.hp, u.max_hp)),
-                combat_engine::PoolKind::Mana   => u.mana,
-                combat_engine::PoolKind::Rage   => u.rage,
-                combat_engine::PoolKind::Energy => u.energy,
-                combat_engine::PoolKind::Ap     => Some((u.action_points, u.max_ap)),
-                combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
-            },
-            combat_engine::enum_map::enum_map! {
-                combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-            },
-            None,
-        );
-        let ai_cache = UnitAiCache {
-            entity: u.entity,
-            role: u.role,
-            threat: u.threat,
-            tags: u.tags,
-            max_attack_range: u.max_attack_range,
-            aoo_expected_damage: u.aoo_expected_damage,
-            damage_horizon: u.damage_horizon.clone(),
-            crit_fail_effect: u.crit_fail_effect.clone(),
-            ai_tuning_override: u.ai_tuning_override.clone(),
-            abilities: u.abilities.clone(),
-            caster_ctx: u.caster_ctx.clone(),
-            forced_mode: u.forced_mode,
-        };
-        (engine_unit, ai_cache)
+        fixture_to_pair(&self.inner)
     }
 }
 
-/// Test-only conversion: UnitSnapshot → engine pair. Inlined here from former
-/// production `UnitSnapshot::as_pair` (deleted in U5/C).
-pub(crate) fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitAiCache) {
-    use crate::content::races::CritFailEffect as Cfe;
-    use combat_engine::dice::DiceExpr as EngineDiceExpr;
-    use combat_engine::state::{ActiveStatus, Team as EngineTeam, UnitId};
-    use combat_engine::CritFailOutcome as Out;
-    let team = match u.team {
-        crate::game::components::Team::Player => EngineTeam::Player,
-        crate::game::components::Team::Enemy => EngineTeam::Enemy,
-    };
-    // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
-    // summons — see B-prime audit.
-    let uid = UnitId(u.entity.to_bits());
-    let statuses: Vec<ActiveStatus> = u
-        .statuses
-        .iter()
-        .map(|s| ActiveStatus {
-            id: s.id.clone(),
-            rounds_remaining: s.rounds_remaining,
-            dot_per_tick: s.dot_per_tick,
-            applier: combat_engine::state::EffectSource::Unit(uid),
-        })
-        .collect();
-    let crit_fail_outcome = match &u.crit_fail_effect {
-        Cfe::Miss => Out::Miss,
-        Cfe::ManaOverload => Out::DoubleCost,
-        Cfe::BrokenFaith => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
-        Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
-        Cfe::Exhaustion => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
-        Cfe::PactControl => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
-    };
-    let caster_context = combat_engine::CasterContext {
-        str_mod: u.caster_ctx.str_mod,
-        int_mod: u.caster_ctx.int_mod,
-        spell_power: u.caster_ctx.spell_power,
-        weapon_dice: u.caster_ctx.weapon_dice,
-        ranged_dice: u.caster_ctx.ranged_dice,
-        crit_fail_outcome,
-        dex_mod: u.caster_ctx.dex_mod,
-    };
-    let aoo_dice = u
-        .aoo_expected_damage
-        .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-    let engine_unit = combat_engine::state::Unit::new(
-        uid,
-        team,
-        u.pos,
-        u.armor,
-        u.magic_resist,
-        u.armor_bonus,
-        u.damage_taken_bonus,
-        u.base_speed,
-        u.speed,
-        u.reactions_left,
-        1,
-        statuses,
-        u.summoner
-            .map(|e| combat_engine::state::UnitId(e.to_bits())),
-        None, // initiative: not yet rolled
-        caster_context,
-        aoo_dice,
-        Vec::new(),
-        Vec::new(),
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => Some((u.hp, u.max_hp)),
-            combat_engine::PoolKind::Mana   => u.mana,
-            combat_engine::PoolKind::Rage   => u.rage,
-            combat_engine::PoolKind::Energy => u.energy,
-            combat_engine::PoolKind::Ap     => Some((u.action_points, u.max_ap)),
-            combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
-        },
-        combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-        },
-        None,
-    );
-    let ai_cache = UnitAiCache {
-        entity: u.entity,
-        role: u.role,
-        threat: u.threat,
-        tags: u.tags,
-        max_attack_range: u.max_attack_range,
-        aoo_expected_damage: u.aoo_expected_damage,
-        damage_horizon: u.damage_horizon.clone(),
-        crit_fail_effect: u.crit_fail_effect.clone(),
-        ai_tuning_override: u.ai_tuning_override.clone(),
-        abilities: u.abilities.clone(),
-        caster_ctx: u.caster_ctx.clone(),
-        forced_mode: u.forced_mode,
-    };
-    (engine_unit, ai_cache)
-}
-
-/// Build a `BattleSnapshot` via the authoritative `BattleSnapshot::new(state, cache)`
-/// constructor from a vec of `UnitSnapshot` values.
-///
-/// Drop-in replacement for `snapshot_from(units, round)`.
-/// Each `UnitSnapshot` is projected to `(Unit, UnitAiCache)` via the private
-/// `unit_snapshot_to_pair` helper (moved here from production in U5/C).
+/// Build a `BattleSnapshot` from a vec of [`UnitFixture`] values via the
+/// authoritative `BattleSnapshot::new(state, cache)` constructor.
 #[allow(dead_code)]
-pub fn snapshot_from(units: Vec<UnitSnapshot>, round: u32) -> BattleSnapshot {
-    snapshot_from_pairs(units.iter().map(unit_snapshot_to_pair).collect(), round)
+pub fn snapshot_from(units: Vec<UnitFixture>, round: u32) -> BattleSnapshot {
+    snapshot_from_pairs(units.iter().map(fixture_to_pair).collect(), round)
 }
 
 /// Lower-level variant for callers that already have `build_pair()` output.
@@ -523,79 +477,9 @@ pub fn snapshot_from_pairs(
     BattleSnapshot::new(state, cache)
 }
 
-/// Test-only: convert a `UnitSnapshot` to the engine `Unit` type.
-///
-/// Useful for tests that call production functions whose signatures were
-/// migrated from `&UnitSnapshot` to `&combat_engine::state::Unit` (D-final).
-#[allow(dead_code)]
-pub(crate) fn unit_snapshot_to_engine_unit(u: &UnitSnapshot) -> combat_engine::state::Unit {
-    unit_snapshot_to_pair(u).0
-}
-
-/// Test-only: convert a `UnitView` back to `UnitSnapshot`.
-///
-/// Bridges the gap for test code that still works with `UnitSnapshot`-accepting
-/// functions (policy/horizon layers, U6-deferred) after `BattleSnapshot.unit_snapshot()`
-/// is removed in D-final.
-#[allow(dead_code)]
-pub(crate) fn unit_view_to_snapshot(
-    view: crate::combat::ai::world::snapshot::UnitView<'_>,
-) -> UnitSnapshot {
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
-    use crate::game::components::Team;
-    use combat_engine::PoolKind;
-    let u = view.state;
-    let c = view.cache;
-    let team = match u.team {
-        combat_engine::state::Team::Player => Team::Player,
-        combat_engine::state::Team::Enemy => Team::Enemy,
-    };
-    UnitSnapshot {
-        entity: c.entity,
-        team,
-        role: c.role,
-        pos: u.pos,
-        hp: u.hp(),
-        max_hp: u.max_hp(),
-        armor: u.armor,
-        armor_bonus: u.armor_bonus,
-        magic_resist: u.magic_resist,
-        damage_taken_bonus: u.damage_taken_bonus,
-        action_points: u.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
-        max_ap: u.pools[PoolKind::Ap].map(|(_, m)| m).unwrap_or(0),
-        movement_points: u.pools[PoolKind::Mp].map(|(c, _)| c).unwrap_or(0),
-        base_speed: u.base_speed,
-        speed: u.speed,
-        mana: u.pools[PoolKind::Mana],
-        rage: u.pools[PoolKind::Rage],
-        energy: u.pools[PoolKind::Energy],
-        abilities: c.abilities.clone(),
-        threat: c.threat,
-        tags: c.tags,
-        max_attack_range: c.max_attack_range,
-        summoner: u.summoner.map(|s| bevy::prelude::Entity::from_bits(s.0)),
-        reactions_left: u.reactions_left,
-        aoo_expected_damage: c.aoo_expected_damage,
-        statuses: u
-            .statuses
-            .iter()
-            .map(|s| ActiveStatusView {
-                id: s.id.clone(),
-                rounds_remaining: s.rounds_remaining,
-                dot_per_tick: s.dot_per_tick,
-            })
-            .collect(),
-        caster_ctx: c.caster_ctx.clone(),
-        crit_fail_effect: c.crit_fail_effect.clone(),
-        damage_horizon: c.damage_horizon.clone(),
-        ai_tuning_override: c.ai_tuning_override.clone(),
-        forced_mode: c.forced_mode,
-    }
-}
-
 /// Short-hand for `UnitBuilder::new(id, team, pos).build()` — the dominant
 /// single-line fixture shape across test modules.
-pub(crate) fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
+pub(crate) fn unit(id: u32, team: Team, pos: Hex) -> UnitFixture {
     UnitBuilder::new(id, team, pos).build()
 }
 
@@ -708,7 +592,7 @@ pub(crate) fn bevy_status(id: &str, engine: combat_engine::StatusDef) -> BevySta
 /// }
 /// ```
 pub(crate) struct StageTestHarness {
-    pub actor: UnitSnapshot,
+    pub actor: UnitFixture,
     pub intent: TacticalIntent,
     pub intent_reason: IntentReason,
     pub maps: InfluenceMaps,
@@ -718,14 +602,14 @@ pub(crate) struct StageTestHarness {
     /// Extra units placed in the `BattleSnapshot` alongside the actor.
     /// Use when the stage under test reads `ctx.scoring.snap.units` (e.g.,
     /// critics that look for enemies or allies in the snapshot).
-    pub extra_units: Vec<UnitSnapshot>,
+    pub extra_units: Vec<UnitFixture>,
 }
 
 impl StageTestHarness {
     /// Sane defaults: solo-actor `BattleSnapshot`, empty maps, default
     /// difficulty, empty reservations, `intent = Reposition`,
     /// `intent_reason = NoRuleDefault`, no agenda.
-    pub fn new(actor: UnitSnapshot) -> Self {
+    pub fn new(actor: UnitFixture) -> Self {
         Self {
             actor,
             intent: TacticalIntent::Reposition,
@@ -924,10 +808,10 @@ impl PoolBuilder {
 ///     |reason| { /* inspect CriticReason fields */ });
 /// ```
 pub(crate) struct CriticScenario {
-    actor: UnitSnapshot,
+    actor: UnitFixture,
     content: ContentView,
     difficulty: crate::combat::ai::config::difficulty::DifficultyProfile,
-    snap_units: Vec<UnitSnapshot>,
+    snap_units: Vec<UnitFixture>,
     maps: crate::combat::ai::world::influence::InfluenceMaps,
     reservations: crate::combat::ai::world::reservations::Reservations,
 }
@@ -959,8 +843,8 @@ impl CriticScenario {
 ///     .build();
 /// ```
 pub(crate) struct CriticScenarioBuilder {
-    actor: UnitSnapshot,
-    extra_units: Vec<UnitSnapshot>,
+    actor: UnitFixture,
+    extra_units: Vec<UnitFixture>,
     abilities: Vec<(
         combat_engine::AbilityId,
         crate::content::abilities::AbilityDef,
@@ -968,7 +852,7 @@ pub(crate) struct CriticScenarioBuilder {
 }
 
 impl CriticScenarioBuilder {
-    pub fn new(actor: UnitSnapshot) -> Self {
+    pub fn new(actor: UnitFixture) -> Self {
         Self {
             actor,
             extra_units: Vec::new(),
@@ -977,7 +861,7 @@ impl CriticScenarioBuilder {
     }
 
     /// Additional units placed in the snapshot alongside the actor.
-    pub fn with_units(mut self, units: Vec<UnitSnapshot>) -> Self {
+    pub fn with_units(mut self, units: Vec<UnitFixture>) -> Self {
         self.extra_units = units;
         self
     }

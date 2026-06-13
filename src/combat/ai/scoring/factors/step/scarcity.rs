@@ -165,10 +165,10 @@ mod tests {
     use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::orchestration::AiWorld;
     use crate::combat::ai::test_helpers::{
-        empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, unit, UnitBuilder,
+        empty_maps, make_scoring_ctx, make_test_ctx, snapshot_from, unit, UnitBuilder, UnitFixture,
     };
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::content::content_view::ContentView;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -209,7 +209,7 @@ mod tests {
         kill: f32,
         ctx: &'a AiWorld<'a>,
         snap: &BattleSnapshot,
-        active: &UnitSnapshot,
+        active: &UnitFixture,
     ) -> f32 {
         let maps = empty_maps();
         let reservations = Reservations::default();

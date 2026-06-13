@@ -98,7 +98,7 @@ mod tests {
         plans: Vec<TurnPlan>,
         intent: TacticalIntent,
         snap: &BattleSnapshot,
-        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::test_helpers::UnitFixture,
         last_goal: Option<&StoredGoalContext>,
     ) -> ScoredPool {
         let maps = empty_maps();

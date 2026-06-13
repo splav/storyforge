@@ -79,69 +79,6 @@ fn combat_log_header_serializes_and_is_skipped_by_miner_filter() {
 }
 
 #[test]
-fn entry_serializes_current_schema_telemetry_fields() {
-    // Minimal AiLogEntry constructed directly to verify current schema fields
-    // appear in the JSON output with the expected types. AiLogEntry has no
-    // Deserialize derive (lifetime refs), so we assert via serde_json::Value.
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
-
-    let snap = BattleSnapshot::default();
-    let intent_val = TacticalIntent::ProtectSelf;
-    let reason_val = IntentReason::NoRuleDefault;
-    let difficulty = DifficultyProfile::normal();
-    let memory = crate::combat::ai::intent::AiMemory::default();
-    let entry = AiLogEntry {
-        schema_version: SCHEMA_VERSION,
-        session_id: "test_session",
-        engine_step_range: None,
-        plan_id: 0,
-        timestamp_ms: 0,
-        decision_time_ms: 0,
-        round: 1,
-        actor_id: 0,
-        actor_name: "test",
-        actor_pos: [0, 0],
-        actor_ap: 2,
-        actor_max_ap: 2,
-        actor_mp: 3,
-        actor_max_mp: 3,
-        plans_evaluated: 0,
-        plans_shown: 0,
-        snapshot: &snap,
-        intent: IntentBlock {
-            intent: &intent_val,
-            selection_kind: "protect_self",
-            reason_text: "",
-            reason: &reason_val,
-            evaluation_mode_reason: None,
-        },
-        plans: vec![],
-        committed_decision: DecisionBlock::EndTurn,
-        gate_applied: true,
-        gate_pruned_count: 3,
-        survival_mode_active: true,
-        last_stand_active: false,
-        difficulty: DifficultyProfileSnapshot::from(&difficulty),
-        ai_memory: AiMemorySnapshot::from_memory(&memory),
-        reservations: ReservationsSnapshot::default(),
-    };
-    let json = serde_json::to_string(&entry).expect("serialize");
-    let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
-    assert_eq!(v["schema_version"], SCHEMA_VERSION);
-    assert_eq!(v["gate_applied"], true);
-    assert_eq!(v["gate_pruned_count"], 3);
-    assert_eq!(v["survival_mode_active"], true);
-    assert_eq!(v["last_stand_active"], false);
-    // v17+ snapshot sections are present.
-    assert!(v["difficulty"].is_object(), "difficulty section present");
-    assert!(v["ai_memory"].is_null(), "fresh actor → null ai_memory");
-    assert!(
-        v["reservations"].is_object(),
-        "reservations section present"
-    );
-}
-
-#[test]
 fn difficulty_snapshot_round_trips() {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     let snap = DifficultyProfileSnapshot::from(&DifficultyProfile::hard());
@@ -654,64 +591,6 @@ fn schema_v31_rejected_with_clear_error() {
     assert_eq!(found, 31);
     // Tie to the constant — the error echoes the current schema, not a literal.
     assert_eq!(required, SCHEMA_VERSION);
-}
-
-/// v36 `UnitSnapshot` serializes `base_speed` explicitly and round-trips
-/// with the value intact. Uses the struct directly (no full ActorTickEvent)
-/// to avoid entity-serde complexity.
-#[test]
-fn schema_round_trip_v36_identity() {
-    use crate::combat::ai::config::role::AxisProfile;
-    use crate::combat::ai::world::snapshot::UnitSnapshot;
-    use crate::combat::ai::world::tags::AiTags;
-    use crate::content::races::CritFailEffect;
-    use bevy::prelude::Entity;
-    use hexx::Hex;
-
-    let unit = UnitSnapshot {
-        entity: Entity::from_raw_u32(7).expect("valid entity"),
-        team: crate::game::components::Team::Enemy,
-        role: AxisProfile::default(),
-        pos: Hex::ZERO,
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        magic_resist: 0,
-        damage_taken_bonus: 0,
-        action_points: 2,
-        max_ap: 2,
-        movement_points: 3,
-        base_speed: 3,
-        speed: 5,
-        mana: None,
-        rage: None,
-        energy: None,
-        abilities: vec![],
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 0,
-        summoner: None,
-        reactions_left: 1,
-        aoo_expected_damage: None,
-        statuses: vec![],
-        caster_ctx: Default::default(),
-        crit_fail_effect: CritFailEffect::default(),
-        damage_horizon: vec![],
-        ai_tuning_override: None,
-        forced_mode: None,
-    };
-
-    let json = serde_json::to_string(&unit).expect("serialize UnitSnapshot");
-    // Verify `base_speed` key appears in serialized output (schema v36+).
-    assert!(
-        json.contains("\"base_speed\""),
-        "v36: base_speed must be serialized explicitly, not skipped; json={json}",
-    );
-
-    let parsed: UnitSnapshot = serde_json::from_str(&json).expect("deserialize UnitSnapshot");
-    assert_eq!(parsed.base_speed, 3, "base_speed round-trips intact");
-    assert_eq!(parsed.speed, 5, "speed round-trips intact");
 }
 
 /// v35 log is now rejected (Phase A3 clean break — MIN_SUPPORTED = 37).

@@ -658,7 +658,7 @@ mod tests {
         team: Team,
         pos: Hex,
         hp: i32,
-    ) -> crate::combat::ai::world::snapshot::UnitSnapshot {
+    ) -> crate::combat::ai::test_helpers::UnitFixture {
         UnitBuilder::new(id, team, pos)
             .hp(hp)
             .max_hp(30)
@@ -704,28 +704,28 @@ mod tests {
     /// row stays as diagnostic as an individually-named test.
     #[test]
     fn expected_aoo_damage_matrix() {
-        fn default_enemy() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+        fn default_enemy() -> crate::combat::ai::test_helpers::UnitFixture {
             unit(2, Team::Player, hex_from_offset(1, 0), 20)
         }
-        fn ranged_enemy() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+        fn ranged_enemy() -> crate::combat::ai::test_helpers::UnitFixture {
             let mut e = default_enemy();
             e.max_attack_range = 5;
             e.aoo_expected_damage = None;
             e
         }
-        fn hybrid_enemy() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+        fn hybrid_enemy() -> crate::combat::ai::test_helpers::UnitFixture {
             // Melee + ranged: max_attack_range>1 но melee-AoO есть.
             // Regression pin for the dropped `max_attack_range != 1` guard.
             let mut e = default_enemy();
             e.max_attack_range = 3;
             e
         }
-        fn no_react_enemy() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+        fn no_react_enemy() -> crate::combat::ai::test_helpers::UnitFixture {
             let mut e = default_enemy();
             e.reactions_left = 0;
             e
         }
-        fn second_enemy() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+        fn second_enemy() -> crate::combat::ai::test_helpers::UnitFixture {
             unit(3, Team::Player, hex_from_offset(0, 1), 20)
         }
 
@@ -733,7 +733,7 @@ mod tests {
             name: &'static str,
             actor_hp: i32,
             actor_armor: i32,
-            enemies: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>,
+            enemies: Vec<crate::combat::ai::test_helpers::UnitFixture>,
             path: Vec<Hex>,
             expected: Aoo,
         }

@@ -109,12 +109,12 @@ mod tests {
     use crate::combat::ai::orchestration::ChosenInfo;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::test_helpers::{ent, snapshot_from};
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use bevy::prelude::Entity;
 
-    fn make_actor(id: u32) -> crate::combat::ai::world::snapshot::UnitSnapshot {
+    fn make_actor(id: u32) -> crate::combat::ai::test_helpers::UnitFixture {
         crate::combat::ai::test_helpers::UnitBuilder::new(id, Team::Enemy, hex_from_offset(0, 0))
             .build()
     }
@@ -144,7 +144,10 @@ mod tests {
         StatusTagCache::default()
     }
 
-    fn make_snap_with_units(units: Vec<UnitSnapshot>, round: u32) -> BattleSnapshot {
+    fn make_snap_with_units(
+        units: Vec<crate::combat::ai::test_helpers::UnitFixture>,
+        round: u32,
+    ) -> BattleSnapshot {
         snapshot_from(units, round)
     }
 

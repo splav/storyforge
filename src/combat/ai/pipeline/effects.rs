@@ -180,7 +180,7 @@ mod tests {
         }
     }
 
-    fn make_actor() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+    fn make_actor() -> crate::combat::ai::test_helpers::UnitFixture {
         UnitBuilder::new(1, Team::Enemy, Hex::ZERO).build()
     }
 

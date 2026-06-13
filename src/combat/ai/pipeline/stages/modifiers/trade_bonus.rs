@@ -173,7 +173,7 @@ mod tests {
 
         // ── 4. Act ──
         let ann = crate::combat::ai::outcome::PlanAnnotation::default();
-        let mk_kill_plan = |victim: &crate::combat::ai::world::snapshot::UnitSnapshot| TurnPlan {
+        let mk_kill_plan = |victim: &crate::combat::ai::test_helpers::UnitFixture| TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: "melee_attack".into(),
                 target: victim.entity,

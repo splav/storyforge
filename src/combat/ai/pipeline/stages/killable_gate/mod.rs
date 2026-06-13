@@ -663,7 +663,7 @@ mod stage_tests {
         raw: Vec<PlanFactorValues>,
         intent: TacticalIntent,
         snap: &BattleSnapshot,
-        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::test_helpers::UnitFixture,
     ) -> ScoredPool {
         let maps = empty_maps();
         let content = empty_content();
