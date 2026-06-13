@@ -172,5 +172,5 @@ pub use legality::{
 pub use preview::preview_action;
 pub use step::EngineCheckState;
 pub use targeting::aoe_cells;
-pub use toml_content_view::{LoadError, TomlContentView};
+pub use toml_content_view::TomlContentView;
 pub use turn_queue::TurnQueue;
