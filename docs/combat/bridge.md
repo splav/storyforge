@@ -180,8 +180,10 @@ implementation of the engine's `ContentView` trait. It reads from
 scenario's status definitions. `status_bonuses` is default-implemented on top
 of `status_def` (post-V4); no explicit override is needed.
 
-For the offline equivalent see `TomlContentView` in
-`crates/combat_engine/src/toml_content_view.rs`.
+Offline tools (`replay_ai_log`, `replay_engine_trace`) reuse this same app
+content path via `ActiveContentData::load_layered` — there is no separate
+offline parser. `TomlContentView` (`crates/combat_engine/src/toml_content_view.rs`)
+is only a content-free `ContentView` stub for tests that need a trivial view.
 
 ---
 

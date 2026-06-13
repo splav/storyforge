@@ -145,8 +145,14 @@ Two implementations:
 
 | Impl | Where | Used for |
 |------|-------|----------|
-| `EcsContentView` |  `src/combat/bridge/content_view.rs` | Live combat — reads `Res<ActiveContent>` |
-| `TomlContentView` | `crates/combat_engine/src/toml_content_view.rs` | Offline tools: `replay_engine_trace`, benchmarks |
+| `EcsContentView` |  `src/combat/bridge/content_view.rs` | Live combat **and** offline tools (`replay_ai_log`, `replay_engine_trace`) — reads `Res<ActiveContent>` / `ActiveContentData::load_layered` |
+| `TomlContentView` | `crates/combat_engine/src/toml_content_view.rs` | Minimal **empty** stub: an engine-crate `ContentView` impl with no content, for tests that need a trivial view (`los_parity`, `bridge_trace`, `replay_diff_smoke`) without booting Bevy |
+
+> `TomlContentView` used to parse `assets/data/*.toml` itself (a Bevy-free
+> duplicate of the app parser), but nothing consumed that parse path except a
+> parity test — offline tools load content through `EcsContentView`. The
+> duplicate parser was deleted; the app parser is the single source, guarded by
+> `tests/content_parse_snapshot.rs`.
 
 `EcsContentView::status_bonuses` reads real `armor_bonus` / `speed_bonus`
 values from `active_content.statuses`. It does NOT return all-zeros (that was
