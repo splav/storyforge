@@ -1,0 +1,2019 @@
+## abilities (24)
+AbilityId("backstab") => AbilityDef {
+    id: AbilityId(
+        "backstab",
+    ),
+    name: "Удар в спину",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Energy,
+                amount: 2,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 1,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: Damage {
+            dice: DiceExpr {
+                count: 1,
+                sides: 4,
+                bonus: 0,
+            },
+        },
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "poisoned",
+                ),
+                duration_rounds: 2,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("burn") => AbilityDef {
+    id: AbilityId(
+        "burn",
+    ),
+    name: "Ожог",
+    magic_domains: [
+        "aether",
+    ],
+    magic_method: "alteration",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 1,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 2,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "burning",
+                ),
+                duration_rounds: 3,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("field_medic") => AbilityDef {
+    id: AbilityId(
+        "field_medic",
+    ),
+    name: "Боевая медицина",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Energy,
+                amount: 1,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 1,
+        },
+        target_type: SingleAlly,
+        aoe: None,
+        friendly_fire: false,
+        effect: Heal {
+            dice: DiceExpr {
+                count: 1,
+                sides: 6,
+                bonus: 0,
+            },
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("fireball") => AbilityDef {
+    id: AbilityId(
+        "fireball",
+    ),
+    name: "Огненный шар",
+    magic_domains: [
+        "aether",
+        "form",
+    ],
+    magic_method: "destruction",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 5,
+            },
+        ],
+        range: AbilityRange {
+            min: 3,
+            max: 5,
+        },
+        target_type: Ground,
+        aoe: Circle {
+            radius: 1,
+        },
+        friendly_fire: true,
+        effect: SpellDamage {
+            dice: DiceExpr {
+                count: 2,
+                sides: 3,
+                bonus: 0,
+            },
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("flash") => AbilityDef {
+    id: AbilityId(
+        "flash",
+    ),
+    name: "Вспышка",
+    magic_domains: [
+        "aether",
+    ],
+    magic_method: "destruction",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 1,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: SpellDamage {
+            dice: DiceExpr {
+                count: 1,
+                sides: 2,
+                bonus: 0,
+            },
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("heal") => AbilityDef {
+    id: AbilityId(
+        "heal",
+    ),
+    name: "Исцеление",
+    magic_domains: [
+        "limit",
+        "aether",
+    ],
+    magic_method: "creation",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 2,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleAlly,
+        aoe: None,
+        friendly_fire: false,
+        effect: Heal {
+            dice: DiceExpr {
+                count: 1,
+                sides: 4,
+                bonus: 0,
+            },
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("living_carapace") => AbilityDef {
+    id: AbilityId(
+        "living_carapace",
+    ),
+    name: "Живой панцирь",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 3,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleAlly,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "living_carapace",
+                ),
+                duration_rounds: 2,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("melee_attack") => AbilityDef {
+    id: AbilityId(
+        "melee_attack",
+    ),
+    name: "Атака оружием ближнего боя",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [],
+        range: AbilityRange {
+            min: 0,
+            max: 1,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: WeaponAttack {
+            ranged: false,
+            power: 1.0,
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("move") => AbilityDef {
+    id: AbilityId(
+        "move",
+    ),
+    name: "Движение",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: true,
+    engine: AbilityDef {
+        key: Some(
+            "M",
+        ),
+        cost_ap: 1,
+        costs: [],
+        range: AbilityRange {
+            min: 0,
+            max: 0,
+        },
+        target_type: Myself,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("numbness") => AbilityDef {
+    id: AbilityId(
+        "numbness",
+    ),
+    name: "Оцепенение",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 2,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "numbness",
+                ),
+                duration_rounds: 2,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("paralyzing_shot") => AbilityDef {
+    id: AbilityId(
+        "paralyzing_shot",
+    ),
+    name: "Парализующий выстрел",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Energy,
+                amount: 2,
+            },
+        ],
+        range: AbilityRange {
+            min: 2,
+            max: 3,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: WeaponAttack {
+            ranged: true,
+            power: 0.5,
+        },
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "paralyzed",
+                ),
+                duration_rounds: 1,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("poison_shot") => AbilityDef {
+    id: AbilityId(
+        "poison_shot",
+    ),
+    name: "Отравленный выстрел",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Energy,
+                amount: 3,
+            },
+        ],
+        range: AbilityRange {
+            min: 2,
+            max: 3,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: WeaponAttack {
+            ranged: true,
+            power: 0.5,
+        },
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "poisoned",
+                ),
+                duration_rounds: 3,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("ranged_shot") => AbilityDef {
+    id: AbilityId(
+        "ranged_shot",
+    ),
+    name: "Дальний выстрел",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [],
+        range: AbilityRange {
+            min: 1,
+            max: 5,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: WeaponAttack {
+            ranged: true,
+            power: 1.0,
+        },
+        statuses: [],
+        requires_los: true,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("rest") => AbilityDef {
+    id: AbilityId(
+        "rest",
+    ),
+    name: "Отдых",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: Some(
+            "R",
+        ),
+        cost_ap: 1,
+        costs: [],
+        range: AbilityRange {
+            min: 0,
+            max: 0,
+        },
+        target_type: Myself,
+        aoe: None,
+        friendly_fire: false,
+        effect: RestoreResources,
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("rush") => AbilityDef {
+    id: AbilityId(
+        "rush",
+    ),
+    name: "Рывок",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Rage,
+                amount: 2,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 0,
+        },
+        target_type: Myself,
+        aoe: None,
+        friendly_fire: false,
+        effect: GrantMovement {
+            distance: 2,
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("scout_traps") => AbilityDef {
+    id: AbilityId(
+        "scout_traps",
+    ),
+    name: "Чутьё на ловушки",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 0,
+        costs: [],
+        range: AbilityRange {
+            min: 0,
+            max: 0,
+        },
+        target_type: Environment,
+        aoe: Circle {
+            radius: 2,
+        },
+        friendly_fire: false,
+        effect: RevealEnvInRange {
+            range: 2,
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [
+            TurnStart,
+            OnMove,
+        ],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("shepherd_heal") => AbilityDef {
+    id: AbilityId(
+        "shepherd_heal",
+    ),
+    name: "Латание симбионта",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 1,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleAlly,
+        aoe: None,
+        friendly_fire: false,
+        effect: Heal {
+            dice: DiceExpr {
+                count: 1,
+                sides: 5,
+                bonus: 0,
+            },
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {
+            TagId(
+                "symbiote",
+            ),
+        },
+        excludes_tags: {},
+    },
+}
+AbilityId("spark") => AbilityDef {
+    id: AbilityId(
+        "spark",
+    ),
+    name: "Искра",
+    magic_domains: [
+        "aether",
+    ],
+    magic_method: "destruction",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 1,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: SpellDamage {
+            dice: DiceExpr {
+                count: 1,
+                sides: 3,
+                bonus: 0,
+            },
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("spike_trap") => AbilityDef {
+    id: AbilityId(
+        "spike_trap",
+    ),
+    name: "Шипастая ловушка",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [],
+        range: AbilityRange {
+            min: 0,
+            max: 0,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: Damage {
+            dice: DiceExpr {
+                count: 1,
+                sides: 6,
+                bonus: 0,
+            },
+        },
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "disoriented",
+                ),
+                duration_rounds: 2,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("stun") => AbilityDef {
+    id: AbilityId(
+        "stun",
+    ),
+    name: "Оглушить",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Rage,
+                amount: 3,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 1,
+        },
+        target_type: SingleEnemy,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "stunned",
+                ),
+                duration_rounds: 1,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("summon_storm_spirit") => AbilityDef {
+    id: AbilityId(
+        "summon_storm_spirit",
+    ),
+    name: "Призыв духа бури",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 3,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 0,
+        },
+        target_type: Myself,
+        aoe: None,
+        friendly_fire: false,
+        effect: Summon {
+            template_id: "storm_spirit",
+            max_active: Some(
+                2,
+            ),
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("taunt") => AbilityDef {
+    id: AbilityId(
+        "taunt",
+    ),
+    name: "Провокация",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [],
+        range: AbilityRange {
+            min: 0,
+            max: 0,
+        },
+        target_type: Myself,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "defending",
+                ),
+                duration_rounds: 1,
+                on: Target,
+            },
+            StatusApplication {
+                status: StatusId(
+                    "taunted",
+                ),
+                duration_rounds: 1,
+                on: MySelf,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("thunderstrike") => AbilityDef {
+    id: AbilityId(
+        "thunderstrike",
+    ),
+    name: "Удар грома",
+    magic_domains: [
+        "aether",
+    ],
+    magic_method: "destruction",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 5,
+            },
+        ],
+        range: AbilityRange {
+            min: 2,
+            max: 4,
+        },
+        target_type: Ground,
+        aoe: Circle {
+            radius: 1,
+        },
+        friendly_fire: true,
+        effect: SpellDamage {
+            dice: DiceExpr {
+                count: 2,
+                sides: 3,
+                bonus: 0,
+            },
+        },
+        statuses: [],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("vital_infusion") => AbilityDef {
+    id: AbilityId(
+        "vital_infusion",
+    ),
+    name: "Вливание жизни",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 2,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleAlly,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "vital_infusion",
+                ),
+                duration_rounds: 2,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+
+## statuses (16)
+StatusId("accumulator_field") => StatusDef {
+    id: StatusId(
+        "accumulator_field",
+    ),
+    name: "Поле накопителя",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: Some(
+        ArmorBuff,
+    ),
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 3,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("broken_faith") => StatusDef {
+    id: StatusId(
+        "broken_faith",
+    ),
+    name: "Сломленная вера",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: true,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("burning") => StatusDef {
+    id: StatusId(
+        "burning",
+    ),
+    name: "Ожог",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 1,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("defending") => StatusDef {
+    id: StatusId(
+        "defending",
+    ),
+    name: "Защита",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: Some(
+        ArmorBuff,
+    ),
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 4,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("disoriented") => StatusDef {
+    id: StatusId(
+        "disoriented",
+    ),
+    name: "Дезориентация",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: true,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("exhaustion") => StatusDef {
+    id: StatusId(
+        "exhaustion",
+    ),
+    name: "Истощение",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: -1,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 5,
+        heal_per_tick: 0,
+    },
+}
+StatusId("injured") => StatusDef {
+    id: StatusId(
+        "injured",
+    ),
+    name: "Ранен",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: -1,
+            armor_bonus: -1,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("living_carapace") => StatusDef {
+    id: StatusId(
+        "living_carapace",
+    ),
+    name: "Живой панцирь",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: Some(
+        ArmorBuff,
+    ),
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 2,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("numbness") => StatusDef {
+    id: StatusId(
+        "numbness",
+    ),
+    name: "Оцепенение",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: -2,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("pact_control") => StatusDef {
+    id: StatusId(
+        "pact_control",
+    ),
+    name: "Власть договора",
+    dot_dice: None,
+    ai_controlled: true,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("paralyzed") => StatusDef {
+    id: StatusId(
+        "paralyzed",
+    ),
+    name: "Паралич",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: true,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("poisoned") => StatusDef {
+    id: StatusId(
+        "poisoned",
+    ),
+    name: "Отравлен",
+    dot_dice: Some(
+        DiceExpr {
+            count: 1,
+            sides: 4,
+            bonus: 0,
+        },
+    ),
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("prototype_ward") => StatusDef {
+    id: StatusId(
+        "prototype_ward",
+    ),
+    name: "Поле прототипа",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: Some(
+        ArmorBuff,
+    ),
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 2,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("stunned") => StatusDef {
+    id: StatusId(
+        "stunned",
+    ),
+    name: "Оглушён",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: true,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("taunted") => StatusDef {
+    id: StatusId(
+        "taunted",
+    ),
+    name: "Провокация",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: true,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("vital_infusion") => StatusDef {
+    id: StatusId(
+        "vital_infusion",
+    ),
+    name: "Вливание жизни",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: None,
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            speed_bonus: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+        },
+        hp_percent_dot: 0,
+        heal_per_tick: 4,
+    },
+}
+
+## weapons (12)
+WeaponId("bow") => WeaponDef {
+    id: WeaponId(
+        "bow",
+    ),
+    name: "Лук",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 1,
+        sides: 8,
+        bonus: 0,
+    },
+    ranged: true,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/bow.png",
+    ),
+}
+WeaponId("dagger") => WeaponDef {
+    id: WeaponId(
+        "dagger",
+    ),
+    name: "Кинжал",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 1,
+        sides: 4,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/dagger.png",
+    ),
+}
+WeaponId("fangs") => WeaponDef {
+    id: WeaponId(
+        "fangs",
+    ),
+    name: "Зубы",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 1,
+        sides: 6,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: None,
+}
+WeaponId("greatsword") => WeaponDef {
+    id: WeaponId(
+        "greatsword",
+    ),
+    name: "Двуручный меч",
+    hand: TwoHanded,
+    dice: DiceExpr {
+        count: 2,
+        sides: 8,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/greatsword.png",
+    ),
+}
+WeaponId("kolm_cleaver") => WeaponDef {
+    id: WeaponId(
+        "kolm_cleaver",
+    ),
+    name: "Тесак Колма",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 2,
+        sides: 8,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 1,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/kolm_cleaver.png",
+    ),
+}
+WeaponId("lancet") => WeaponDef {
+    id: WeaponId(
+        "lancet",
+    ),
+    name: "Живой ланцет",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 1,
+        sides: 4,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 1,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/lancet.png",
+    ),
+}
+WeaponId("leather_shield") => WeaponDef {
+    id: WeaponId(
+        "leather_shield",
+    ),
+    name: "Кожаный щит",
+    hand: OffHand,
+    dice: DiceExpr {
+        count: 0,
+        sides: 0,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 1,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/leather_shield.png",
+    ),
+}
+WeaponId("long_sword") => WeaponDef {
+    id: WeaponId(
+        "long_sword",
+    ),
+    name: "Длинный меч",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 2,
+        sides: 6,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/long_sword.png",
+    ),
+}
+WeaponId("short_sword") => WeaponDef {
+    id: WeaponId(
+        "short_sword",
+    ),
+    name: "Короткий меч",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 1,
+        sides: 8,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/short_sword.png",
+    ),
+}
+WeaponId("spark_device") => WeaponDef {
+    id: WeaponId(
+        "spark_device",
+    ),
+    name: "Искра",
+    hand: MainHand,
+    dice: DiceExpr {
+        count: 1,
+        sides: 4,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 2,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/spark_device.png",
+    ),
+}
+WeaponId("staff") => WeaponDef {
+    id: WeaponId(
+        "staff",
+    ),
+    name: "Посох",
+    hand: TwoHanded,
+    dice: DiceExpr {
+        count: 1,
+        sides: 6,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 1,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/staff.png",
+    ),
+}
+WeaponId("wooden_shield") => WeaponDef {
+    id: WeaponId(
+        "wooden_shield",
+    ),
+    name: "Деревянный щит",
+    hand: OffHand,
+    dice: DiceExpr {
+        count: 0,
+        sides: 0,
+        bonus: 0,
+    },
+    ranged: false,
+    spell_power: 0,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 2,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/wooden_shield.png",
+    ),
+}
+
+## armor (13)
+ArmorId("chainmail") => ArmorDef {
+    id: ArmorId(
+        "chainmail",
+    ),
+    name: "Кольчуга",
+    slot: Chest,
+    weight: Medium,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 1,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/chainmail.png",
+    ),
+}
+ArmorId("cloth_pants") => ArmorDef {
+    id: ArmorId(
+        "cloth_pants",
+    ),
+    name: "Тканевые штаны",
+    slot: Legs,
+    weight: Light,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/cloth_pants.png",
+    ),
+}
+ArmorId("cloth_shoes") => ArmorDef {
+    id: ArmorId(
+        "cloth_shoes",
+    ),
+    name: "Тканевая обувь",
+    slot: Feet,
+    weight: Light,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/cloth_shoes.png",
+    ),
+}
+ArmorId("heavy_boots") => ArmorDef {
+    id: ArmorId(
+        "heavy_boots",
+    ),
+    name: "Тяжёлые сапоги",
+    slot: Feet,
+    weight: Heavy,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/heavy_boots.png",
+    ),
+}
+ArmorId("heavy_plate") => ArmorDef {
+    id: ArmorId(
+        "heavy_plate",
+    ),
+    name: "Тяжёлая кираса",
+    slot: Chest,
+    weight: Heavy,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 3,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/heavy_plate.png",
+    ),
+}
+ArmorId("iron_boots") => ArmorDef {
+    id: ArmorId(
+        "iron_boots",
+    ),
+    name: "Железные сапоги",
+    slot: Feet,
+    weight: Heavy,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 1,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/iron_boots.png",
+    ),
+}
+ArmorId("leather_boots") => ArmorDef {
+    id: ArmorId(
+        "leather_boots",
+    ),
+    name: "Кожаные ботинки",
+    slot: Feet,
+    weight: Medium,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/leather_boots.png",
+    ),
+}
+ArmorId("leather_pants") => ArmorDef {
+    id: ArmorId(
+        "leather_pants",
+    ),
+    name: "Кожаные штаны",
+    slot: Legs,
+    weight: Medium,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/leather_pants.png",
+    ),
+}
+ArmorId("leather_vest") => ArmorDef {
+    id: ArmorId(
+        "leather_vest",
+    ),
+    name: "Кожаный жилет",
+    slot: Chest,
+    weight: Medium,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 1,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/leather_vest.png",
+    ),
+}
+ArmorId("mage_robe") => ArmorDef {
+    id: ArmorId(
+        "mage_robe",
+    ),
+    name: "Мантия мага",
+    slot: Chest,
+    weight: Light,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 0,
+        mana: 1,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/mage_robe.png",
+    ),
+}
+ArmorId("plate_armor") => ArmorDef {
+    id: ArmorId(
+        "plate_armor",
+    ),
+    name: "Латная кираса",
+    slot: Chest,
+    weight: Heavy,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 2,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/plate_armor.png",
+    ),
+}
+ArmorId("plate_greaves") => ArmorDef {
+    id: ArmorId(
+        "plate_greaves",
+    ),
+    name: "Латные поножи",
+    slot: Legs,
+    weight: Heavy,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 1,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/plate_greaves.png",
+    ),
+}
+ArmorId("warded_jerkin") => ArmorDef {
+    id: ArmorId(
+        "warded_jerkin",
+    ),
+    name: "Заговорённый поддоспешник",
+    slot: Chest,
+    weight: Light,
+    stats: ItemStats {
+        combat: CombatStats {
+            max_hp: 3,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        },
+        armor: 2,
+        mana: 0,
+        magic_resist: 0,
+    },
+    image: Some(
+        "items/warded_jerkin.png",
+    ),
+}
+
