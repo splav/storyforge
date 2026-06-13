@@ -358,7 +358,7 @@ impl SnapshotContentView {
         let statuses = content
             .statuses
             .iter()
-            .map(|(id, def)| (id.clone(), crate::content::to_engine::status_def(def)))
+            .map(|(id, def)| (id.clone(), def.into()))
             .collect();
 
         Self {
