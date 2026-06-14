@@ -720,3 +720,181 @@ fn phase_transition_updates_ecs_tags_component() {
         tags_component.0,
     );
 }
+
+/// After a phase transition the bridge mirrors `engine Unit.runtime` → ECS:
+///
+///   `Vital.armor`        == `engine_unit.runtime.armor`
+///   `Vital.magic_resist` == `engine_unit.runtime.magic_resist`
+///   `Speed.0`            == `engine_unit.runtime.base_speed`
+///
+/// This is the single-source-of-truth invariant guarded by `apply_phase_ecs_writes`.
+/// The `PhaseEntry.runtime` is injected directly into the engine state after bootstrap
+/// (bypassing the PhaseDef→PhaseEntry equipment-derivation path) so the test stays
+/// content-free while still exercising the full bridge mirror path.
+#[test]
+fn phase_transition_mirrors_runtime_stats_into_ecs() {
+    use combat_engine::RuntimeStats;
+    use storyforge::combat::bridge::CombatStateRes;
+    use storyforge::content::abilities::TargetType;
+    use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
+    use storyforge::game::components::{EnemyPhases, Speed};
+
+    let caster_pos = hex_from_offset(0, 0);
+    let boss_hex = hex_from_offset(1, 0);
+
+    // Damage ability: 0d1+60 → constant 60, pierces boss armor so the threshold
+    // is crossed regardless of the boss's initial armor.
+    let ability_id = AbilityId::from("runtime_nuke");
+    let ability_def = common::apps::bridge::bevy_ability(
+        "runtime_nuke",
+        "Runtime Nuke",
+        combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: combat_engine::AbilityRange { min: 0, max: 5 },
+            effect: combat_engine::EffectDef::Damage {
+                dice: DiceExpr::new(0, 1, 60),
+            },
+            costs: vec![],
+            cost_ap: 1,
+            aoe: combat_engine::AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+            requires_los: false,
+            passive: vec![],
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
+        },
+    );
+
+    let mut app = common::apps::bridge::bridge_app();
+    common::apps::bridge::insert_ability(&mut app, ability_def);
+
+    // Caster: str=0 so str_mod=0, damage is purely from the +60 bonus.
+    let zero_str_stats = CombatStats {
+        max_hp: 20,
+        strength: 0,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
+    };
+    let caster = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Player,
+        zero_str_stats,
+        0,
+        6,
+        vec![ability_id.clone()],
+        common::apps::bridge::no_equipment(),
+        caster_pos,
+    );
+
+    // Boss: max_hp=100, armor=0. Phase at 50% — no equipment so runtime stays
+    // None at bootstrap; we'll patch it into the engine state below.
+    let boss_stats = CombatStats {
+        max_hp: 100,
+        strength: 5,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
+    };
+    let phase = PhaseDef {
+        trigger: PhaseTrigger::HpBelowPct(50),
+        name: None,
+        stats: None,
+        ability_ids: None,
+        heal_to_full: true,
+        flavor: None,
+        victory_override: None,
+        turn_limit: None,
+        ai_behavior: None,
+        tags: None,
+        equipment: None, // runtime injected directly into engine state below
+        base_speed: None,
+    };
+    let boss = app
+        .world_mut()
+        .spawn((
+            CombatantBundle::new(
+                Team::Enemy,
+                boss_stats,
+                0,
+                0,
+                6,
+                vec![],
+                common::apps::bridge::no_equipment(),
+            ),
+            EnemyPhases {
+                pending: vec![phase],
+            },
+            Name::new("RuntimeBoss"),
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<HexPositions>()
+        .insert(boss, boss_hex);
+
+    common::apps::bridge::bootstrap(&mut app);
+
+    // Patch the engine PhaseEntry to carry a known RuntimeStats.
+    // This exercises the bridge mirror (apply_phase_ecs_writes reads engine_unit.runtime)
+    // without needing real equipment content.
+    let new_runtime = RuntimeStats {
+        armor: 12,
+        magic_resist: 6,
+        base_speed: 3,
+    };
+    let boss_uid = entity_to_uid(boss);
+    {
+        let mut state = app.world_mut().resource_mut::<CombatStateRes>();
+        if let Some(u) = state.0.unit_mut(boss_uid) {
+            if let Some(entry) = u.enemy_phases.get_mut(0) {
+                entry.runtime = Some(new_runtime);
+            }
+        }
+    }
+
+    common::apps::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::write_cast(&mut app, caster, ability_id, boss, boss_hex);
+    app.update();
+
+    // The engine must have applied the runtime replacement.
+    let state = app.world().resource::<CombatStateRes>();
+    let engine_unit = state
+        .0
+        .unit(boss_uid)
+        .expect("boss must be in engine state after phase transition");
+    assert_eq!(
+        engine_unit.runtime, new_runtime,
+        "engine Unit.runtime must equal phase RuntimeStats after EnterPhase"
+    );
+
+    // The ECS components must mirror the engine values (the invariant we're guarding).
+    let vital = app
+        .world()
+        .entity(boss)
+        .get::<Vital>()
+        .expect("boss must have Vital");
+    assert_eq!(
+        vital.armor, engine_unit.runtime.armor,
+        "Vital.armor must mirror engine Unit.runtime.armor"
+    );
+    assert_eq!(
+        vital.magic_resist, engine_unit.runtime.magic_resist,
+        "Vital.magic_resist must mirror engine Unit.runtime.magic_resist"
+    );
+
+    let speed = app
+        .world()
+        .entity(boss)
+        .get::<Speed>()
+        .expect("boss must have Speed");
+    assert_eq!(
+        speed.0, engine_unit.runtime.base_speed,
+        "Speed.0 must mirror engine Unit.runtime.base_speed"
+    );
+}

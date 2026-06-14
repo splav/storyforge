@@ -606,3 +606,214 @@ fn preempt_death_no_died_event_in_stream() {
         "boss must be alive after revival"
     );
 }
+
+// ── RuntimeStats tests (P4) ───────────────────────────────────────────────────
+
+/// Phase transition with `runtime: Some(...)` replaces the boss's defensive
+/// stats atomically:
+///
+/// 1. After `EnterPhase` + cascade the engine `Unit.runtime` fields equal the
+///    phase's new values, NOT the initial ones.
+/// 2. `Unit.speed` reflects `RefreshAggregates` on the new `base_speed`.
+/// 3. Post-phase physical damage is mitigated by the NEW armor, not the old one —
+///    this is the key proof that AI-sim and live combat both read updated values.
+///
+/// Companion: `phase_runtime_none_keeps_current` (keep semantics).
+#[test]
+fn phase_runtime_stats_replace_on_transition() {
+    use storyforge::combat_engine::content::RuntimeStats;
+    use storyforge::combat_engine::effect::{apply_effect, Effect};
+
+    let boss = uid(1);
+    let attacker = uid(2);
+
+    // Initial boss runtime: armor=5, magic_resist=2, base_speed=6.
+    // Phase runtime:        armor=10, magic_resist=8, base_speed=4.
+    // Chosen so every field changes and damage math is clearly distinguishable.
+    let initial_runtime = RuntimeStats {
+        armor: 5,
+        magic_resist: 2,
+        base_speed: 6,
+    };
+    let phase_runtime = RuntimeStats {
+        armor: 10,
+        magic_resist: 8,
+        base_speed: 4,
+    };
+
+    let mut boss_unit = EngineUnitBuilder::new(1)
+        .team(Team::Enemy)
+        .pos_hex(hexx::Hex::ZERO)
+        .hp(60, 100)
+        .armor(initial_runtime.armor)
+        .magic_resist(initial_runtime.magic_resist)
+        .speed(initial_runtime.base_speed) // sets both base_speed and speed
+        .mp(3, 3)
+        .build();
+    // Attach a phase at 50% that carries the new runtime stats.
+    boss_unit.enemy_phases = vec![PhaseEntry {
+        pct: 50,
+        new_max_hp: 100,
+        heal_to_full: false,
+        tags: None,
+        runtime: Some(phase_runtime),
+    }];
+
+    let mut state = make_state(vec![boss_unit, make_attacker(2)], vec![attacker, boss]);
+    let content = phase_content();
+
+    // Verify initial state is as expected.
+    assert_eq!(
+        state.unit(boss).unwrap().runtime.armor,
+        initial_runtime.armor
+    );
+    assert_eq!(
+        state.unit(boss).unwrap().runtime.base_speed,
+        initial_runtime.base_speed
+    );
+
+    // Damage crosses 50%: hp 60 → 35 (raw=25, armor=5 → final=max(1,25-5)=20 → hp=40... wait)
+    // With armor=5: final = max(1, 25 - 5) = 20, hp = 60 - 20 = 40.  Still above 50% (50).
+    // Need to cross 50 hp.  Use raw=15: final = max(1, 15-5) = 10, hp = 60-10 = 50. Not below.
+    // Use raw=16: final = max(1, 16-5) = 11, hp = 60-11 = 49. 49*100 = 4900 <= 100*50 = 5000. Triggers!
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::Damage {
+            target: boss,
+            raw: 16.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+            magic: false,
+        },
+        &content,
+    );
+
+    // Confirm phase triggered.
+    let enter_phase = derived
+        .iter()
+        .find(|e| matches!(e, Effect::EnterPhase { unit, .. } if *unit == boss))
+        .expect("EnterPhase must be derived after crossing 50% threshold");
+
+    // Apply EnterPhase (replaces runtime in-arm).
+    let (cascade, _) = apply_effect(&mut state, enter_phase, &content);
+
+    // Apply cascade: SetMaxHp, RefreshAggregates (no heal_to_full).
+    for sub in &cascade {
+        apply_effect(&mut state, sub, &content);
+    }
+
+    // ── Assert 1: runtime fields updated ──────────────────────────────────────
+    let u = state.unit(boss).unwrap();
+    assert_eq!(
+        u.runtime.armor, phase_runtime.armor,
+        "runtime.armor must be replaced by phase value"
+    );
+    assert_eq!(
+        u.runtime.magic_resist, phase_runtime.magic_resist,
+        "runtime.magic_resist must be replaced by phase value"
+    );
+    assert_eq!(
+        u.runtime.base_speed, phase_runtime.base_speed,
+        "runtime.base_speed must be replaced by phase value"
+    );
+
+    // ── Assert 2: effective speed reflects RefreshAggregates ──────────────────
+    // No status bonuses → speed == base_speed.
+    assert_eq!(
+        u.speed, phase_runtime.base_speed,
+        "Unit.speed must equal new base_speed after RefreshAggregates (no status bonuses)"
+    );
+
+    // ── Assert 3: post-phase damage uses NEW armor ────────────────────────────
+    // Prove the armor change is load-bearing: apply raw=12 to the boss.
+    //   Old armor=5:  final = max(1, 12 - 5) = 7
+    //   New armor=10: final = max(1, 12 - 10) = 2
+    // Only one of these can be true — we assert the new-armor result.
+    let hp_before = state.unit(boss).unwrap().hp();
+    apply_effect(
+        &mut state,
+        &Effect::Damage {
+            target: boss,
+            raw: 12.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+            magic: false,
+        },
+        &content,
+    );
+    let hp_after = state.unit(boss).unwrap().hp();
+    let actual_damage = hp_before - hp_after;
+    assert_eq!(
+        actual_damage, 2,
+        "post-phase damage must be mitigated by NEW armor=10 (expected 2, got {actual_damage}); \
+         old armor=5 would give 7"
+    );
+}
+
+/// A phase entry with `runtime: None` does NOT touch the boss's current
+/// `Unit.runtime` — keep semantics are preserved.
+#[test]
+fn phase_runtime_none_keeps_current() {
+    use storyforge::combat_engine::content::RuntimeStats;
+    use storyforge::combat_engine::effect::{apply_effect, Effect};
+
+    let boss = uid(1);
+    let attacker = uid(2);
+
+    let initial_runtime = RuntimeStats {
+        armor: 7,
+        magic_resist: 3,
+        base_speed: 5,
+    };
+
+    let mut boss_unit = EngineUnitBuilder::new(1)
+        .team(Team::Enemy)
+        .pos_hex(hexx::Hex::ZERO)
+        .hp(60, 100)
+        .armor(initial_runtime.armor)
+        .magic_resist(initial_runtime.magic_resist)
+        .speed(initial_runtime.base_speed)
+        .mp(3, 3)
+        .build();
+    boss_unit.enemy_phases = vec![PhaseEntry {
+        pct: 50,
+        new_max_hp: 100,
+        heal_to_full: false,
+        tags: None,
+        runtime: None, // ← keep semantics
+    }];
+
+    let mut state = make_state(vec![boss_unit, make_attacker(2)], vec![attacker, boss]);
+    let content = phase_content();
+
+    // Trigger the phase (raw=16 with armor=7 → final=max(1,16-7)=9 → hp=60-9=51; not below 50).
+    // Use raw=21: final=max(1,21-7)=14, hp=60-14=46. 46*100=4600 <= 100*50=5000. Triggers.
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::Damage {
+            target: boss,
+            raw: 21.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+            magic: false,
+        },
+        &content,
+    );
+    let enter_phase = derived
+        .iter()
+        .find(|e| matches!(e, Effect::EnterPhase { unit, .. } if *unit == boss))
+        .expect("EnterPhase must fire");
+
+    let (cascade, _) = apply_effect(&mut state, enter_phase, &content);
+    for sub in &cascade {
+        apply_effect(&mut state, sub, &content);
+    }
+
+    // runtime unchanged — all three fields must match the initial values.
+    let u = state.unit(boss).unwrap();
+    assert_eq!(
+        u.runtime, initial_runtime,
+        "runtime must be unchanged when PhaseEntry.runtime is None; got {:?}",
+        u.runtime
+    );
+}
