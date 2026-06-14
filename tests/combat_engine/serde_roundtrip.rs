@@ -408,8 +408,11 @@ fn step_line_roundtrip() {
 fn phase_transition_roundtrip() {
     roundtrip(PhaseTransition {
         new_max_hp: 200,
-        new_armor: 5,
-        new_base_speed: 4,
+        runtime: Some(storyforge::combat_engine::RuntimeStats {
+            armor: 5,
+            magic_resist: 2,
+            base_speed: 4,
+        }),
         heal_to_full: true,
         tags: None,
     });

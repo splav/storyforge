@@ -493,6 +493,7 @@ pub fn bootstrap_combat_state(
                         new_max_hp,
                         heal_to_full: phase.heal_to_full,
                         tags: phase.tags.clone(),
+                        runtime: None,
                     }
                 })
                 .collect();

@@ -382,9 +382,9 @@ pub fn effect_to_event(
         // state.round was already incremented in BumpRound's apply arm before
         // effect_to_event is called, so this reflects the new round number.
         Effect::BumpRound => Some(Event::RoundStarted { round: state.round }),
-        // Phase-transition atomics (4d): SetMaxHp/SetArmor/SetBaseSpeed produce
-        // no observable events; EnterPhase produces PhaseEntered.
-        Effect::SetMaxHp { .. } | Effect::SetArmor { .. } | Effect::SetBaseSpeed { .. } => None,
+        // Phase-transition atomics (4d): SetMaxHp produces no observable event;
+        // EnterPhase produces PhaseEntered.
+        Effect::SetMaxHp { .. } => None,
         Effect::EnterPhase { unit, phase_idx } => {
             let (prev_max_hp, new_max_hp) = ctx.phase_entered.unwrap_or((0, 0));
             Some(Event::PhaseEntered {

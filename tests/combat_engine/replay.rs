@@ -306,6 +306,7 @@ fn replay_phase_trigger() {
         new_max_hp: 150,
         heal_to_full: false,
         tags: None,
+        runtime: None,
     }];
 
     let mut state = CombatState::new(vec![attacker, boss], 1, RoundPhase::ActorTurn, SEED);

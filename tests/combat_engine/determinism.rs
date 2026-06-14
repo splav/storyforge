@@ -253,6 +253,7 @@ fn det_phase_transition() {
         new_max_hp: 0,
         heal_to_full: false,
         tags: None,
+        runtime: None,
     }];
 
     let mut state = CombatState::new(vec![caster, boss], 1, RoundPhase::ActorTurn, SEED);

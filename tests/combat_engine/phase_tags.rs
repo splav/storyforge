@@ -194,6 +194,7 @@ fn aura_cutoff_on_phase_tag_replace() {
         new_max_hp: 0, // keep current max_hp
         heal_to_full: false,
         tags: Some(tags(&["aberration", "incorporeal"])),
+        runtime: None,
     };
 
     // Aura source carries an aura filtered to "symbiote" — only affects units
@@ -290,6 +291,7 @@ fn phase_entry_tags_none_leaves_tags_unchanged() {
         new_max_hp: 0,
         heal_to_full: false,
         tags: None,
+        runtime: None,
     }];
 
     let mut state = make_state(vec![u], vec![boss]);
@@ -403,6 +405,7 @@ fn effect_changes_aura_membership_predicate() {
             new_max_hp: 0,
             heal_to_full: false,
             tags: Some(tags(&["other"])), // sheds "living"
+            runtime: None,
         }];
     }
 
@@ -481,6 +484,7 @@ fn phase_entry_with_tags_roundtrip() {
         new_max_hp: 120,
         heal_to_full: true,
         tags: Some(tags(&["aberration", "incorporeal"])),
+        runtime: None,
     };
     let json = serde_json::to_string(&entry).unwrap();
     let back: PhaseEntry = serde_json::from_str(&json).unwrap();

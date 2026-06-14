@@ -133,7 +133,7 @@ pub struct StatusBonuses {
 /// (e.g. a boss phase swap replaces all three at once). Status-derived
 /// modifiers (armor_bonus, damage_taken_bonus, effective speed) are NOT here —
 /// they are recomputed by RefreshAggregates on top of this base.
-#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeStats {
     pub armor: i32,
     pub magic_resist: i32,
@@ -373,16 +373,19 @@ pub struct AuraEffects {
 /// the engine can act on directly; ECS-only deltas (name, abilities,
 /// `AxisProfile`, flavor) live in `EnemyPhases.pending` and are read by the
 /// bridge translator on `Event::PhaseEntered`.
+///
+/// This struct is transient — built in `check_phase_trigger`, consumed in
+/// `EnterPhase`.  It is NOT a field of any serialized struct.  The serde
+/// derives exist only to support the `phase_transition_roundtrip` test.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PhaseTransition {
     /// New maximum HP for the unit.  The unit's `hp` is only changed by the
     /// cascade's `Heal { amount: new_max_hp }` when `heal_to_full` is true.
     pub new_max_hp: i32,
-    /// New base armor value.  0 means no change (current `PhaseDef` data
-    /// model does not carry per-phase armor overrides).
-    pub new_armor: i32,
-    /// New base speed.  0 means no change (same rationale as `new_armor`).
-    pub new_base_speed: i32,
+    /// Runtime-stat override for the unit on phase entry.
+    /// `None` = no change to armor / magic_resist / base_speed;
+    /// `Some(rs)` = REPLACE `Unit.runtime` with the full group.
+    pub runtime: Option<RuntimeStats>,
     /// If true, the cascade sets `hp = new_max_hp` via `Heal`, allowing a
     /// lethal hit to be reversed before `Effect::Death` is derived.
     pub heal_to_full: bool,
@@ -412,6 +415,13 @@ pub struct PhaseEntry {
     /// `#[serde(default)]` ensures old traces without this field read as `None`.
     #[serde(default)]
     pub tags: Option<std::collections::BTreeSet<crate::TagId>>,
+    /// Runtime-stat override for the unit on phase entry.
+    /// `None` = phase doesn't change runtime stats (keep current values);
+    /// `Some(rs)` = REPLACE `Unit.runtime` with `{armor, magic_resist, base_speed}`.
+    /// `skip_serializing_if` keeps the field absent in serialized output when
+    /// `None`, so existing wire bytes remain byte-identical (no schema bump).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<RuntimeStats>,
 }
 
 /// Static content lookup for the engine.

@@ -713,8 +713,7 @@ impl Unit {
             0,
             crate::content::PhaseTransition {
                 new_max_hp,
-                new_armor: 0,
-                new_base_speed: 0,
+                runtime: entry.runtime,
                 heal_to_full: entry.heal_to_full,
                 tags: entry.tags.clone(),
             },

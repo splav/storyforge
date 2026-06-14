@@ -153,8 +153,9 @@ pub enum Effect {
     BumpRound,
 
     // ── Phase-transition atomics (Phase 4 step 4d) ────────────────────────
-    /// Boss enters phase `phase_idx`.  Cascades into `SetMaxHp`, `SetArmor`,
-    /// `SetBaseSpeed`, optionally `Heal`, and `RefreshAggregates`.
+    /// Boss enters phase `phase_idx`.  Cascades into `SetMaxHp`, optionally
+    /// `Heal`, and `RefreshAggregates`.  Runtime stats (`armor`, `magic_resist`,
+    /// `base_speed`) are applied directly in-arm from `PhaseTransition.runtime`.
     ///
     /// Derived by `apply_effect(Damage)` when
     /// `content.check_phase_trigger(target, new_hp, max_hp)` returns `Some`.
@@ -165,12 +166,6 @@ pub enum Effect {
 
     /// Set `unit.max_hp` to `max_hp`.  No derived effects.
     SetMaxHp { unit: UnitId, max_hp: i32 },
-
-    /// Set `unit.armor` (base armor) to `armor`.  No derived effects.
-    SetArmor { unit: UnitId, armor: i32 },
-
-    /// Set `unit.base_speed` to `base_speed`.  No derived effects.
-    SetBaseSpeed { unit: UnitId, base_speed: i32 },
 
     // ── Passive ability effects ───────────────────────────────────────────
     /// Scan `state.environment` for hazards not yet visible to the caster's
@@ -937,8 +932,10 @@ pub fn apply_effect(
                 .and_then(|u| u.check_phase_trigger(u.hp(), prev_max_hp))
                 .map(|(_, t)| t);
 
-            // Capture tag replacement before consuming the transition.
+            // Capture tag and runtime replacements before consuming the transition.
             let new_tags = transition.as_ref().and_then(|t| t.tags.clone());
+            // RuntimeStats is Copy — capture before the transition is consumed.
+            let new_runtime = transition.as_ref().and_then(|t| t.runtime);
 
             // Consume the just-triggered phase entry from engine state.
             if let Some(u) = state.unit_mut(*unit) {
@@ -956,26 +953,24 @@ pub fn apply_effect(
                 }
             }
 
-            let (new_max_hp, new_armor, new_base_speed, heal_to_full) = transition
-                .map(|t| (t.new_max_hp, t.new_armor, t.new_base_speed, t.heal_to_full))
-                .unwrap_or((prev_max_hp, 0, 0, false));
+            // Apply runtime-stat REPLACE if the phase carries a new stat group.
+            // Done in-arm (mirrors the tags pattern) so it is atomic with the
+            // tag swap.  RefreshAggregates (derived below) recomputes effective
+            // armor/speed on top of the new base values.
+            if let Some(rs) = new_runtime {
+                if let Some(u) = state.unit_mut(*unit) {
+                    u.runtime = rs;
+                }
+            }
+
+            let (new_max_hp, heal_to_full) = transition
+                .map(|t| (t.new_max_hp, t.heal_to_full))
+                .unwrap_or((prev_max_hp, false));
 
             let mut derived: Vec<Effect> = vec![Effect::SetMaxHp {
                 unit: *unit,
                 max_hp: new_max_hp,
             }];
-            if new_armor != 0 {
-                derived.push(Effect::SetArmor {
-                    unit: *unit,
-                    armor: new_armor,
-                });
-            }
-            if new_base_speed != 0 {
-                derived.push(Effect::SetBaseSpeed {
-                    unit: *unit,
-                    base_speed: new_base_speed,
-                });
-            }
             if heal_to_full {
                 derived.push(Effect::Heal {
                     target: *unit,
@@ -996,23 +991,6 @@ pub fn apply_effect(
                 let p = u.pools[crate::PoolKind::Hp].as_mut().unwrap();
                 p.1 = *max_hp;
                 p.0 = p.0.min(p.1);
-            }
-            (vec![], ApplyCtx::default())
-        }
-
-        Effect::SetArmor { unit, armor } => {
-            if let Some(u) = state.unit_mut(*unit) {
-                u.runtime.armor = *armor;
-            }
-            (vec![], ApplyCtx::default())
-        }
-
-        Effect::SetBaseSpeed { unit, base_speed } => {
-            if let Some(u) = state.unit_mut(*unit) {
-                u.runtime.base_speed = *base_speed;
-                // Also update effective speed to match (RefreshAggregates will
-                // fine-tune it, but keeping them in sync avoids a stale window).
-                u.speed = *base_speed;
             }
             (vec![], ApplyCtx::default())
         }
