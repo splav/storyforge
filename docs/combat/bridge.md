@@ -235,43 +235,53 @@ See also `engine-migration.md §5` for the authoritative list.
 | `EcsContentView` | Bridge boundary: wires Bevy queries to the engine's `ContentView` trait |
 | `from_ecs` heavy bootstrap mapper | Engine must not know about ECS `Equipment`/`CombatStats`/`EnemyPhases`; mapping is correct in shape |
 
-## 10. Tech debt — mutations that should live engine-side
+## 10. Phase overrides — engine-authoritative (resolved)
 
 **Principle.** Any mutation to engine-owned unit state that the engine's *derived
 state* depends on — aura membership, stat aggregates, legality, the event stream —
 must go through an engine `Effect` so the `step()` cascade recomputes dependents and
-emits the diff events uniformly. Bridge-side "mutate an ECS component, then let
-`from_ecs` reproject" lands the *value* but **skips the engine's recompute + event
-diff**, so downstream consumers (aura buffs, `AuraStatusGained/Lost`, UI/log
-translators) silently miss the change.
+emits the diff events uniformly. Bridge-side "mutate an ECS component" lands the
+*value* but skips the engine's recompute + event diff.
 
-**The instance: phase overrides are split across two mechanisms.**
+Boss phases (HP-triggered template swaps) now apply **all** engine-owned state
+through the `EnterPhase` cascade. Resolution of equipment-derived scalars stays
+Bevy-side (the engine crate is Bevy-free); the engine receives only resolved values:
 
-| Path | Carries | Where | Emits events / recomputes? |
-|------|---------|-------|----------------------------|
-| Engine `Unit.enemy_phases` → `EnterPhase` | HP-trigger, `new_max_hp`, `heal_to_full` | pure engine (`state.rs::check_phase_trigger`, `effect.rs::EnterPhase`) | yes — inside the cascade |
-| Bridge `PhaseDef` → `apply_phase_overrides_system` | `stats`, `ability_ids`, `ai_behavior` | bridge (ECS mutate → `from_ecs`) | no — bypasses the cascade |
+| State | Carried by | Applied by | Recompute / events |
+|-------|-----------|-----------|--------------------|
+| `new_max_hp`, `heal_to_full` | `PhaseEntry` | `EnterPhase` → `SetMaxHp` (+ `Heal`) | yes |
+| tags | `PhaseEntry.tags` | `EnterPhase` replaces `Unit.tags` in-arm | yes — `EnterPhase` is in `effect_changes_aura_membership`, so `AuraStatusGained/Lost` fire |
+| armor / magic_resist / base_speed | `PhaseEntry.runtime: Option<RuntimeStats>` | `EnterPhase` sets `Unit.runtime` in-arm → `RefreshAggregates` recomputes effective armor/speed | yes |
 
-Consequences:
-- The engine's own armor/speed phase-override is **dead**: `check_phase_trigger`
-  builds `PhaseTransition` with `new_armor: 0, new_base_speed: 0` hardcoded, so the
-  `SetArmor`/speed derivation in `EnterPhase` is unreachable. The bridge path took over.
-- A phase that changes membership-relevant state (e.g. **creature tags** — boss sheds
-  `symbiote` in phase 3) cannot fire `AuraStatusLost` from the bridge path, breaking the
-  "guaranteed aura cutoff" contract. Surfaced by the target-tags work (Atom 3).
+`PhaseEntry.runtime` is resolved at the two bootstrap/build sites
+(`bridge/bootstrap.rs`, `scenario/init_fight.rs`) from the phase template's
+equipment via `equipment_armor`/`equipment_magic_resist` — the same Bevy-side
+derivation used for the base unit. `apply_phase_ecs_writes` then **mirrors** the
+post-`EnterPhase` engine `Unit.runtime` into ECS `Vital.armor`/`.magic_resist` +
+`Speed` (single source of truth — it reads the engine, never re-derives), and
+re-infers `AxisProfile` afterwards. (History: armor/speed used to be dropped at
+parse time — `PhaseDef` carried only `CombatStats`, which has no armor/speed — so
+`check_phase_trigger` hardcoded `new_armor: 0` and the `SetArmor` derivation was
+dead; bell ch3's "armor medium→0" landed nowhere. Audit #6. `SetArmor`/`SetBaseSpeed`
+effects were deleted in favour of the direct in-arm `runtime` replace.)
 
-**By good practice, pull into the engine:**
-- Phase `stats` / `ability_ids` / tags overrides → thread the full override through the
-  *serialized* `PhaseEntry`, populate it in `check_phase_trigger`, and apply via the
-  `EnterPhase` effect (revive the dead `SetArmor` path or delete it). Then phase changes
-  recompute aggregates + aura and emit events like any other effect.
-- Keep `ai_behavior` bridge-side — it's an AI-layer regime override, not engine state.
+**Bridge keeps (correctly — not engine state):** `Name`, the flavor log entry,
+`victory_override`/`turn_limit` (scenario objective/deadline), `AiBehaviorOverride`
+(AI regime), and the ECS `Tags` mirror. **`ability_ids` is bridge-owned and correct:**
+engine legality never gates on a stored active roster (`EngineCheckState::actor_knows_ability`
+returns `true`), and the AI plan-sim re-reads the roster from the ECS-rebuilt snapshot
+every decision cycle — so a phase ability swap does not drift the engine.
 
-**Related smell — aura recompute trigger is hardcoded.** `step.rs:~685` snapshots aura
-membership only for `matches!(effect, MovePosition | Death)`. Membership is actually a
-pure function of *(positions, tags, teams, alive)*; any new membership axis (tags) must
-be added to that `matches!` or its events silently don't fire. Replace the ad-hoc list
-with a named predicate `effect_changes_aura_membership(effect)` enumerating the
-membership-input-mutating effects, documented from the principle — cheap (those effects
-are rare) and self-extending. Avoid "recompute every step": `aura_membership_set` would
-then run twice per effect inside every AI-sim branch (hot path), a real perf regression.
+**Residual (deferred — "A+"):** armor/magic_resist still live in the ECS `Vital`
+component (+ a separate `Speed` component), so the engine→ECS mirror in
+`apply_phase_ecs_writes` is a hand-written per-field copy. A symmetric ECS
+`RuntimeStats` mirror component would make it a single clean copy and remove the
+"add a 4th defensive stat in two places" hazard; deferred as a representational
+cleanup with no correctness content. The mirror is guarded by the invariant test
+`phase_transition_mirrors_runtime_stats_into_ecs` (`vital.* == engine runtime.*`).
+
+**Aura recompute trigger (resolved).** The ad-hoc `matches!(effect, MovePosition | Death)`
+snapshot guard is now the named predicate `effect_changes_aura_membership(effect)`
+(`step.rs`), which enumerates the membership-input-mutating effects and includes
+`EnterPhase` (so phase tag changes diff aura membership). It still avoids
+"recompute every step" — `aura_membership_set` is hot on the AI-sim path.

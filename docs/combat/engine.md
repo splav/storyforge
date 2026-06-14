@@ -364,7 +364,7 @@ The engine applies state changes through `Effect` variants, derived during
 | `Spawn` | Summon a new unit (resolves template, ring search, cap check) |
 | `AdvanceTurn` | Move turn-queue cursor; derives BumpRound on wrap |
 | `BumpRound` | Increment round, reset reactions, emit RoundStarted |
-| `EnterPhase` | Boss phase transition (cascades SetMaxHp, SetArmor, optionally Heal) |
+| `EnterPhase` | Boss phase transition: replaces `Unit.tags` + `Unit.runtime` (armor/magic_resist/base_speed) in-arm, cascades `SetMaxHp` (+ optional `Heal`) and `RefreshAggregates` |
 
 `Effect::Spawn` fields: `summoner: UnitId`, `template_id: String`,
 `max_active: Option<u32>`. The engine resolves the template via
