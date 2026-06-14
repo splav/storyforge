@@ -391,7 +391,7 @@ fn cast_spell_damage_pierces_armor() {
 
     let actor = make_unit(1, Team::Player, 0, 0);
     let mut target = make_unit(2, Team::Enemy, 1, 0); // hp=10
-    target.armor = 10;
+    target.runtime.armor = 10;
 
     let mut state = state_with(vec![actor, target]);
 
@@ -1535,7 +1535,7 @@ fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
     let new_unit = state.unit(new_uid).expect("new unit present in state");
     assert_eq!(new_unit.max_hp(), 8);
     assert_eq!(new_unit.hp(), 8);
-    assert_eq!(new_unit.armor, 1);
+    assert_eq!(new_unit.runtime.armor, 1);
     assert_eq!(new_unit.summoner, Some(summoner_id));
 
     // Summoner paid AP.

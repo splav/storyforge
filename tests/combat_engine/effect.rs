@@ -230,7 +230,7 @@ fn damage_lethal_derives_rage_source_rage_target_death_target_in_order() {
 #[test]
 fn damage_armor_reduces_final_damage() {
     let mut attacker = make_unit(1, 20, 20);
-    attacker.armor = 8;
+    attacker.runtime.armor = 8;
     let defender = make_unit(2, 20, 20);
     let mut state = state_with(vec![attacker, defender]);
 
@@ -250,7 +250,7 @@ fn damage_armor_reduces_final_damage() {
 
     // Now damage with raw=3, armor_bonus=5 on target.
     let mut heavy = make_unit(3, 20, 20);
-    heavy.armor = 5;
+    heavy.runtime.armor = 5;
     state = state_with(vec![heavy]);
     apply_effect(
         &mut state,
@@ -271,7 +271,7 @@ fn damage_armor_reduces_final_damage() {
 #[test]
 fn damage_pierces_ignores_armor() {
     let mut u = make_unit(1, 20, 20);
-    u.armor = 10;
+    u.runtime.armor = 10;
     let mut state = state_with(vec![u]);
 
     apply_effect(
@@ -331,7 +331,7 @@ fn damage_magic_reduced_by_magic_resist() {
 #[test]
 fn damage_physical_ignores_magic_resist() {
     let mut u = make_unit(1, 20, 20);
-    u.magic_resist = 10; // high magic_resist must not affect physical damage
+    u.runtime.magic_resist = 10; // high magic_resist must not affect physical damage
     let mut state = state_with(vec![u]);
 
     apply_effect(
@@ -353,7 +353,7 @@ fn damage_physical_ignores_magic_resist() {
 #[test]
 fn damage_armor_does_not_reduce_magic() {
     let mut u = make_unit(1, 20, 20);
-    u.armor = 10; // high armor must not mitigate magic damage
+    u.runtime.armor = 10; // high armor must not mitigate magic damage
     let mut state = state_with(vec![u]);
 
     apply_effect(
@@ -465,7 +465,7 @@ fn death_sets_hp_to_zero_and_unit_is_dead() {
 #[test]
 fn refresh_aggregates_recomputes_speed_from_statuses() {
     let mut u = make_unit(1, 10, 10);
-    u.base_speed = 3;
+    u.runtime.base_speed = 3;
     u.speed = 3;
     u.statuses = vec![ActiveStatus {
         id: "haste".into(),
@@ -489,7 +489,7 @@ fn refresh_aggregates_recomputes_speed_from_statuses() {
 #[test]
 fn refresh_aggregates_recomputes_armor_bonus_from_statuses() {
     let mut u = make_unit(1, 10, 10);
-    u.armor = 2;
+    u.runtime.armor = 2;
     u.armor_bonus = 0;
     u.statuses = vec![ActiveStatus {
         applier: EffectSource::Unit(UnitId(1)),
@@ -515,7 +515,7 @@ fn refresh_aggregates_clears_bonuses_when_no_statuses() {
     let mut u = make_unit(1, 10, 10);
     u.armor_bonus = 5; // stale from before status expired
     u.speed = 10; // stale
-    u.base_speed = 4;
+    u.runtime.base_speed = 4;
     let mut state = state_with(vec![u]);
 
     apply_effect(
@@ -894,7 +894,7 @@ fn status_with_dot(id: &str, dot_per_tick: i32, applier: u64) -> ActiveStatus {
 #[test]
 fn tick_dot_with_dot_per_tick_damages_target_via_pierce() {
     let mut target = make_unit(1, 10, 10);
-    target.armor = 5; // armor must be ignored (pierces = true)
+    target.runtime.armor = 5; // armor must be ignored (pierces = true)
     target.statuses.push(status_with_dot("poison", 3, 2));
     let applier = make_unit(2, 10, 10);
     let mut state = state_with(vec![target, applier]);
@@ -1438,8 +1438,8 @@ fn spawn_creates_unit_with_correct_template_stats() {
     let spawned = state.unit(uid).expect("new unit present");
     assert_eq!(spawned.hp(), 8);
     assert_eq!(spawned.max_hp(), 8);
-    assert_eq!(spawned.armor, 1);
-    assert_eq!(spawned.base_speed, 4);
+    assert_eq!(spawned.runtime.armor, 1);
+    assert_eq!(spawned.runtime.base_speed, 4);
     // max_ap is encoded in pools[Ap]
     assert_eq!(
         spawned.pools[PoolKind::Ap].map(|(_, max)| max).unwrap_or(0),

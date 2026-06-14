@@ -331,7 +331,7 @@ pub(crate) fn expected_aoo_damage(
     enemies: &[UnitView<'_>],
 ) -> f32 {
     let mut total = 0.0f32;
-    let mitigation = (active.armor + active.armor_bonus) as f32;
+    let mitigation = (active.runtime.armor + active.armor_bonus) as f32;
     let vuln = active.damage_taken_bonus as f32;
     // Track which enemies have already spent their reaction this plan.
     let mut aoo_used = vec![false; enemies.len()];

@@ -255,12 +255,11 @@ pub struct Unit {
     pub id: UnitId,
     pub team: Team,
     pub pos: Hex,
-    /// Base armor value (equipment). Bonus from statuses is tracked separately
-    /// and folded in by `refresh_aggregates`.
-    pub armor: i32,
-    /// Flat magic damage mitigation from equipment (gear-only, no status bonus).
-    /// Value-0 compatible: all existing units default to 0.
-    pub magic_resist: i32,
+    /// Equipment/template-derived base defensive stats. Replaced atomically on
+    /// phase swap. Status-derived modifiers (`armor_bonus`, `damage_taken_bonus`,
+    /// effective `speed`) stay as flat fields and are recomputed by
+    /// `RefreshAggregates` on top of this base.
+    pub runtime: crate::content::RuntimeStats,
     /// Armor bonus from active statuses (recomputed by `RefreshAggregates`).
     pub armor_bonus: i32,
     /// Incoming-damage multiplier bonus from active statuses (recomputed by
@@ -268,9 +267,7 @@ pub struct Unit {
     /// Mirrors `UnitSnapshot.damage_taken_bonus`; kept in sync via the engine's
     /// aggregate refresh.
     pub damage_taken_bonus: i32,
-    /// Base speed (without status speed_bonus).
-    pub base_speed: i32,
-    /// Effective speed = base_speed + speed bonuses from statuses.
+    /// Effective speed = runtime.base_speed + speed bonuses from statuses.
     pub speed: i32,
     pub reactions_left: i32,
     /// Maximum reactions per round. Populated by the bridge from `Reactions.max`.
@@ -500,11 +497,13 @@ impl From<UnitWire> for Unit {
             id: w.id,
             team: w.team,
             pos: w.pos,
-            armor: w.armor,
-            magic_resist: w.magic_resist,
+            runtime: crate::content::RuntimeStats {
+                armor: w.armor,
+                magic_resist: w.magic_resist,
+                base_speed: w.base_speed,
+            },
             armor_bonus: w.armor_bonus,
             damage_taken_bonus: w.damage_taken_bonus,
-            base_speed: w.base_speed,
             speed: w.speed,
             reactions_left: w.reactions_left,
             reactions_max: w.reactions_max,
@@ -532,11 +531,11 @@ impl From<Unit> for UnitWire {
             id: u.id,
             team: u.team,
             pos: u.pos,
-            armor: u.armor,
-            magic_resist: u.magic_resist,
+            armor: u.runtime.armor,
+            magic_resist: u.runtime.magic_resist,
             armor_bonus: u.armor_bonus,
             damage_taken_bonus: u.damage_taken_bonus,
-            base_speed: u.base_speed,
+            base_speed: u.runtime.base_speed,
             speed: u.speed,
             reactions_left: u.reactions_left,
             reactions_max: u.reactions_max,
@@ -615,11 +614,13 @@ impl Unit {
             id,
             team,
             pos,
-            armor,
-            magic_resist,
+            runtime: crate::content::RuntimeStats {
+                armor,
+                magic_resist,
+                base_speed,
+            },
             armor_bonus,
             damage_taken_bonus,
-            base_speed,
             speed,
             reactions_left,
             reactions_max,
@@ -1791,7 +1792,7 @@ mod tests {
         use crate::PoolKind;
         let uid = UnitId(11);
         let mut unit = make_unit(uid, 0, 2, None);
-        unit.base_speed = 4;
+        unit.runtime.base_speed = 4;
         unit.speed = 4;
         unit.pools[PoolKind::Mp] = Some((0, 4)); // depleted, max matches speed
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
@@ -1813,7 +1814,7 @@ mod tests {
         use crate::PoolKind;
         let uid = UnitId(12);
         let mut unit = make_unit(uid, 0, 2, None);
-        unit.base_speed = 3;
+        unit.runtime.base_speed = 3;
         unit.speed = 5; // reflects status speed_bonus of +2
         unit.pools[PoolKind::Mp] = Some((0, 3)); // old max was 3; will be updated to 5
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);

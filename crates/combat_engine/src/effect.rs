@@ -433,7 +433,7 @@ pub fn apply_effect(
             // Read the target's current armor (base + bonus) for mitigation.
             let (armor, armor_bonus, magic_resist) = state
                 .unit(*target)
-                .map(|u| (u.armor, u.armor_bonus, u.magic_resist))
+                .map(|u| (u.runtime.armor, u.armor_bonus, u.runtime.magic_resist))
                 .unwrap_or((0, 0, 0));
 
             // Magic damage uses magic_resist; physical uses armor+armor_bonus.
@@ -733,7 +733,7 @@ pub fn apply_effect(
                     armor_bonus += b.armor_bonus;
                     damage_taken_bonus += b.damage_taken_bonus;
                 }
-                u.speed = u.base_speed + speed_bonus;
+                u.speed = u.runtime.base_speed + speed_bonus;
                 u.armor_bonus = armor_bonus;
                 u.damage_taken_bonus = damage_taken_bonus;
             }
@@ -1002,14 +1002,14 @@ pub fn apply_effect(
 
         Effect::SetArmor { unit, armor } => {
             if let Some(u) = state.unit_mut(*unit) {
-                u.armor = *armor;
+                u.runtime.armor = *armor;
             }
             (vec![], ApplyCtx::default())
         }
 
         Effect::SetBaseSpeed { unit, base_speed } => {
             if let Some(u) = state.unit_mut(*unit) {
-                u.base_speed = *base_speed;
+                u.runtime.base_speed = *base_speed;
                 // Also update effective speed to match (RefreshAggregates will
                 // fine-tune it, but keeping them in sync avoids a stale window).
                 u.speed = *base_speed;

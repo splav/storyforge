@@ -39,7 +39,7 @@ pub fn target_selection_score(
             // panics for summons with synthetic UnitIds.
             let entity = snap.entity_for_uid(u.id)?;
             let c = snap.cache.unit(entity)?;
-            let eff = (u.hp() + u.armor + u.armor_bonus).max(1) as f32;
+            let eff = (u.hp() + u.runtime.armor + u.armor_bonus).max(1) as f32;
             Some(c.threat / eff)
         })
         .fold(0.0f32, f32::max)

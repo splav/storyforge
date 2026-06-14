@@ -268,6 +268,6 @@ mod tests {
         let u = state.unit(UnitId(1)).unwrap();
         assert_eq!(u.armor_bonus, 4, "defending must contribute +4 armor_bonus");
         // Damage mitigation = armor + armor_bonus = 3 + 4 = 7.
-        assert_eq!(u.armor + u.armor_bonus, 7);
+        assert_eq!(u.runtime.armor + u.armor_bonus, 7);
     }
 }

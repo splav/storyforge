@@ -129,6 +129,17 @@ pub struct StatusBonuses {
     pub damage_taken_bonus: i32,
 }
 
+/// Equipment/template-derived defensive base stats that travel together
+/// (e.g. a boss phase swap replaces all three at once). Status-derived
+/// modifiers (armor_bonus, damage_taken_bonus, effective speed) are NOT here —
+/// they are recomputed by RefreshAggregates on top of this base.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RuntimeStats {
+    pub armor: i32,
+    pub magic_resist: i32,
+    pub base_speed: i32,
+}
+
 /// Resource cost for an ability (one entry per resource kind).
 ///
 /// Mirrors `crate::content::abilities::ResourceCost`.

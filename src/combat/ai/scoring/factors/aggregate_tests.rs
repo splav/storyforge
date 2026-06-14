@@ -80,9 +80,9 @@ fn annotate_plan(
                             0.0
                         } else {
                             combat_engine::mitigation(
-                                t.armor,
+                                t.runtime.armor,
                                 t.armor_bonus,
-                                t.magic_resist,
+                                t.runtime.magic_resist,
                                 calc.magic,
                             )
                         };

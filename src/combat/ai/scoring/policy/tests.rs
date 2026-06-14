@@ -62,9 +62,9 @@ fn via_policy(
             0.0
         } else {
             combat_engine::mitigation(
-                target.armor,
+                target.runtime.armor,
                 target.armor_bonus,
-                target.magic_resist,
+                target.runtime.magic_resist,
                 calc.magic,
             )
         };

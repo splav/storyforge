@@ -734,7 +734,10 @@ mod tests {
             "after haste (speed_bonus=+2), speed should be base(3)+bonus(2)=5, got {}",
             actor_after.speed,
         );
-        assert_eq!(actor_after.base_speed, 3, "base_speed unchanged by status");
+        assert_eq!(
+            actor_after.runtime.base_speed, 3,
+            "base_speed unchanged by status"
+        );
     }
 
     /// Parity check: after a stone_skin buff (armor_bonus=+5) is applied to a

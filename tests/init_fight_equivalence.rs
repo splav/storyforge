@@ -564,10 +564,21 @@ fn compare_units(
     // NB: `id` and `summoner` are intentionally NOT compared (purely id-valued).
     cmp!(team);
     cmp!(pos);
-    cmp!(armor);
+    // `armor` and `base_speed` moved into `Unit.runtime` — compare sub-fields directly.
+    if ru.runtime.armor != cu.runtime.armor {
+        errs.push(format!(
+            "unit {:?}: .armor differs\n        ref:  {:?}\n        cand: {:?}",
+            ident, ru.runtime.armor, cu.runtime.armor
+        ));
+    }
+    if ru.runtime.base_speed != cu.runtime.base_speed {
+        errs.push(format!(
+            "unit {:?}: .base_speed differs\n        ref:  {:?}\n        cand: {:?}",
+            ident, ru.runtime.base_speed, cu.runtime.base_speed
+        ));
+    }
     cmp!(armor_bonus);
     cmp!(damage_taken_bonus);
-    cmp!(base_speed);
     cmp!(speed);
     cmp!(reactions_left);
     cmp!(reactions_max);

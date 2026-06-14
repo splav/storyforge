@@ -184,9 +184,9 @@ pub fn hypothetical(
                 0.0
             } else {
                 combat_engine::mitigation(
-                    target.armor,
+                    target.runtime.armor,
                     target.armor_bonus,
-                    target.magic_resist,
+                    target.runtime.magic_resist,
                     calc.magic,
                 )
             };
@@ -269,9 +269,9 @@ pub fn estimate_kill_soon(
         0.0
     } else {
         combat_engine::mitigation(
-            target.armor,
+            target.runtime.armor,
             target.armor_bonus,
-            target.magic_resist,
+            target.runtime.magic_resist,
             calc.magic,
         )
     };
@@ -404,7 +404,12 @@ pub(crate) fn build_damage_facts(
         let mit = if calc.pierces_armor {
             0.0
         } else {
-            combat_engine::mitigation(unit.armor, unit.armor_bonus, unit.magic_resist, calc.magic)
+            combat_engine::mitigation(
+                unit.runtime.armor,
+                unit.armor_bonus,
+                unit.runtime.magic_resist,
+                calc.magic,
+            )
         };
         (calc.expected() - mit + unit.damage_taken_bonus as f32).max(0.0)
     };
