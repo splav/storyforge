@@ -481,6 +481,9 @@ pub fn bootstrap_combat_state(
         let Some(uid) = id_map.get_id(entity) else {
             continue;
         };
+        // Capture the unit's current base_speed BEFORE the mutable borrow below,
+        // so the phase-equipment closure can use it as fallback without a double-borrow.
+        let current_base_speed = state.unit(uid).map(|u| u.runtime.base_speed).unwrap_or(0);
         if let Some(unit) = state.unit_mut(uid) {
             unit.enemy_phases = phases
                 .pending
@@ -488,12 +491,31 @@ pub fn bootstrap_combat_state(
                 .map(|phase| {
                     let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
                     let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
+                    // Compute RuntimeStats when the phase carries a template's equipment/speed.
+                    // Uses the same active_content helpers as the base-unit armor derivation
+                    // (equipment_armor / equipment_magic_resist).
+                    let runtime = phase.equipment.as_ref().map(|eq_block| {
+                        let phase_equipment = Equipment {
+                            main_hand: Some(eq_block.main_hand.clone()),
+                            off_hand: eq_block.off_hand.clone(),
+                            chest: eq_block.chest.clone(),
+                            legs: eq_block.legs.clone(),
+                            feet: eq_block.feet.clone(),
+                        };
+                        combat_engine::RuntimeStats {
+                            armor: active_content.equipment_armor(&phase_equipment),
+                            magic_resist: active_content.equipment_magic_resist(&phase_equipment),
+                            // Phase template's speed wins; fall back to the unit's
+                            // current base_speed (captured before this borrow).
+                            base_speed: phase.base_speed.unwrap_or(current_base_speed),
+                        }
+                    });
                     combat_engine::PhaseEntry {
                         pct,
                         new_max_hp,
                         heal_to_full: phase.heal_to_full,
                         tags: phase.tags.clone(),
-                        runtime: None,
+                        runtime,
                     }
                 })
                 .collect();

@@ -1,5 +1,5 @@
 use crate::content::unit_templates::{
-    EquipmentRecord, ResourcesBlock, ResourcesRecord, StatsRecord, UnitTemplateDef,
+    EquipmentBlock, EquipmentRecord, ResourcesBlock, ResourcesRecord, StatsRecord, UnitTemplateDef,
 };
 use crate::game::components::CombatStats;
 use combat_engine::{AbilityId, ArmorId, WeaponId};
@@ -179,6 +179,14 @@ pub struct PhaseDef {
     pub ai_behavior: Option<AiBehaviorKind>,
     /// `Some` = REPLACE the unit's tags on phase entry; `None` = keep current tags.
     pub tags: Option<std::collections::BTreeSet<combat_engine::TagId>>,
+    /// Equipment block carried by this phase's template (unsplit; split into
+    /// slots by the build-site when computing `RuntimeStats`).
+    /// `None` when the phase has no template or the template has no equipment
+    /// change — means "keep current armor/magic_resist".
+    pub equipment: Option<EquipmentBlock>,
+    /// Base movement speed from this phase's template.
+    /// `None` = keep current base_speed.
+    pub base_speed: Option<i32>,
 }
 
 /// AI evaluation-regime override applied when a boss phase fires.
@@ -409,6 +417,12 @@ fn resolve_phase(
         .map(|v| v.into_iter().map(|s| AbilityId::from(s.as_str())).collect())
         .or_else(|| base.map(|t| t.ability_ids.clone()));
 
+    // Equipment and base_speed: inherited from template when a template is
+    // present; None when there is no template (no stat change for that field).
+    // PhaseRecord has no inline equipment/speed override fields — template-only.
+    let equipment: Option<EquipmentBlock> = base.map(|t| t.equipment.clone());
+    let base_speed: Option<i32> = base.map(|t| t.speed);
+
     PhaseDef {
         trigger: PhaseTrigger::HpBelowPct(p.hp_below_pct),
         name,
@@ -424,6 +438,8 @@ fn resolve_phase(
                 .map(|s| combat_engine::TagId::from(s.as_str()))
                 .collect()
         }),
+        equipment,
+        base_speed,
     }
 }
 

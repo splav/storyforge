@@ -7,7 +7,8 @@ use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    Abilities, AiBehaviorOverride, CombatStats, Dead, EnemyPhases, Tags, VictoryTarget, Vital,
+    Abilities, AiBehaviorOverride, CombatStats, Dead, EnemyPhases, Speed, Tags, VictoryTarget,
+    Vital,
 };
 use crate::game::resources::{
     CombatContext, CombatObjective, PhaseDeadline, PhaseDeadlineState, UiDirty, UiDirtyFlags,
@@ -24,11 +25,15 @@ use combat_engine::state::UnitId;
 /// Reproduces the logic of the deleted `phase_transition_system` (4d/4e):
 ///   1. Reads `EnemyPhases.pending[phase_idx]` for the new Name, Abilities,
 ///      CombatStats, and flavor text.
-///   2. Mutates ECS components: `Name`, `Abilities`, `CombatStats`, `Vital`
-///      (re-infers `AxisProfile`; removes `Dead` if `heal_to_full` revived).
-///   3. Pops `pending[phase_idx]` (spec §8: exactly one pop per event).
-///   4. Pushes `CombatEvent::PhaseEntered` with `prev_name`/`next_name`/`flavor`.
-///   5. If the phase carries `victory_override` or `turn_limit`, pushes a
+///   2. Mutates ECS components: `Name`, `Abilities`, `CombatStats`, `Vital`,
+///      `Speed` (re-infers `AxisProfile`; removes `Dead` if `heal_to_full` revived).
+///   3. Mirrors `engine_unit.runtime` → `Vital.armor`/`magic_resist` and `Speed`
+///      so non-engine consumers (UI, legality, AxisProfile) see the new values.
+///      The engine already applied `EnterPhase` before this runs; reading
+///      `unit.runtime` here is the single derivation (no recompute).
+///   4. Pops `pending[phase_idx]` (spec §8: exactly one pop per event).
+///   5. Pushes `CombatEvent::PhaseEntered` with `prev_name`/`next_name`/`flavor`.
+///   6. If the phase carries `victory_override` or `turn_limit`, pushes a
 ///      `PhaseOverrideIntent` into `overrides` for deferred application.
 ///
 /// Called from `apply_bridge_queues_post_projection` which runs AFTER `project_state_to_ecs`
@@ -49,17 +54,27 @@ pub(crate) fn apply_phase_ecs_writes(
         &mut Abilities,
         Option<&mut AxisProfile>,
         &mut Name,
+        &mut Speed,
         Has<Dead>,
     )>,
     content: &ActiveContent,
     tag_cache: &AbilityTagCache,
     overrides: &mut Vec<PhaseOverrideIntent>,
+    engine_state: &combat_engine::state::CombatState,
 ) {
     let Some(ent) = id_map.get_entity(unit) else {
         return;
     };
-    let Ok((mut phases, mut vital, mut stats, mut abilities, role_opt, mut name, is_dead)) =
-        q.get_mut(ent)
+    let Ok((
+        mut phases,
+        mut vital,
+        mut stats,
+        mut abilities,
+        role_opt,
+        mut name,
+        mut speed,
+        is_dead,
+    )) = q.get_mut(ent)
     else {
         return;
     };
@@ -88,9 +103,21 @@ pub(crate) fn apply_phase_ecs_writes(
     if let Some(ref new_ability_ids) = phase.ability_ids {
         abilities.0 = new_ability_ids.clone();
     }
+
+    // Mirror engine Unit.runtime → ECS so armor/magic_resist/Speed are up to date
+    // for UI, legality checks (BevyActions), and AxisProfile inference below.
+    // EnterPhase already ran in the engine before this system; reading runtime
+    // here is the single source of truth (no second derivation).
+    if let Some(engine_unit) = engine_state.unit(unit) {
+        vital.armor = engine_unit.runtime.armor;
+        vital.magic_resist = engine_unit.runtime.magic_resist;
+        speed.0 = engine_unit.runtime.base_speed;
+    }
+
+    // Re-infer AxisProfile AFTER armor is updated so the profile reflects the
+    // new defensive posture (armor was stale before this point).
     if let Some(mut role) = role_opt {
-        if phase.stats.is_some() || phase.ability_ids.is_some() {
-            // Re-infer AxisProfile when the inputs (abilities / max_hp / armor) changed.
+        if phase.stats.is_some() || phase.ability_ids.is_some() || phase.equipment.is_some() {
             *role = infer_profile(&abilities.0, vital.max_hp, vital.armor, content, tag_cache);
         }
     }

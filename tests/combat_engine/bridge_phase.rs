@@ -97,6 +97,8 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         turn_limit: None,
         ai_behavior: None,
         tags: None,
+        equipment: None,
+        base_speed: None,
     };
     let boss = app
         .world_mut()
@@ -539,6 +541,8 @@ fn phase_def_tags_carried_into_engine_phase_entry() {
         turn_limit: None,
         ai_behavior: None,
         tags: Some(phase_tags.clone()),
+        equipment: None,
+        base_speed: None,
     };
 
     let mut app = common::apps::bridge::bridge_app();
@@ -672,6 +676,8 @@ fn phase_transition_updates_ecs_tags_component() {
         turn_limit: None,
         ai_behavior: None,
         tags: Some(new_tags.clone()),
+        equipment: None,
+        base_speed: None,
     };
 
     let boss = app

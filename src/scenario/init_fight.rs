@@ -607,12 +607,29 @@ fn build_enemy(
         .map(|phase| {
             let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
             let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
+            // Compute RuntimeStats when the phase carries a template's equipment/speed.
+            // Mirrors how the base unit's armor/magic_resist are computed above
+            // (same active_content helpers, same Equipment→scalar path).
+            let runtime = phase.equipment.as_ref().map(|eq_block| {
+                let phase_equipment = Equipment {
+                    main_hand: Some(eq_block.main_hand.clone()),
+                    off_hand: eq_block.off_hand.clone(),
+                    chest: eq_block.chest.clone(),
+                    legs: eq_block.legs.clone(),
+                    feet: eq_block.feet.clone(),
+                };
+                combat_engine::RuntimeStats {
+                    armor: active_content.equipment_armor(&phase_equipment),
+                    magic_resist: active_content.equipment_magic_resist(&phase_equipment),
+                    base_speed: phase.base_speed.unwrap_or(def.speed),
+                }
+            });
             PhaseEntry {
                 pct,
                 new_max_hp,
                 heal_to_full: phase.heal_to_full,
                 tags: phase.tags.clone(),
-                runtime: None,
+                runtime,
             }
         })
         .collect();
