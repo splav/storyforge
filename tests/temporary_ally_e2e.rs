@@ -22,7 +22,7 @@ use storyforge::content::content_view::ActiveContentData;
 use storyforge::content::encounters::load_encounters_from_str;
 use storyforge::content::scenarios::{active_party, parse_scenario_body};
 use storyforge::game::components::{
-    ActionPoints, Combatant, Dead, Faction, Reactions, Speed, Team, TemplateRef, Vital,
+    ActionPoints, Combatant, Dead, Faction, Reactions, RuntimeStatsMirror, Team, TemplateRef, Vital,
 };
 use storyforge::game::resources::{CombatObjective, HexPositions};
 
@@ -109,13 +109,12 @@ fn spawn_magister(app: &mut App, hex: hexx::Hex) -> Entity {
             Name::new("Магистр"),
             Combatant,
             Faction(Team::Player),
-            Vital {
-                hp: 4,
-                max_hp: 8,
+            Vital { hp: 4, max_hp: 8 },
+            RuntimeStatsMirror(combat_engine::RuntimeStats {
                 armor: 0,
                 magic_resist: 0,
-            },
-            Speed(0),
+                base_speed: 0,
+            }),
             ActionPoints {
                 action_points: 1,
                 max_ap: 1,

@@ -8,7 +8,7 @@ use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::game::combat_log::CombatLog;
 use crate::game::components::{
-    Abilities, ActiveCombatant, CombatStats, Dead, EnemyPhases, Speed, Vital,
+    Abilities, ActiveCombatant, CombatStats, Dead, EnemyPhases, RuntimeStatsMirror, Vital,
 };
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{UiDirty, UiDirtyFlags};
@@ -144,7 +144,7 @@ pub fn apply_bridge_queues_post_projection(
         &mut Abilities,
         Option<&mut AxisProfile>,
         &mut Name,
-        &mut Speed,
+        &mut RuntimeStatsMirror,
         Has<Dead>,
     )>,
 ) {

@@ -128,17 +128,13 @@ impl std::ops::AddAssign<&CombatStats> for CombatStats {
 pub struct Vital {
     pub hp: i32,
     pub max_hp: i32,
-    pub armor: i32,        // reduces incoming physical damage
-    pub magic_resist: i32, // reduces incoming magic damage
 }
 
 impl Vital {
-    pub fn new(stats: &CombatStats, armor: i32, magic_resist: i32) -> Self {
+    pub fn new(stats: &CombatStats) -> Self {
         Self {
             hp: stats.max_hp,
             max_hp: stats.max_hp,
-            armor,
-            magic_resist,
         }
     }
 
@@ -147,9 +143,11 @@ impl Vital {
     }
 }
 
-/// How many hex cells the unit can move per turn.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct Speed(pub i32);
+/// Bevy newtype around the engine's Bevy-free `RuntimeStats` POD — the single
+/// definition of the equipment/template-derived defensive base (armor,
+/// magic_resist, base_speed). Mirrored from engine `Unit.runtime` on phase entry.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct RuntimeStatsMirror(pub combat_engine::RuntimeStats);
 
 /// Marker inserted by GrantMovement abilities (e.g. Rush) so the UI can
 /// auto-enter move mode for the actor. Removed after the first move or at
@@ -348,7 +346,7 @@ pub struct AiCombatantQ {
     pub faction: &'static Faction,
     pub abilities: Option<&'static Abilities>,
     pub vital: &'static Vital,
-    pub speed: Option<&'static Speed>,
+    pub runtime: Option<&'static RuntimeStatsMirror>,
     pub ap: Option<&'static ActionPoints>,
     pub stats: Option<&'static CombatStats>,
     pub equipment: Option<&'static Equipment>,
@@ -408,12 +406,7 @@ mod tests {
     use super::*;
 
     fn vital(hp: i32, max_hp: i32) -> Vital {
-        Vital {
-            hp,
-            max_hp,
-            armor: 0,
-            magic_resist: 0,
-        }
+        Vital { hp, max_hp }
     }
 
     #[test]

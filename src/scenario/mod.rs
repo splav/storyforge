@@ -480,21 +480,11 @@ mod tests {
     }
 
     fn alive_vital() -> Vital {
-        Vital {
-            hp: 10,
-            max_hp: 10,
-            armor: 0,
-            magic_resist: 0,
-        }
+        Vital { hp: 10, max_hp: 10 }
     }
 
     fn dead_vital() -> Vital {
-        Vital {
-            hp: 0,
-            max_hp: 10,
-            armor: 0,
-            magic_resist: 0,
-        }
+        Vital { hp: 0, max_hp: 10 }
     }
 
     fn base_app(phase: CombatPhase, on_defeat: OnDefeat) -> App {

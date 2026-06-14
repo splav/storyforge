@@ -14,7 +14,8 @@ use super::{
 };
 use crate::content::content_view::ActiveContent;
 use crate::game::components::{
-    Abilities, ActionPoints, CombatStats, Energy, Faction, Mana, Rage, StatusEffects, Team, Vital,
+    Abilities, ActionPoints, CombatStats, Energy, Faction, Mana, Rage, RuntimeStatsMirror,
+    StatusEffects, Team, Vital,
 };
 use crate::game::resources::{SelectionState, UiDirty, UiDirtyFlags};
 use crate::ui::hex_grid::{classify_status, StatusTint};
@@ -134,6 +135,7 @@ pub fn update_inspect_panel(
         Option<&Rage>,
         Option<&Energy>,
         &ActionPoints,
+        Option<&RuntimeStatsMirror>,
     )>,
     mut panel_q: Query<&mut Visibility, With<InspectPanel>>,
     mut name_q: Query<
@@ -200,7 +202,7 @@ pub fn update_inspect_panel(
         return;
     };
 
-    let Ok((name, vital, stats, statuses, abilities, faction, mana, rage, energy, ap)) =
+    let Ok((name, vital, stats, statuses, abilities, faction, mana, rage, energy, ap, runtime_opt)) =
         unit_q.get(entity)
     else {
         // Entity may have been despawned (e.g. end of combat) — hide gracefully.
@@ -233,9 +235,10 @@ pub fn update_inspect_panel(
 
     // ── Resources ─────────────────────────────────────────────────────────────
     if let Ok(mut t) = res_q.single_mut() {
+        let armor = runtime_opt.map_or(0, |r| r.0.armor);
         let mut parts = vec![
             format!("HP {}/{}", vital.hp, vital.max_hp),
-            format!("Броня {}", vital.armor),
+            format!("Броня {}", armor),
         ];
         if let Some(m) = mana {
             parts.push(format!("Мана {}/{}", m.current, m.max));

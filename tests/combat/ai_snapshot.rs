@@ -319,19 +319,15 @@ fn build_snapshot_includes_minimal_npc() {
     );
 
     // A minimal NPC: Faction + Vital only (no Abilities / CombatStats / Equipment).
-    let vital = Vital::new(
-        &storyforge::game::components::CombatStats {
-            max_hp: 5,
-            strength: 5,
-            dexterity: 5,
-            constitution: 5,
-            intelligence: 0,
-            wisdom: 5,
-            charisma: 5,
-        },
-        0,
-        0,
-    );
+    let vital = Vital::new(&storyforge::game::components::CombatStats {
+        max_hp: 5,
+        strength: 5,
+        dexterity: 5,
+        constitution: 5,
+        intelligence: 0,
+        wisdom: 5,
+        charisma: 5,
+    });
     let npc = spawn_at(
         &mut app,
         hex_from_offset(4, 3),

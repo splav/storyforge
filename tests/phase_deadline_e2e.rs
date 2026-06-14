@@ -44,8 +44,6 @@ fn spawn_named_enemy(app: &mut App, name: &str) -> Entity {
             Vital {
                 hp: 50,
                 max_hp: 100,
-                armor: 0,
-                magic_resist: 0,
             },
         ))
         .id()
@@ -60,8 +58,6 @@ fn spawn_boss(app: &mut App, name: &str, alive: bool) -> Entity {
         Vital {
             hp: if alive { 50 } else { 0 },
             max_hp: 100,
-            armor: 0,
-            magic_resist: 0,
         },
         VictoryTarget {
             marker_color: [1.0, 0.0, 0.0],
@@ -80,12 +76,7 @@ fn spawn_hero(app: &mut App) -> Entity {
             Name::new("Hero"),
             Combatant,
             Faction(Team::Player),
-            Vital {
-                hp: 30,
-                max_hp: 30,
-                armor: 0,
-                magic_resist: 0,
-            },
+            Vital { hp: 30, max_hp: 30 },
         ))
         .id()
 }

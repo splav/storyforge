@@ -257,9 +257,10 @@ Bevy-side (the engine crate is Bevy-free); the engine receives only resolved val
 (`bridge/bootstrap.rs`, `scenario/init_fight.rs`) from the phase template's
 equipment via `equipment_armor`/`equipment_magic_resist` — the same Bevy-side
 derivation used for the base unit. `apply_phase_ecs_writes` then **mirrors** the
-post-`EnterPhase` engine `Unit.runtime` into ECS `Vital.armor`/`.magic_resist` +
-`Speed` (single source of truth — it reads the engine, never re-derives), and
-re-infers `AxisProfile` afterwards. (History: armor/speed used to be dropped at
+post-`EnterPhase` engine `Unit.runtime` into the ECS `RuntimeStatsMirror`
+component as a single POD assignment (`runtime.0 = engine_unit.runtime` — single
+source of truth, it reads the engine and never re-derives), and re-infers
+`AxisProfile` afterwards. (History: armor/speed used to be dropped at
 parse time — `PhaseDef` carried only `CombatStats`, which has no armor/speed — so
 `check_phase_trigger` hardcoded `new_armor: 0` and the `SetArmor` derivation was
 dead; bell ch3's "armor medium→0" landed nowhere. Audit #6. `SetArmor`/`SetBaseSpeed`
@@ -272,13 +273,16 @@ engine legality never gates on a stored active roster (`EngineCheckState::actor_
 returns `true`), and the AI plan-sim re-reads the roster from the ECS-rebuilt snapshot
 every decision cycle — so a phase ability swap does not drift the engine.
 
-**Residual (deferred — "A+"):** armor/magic_resist still live in the ECS `Vital`
-component (+ a separate `Speed` component), so the engine→ECS mirror in
-`apply_phase_ecs_writes` is a hand-written per-field copy. A symmetric ECS
-`RuntimeStats` mirror component would make it a single clean copy and remove the
-"add a 4th defensive stat in two places" hazard; deferred as a representational
-cleanup with no correctness content. The mirror is guarded by the invariant test
-`phase_transition_mirrors_runtime_stats_into_ecs` (`vital.* == engine runtime.*`).
+**ECS representation (A+ done).** The ECS now mirrors the engine grouping:
+`RuntimeStatsMirror(pub combat_engine::RuntimeStats)` — a thin Bevy newtype over
+the Bevy-free engine POD, so armor/magic_resist/base_speed are defined in ONE
+place. `Vital` shrank to `{ hp, max_hp }`; the old separate `Speed` component was
+deleted (it was vestigial — movement runs off `ActionPoints.movement_points`).
+The engine→ECS sync is the single POD copy above. Guarded by the invariant test
+`phase_transition_mirrors_runtime_stats_into_ecs` (`RuntimeStatsMirror.0 == engine
+runtime`). The component is phase-mirrored (not per-step projected): `runtime`
+only changes on `EnterPhase`, so per-step projection would re-copy an unchanging
+value — the phase-entry copy is sufficient and keeps `projection_isolation` clean.
 
 **Aura recompute trigger (resolved).** The ad-hoc `matches!(effect, MovePosition | Death)`
 snapshot guard is now the named predicate `effect_changes_aura_membership(effect)`

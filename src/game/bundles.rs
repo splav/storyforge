@@ -8,7 +8,7 @@ pub struct CombatantBundle {
     pub faction: Faction,
     pub stats: CombatStats,
     pub vital: Vital,
-    pub speed: Speed,
+    pub runtime: RuntimeStatsMirror,
     pub initiative: Initiative,
     pub action_points: ActionPoints,
     pub abilities: Abilities,
@@ -27,13 +27,17 @@ impl CombatantBundle {
         abilities: Vec<AbilityId>,
         equipment: Equipment,
     ) -> Self {
-        let vital = Vital::new(&stats, armor, magic_resist);
+        let vital = Vital::new(&stats);
         Self {
             combatant: Combatant,
             faction: Faction(team),
             vital,
             stats,
-            speed: Speed(speed),
+            runtime: RuntimeStatsMirror(combat_engine::RuntimeStats {
+                armor,
+                magic_resist,
+                base_speed: speed,
+            }),
             initiative: Initiative(0),
             action_points: ActionPoints {
                 action_points: 1,
@@ -94,7 +98,7 @@ pub fn enemy_bundle(
 
 /// Minimal non-acting NPC present on the field (e.g. a wounded ally to protect).
 /// Carries only what the engine projection needs to see a unit (Faction+Vital,
-/// plus trivial Speed/AP/Reactions to avoid `from_ecs` warns). `Abilities`,
+/// plus trivial RuntimeStatsMirror/AP/Reactions to avoid `from_ecs` warns). `Abilities`,
 /// `CombatStats`, and `Equipment` are intentionally omitted — the AI snapshot
 /// (`AiCombatantQ`) now defaults them (threat 0, no attacks). Apply a
 /// perma-stun status separately so it never takes a turn. Caller adds `Name`
@@ -104,7 +108,11 @@ pub fn npc_bundle(team: Team, vital: Vital) -> impl Bundle {
         Combatant,
         Faction(team),
         vital,
-        Speed(0),
+        RuntimeStatsMirror(combat_engine::RuntimeStats {
+            armor: 0,
+            magic_resist: 0,
+            base_speed: 0,
+        }),
         Initiative(0),
         ActionPoints {
             action_points: 1,

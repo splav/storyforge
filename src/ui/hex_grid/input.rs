@@ -3,8 +3,8 @@ use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CL
 use crate::content::abilities::AoEShape;
 use crate::content::content_view::ActiveContent;
 use crate::game::components::{
-    ActionPoints, ActiveCombatant, Combatant, Dead, Energy, Faction, Mana, Rage, StatusEffects,
-    Team, Vital,
+    ActionPoints, ActiveCombatant, Combatant, Dead, Energy, Faction, Mana, Rage,
+    RuntimeStatsMirror, StatusEffects, Team, Vital,
 };
 use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
 use crate::game::hex_map::HexMap;
@@ -60,6 +60,7 @@ pub fn update_hex_tooltip(
         Option<&Rage>,
         Option<&Energy>,
         Has<Dead>,
+        Option<&RuntimeStatsMirror>,
     )>,
     mut tooltip_q: Query<(&mut Text, &mut Node, &mut Visibility), With<HexTooltip>>,
     windows: Query<&Window>,
@@ -81,7 +82,8 @@ pub fn update_hex_tooltip(
         return;
     };
 
-    let Ok((name, vital, faction, statuses, mana, rage, energy, is_dead)) = combatant_q.get(entity)
+    let Ok((name, vital, faction, statuses, mana, rage, energy, is_dead, runtime_opt)) =
+        combatant_q.get(entity)
     else {
         *vis = Visibility::Hidden;
         return;
@@ -94,10 +96,8 @@ pub fn update_hex_tooltip(
     };
     let dead_str = if is_dead { " [мертв]" } else { "" };
     let mut lines = vec![format!("{} ({}){}", name.as_str(), team, dead_str)];
-    lines.push(format!(
-        "HP: {}/{}  ARM: {}",
-        vital.hp, vital.max_hp, vital.armor
-    ));
+    let armor = runtime_opt.map_or(0, |r| r.0.armor);
+    lines.push(format!("HP: {}/{}  ARM: {}", vital.hp, vital.max_hp, armor));
     if let Some(m) = mana {
         lines.push(format!("Мана: {}/{}", m.current, m.max));
     }

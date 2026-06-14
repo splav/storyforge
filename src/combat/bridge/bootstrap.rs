@@ -9,7 +9,8 @@ use crate::content::races::CritFailEffect;
 use crate::game::combat_log::CombatLog;
 use crate::game::components::{
     Abilities, ActionPoints, AuraSource, CombatPath, CombatStats, Combatant, Dead, EnemyPhases,
-    Energy, Equipment, Faction, Mana, Rage, Reactions, Speed, StatusEffects, TemplateRef, Vital,
+    Energy, Equipment, Faction, Mana, Rage, Reactions, RuntimeStatsMirror, StatusEffects,
+    TemplateRef, Vital,
 };
 use crate::game::resources::{
     CombatBlockedHexes, CombatContext, CombatEnvironment, HexCorpses, HexPositions,
@@ -33,14 +34,14 @@ use combat_engine::{
 /// projector's convention so both directions agree on a single predicate.
 ///
 /// **Required:** `Vital`, `Faction` — semantically essential (no defaults).
-/// **Optional (with defaults):** `Speed=0`, `ActionPoints={1,1,0}`,
-/// `Reactions={1,1}`. Defaults match "minimal NPC" semantics (immobile,
-/// one action, one reaction). When any default kicks in `from_ecs` emits
+/// **Optional (with defaults):** `RuntimeStatsMirror` (base_speed=0, armor=0, mr=0),
+/// `ActionPoints={1,1,0}`, `Reactions={1,1}`. Defaults match "minimal NPC" semantics
+/// (immobile, one action, one reaction). When any default kicks in `from_ecs` emits
 /// a `warn!` so the missing component is loud, not silent.
 type CombatantRow<'a> = (
     Entity,
     &'a Vital,
-    Option<&'a Speed>,
+    Option<&'a RuntimeStatsMirror>,
     Option<&'a ActionPoints>,
     Option<&'a Reactions>,
     &'a Faction,
@@ -132,8 +133,8 @@ pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit
 /// Populate a `CombatState` from the current ECS world; also rebuilds `id_map`.
 ///
 /// Components read:
-/// - `Vital` — hp/max_hp/armor
-/// - `Speed` — base speed
+/// - `Vital` — hp/max_hp
+/// - `RuntimeStatsMirror` — armor/magic_resist/base_speed
 /// - `ActionPoints` — ap/movement_points
 /// - `Reactions` — reactions_left
 /// - `Faction` — team
@@ -165,7 +166,7 @@ pub fn from_ecs(
             |(
                 entity,
                 vital,
-                speed,
+                runtime_opt,
                 ap,
                 reactions,
                 faction,
@@ -216,20 +217,20 @@ pub fn from_ecs(
                 let hp = if is_dead { 0 } else { vital.hp };
 
                 // ── Fail-loud defaults for optional components ───────────────────
-                // Speed / ActionPoints / Reactions are optional in `CombatantRow`
-                // so minimal NPC entities (just Combatant + Faction + Vital) are
-                // accepted into engine state. Missing components fall back to
-                // "immobile, single-action" defaults, BUT we emit a `warn!` so
-                // the gap is loud, not silent — catches forgotten components in
+                // RuntimeStatsMirror / ActionPoints / Reactions are optional in
+                // `CombatantRow` so minimal NPC entities (just Combatant + Faction
+                // + Vital) are accepted into engine state. Missing components fall
+                // back to "immobile, single-action" defaults, BUT we emit a `warn!`
+                // so the gap is loud, not silent — catches forgotten components in
                 // template spawns (see the wounded_scout regression).
-                let speed_val = match speed {
-                    Some(s) => s.0,
+                let (armor_val, magic_resist_val, speed_val) = match runtime_opt {
+                    Some(r) => (r.0.armor, r.0.magic_resist, r.0.base_speed),
                     None => {
                         bevy::log::warn!(
-                            "Combatant entity {:?} has no Speed — defaulting to 0",
+                            "Combatant entity {:?} has no RuntimeStatsMirror — defaulting armor/mr/speed to 0",
                             entity
                         );
-                        0
+                        (0, 0, 0)
                     }
                 };
                 let (ap_cur, ap_max, mp_cur) = match ap {
@@ -280,8 +281,8 @@ pub fn from_ecs(
                         uid,
                         team,
                         pos,
-                        armor: vital.armor,
-                        magic_resist: vital.magic_resist,
+                        armor: armor_val,
+                        magic_resist: magic_resist_val,
                         base_speed: speed_val,
                         reactions_max: reactions_max as i32,
                         statuses: statuses_vec,

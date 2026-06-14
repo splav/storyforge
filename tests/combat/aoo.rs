@@ -3,7 +3,8 @@ use bevy::prelude::*;
 use crate::common::{apps::engine::*, fixtures::*, scenarios::statuses::*};
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
-    Abilities, ActiveCombatant, ActiveStatus, Dead, Rage, Reactions, StatusEffects, Vital,
+    Abilities, ActiveCombatant, ActiveStatus, Dead, Rage, Reactions, RuntimeStatsMirror,
+    StatusEffects, Vital,
 };
 use storyforge::game::hex::{hex_from_offset, Hex};
 use storyforge::game::messages::ActionInput;
@@ -58,7 +59,11 @@ fn leave_adjacent_triggers_aoo() {
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
-    app.world_mut().get_mut::<Vital>(hero).unwrap().armor = 3;
+    app.world_mut()
+        .get_mut::<RuntimeStatsMirror>(hero)
+        .unwrap()
+        .0
+        .armor = 3;
     app.world_mut().entity_mut(hero).insert(Rage::new(5));
     app.world_mut().entity_mut(goblin).insert(Rage::new(5));
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);

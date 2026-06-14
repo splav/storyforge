@@ -721,11 +721,10 @@ fn phase_transition_updates_ecs_tags_component() {
     );
 }
 
-/// After a phase transition the bridge mirrors `engine Unit.runtime` → ECS:
+/// After a phase transition the bridge mirrors `engine Unit.runtime` → ECS
+/// `RuntimeStatsMirror` as a single POD assignment.
 ///
-///   `Vital.armor`        == `engine_unit.runtime.armor`
-///   `Vital.magic_resist` == `engine_unit.runtime.magic_resist`
-///   `Speed.0`            == `engine_unit.runtime.base_speed`
+///   `RuntimeStatsMirror.0` == `engine_unit.runtime`
 ///
 /// This is the single-source-of-truth invariant guarded by `apply_phase_ecs_writes`.
 /// The `PhaseEntry.runtime` is injected directly into the engine state after bootstrap
@@ -737,7 +736,7 @@ fn phase_transition_mirrors_runtime_stats_into_ecs() {
     use storyforge::combat::bridge::CombatStateRes;
     use storyforge::content::abilities::TargetType;
     use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
-    use storyforge::game::components::{EnemyPhases, Speed};
+    use storyforge::game::components::{EnemyPhases, RuntimeStatsMirror};
 
     let caster_pos = hex_from_offset(0, 0);
     let boss_hex = hex_from_offset(1, 0);
@@ -873,28 +872,14 @@ fn phase_transition_mirrors_runtime_stats_into_ecs() {
         "engine Unit.runtime must equal phase RuntimeStats after EnterPhase"
     );
 
-    // The ECS components must mirror the engine values (the invariant we're guarding).
-    let vital = app
+    // The ECS RuntimeStatsMirror must equal the engine Unit.runtime POD.
+    let mirror = app
         .world()
         .entity(boss)
-        .get::<Vital>()
-        .expect("boss must have Vital");
+        .get::<RuntimeStatsMirror>()
+        .expect("boss must have RuntimeStatsMirror");
     assert_eq!(
-        vital.armor, engine_unit.runtime.armor,
-        "Vital.armor must mirror engine Unit.runtime.armor"
-    );
-    assert_eq!(
-        vital.magic_resist, engine_unit.runtime.magic_resist,
-        "Vital.magic_resist must mirror engine Unit.runtime.magic_resist"
-    );
-
-    let speed = app
-        .world()
-        .entity(boss)
-        .get::<Speed>()
-        .expect("boss must have Speed");
-    assert_eq!(
-        speed.0, engine_unit.runtime.base_speed,
-        "Speed.0 must mirror engine Unit.runtime.base_speed"
+        mirror.0, engine_unit.runtime,
+        "RuntimeStatsMirror.0 must equal engine Unit.runtime after phase mirror"
     );
 }

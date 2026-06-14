@@ -7,8 +7,8 @@ use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    Abilities, AiBehaviorOverride, CombatStats, Dead, EnemyPhases, Speed, Tags, VictoryTarget,
-    Vital,
+    Abilities, AiBehaviorOverride, CombatStats, Dead, EnemyPhases, RuntimeStatsMirror, Tags,
+    VictoryTarget, Vital,
 };
 use crate::game::resources::{
     CombatContext, CombatObjective, PhaseDeadline, PhaseDeadlineState, UiDirty, UiDirtyFlags,
@@ -26,8 +26,8 @@ use combat_engine::state::UnitId;
 ///   1. Reads `EnemyPhases.pending[phase_idx]` for the new Name, Abilities,
 ///      CombatStats, and flavor text.
 ///   2. Mutates ECS components: `Name`, `Abilities`, `CombatStats`, `Vital`,
-///      `Speed` (re-infers `AxisProfile`; removes `Dead` if `heal_to_full` revived).
-///   3. Mirrors `engine_unit.runtime` → `Vital.armor`/`magic_resist` and `Speed`
+///      `RuntimeStatsMirror` (re-infers `AxisProfile`; removes `Dead` if `heal_to_full` revived).
+///   3. Mirrors `engine_unit.runtime` → `RuntimeStatsMirror` as a single POD assignment
 ///      so non-engine consumers (UI, legality, AxisProfile) see the new values.
 ///      The engine already applied `EnterPhase` before this runs; reading
 ///      `unit.runtime` here is the single derivation (no recompute).
@@ -54,7 +54,7 @@ pub(crate) fn apply_phase_ecs_writes(
         &mut Abilities,
         Option<&mut AxisProfile>,
         &mut Name,
-        &mut Speed,
+        &mut RuntimeStatsMirror,
         Has<Dead>,
     )>,
     content: &ActiveContent,
@@ -72,7 +72,7 @@ pub(crate) fn apply_phase_ecs_writes(
         mut abilities,
         role_opt,
         mut name,
-        mut speed,
+        mut runtime,
         is_dead,
     )) = q.get_mut(ent)
     else {
@@ -104,21 +104,24 @@ pub(crate) fn apply_phase_ecs_writes(
         abilities.0 = new_ability_ids.clone();
     }
 
-    // Mirror engine Unit.runtime → ECS so armor/magic_resist/Speed are up to date
-    // for UI, legality checks (BevyActions), and AxisProfile inference below.
+    // Mirror engine Unit.runtime → RuntimeStatsMirror as a single POD assignment.
     // EnterPhase already ran in the engine before this system; reading runtime
     // here is the single source of truth (no second derivation).
     if let Some(engine_unit) = engine_state.unit(unit) {
-        vital.armor = engine_unit.runtime.armor;
-        vital.magic_resist = engine_unit.runtime.magic_resist;
-        speed.0 = engine_unit.runtime.base_speed;
+        runtime.0 = engine_unit.runtime;
     }
 
-    // Re-infer AxisProfile AFTER armor is updated so the profile reflects the
+    // Re-infer AxisProfile AFTER runtime is updated so the profile reflects the
     // new defensive posture (armor was stale before this point).
     if let Some(mut role) = role_opt {
         if phase.stats.is_some() || phase.ability_ids.is_some() || phase.equipment.is_some() {
-            *role = infer_profile(&abilities.0, vital.max_hp, vital.armor, content, tag_cache);
+            *role = infer_profile(
+                &abilities.0,
+                vital.max_hp,
+                runtime.0.armor,
+                content,
+                tag_cache,
+            );
         }
     }
 

@@ -140,9 +140,17 @@ pub fn spawn_combatants(
             ec.insert(Vital {
                 hp: initial_hp,
                 max_hp: effective.max_hp,
-                armor,
-                magic_resist,
             });
+            // RuntimeStatsMirror was already set by hero_bundle; re-insert to
+            // keep it in sync with the Vital override (armor/magic_resist unchanged,
+            // but being explicit avoids drift if Vital changes again later).
+            ec.insert(crate::game::components::RuntimeStatsMirror(
+                combat_engine::RuntimeStats {
+                    armor,
+                    magic_resist,
+                    base_speed: tpl.speed,
+                },
+            ));
             // Pool components — for templates that declare them.
             if tpl.resources.mana_max > 0 {
                 ec.insert(Mana::new(tpl.resources.mana_max + mana_bonus));
