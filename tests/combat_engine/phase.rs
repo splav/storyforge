@@ -131,6 +131,69 @@ fn phase_trigger_fires_at_threshold() {
     );
 }
 
+/// Lethal damage crossing a NON-healing phase threshold derives `EnterPhase`
+/// *then* `Death`, in that order. Regression: Kolm phase 2 (flee + kill-within-N)
+/// is `heal_to_full=false`; one-shotting the boss used to fire EnterPhase and
+/// swallow the death, leaving him alive at 0 HP so `kill_target` could never
+/// fire — the fight stalled. The phase must still activate (so its
+/// `victory_override` / deadline take effect), then the boss dies in the same
+/// step and the new win-condition is evaluated against the corpse.
+#[test]
+fn lethal_damage_into_non_healing_phase_enters_phase_then_dies() {
+    let boss = uid(1);
+    let attacker = uid(2);
+    // Boss: 100 max_hp, at 40 hp. Damage=50 → hp clamps to 0, crosses 30%.
+    let mut state = make_state(
+        vec![
+            make_boss(
+                1,
+                40,
+                100,
+                vec![PhaseEntry {
+                    pct: 30,
+                    new_max_hp: 0,
+                    heal_to_full: false,
+                    tags: None,
+                    runtime: None,
+                }],
+            ),
+            make_attacker(2),
+        ],
+        vec![attacker, boss],
+    );
+    let content = phase_content();
+
+    let (derived, _ctx) = apply_effect(
+        &mut state,
+        &Effect::Damage {
+            target: boss,
+            raw: 50.0,
+            source: EffectSource::Unit(attacker),
+            pierces: false,
+            magic: false,
+        },
+        &content,
+    );
+
+    // Both effects must be present, with EnterPhase strictly before Death so the
+    // phase override is applied before the victory check sees the dead target.
+    let enter_idx = derived
+        .iter()
+        .position(|e| matches!(e, Effect::EnterPhase { unit, .. } if *unit == boss));
+    let death_idx = derived
+        .iter()
+        .position(|e| matches!(e, Effect::Death { unit } if *unit == boss));
+    assert!(
+        enter_idx.is_some() && death_idx.is_some(),
+        "both EnterPhase and Death must be derived; got {derived:?}"
+    );
+    assert!(
+        enter_idx < death_idx,
+        "EnterPhase must precede Death so the phase override lands first; got {derived:?}"
+    );
+    assert_eq!(state.unit(boss).unwrap().hp(), 0, "hp clamped to 0");
+}
+
 /// Non-triggering damage (hp stays above threshold) does NOT produce EnterPhase.
 #[test]
 fn non_triggering_damage_no_enter_phase() {
@@ -604,6 +667,85 @@ fn preempt_death_no_died_event_in_stream() {
     assert!(
         state.unit(boss).unwrap().is_alive(),
         "boss must be alive after revival"
+    );
+}
+
+/// Mirror of `preempt_death_no_died_event_in_stream` for a NON-healing phase:
+/// a lethal hit must emit `PhaseEntered` THEN `UnitDied` (phase activates so its
+/// override lands, then the boss dies). The ordering matters: the bridge applies
+/// `victory_override` on `PhaseEntered` and only then `check_victory_system` sees
+/// the dead target. Regression guard for the Kolm one-shot stall.
+#[test]
+fn lethal_non_healing_phase_emits_phase_entered_then_unit_died() {
+    use storyforge::combat_engine::event::effect_to_event;
+
+    let boss = uid(1);
+    let attacker = uid(2);
+    let dmg = Effect::Damage {
+        target: boss,
+        raw: 100.0,
+        source: EffectSource::Unit(attacker),
+        pierces: false,
+        magic: false,
+    };
+    // Boss: 100 max_hp, 60 hp. Lethal 100 raw. Phase at 50%, heal_to_full=FALSE.
+    let mut state = make_state(
+        vec![
+            make_boss(
+                1,
+                60,
+                100,
+                vec![PhaseEntry {
+                    pct: 50,
+                    new_max_hp: 100,
+                    heal_to_full: false,
+                    tags: None,
+                    runtime: None,
+                }],
+            ),
+            make_attacker(2),
+        ],
+        vec![attacker, boss],
+    );
+    let content = phase_content();
+
+    let (derived, ctx_damage) = apply_effect(&mut state, &dmg, &content);
+
+    // Simulate the effect pump, collecting the full event stream.
+    let mut events: Vec<Event> = vec![];
+    if let Some(ev) = effect_to_event(&dmg, &state, None, &ctx_damage) {
+        events.push(ev);
+    }
+    for eff in &derived {
+        let (cascade, ctx2) = apply_effect(&mut state, eff, &content);
+        if let Some(ev) = effect_to_event(eff, &state, None, &ctx2) {
+            events.push(ev);
+        }
+        for sub in &cascade {
+            let (_, ctx3) = apply_effect(&mut state, sub, &content);
+            if let Some(ev) = effect_to_event(sub, &state, None, &ctx3) {
+                events.push(ev);
+            }
+        }
+    }
+
+    let phase_idx = events
+        .iter()
+        .position(|e| matches!(e, Event::PhaseEntered { unit, .. } if *unit == boss));
+    let died_idx = events
+        .iter()
+        .position(|e| matches!(e, Event::UnitDied { unit } if *unit == boss));
+    assert!(
+        phase_idx.is_some() && died_idx.is_some(),
+        "both PhaseEntered and UnitDied must be in the stream; got {events:?}"
+    );
+    assert!(
+        phase_idx < died_idx,
+        "PhaseEntered must precede UnitDied; got {events:?}"
+    );
+    assert!(
+        !state.unit(boss).unwrap().is_alive(),
+        "boss must be dead after a lethal hit into a non-healing phase"
     );
 }
 

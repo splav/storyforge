@@ -157,11 +157,14 @@ pub enum Effect {
     /// `Heal`, and `RefreshAggregates`.  Runtime stats (`armor`, `magic_resist`,
     /// `base_speed`) are applied directly in-arm from `PhaseTransition.runtime`.
     ///
-    /// Derived by `apply_effect(Damage)` when
-    /// `content.check_phase_trigger(target, new_hp, max_hp)` returns `Some`.
-    /// **This derivation preempts `Effect::Death`**: if the triggering damage
-    /// was lethal AND `heal_to_full`, the unit's HP is restored before any
-    /// death check sees it.
+    /// Derived by `apply_effect(Damage)` / DoT ticks via `phase_or_death` when
+    /// `check_phase_trigger(target, new_hp, max_hp)` returns `Some`. Interaction
+    /// with `Effect::Death` on a lethal hit:
+    /// - `heal_to_full` → only `EnterPhase` (the `Heal` revives before any death
+    ///   check sees the unit);
+    /// - non-healing phase → `EnterPhase` *then* `Death` in the same step (the
+    ///   phase's override/deadline apply, then the boss dies against the new
+    ///   win-condition).
     EnterPhase { unit: UnitId, phase_idx: usize },
 
     /// Set `unit.max_hp` to `max_hp`.  No derived effects.
@@ -371,6 +374,50 @@ pub(crate) fn scan_revealable_in_range(
 ///
 /// **Decision 6.5:** liveness of the target is checked by `step()` before
 /// calling `apply_effect`.  Here we only mutate and derive.
+///
+/// Decide the phase-or-death cascade for a unit whose HP just changed to
+/// `hp_after`.  Shared by the `Damage` and DoT-tick arms so the two paths
+/// can't drift.  Returns the effects to enqueue, in apply order.
+///
+/// Three cases:
+/// - **Healing phase** (`heal_to_full`): preempts death — the cascade's `Heal`
+///   reverses an otherwise-lethal hit before any Death check sees the unit
+///   (spec §8 "Phase preempts Death"). Emits `EnterPhase` only.
+/// - **Non-healing phase + lethal hit**: emits `EnterPhase` *then* `Death`. The
+///   unit enters the phase first (so its `victory_override` / deadline / AI
+///   regime apply) and then dies in the same step, so the phase's new
+///   win-condition is evaluated against the dead boss. Emitting only
+///   `EnterPhase` here would strand the boss at 0 HP — `kill_target` could
+///   never fire and the fight would stall (Kolm one-shot bug); emitting only
+///   `Death` would skip the phase's override entirely.
+/// - **Non-healing phase + survivable hit**: emits `EnterPhase` only.
+/// - **No phase + lethal hit**: emits `Death`.
+fn phase_or_death(state: &CombatState, target: UnitId, hp_after: i32, max_hp: i32) -> Vec<Effect> {
+    match state
+        .unit(target)
+        .and_then(|u| u.check_phase_trigger(hp_after, max_hp))
+    {
+        // Healing phase, or non-lethal trigger: enter the phase, unit survives.
+        Some((phase_idx, t)) if t.heal_to_full || hp_after > 0 => {
+            vec![Effect::EnterPhase {
+                unit: target,
+                phase_idx,
+            }]
+        }
+        // Non-healing phase on a lethal hit: enter the phase, then die.
+        Some((phase_idx, _)) => vec![
+            Effect::EnterPhase {
+                unit: target,
+                phase_idx,
+            },
+            Effect::Death { unit: target },
+        ],
+        // No phase trigger: ordinary lethal hit derives Death.
+        None if hp_after <= 0 => vec![Effect::Death { unit: target }],
+        None => vec![],
+    }
+}
+
 pub fn apply_effect(
     state: &mut CombatState,
     effect: &Effect,
@@ -459,17 +506,7 @@ pub fn apply_effect(
             derived.push(Effect::GainRage { target: *target });
 
             let max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
-            if let Some((phase_idx, _transition)) = state
-                .unit(*target)
-                .and_then(|u| u.check_phase_trigger(hp_after, max_hp))
-            {
-                derived.push(Effect::EnterPhase {
-                    unit: *target,
-                    phase_idx,
-                });
-            } else if hp_after <= 0 {
-                derived.push(Effect::Death { unit: *target });
-            }
+            derived.extend(phase_or_death(state, *target, hp_after, max_hp));
 
             let mitigation = if *pierces { 0 } else { armor + armor_bonus };
             (
@@ -796,17 +833,7 @@ pub fn apply_effect(
                 derived.push(Effect::GainRage { target: *target });
 
                 let cur_max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
-                if let Some((phase_idx, _transition)) = state
-                    .unit(*target)
-                    .and_then(|u| u.check_phase_trigger(hp_after, cur_max_hp))
-                {
-                    derived.push(Effect::EnterPhase {
-                        unit: *target,
-                        phase_idx,
-                    });
-                } else if hp_after <= 0 {
-                    derived.push(Effect::Death { unit: *target });
-                }
+                derived.extend(phase_or_death(state, *target, hp_after, cur_max_hp));
 
                 let ctx = ApplyCtx {
                     dot_damage: Some(DotDamageCtx {

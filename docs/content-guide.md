@@ -361,6 +361,8 @@ Real example: ch3 `combat_symbiote` carries `["symbiote","corporeal","living"]` 
 
 Boss transforms when a trigger fires. At most one phase per frame; pending phases fire in declaration order. **In-place mutation**: same entity, same turn position, `VictoryTarget` preserved — so `kill_target` means "kill through all phases".
 
+**Lethal hits vs. `heal_to_full`.** A phase preempts death **only** when `heal_to_full = true` — the refill reverses an otherwise-lethal hit, so the boss survives into the new phase. With a **non-healing** phase (`heal_to_full` absent/false, e.g. the flee+deadline combo below), a lethal blow does both: the boss **enters the phase and then dies in the same step**. So the phase's `victory_override` / `turn_limit` are applied first, then the death is evaluated against the new win-condition — one-shotting the boss past the threshold wins immediately via the override's `kill_target`. (Emitting only the phase would strand the boss at 0 HP and the fight would stall; this is the Kolm one-shot fix.)
+
 ```toml
 [[encounters.enemies.phases]]
 hp_below_pct = 1                 # fires once at HP ≤ 1% of max
