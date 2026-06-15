@@ -8,6 +8,7 @@ use serde::Deserialize;
 pub enum BuffClass {
     Haste,
     ArmorBuff,
+    MagicResistBuff,
     DamageUp,
     Shield,
 }
@@ -113,6 +114,7 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
             let buff_class = r.buff_class.as_deref().and_then(|s| match s {
                 "haste" => Some(BuffClass::Haste),
                 "armor_buff" => Some(BuffClass::ArmorBuff),
+                "magic_resist_buff" => Some(BuffClass::MagicResistBuff),
                 "damage_up" => Some(BuffClass::DamageUp),
                 "shield" => Some(BuffClass::Shield),
                 other => {

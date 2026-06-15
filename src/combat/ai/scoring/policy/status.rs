@@ -63,6 +63,10 @@ pub fn value(
             if sd.bonuses.runtime.0.armor != 0 {
                 total += armor_shred_value(sd.bonuses.runtime.0.armor, d);
             }
+            // Magic-resist delta: valued identically to armor (defensive HP-equiv).
+            if sd.bonuses.runtime.0.magic_resist != 0 {
+                total += armor_shred_value(sd.bonuses.runtime.0.magic_resist, d);
+            }
             // DoT: expected tick damage × duration.
             if let Some(ref dice) = sd.dot_dice {
                 total += dice.expected() * d;

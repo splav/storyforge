@@ -92,6 +92,10 @@ pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
             if sdef.bonuses.runtime.0.armor > 0 {
                 armor_sum += sdef.bonuses.runtime.0.armor as f32 * 3.0 / max_hp;
             }
+            // Magic-resist self-buff: valued identically to armor (defensive).
+            if sdef.bonuses.runtime.0.magic_resist > 0 {
+                armor_sum += sdef.bonuses.runtime.0.magic_resist as f32 * 3.0 / max_hp;
+            }
         }
     }
 
