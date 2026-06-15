@@ -315,8 +315,8 @@ pub(crate) fn scan_aoo_hits_for_step(
 /// transitions. For each melee enemy with reactions and a damage estimate,
 /// scan the plan's movement path for the first `was_adj && !still_adj`
 /// transition (one AoO per enemy per round) and accrue its expected damage
-/// against the actor's armor + vulnerability. Returns 0.0 if no provokers
-/// are triggered — fast path for typical non-adjacent moves.
+/// against the actor's armor. Returns 0.0 if no provokers are triggered —
+/// fast path for typical non-adjacent moves.
 /// Visible to the adaptation layer — the `ExpectedSelfLethal` trigger
 /// compares this against `active.hp`. Kept here because the
 /// non-lethal multiplicative penalty (inside `sanity_adjust_plans`) uses
@@ -332,7 +332,6 @@ pub(crate) fn expected_aoo_damage(
 ) -> f32 {
     let mut total = 0.0f32;
     let mitigation = active.effective_armor() as f32;
-    let vuln = active.damage_taken_bonus as f32;
     // Track which enemies have already spent their reaction this plan.
     let mut aoo_used = vec![false; enemies.len()];
     let mut prev_pos = active.pos;
@@ -344,7 +343,7 @@ pub(crate) fn expected_aoo_damage(
         for hit in hits {
             if !aoo_used[hit.enemy_idx] {
                 aoo_used[hit.enemy_idx] = true;
-                total += final_damage_f32(hit.raw_damage, mitigation, vuln, false);
+                total += final_damage_f32(hit.raw_damage, mitigation, false);
             }
         }
         // Advance actor position to end of this Move step.

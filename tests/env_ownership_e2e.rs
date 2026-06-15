@@ -95,7 +95,6 @@ fn eng_unit(id: u64, team: Team, col: i32, hp: i32) -> Unit {
             base_speed: 4,
         },
         storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
-        0, // damage_taken_bonus
         1, // reactions_left
         1, // reactions_max
         vec![],

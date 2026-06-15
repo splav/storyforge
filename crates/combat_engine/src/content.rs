@@ -117,14 +117,14 @@ pub enum EffectDef {
 
 /// Per-status stat bonuses relevant to engine aggregate recomputation.
 ///
-/// Mirrors the fields read by `BattleSnapshot::refresh_aggregates` and
-/// `snapshot::status_bonuses`.
+/// Thin wrapper around `RuntimeStatsDelta` — all defensive stat deltas
+/// (armor, magic_resist, base_speed) are unified under one newtype.
+/// `damage_taken_bonus` was removed (axis deleted 2026-06-15; burning
+/// became a DoT, no status/aura sets this field).
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StatusBonuses {
     /// Additive delta to armor, magic_resist, and base_speed from this status.
     pub runtime: RuntimeStatsDelta,
-    /// Added to incoming damage delta after mitigation.
-    pub damage_taken_bonus: i32,
 }
 
 /// Equipment/template-derived defensive base stats that travel together
@@ -390,8 +390,6 @@ pub struct AuraDef {
 pub struct AuraEffects {
     /// Additive delta to armor, magic_resist, and base_speed from auras.
     pub runtime: RuntimeStatsDelta,
-    /// Added to incoming damage delta after mitigation.
-    pub damage_taken_bonus: i32,
     pub skips_turn: bool,
     pub causes_disadvantage: bool,
 }

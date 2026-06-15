@@ -38,7 +38,6 @@ static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef =
                     base_speed: 0,
                 },
             ),
-            damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
         heal_per_tick: 0,

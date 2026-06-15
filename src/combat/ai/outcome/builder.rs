@@ -123,7 +123,6 @@ pub fn from_sim_step(
                 p_kill_now,
                 p_kill_soon,
                 cc_turns_applied: status_facts.cc_turns_applied,
-                vulnerability_applied: status_facts.vulnerability_applied,
                 armor_shred_applied: status_facts.armor_shred_applied,
                 hp_restored,
                 path_max_danger: 0.0,
@@ -164,7 +163,7 @@ pub fn from_sim_step(
 /// - `enemy_damage` — raw post-armor damage for single-target (formula-derived);
 ///   0 for heal / status-only / GrantMovement.
 /// - `p_kill_now` / `p_kill_soon` — kill detection via same formula as from_sim_step.
-/// - `cc_turns_applied` / `vulnerability_applied` / `armor_shred_applied` —
+/// - `cc_turns_applied` / `armor_shred_applied` —
 ///   status facts from ability def (single-target only; AoE not applicable here
 ///   since callers have no area context).
 /// - `hp_restored` — raw clamped heal for heal abilities.
@@ -190,7 +189,7 @@ pub fn hypothetical(
                     calc.magic,
                 )
             };
-            (calc.expected() - mit + target.damage_taken_bonus as f32).max(0.0)
+            (calc.expected() - mit).max(0.0)
         }
     } else {
         0.0
@@ -210,14 +209,10 @@ pub fn hypothetical(
 
     // ── Status facts (single-target) ──
     let mut cc_turns_applied = 0.0f32;
-    let mut vulnerability_applied = 0.0f32;
     let mut armor_shred_applied = 0.0f32;
     for (sd, dur) in status_applications(def, content) {
         if sd.skips_turn {
             cc_turns_applied += dur;
-        }
-        if sd.bonuses.damage_taken_bonus != 0 {
-            vulnerability_applied += sd.bonuses.damage_taken_bonus as f32 * dur;
         }
         if sd.bonuses.runtime.0.armor != 0 {
             armor_shred_applied += sd.bonuses.runtime.0.armor as f32 * dur;
@@ -235,7 +230,6 @@ pub fn hypothetical(
         p_kill_now,
         p_kill_soon,
         cc_turns_applied,
-        vulnerability_applied,
         armor_shred_applied,
         hp_restored,
         ap_spent: res_facts.ap_spent,
@@ -275,7 +269,7 @@ pub fn estimate_kill_soon(
             calc.magic,
         )
     };
-    let net = calc.expected().round() - mit + target.damage_taken_bonus as f32;
+    let net = calc.expected().round() - mit;
     // kill_now case — no kill_soon when net already kills
     if net >= target.hp() as f32 {
         return 0.0;
@@ -411,7 +405,7 @@ pub(crate) fn build_damage_facts(
                 calc.magic,
             )
         };
-        (calc.expected() - mit + unit.damage_taken_bonus as f32).max(0.0)
+        (calc.expected() - mit).max(0.0)
     };
 
     let mut enemy_damage = 0.0f32;
@@ -485,12 +479,10 @@ pub(crate) fn aoe_p_kill_soon(
 ///
 /// Walks the ability's status applications once and accumulates:
 /// - `cc_turns_applied`: Σ skips_turn × duration per enemy hit.
-/// - `vulnerability_applied`: Σ damage_taken_bonus × duration per enemy hit.
 /// - `armor_shred_applied`: Σ armor_bonus × duration per enemy hit
 ///   (negative armor_bonus = shred, but stored as-is for consumer to interpret).
 pub(crate) struct StatusFacts {
     pub cc_turns_applied: f32,
-    pub vulnerability_applied: f32,
     pub armor_shred_applied: f32,
 }
 
@@ -521,21 +513,16 @@ pub(crate) fn build_status_facts(
     if n == 0.0 {
         return StatusFacts {
             cc_turns_applied: 0.0,
-            vulnerability_applied: 0.0,
             armor_shred_applied: 0.0,
         };
     }
 
     let mut cc_turns = 0.0f32;
-    let mut vuln = 0.0f32;
     let mut shred = 0.0f32;
 
     for (sd, dur) in status_applications(def, content) {
         if sd.skips_turn {
             cc_turns += dur * n;
-        }
-        if sd.bonuses.damage_taken_bonus != 0 {
-            vuln += sd.bonuses.damage_taken_bonus as f32 * dur * n;
         }
         if sd.bonuses.runtime.0.armor != 0 {
             shred += sd.bonuses.runtime.0.armor as f32 * dur * n;
@@ -544,7 +531,6 @@ pub(crate) fn build_status_facts(
 
     StatusFacts {
         cc_turns_applied: cc_turns,
-        vulnerability_applied: vuln,
         armor_shred_applied: shred,
     }
 }

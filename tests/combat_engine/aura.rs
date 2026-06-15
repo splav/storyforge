@@ -84,7 +84,6 @@ impl AuraContent {
                         base_speed: speed_bonus,
                     },
                 ),
-                damage_taken_bonus: 0,
             },
             hp_percent_dot: 0,
             heal_per_tick: 0,
@@ -129,7 +128,6 @@ impl ContentView for AuraContent {
                         base_speed: self.speed_bonus,
                     },
                 ),
-                damage_taken_bonus: 0,
             }
         } else {
             StatusBonuses::default()

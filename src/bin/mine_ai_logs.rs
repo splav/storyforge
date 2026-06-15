@@ -167,7 +167,6 @@ struct Aggregate {
     d1_self_damage: Vec<f32>,
     d1_hp_restored: Vec<f32>,
     d1_cc_turns_applied: Vec<f32>,
-    d1_vulnerability_applied: Vec<f32>,
     d1_armor_shred_applied: Vec<f32>,
     // Kill binary facts: counts of Cast steps where flag == 1.0.
     d1_p_kill_now_count: usize,
@@ -433,10 +432,6 @@ impl Aggregate {
                 }
                 if outcome.cc_turns_applied > 0.0 {
                     self.d1_cc_turns_applied.push(outcome.cc_turns_applied);
-                }
-                if outcome.vulnerability_applied > 0.0 {
-                    self.d1_vulnerability_applied
-                        .push(outcome.vulnerability_applied);
                 }
                 if outcome.armor_shred_applied > 0.0 {
                     self.d1_armor_shred_applied
@@ -1820,11 +1815,6 @@ fn main() {
     print_fact_field("self_damage", &mut agg.d1_self_damage, total);
     print_fact_field("hp_restored", &mut agg.d1_hp_restored, total);
     print_fact_field("cc_turns_applied", &mut agg.d1_cc_turns_applied, total);
-    print_fact_field(
-        "vulnerability_applied",
-        &mut agg.d1_vulnerability_applied,
-        total,
-    );
     print_fact_field(
         "armor_shred_applied",
         &mut agg.d1_armor_shred_applied,

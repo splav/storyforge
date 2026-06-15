@@ -68,7 +68,6 @@ pub(crate) fn neutral_reference_pair() -> (combat_engine::state::Unit, UnitAiCac
             base_speed: 0,
         },
         combat_engine::RuntimeStatsDelta::default(),
-        0,          // damage_taken_bonus
         0,          // reactions_left
         1,          // reactions_max (placeholder; not read by severity)
         Vec::new(), // statuses

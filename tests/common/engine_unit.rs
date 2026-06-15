@@ -35,7 +35,7 @@ use storyforge::game::hex::hex_from_offset;
 /// - `Mana` / `Energy` / `Rage`: `None`
 /// - `speed` / `base_speed`: `6`
 /// - `reactions_left` / `reactions_max`: `1`
-/// - `armor` / `armor_bonus` / `magic_resist` / `damage_taken_bonus`: `0`
+/// - `armor` / `armor_bonus` / `magic_resist`: `0`
 /// - `aoo_dice`: `None`
 /// - `initiative`: `None`
 /// - `tags`: empty
@@ -64,7 +64,6 @@ pub struct EngineUnitBuilder {
     armor: i32,
     armor_bonus: i32,
     magic_resist: i32,
-    damage_taken_bonus: i32,
     aoo_dice: Option<DiceExpr>,
     caster_context: CasterContext,
     statuses: Vec<ActiveStatus>,
@@ -108,7 +107,6 @@ impl EngineUnitBuilder {
             armor: 0,
             armor_bonus: 0,
             magic_resist: 0,
-            damage_taken_bonus: 0,
             aoo_dice: None,
             caster_context: Default::default(),
             statuses: vec![],
@@ -202,10 +200,6 @@ impl EngineUnitBuilder {
         self.magic_resist = mr;
         self
     }
-    pub fn damage_taken_bonus(mut self, d: i32) -> Self {
-        self.damage_taken_bonus = d;
-        self
-    }
 
     pub fn aoo_dice(mut self, d: DiceExpr) -> Self {
         self.aoo_dice = Some(d);
@@ -290,7 +284,6 @@ impl EngineUnitBuilder {
                 magic_resist: 0,
                 base_speed: self.speed - self.base_speed,
             }),
-            self.damage_taken_bonus,
             self.reactions_left,
             self.reactions_max,
             self.statuses,

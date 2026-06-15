@@ -207,11 +207,10 @@ fn status_buff_class_yields_buff() {
 
 #[test]
 fn status_unrecognised_field_yields_cosmetic_fallback() {
-    // `damage_taken_bonus`, `blocks_mana_abilities`, `ai_controlled` — none of
-    // these map to a tag; all-empty → Cosmetic (covers `burning`, `broken_faith`,
+    // `blocks_mana_abilities`, `ai_controlled` — neither maps to a tag;
+    // all-empty → Cosmetic (covers `burning`, `broken_faith`,
     // `pact_control` content-side categories at the rule level).
     let mut eng = empty_engine_status();
-    eng.bonuses.damage_taken_bonus = 2;
     eng.blocks_mana_abilities = true;
     let def = StatusDef {
         ai_controlled: true,

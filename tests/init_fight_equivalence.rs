@@ -590,7 +590,6 @@ fn compare_units(
             ident, ru.runtime_bonus, cu.runtime_bonus
         ));
     }
-    cmp!(damage_taken_bonus);
     if ru.effective_speed() != cu.effective_speed() {
         errs.push(format!(
             "unit {:?}: effective_speed differs\n        ref:  {:?}\n        cand: {:?}",

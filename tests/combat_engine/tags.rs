@@ -389,7 +389,6 @@ fn aura_content_with_tags(_affects_tags: BTreeSet<TagId>) -> TagContent {
                         base_speed: 5,
                     },
                 ),
-                damage_taken_bonus: 0,
             },
             hp_percent_dot: 0,
             heal_per_tick: 0,

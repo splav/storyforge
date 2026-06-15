@@ -66,8 +66,6 @@ struct StatusRecord {
     #[serde(default)]
     magic_resist_bonus: i32,
     #[serde(default)]
-    damage_taken_bonus: i32,
-    #[serde(default)]
     skips_turn: bool,
     #[serde(default)]
     forces_targeting: bool,
@@ -139,7 +137,6 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
                             magic_resist: r.magic_resist_bonus,
                             base_speed: r.speed_bonus,
                         }),
-                        damage_taken_bonus: r.damage_taken_bonus,
                     },
                     hp_percent_dot: r.hp_percent_dot,
                     heal_per_tick: r.heal_per_tick,

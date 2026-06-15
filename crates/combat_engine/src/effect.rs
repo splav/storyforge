@@ -30,12 +30,12 @@ fn is_false(b: &bool) -> bool {
 /// Expected-value final-damage formula shared between live engine path and
 /// AI sim / scoring projections.
 ///
-/// `max(1.0, raw − (armor unless pierced) + vulnerability)` — the min-1 floor
-/// matches the live contract: any damage-intent attack that hits leaves at
-/// least 1 HP of impact, even vs. heavy armor.
-pub fn final_damage_f32(raw: f32, armor: f32, vulnerability: f32, pierces_armor: bool) -> f32 {
+/// `max(1.0, raw − (armor unless pierced))` — the min-1 floor matches the
+/// live contract: any damage-intent attack that hits leaves at least 1 HP of
+/// impact, even vs. heavy armor.
+pub fn final_damage_f32(raw: f32, armor: f32, pierces_armor: bool) -> f32 {
     let armor = if pierces_armor { 0.0 } else { armor };
-    (raw - armor + vulnerability).max(1.0)
+    (raw - armor).max(1.0)
 }
 
 /// THE single source of mitigation-selection logic, shared between engine
@@ -481,7 +481,7 @@ pub fn apply_effect(
             // Magic damage uses magic_resist; physical uses effective armor.
             // `pierces=true` bypasses ALL mitigation regardless of damage type.
             let mit = mitigation(eff_armor, 0, eff_magic_resist, *magic);
-            let final_dmg = final_damage_f32(*raw, mit, 0.0, *pierces);
+            let final_dmg = final_damage_f32(*raw, mit, *pierces);
 
             // Apply HP reduction.
             let hp_after = if let Some(u) = state.unit_mut(*target) {
@@ -751,26 +751,22 @@ pub fn apply_effect(
         }
 
         Effect::RefreshAggregates { unit } => {
-            // Recompute runtime_bonus (armor/magic_resist/base_speed delta) and
-            // damage_taken_bonus from active statuses + aura effects.
+            // Recompute runtime_bonus (armor/magic_resist/base_speed delta) from
+            // active statuses + aura effects.
             // Reads status bonuses via ContentView — no Bevy dep in the engine.
             let unit_id = *unit;
             if let Some(u) = state.unit_mut(unit_id) {
                 let mut bonus = crate::content::RuntimeStatsDelta::default();
-                let mut damage_taken_bonus: i32 = 0;
                 for s in &u.statuses {
                     let b = content.status_bonuses(&s.id);
                     bonus += b.runtime;
-                    damage_taken_bonus += b.damage_taken_bonus;
                 }
                 u.runtime_bonus = bonus;
-                u.damage_taken_bonus = damage_taken_bonus;
             }
             // Fold aura bonuses on top of status-derived aggregates.
             let aura_fx = state.aura_effects_on(unit_id, content);
             if let Some(u) = state.unit_mut(unit_id) {
                 u.runtime_bonus += aura_fx.runtime;
-                u.damage_taken_bonus += aura_fx.damage_taken_bonus;
             }
             (vec![], ApplyCtx::default())
         }
@@ -1169,7 +1165,6 @@ pub fn apply_effect(
                     base_speed: template.base_speed,
                 },
                 crate::content::RuntimeStatsDelta::default(),
-                0, // damage_taken_bonus
                 0, // reactions_left
                 1, // reactions_max
                 Vec::new(),
@@ -1238,7 +1233,6 @@ mod tests {
                 base_speed: 3,
             },
             crate::content::RuntimeStatsDelta::default(),
-            0, // damage_taken_bonus
             1, // reactions_left
             1, // reactions_max
             vec![],
@@ -1283,7 +1277,6 @@ mod tests {
                 magic_resist: 0,
                 base_speed: 0,
             }),
-            damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
         heal_per_tick: 4,
@@ -1299,7 +1292,6 @@ mod tests {
                 magic_resist: 0,
                 base_speed: 0,
             }),
-            damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
         heal_per_tick: 10,
@@ -1315,7 +1307,6 @@ mod tests {
                 magic_resist: 0,
                 base_speed: 0,
             }),
-            damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
         heal_per_tick: 0,

@@ -105,10 +105,10 @@ mod tests {
 
     // ── Layer 1: focused invariants per OutcomePrimary variant ────────────────
 
-    /// `OutcomePrimary::Damage` — HP delta equals `final_damage_f32(raw, armor, vuln, pierces)`.
+    /// `OutcomePrimary::Damage` — HP delta equals `final_damage_f32(raw, armor, pierces)`.
     ///
     /// 1d6 EV = 3.5 → rounds to 4 (via `DiceExpr::expected().round() as i32`).
-    /// str_mod = 2 → raw = 6. Armor = 2 → dealt = final_damage_f32(6, 2, 0, false) = 4.
+    /// str_mod = 2 → raw = 6. Armor = 2 → dealt = final_damage_f32(6, 2, false) = 4.
     #[test]
     fn damage_hp_delta_matches_final_damage_formula() {
         // Engine reads caster_ctx from the unit snapshot.
@@ -158,7 +158,7 @@ mod tests {
         // EV of 1d6 = 3.5 → ExpectedValue rounds to 4; raw = 4 + 2 = 6.
         let raw = DiceExpr::new(1, 6, 0).expected().round() as i32 + ctx.str_mod;
         let expected_armor = 2i32;
-        let dealt = final_damage_f32(raw as f32, expected_armor as f32, 0.0, false);
+        let dealt = final_damage_f32(raw as f32, expected_armor as f32, false);
         assert!(
             (t.hp() as f32 - (20.0 - dealt)).abs() < 0.01,
             "hp={} expected {}",
@@ -218,7 +218,7 @@ mod tests {
         // magic_resist=0 (target default) so mitigation=0; final = max(1, 6-0) = 6.
         // Numerically identical to the old pierces=true path when magic_resist=0.
         let raw = DiceExpr::new(1, 4, 0).expected().round() as i32 + ctx.int_mod;
-        let dealt = final_damage_f32(raw as f32, 0.0, 0.0, false); // magic_resist=0, no pierce
+        let dealt = final_damage_f32(raw as f32, 0.0, false); // magic_resist=0, no pierce
         let t = sim.unit(target_id).unwrap();
         assert!(
             (t.hp() as f32 - (20.0 - dealt)).abs() < 0.01,
@@ -643,7 +643,6 @@ mod tests {
                 speed_bonus: 2,
                 armor_bonus: 0,
                 magic_resist_bonus: 0,
-                damage_taken_bonus: 0,
             },
         );
 
@@ -681,7 +680,6 @@ mod tests {
                         magic_resist: 0,
                         base_speed: 2,
                     }),
-                    damage_taken_bonus: 0,
                 },
                 skips_turn: false,
                 forces_targeting: false,
@@ -775,7 +773,6 @@ mod tests {
                         magic_resist: 0,
                         base_speed: 0,
                     }),
-                    damage_taken_bonus: 0,
                 },
                 skips_turn: false,
                 forces_targeting: false,
@@ -930,7 +927,7 @@ mod tests {
         );
 
         // raw = ceil(EV(1d6)) + str_mod(4) = 4 + 4 = 8. armor_bonus=5. Dealt = max(1, 8-5) = 3.
-        let expected_dealt = final_damage_f32(8.0, 5.0, 0.0, false);
+        let expected_dealt = final_damage_f32(8.0, 5.0, false);
         assert!(
             (atk_outcome.damage - expected_dealt).abs() < 0.01,
             "sim damage {:.2} should equal formula {:.2} (raw=8, armor_bonus=5)",
@@ -952,7 +949,7 @@ mod tests {
     ///
     /// Actor at (3,3), enemy with AoO raw=6 at (4,3) — adjacent. Actor moves to
     /// (2,3) leaving adjacency. Sim must record `outcome.self_damage ==
-    /// final_damage_f32(6.0, mitigation, vuln, false)`.
+    /// final_damage_f32(6.0, mitigation, false)`.
     #[test]
     fn parity_aoo_real_vs_sim() {
         use crate::combat::ai::plan::sim::SimState;
@@ -968,7 +965,6 @@ mod tests {
         let raw_aoo = 6.0f32;
         let actor_armor = 2;
         let mitigation = actor_armor as f32;
-        let vuln = 0.0f32;
 
         // actor: Enemy at (3,3), armor=2, ap=1, mp=3, threat=0.0, max_attack_range=1
         let actor_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
@@ -998,7 +994,7 @@ mod tests {
             false,
         );
 
-        let expected = final_damage_f32(raw_aoo, mitigation, vuln, false);
+        let expected = final_damage_f32(raw_aoo, mitigation, false);
         assert!(
             (outcome.self_damage - expected).abs() < 0.01,
             "sim AoO self_damage {:.2} must equal formula {:.2} (raw={raw_aoo}, armor={actor_armor})",
@@ -1336,7 +1332,7 @@ mod tests {
     }
 
     /// SpellDamage vs a defender with magic_resist > 0: the sim HP delta must
-    /// equal `final_damage_f32(raw, magic_resist, 0.0, false)`.
+    /// equal `final_damage_f32(raw, magic_resist, false)`.
     ///
     /// With magic_resist=0 this is identical to the old pierces_armor=true path
     /// (because `final_damage_f32(raw, 0, 0, false) == final_damage_f32(raw, X, 0, true)`
@@ -1397,7 +1393,7 @@ mod tests {
         );
 
         // Engine uses magic_resist (not armor), pierces=false.
-        let expected_dealt = final_damage_f32(expected_raw as f32, magic_resist as f32, 0.0, false);
+        let expected_dealt = final_damage_f32(expected_raw as f32, magic_resist as f32, false);
         let t = sim.unit(target_id).unwrap();
         assert!(
             (t.hp() as f32 - (20.0 - expected_dealt)).abs() < 0.01,

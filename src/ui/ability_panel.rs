@@ -636,12 +636,6 @@ fn status_desc_ru(def: &StatusDef) -> String {
             def.bonuses.runtime.0.magic_resist
         ));
     }
-    if def.bonuses.damage_taken_bonus != 0 {
-        parts.push(format!(
-            "получаемый урон {:+}",
-            def.bonuses.damage_taken_bonus
-        ));
-    }
     if def.skips_turn {
         parts.push("пропускает ход".into());
     }

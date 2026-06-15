@@ -86,7 +86,7 @@ fn annotate_plan(
                                 calc.magic,
                             )
                         };
-                        (calc.expected() - mitigation + t.damage_taken_bonus as f32).max(0.0)
+                        (calc.expected() - mitigation).max(0.0)
                     });
                     ActionOutcomeEstimate {
                         enemy_damage,

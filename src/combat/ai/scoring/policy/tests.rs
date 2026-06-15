@@ -68,7 +68,7 @@ fn via_policy(
                 calc.magic,
             )
         };
-        let raw = (expected - mitigation + target.damage_taken_bonus as f32).max(0.0);
+        let raw = (expected - mitigation).max(0.0);
         let progress = (raw / target.hp().max(1) as f32).min(1.0);
         policy::damage::value(raw, progress)
     };
@@ -253,7 +253,6 @@ fn random_target(rng: &mut Lcg) -> UnitFixture {
     .max_hp(max_hp)
     .armor(rng.next_range(0, 5))
     .armor_bonus(rng.next_range(-2, 2))
-    .damage_taken_bonus(rng.next_range(-2, 4))
     .role(AxisProfile {
         tank: 0.5,
         melee: 0.5,

@@ -27,19 +27,6 @@ pub fn stun_denial_value(
     horizon_window_sum(target, duration)
 }
 
-/// HP-equivalent value of a vulnerability status applied for `duration` rounds.
-///
-/// Formula: `damage_taken_bonus.abs() × duration`.
-///
-/// Both positive (vulnerability on enemy) and negative (resistance on ally) are
-/// valued by `.abs()` — a resistance buff is worth as much as a vulnerability debuff
-/// of the same magnitude.
-///
-/// Extracted 1:1 from `scoring::status_score` `damage_taken_bonus` branch.
-pub fn vulnerability_value(damage_taken_bonus: i32, duration: f32) -> f32 {
-    damage_taken_bonus.abs() as f32 * duration
-}
-
 /// HP-equivalent value of an armor-shred (or armor-buff) status applied for
 /// `duration` rounds.
 ///
@@ -55,10 +42,9 @@ pub fn armor_shred_value(armor_bonus: i32, duration: f32) -> f32 {
 
 /// HP-equivalent value of all status effects applied by `def` on `target`.
 ///
-/// Composite: sums stun denial + vulnerability + armor shred + DoT + %HP DoT +
+/// Composite: sums stun denial + armor shred + DoT + %HP DoT +
 /// silence (partial stun) + speed penalty across all status applications of `def`.
-/// HP-equivalent scoring counts both signs of `damage_taken_bonus` /
-/// `armor_bonus` via `.abs()`.
+/// HP-equivalent scoring counts both signs of `armor_bonus` via `.abs()`.
 ///
 /// Extracted 1:1 from `scoring::status_score`.
 pub fn value(
@@ -72,10 +58,6 @@ pub fn value(
             // Stun: deny target's projected damage over `d` rounds.
             if sd.skips_turn {
                 total += horizon_window_sum(target, d);
-            }
-            // Vulnerability: extra damage taken per hit for d rounds.
-            if sd.bonuses.damage_taken_bonus != 0 {
-                total += vulnerability_value(sd.bonuses.damage_taken_bonus, d);
             }
             // Armor delta: negative = shred on enemy, positive = buff on ally.
             if sd.bonuses.runtime.0.armor != 0 {
@@ -110,23 +92,6 @@ mod tests {
     use crate::combat::ai::world::snapshot::UnitView;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-
-    #[test]
-    fn vulnerability_value_zero_for_zero_bonus() {
-        assert_eq!(vulnerability_value(0, 3.0), 0.0);
-    }
-
-    #[test]
-    fn vulnerability_value_scales_with_duration() {
-        let v = vulnerability_value(5, 4.0);
-        assert!((v - 20.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn vulnerability_value_abs_symmetry() {
-        // Positive and negative bonus of same magnitude → same value.
-        assert!((vulnerability_value(3, 2.0) - vulnerability_value(-3, 2.0)).abs() < 1e-6);
-    }
 
     #[test]
     fn armor_shred_value_zero_for_zero_bonus() {

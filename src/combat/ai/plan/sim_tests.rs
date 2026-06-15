@@ -528,7 +528,6 @@ fn status_applied_this_step_armor_affects_next_step() {
                         magic_resist: 0,
                         base_speed: 0,
                     }),
-                    damage_taken_bonus: 0,
                 },
                 skips_turn: false,
                 forces_targeting: false,

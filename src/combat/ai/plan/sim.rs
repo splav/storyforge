@@ -374,7 +374,6 @@ impl EngineContentView for SnapshotContentView {
             .get(id)
             .map(|def| EngineStatusBonuses {
                 runtime: def.bonuses.runtime,
-                damage_taken_bonus: def.bonuses.damage_taken_bonus,
             })
             .unwrap_or_default()
     }

@@ -40,7 +40,6 @@ impl Stub {
                 heal_per_tick: 0,
                 bonuses: StatusBonuses {
                     runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
-                    damage_taken_bonus: 0,
                 },
             },
         )
@@ -542,7 +541,6 @@ fn reveal_on_move_halts_and_truncates() {
             heal_per_tick: 0,
             bonuses: storyforge::combat_engine::StatusBonuses {
                 runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
-                damage_taken_bonus: 0,
             },
         },
     );

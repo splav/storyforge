@@ -220,7 +220,6 @@ mod tests {
                 base_speed: 3,
             },
             combat_engine::RuntimeStatsDelta::default(),
-            0, // damage_taken_bonus
             1, // reactions_left
             1, // reactions_max
             Vec::new(),

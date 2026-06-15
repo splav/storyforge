@@ -646,7 +646,7 @@ fn focus_target_scores_proportional_to_damage() {
                 calc.magic,
             )
         };
-        (calc.expected() - mitigation + target.damage_taken_bonus as f32).max(0.0)
+        (calc.expected() - mitigation).max(0.0)
     };
 
     let outcome_strong = ActionOutcomeEstimate {

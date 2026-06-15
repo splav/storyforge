@@ -47,7 +47,6 @@ fn unit_all_some(id: u64) -> Unit {
         .pos_hex(Hex::new(1, -1))
         .armor(3)
         .armor_bonus(1)
-        .damage_taken_bonus(2)
         .base_speed_raw(4)
         .speed_only(5)
         .reactions(1, 1)
@@ -475,7 +474,6 @@ fn status_bonuses_roundtrip() {
                 base_speed: 2,
             },
         ),
-        damage_taken_bonus: 0,
     });
 }
 
@@ -489,7 +487,6 @@ fn aura_effects_roundtrip() {
                 base_speed: 1,
             },
         ),
-        damage_taken_bonus: 3,
         skips_turn: true,
         causes_disadvantage: false,
     });

@@ -578,7 +578,6 @@ fn cc_turns_applied_for_stun_ability() {
     );
 
     assert_eq!(facts.cc_turns_applied, 2.0, "stun duration=2 → cc_turns=2");
-    assert_eq!(facts.vulnerability_applied, 0.0);
     assert_eq!(facts.armor_shred_applied, 0.0);
 }
 

@@ -50,10 +50,6 @@ pub fn target_selection_score(
         0.3
     } else {
         0.0
-    } + if target.damage_taken_bonus > 0 {
-        0.2
-    } else {
-        0.0
     };
 
     let role_value = target.cache.role.role_value();
@@ -74,7 +70,7 @@ pub fn target_selection_score(
     //   threat             0.15  — raw damage output potential
     //   killability        0.15  — how close to death the target is
     //   density            0.10  — damage-per-HP ratio (efficiency)
-    //   vulnerability      0.10  — low-HP / damage-taken bonuses
+    //   vulnerability      0.10  — low-HP flag bonus
     //   role_value         0.05  — strategic role importance
     //   proximity          0.10  — closeness of the target
     //   objective_priority 0.35  — KeepAlive victory condition on target

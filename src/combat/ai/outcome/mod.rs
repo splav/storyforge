@@ -161,8 +161,6 @@ pub struct ActionOutcomeEstimate {
     // ── Status / control facts (aggregated; per-status breakdown — backlog) ──
     /// Σ (skips_turn × duration_rounds) over enemies hit by this step.
     pub cc_turns_applied: f32,
-    /// Σ (damage_taken_bonus × duration_rounds) over enemies hit.
-    pub vulnerability_applied: f32,
     /// Σ (armor_bonus × duration_rounds) over enemies hit (negative = shred).
     pub armor_shred_applied: f32,
 
@@ -568,7 +566,6 @@ mod tests {
         assert_eq!(o.p_kill_now, 0.0);
         assert_eq!(o.p_kill_soon, 0.0);
         assert_eq!(o.cc_turns_applied, 0.0);
-        assert_eq!(o.vulnerability_applied, 0.0);
         assert_eq!(o.armor_shred_applied, 0.0);
         assert_eq!(o.hp_restored, 0.0);
         assert_eq!(o.path_max_danger, 0.0);

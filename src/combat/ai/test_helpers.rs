@@ -117,9 +117,9 @@ pub(crate) fn make_scoring_ctx<'a>(
 /// Test-only plain-data struct that mirrors `UnitSnapshot` fields.
 ///
 /// **No serde derives** — this is only for test construction, not wire logging.
-/// **No aggregate-refresh methods** — tests set `speed`/`armor_bonus`/
-/// `damage_taken_bonus` explicitly; the engine refreshes aggregates via
-/// `Effect::RefreshAggregates` during `step()`.
+/// **No aggregate-refresh methods** — tests set `speed`/`armor_bonus`
+/// explicitly; the engine refreshes aggregates via `Effect::RefreshAggregates`
+/// during `step()`.
 ///
 /// The `statuses` field stores engine `combat_engine::state::ActiveStatus`
 /// directly (NOT `ActiveStatusView`). Use the [`status_view`] helper to
@@ -135,7 +135,6 @@ pub struct UnitFixture {
     pub armor: i32,
     pub armor_bonus: i32,
     pub magic_resist: i32,
-    pub damage_taken_bonus: i32,
     pub action_points: i32,
     pub max_ap: i32,
     pub movement_points: i32,
@@ -228,7 +227,6 @@ pub(crate) fn fixture_to_pair(
             base_speed: u.base_speed,
         },
         runtime_bonus,
-        u.damage_taken_bonus,
         u.reactions_left,
         1,
         u.statuses.clone(),
@@ -306,7 +304,6 @@ impl UnitBuilder {
                 armor: 0,
                 armor_bonus: 0,
                 magic_resist: 0,
-                damage_taken_bonus: 0,
                 action_points: 1,
                 max_ap: 1,
                 movement_points: 3,
@@ -425,10 +422,6 @@ impl UnitBuilder {
     }
     pub fn damage_horizon(mut self, horizon: Vec<f32>) -> Self {
         self.inner.damage_horizon = horizon;
-        self
-    }
-    pub fn damage_taken_bonus(mut self, bonus: i32) -> Self {
-        self.inner.damage_taken_bonus = bonus;
         self
     }
     pub fn statuses(mut self, statuses: Vec<combat_engine::state::ActiveStatus>) -> Self {

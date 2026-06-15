@@ -32,7 +32,6 @@ impl HotContent {
                 skips_turn: false,
                 bonuses: StatusBonuses {
                     runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
-                    damage_taken_bonus: 0,
                 },
                 hp_percent_dot: 0,
                 heal_per_tick: 4,

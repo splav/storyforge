@@ -23,7 +23,6 @@ pub struct StatusBonuses {
     pub speed_bonus: i32,
     pub armor_bonus: i32,
     pub magic_resist_bonus: i32,
-    pub damage_taken_bonus: i32,
 }
 
 #[derive(Resource, Default, Debug, Clone)]
@@ -96,7 +95,6 @@ pub fn build_caches(content: &ActiveContentData) -> (StatusTagCache, AbilityTagC
                 speed_bonus: def.bonuses.runtime.0.base_speed,
                 armor_bonus: def.bonuses.runtime.0.armor,
                 magic_resist_bonus: def.bonuses.runtime.0.magic_resist,
-                damage_taken_bonus: def.bonuses.damage_taken_bonus,
             },
         );
     }

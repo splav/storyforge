@@ -113,11 +113,7 @@ pub(crate) fn compute_offensive(
     };
 
     // ── CC: facts → policy ──
-    let cc = policy::cc::value(
-        outcome.cc_turns_applied,
-        outcome.vulnerability_applied,
-        outcome.armor_shred_applied,
-    );
+    let cc = policy::cc::value(outcome.cc_turns_applied, outcome.armor_shred_applied);
 
     // ── Kill signals: pure facts ──
     let kill_now = outcome.p_kill_now;
@@ -194,7 +190,6 @@ mod tests {
             p_kill_now: 0.0,
             p_kill_soon: 1.0,
             cc_turns_applied: 5.0,
-            vulnerability_applied: 2.0,
             armor_shred_applied: 1.0,
             hp_restored: 0.0,
             self_damage: 0.0,
@@ -219,8 +214,8 @@ mod tests {
             off.damage
         );
 
-        // CC: policy::cc::value(5.0, 2.0, 1.0) = 8.0.
-        let expected_cc = policy::cc::value(5.0, 2.0, 1.0);
+        // CC: policy::cc::value(5.0, 1.0) = 6.0.
+        let expected_cc = policy::cc::value(5.0, 1.0);
         assert!(
             (off.cc - expected_cc).abs() < 1e-5,
             "cc={} expected={expected_cc}",
