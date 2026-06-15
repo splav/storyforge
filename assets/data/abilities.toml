@@ -262,6 +262,19 @@ statuses    = [
     { id = "living_carapace", on = "target", duration = 2 },
 ]
 
+# Орен: Оберег крови — баф магрезиста союзнику (+2 на 2 хода). Магрез-аналог
+# «Живого панциря» против магического урона («Шёпот из-за Завесы»).
+[[abilities]]
+id          = "blood_ward"
+name        = "Оберег крови"
+target_type = "single_ally"
+cost_ap     = 1
+costs       = [{ resource = "mana", amount = 3 }]
+range       = 3
+statuses    = [
+    { id = "blood_ward", on = "target", duration = 2 },
+]
+
 # Орен: Оцепенение — слоу врагу (−2 скорости на 2 хода).
 [[abilities]]
 id          = "numbness"

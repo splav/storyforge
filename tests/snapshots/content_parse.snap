@@ -1,4 +1,4 @@
-## abilities (24)
+## abilities (25)
 AbilityId("backstab") => AbilityDef {
     id: AbilityId(
         "backstab",
@@ -35,6 +35,47 @@ AbilityId("backstab") => AbilityDef {
             StatusApplication {
                 status: StatusId(
                     "poisoned",
+                ),
+                duration_rounds: 2,
+                on: Target,
+            },
+        ],
+        requires_los: false,
+        passive: [],
+        requires_tags: {},
+        excludes_tags: {},
+    },
+}
+AbilityId("blood_ward") => AbilityDef {
+    id: AbilityId(
+        "blood_ward",
+    ),
+    name: "Оберег крови",
+    magic_domains: [],
+    magic_method: "",
+    ai_tags_override: None,
+    is_move_toggle: false,
+    engine: AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: [
+            Cost {
+                resource: Mana,
+                amount: 3,
+            },
+        ],
+        range: AbilityRange {
+            min: 0,
+            max: 3,
+        },
+        target_type: SingleAlly,
+        aoe: None,
+        friendly_fire: false,
+        effect: None,
+        statuses: [
+            StatusApplication {
+                status: StatusId(
+                    "blood_ward",
                 ),
                 duration_rounds: 2,
                 on: Target,
@@ -950,7 +991,7 @@ AbilityId("vital_infusion") => AbilityDef {
     },
 }
 
-## statuses (16)
+## statuses (17)
 StatusId("accumulator_field") => StatusDef {
     id: StatusId(
         "accumulator_field",
@@ -971,6 +1012,35 @@ StatusId("accumulator_field") => StatusDef {
                 RuntimeStats {
                     armor: 3,
                     magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
+        },
+        dot_dice: None,
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+    },
+}
+StatusId("blood_ward") => StatusDef {
+    id: StatusId(
+        "blood_ward",
+    ),
+    name: "Оберег крови",
+    dot_dice: None,
+    ai_controlled: false,
+    buff_class: Some(
+        MagicResistBuff,
+    ),
+    engine: StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: StatusBonuses {
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 2,
                     base_speed: 0,
                 },
             ),
@@ -1015,7 +1085,7 @@ StatusId("burning") => StatusDef {
     dot_dice: Some(
         DiceExpr {
             count: 1,
-            sides: 1,
+            sides: 2,
             bonus: 0,
         },
     ),
@@ -1038,7 +1108,7 @@ StatusId("burning") => StatusDef {
         dot_dice: Some(
             DiceExpr {
                 count: 1,
-                sides: 1,
+                sides: 2,
                 bonus: 0,
             },
         ),

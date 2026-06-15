@@ -114,6 +114,29 @@ mod tests {
     }
 
     #[test]
+    fn magic_resist_buff_has_positive_value() {
+        // P2/P3: `blood_ward` (magic_resist +2) must be valued by the AI like an
+        // armor buff — otherwise Oren would never cast it. Exercises the
+        // magic_resist branch of `value` against shipped content.
+        let content = ActiveContentData::load_global_for_tests();
+        let def = content
+            .abilities
+            .get(&combat_engine::AbilityId::from("blood_ward"))
+            .expect("blood_ward ability must exist in content");
+        let (u, c) = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build_pair();
+        let target = UnitView {
+            state: &u,
+            cache: &c,
+        };
+        // +2 magic_resist × 2 rounds → 4.0 (armor_shred_value formula).
+        let v = value(def, target, &content);
+        assert!(
+            (v - 4.0).abs() < 1e-6,
+            "blood_ward (magic_resist +2, 2 rounds) must value 4.0, got {v}"
+        );
+    }
+
+    #[test]
     fn stun_denial_uses_horizon_window() {
         let (u, c) = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .damage_horizon(vec![10.0, 15.0, 20.0])

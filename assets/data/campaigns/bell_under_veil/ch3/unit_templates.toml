@@ -219,7 +219,8 @@ initial_statuses = ["stunned"]
 # INT +3 (=Лира), speed 3, броня 1 (chainmail+leather+leather=1), mana 15, 1 AP.
 # Фокус «живой ланцет» (1d4 + sp 1 — скейл хила). Кит: мили; `heal` (бёрст 1d4+3+1
 # ≈ 6.5, 2 маны); `vital_infusion` (HoT +4×2=+8, 2 маны); `living_carapace`
-# (armor +2, 3 маны); `numbness` (speed −2, 2 маны). Урона почти не даёт.
+# (armor +2, 3 маны); `blood_ward` (magic_resist +2, 3 маны — магрез-аналог
+# панциря, против «Шёпота»); `numbness` (speed −2, 2 маны). Урона почти не даёт.
 # `party_add` Орена — в story-сцене после боя 1 (Вставка 1).
 [[unit_templates]]
 id      = "oren"
@@ -232,4 +233,4 @@ stats     = { max_hp = 12, strength = -1, dexterity = 1, constitution = 2, intel
 equipment = { main_hand = "lancet", chest = "chainmail", legs = "leather_pants", feet = "leather_boots" }
 resources = { mana = 15 }
 
-ability_ids = ["melee_attack", "heal", "vital_infusion", "living_carapace", "numbness"]
+ability_ids = ["melee_attack", "heal", "vital_infusion", "living_carapace", "blood_ward", "numbness"]
