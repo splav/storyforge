@@ -320,6 +320,7 @@ mod tests {
                     skips_turn: false,
                     causes_disadvantage: false,
                     blocks_mana_abilities: true,
+                    ..Default::default()
                 },
             },
         );
@@ -410,6 +411,7 @@ mod tests {
                     skips_turn: false,
                     causes_disadvantage: true,
                     blocks_mana_abilities: false,
+                    ..Default::default()
                 },
             },
         );

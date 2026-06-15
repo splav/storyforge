@@ -1280,6 +1280,7 @@ mod tests {
         },
         hp_percent_dot: 0,
         heal_per_tick: 4,
+        dot_dice: None,
     };
     static HOT_DEF_10: StatusDef = StatusDef {
         causes_disadvantage: false,
@@ -1295,6 +1296,7 @@ mod tests {
         },
         hp_percent_dot: 0,
         heal_per_tick: 10,
+        dot_dice: None,
     };
     static HOT_DEF_0: StatusDef = StatusDef {
         causes_disadvantage: false,
@@ -1310,6 +1312,7 @@ mod tests {
         },
         hp_percent_dot: 0,
         heal_per_tick: 0,
+        dot_dice: None,
     };
 
     impl ContentView for HotContent4 {

@@ -44,6 +44,7 @@ impl StubContent {
             },
             hp_percent_dot,
             heal_per_tick: 0,
+            ..Default::default()
         }
     }
     fn neutral() -> Self {

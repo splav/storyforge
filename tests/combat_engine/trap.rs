@@ -41,6 +41,7 @@ impl Stub {
                 bonuses: StatusBonuses {
                     runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
                 },
+                ..Default::default()
             },
         )
     }
@@ -542,6 +543,7 @@ fn reveal_on_move_halts_and_truncates() {
             bonuses: storyforge::combat_engine::StatusBonuses {
                 runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
             },
+            ..Default::default()
         },
     );
 

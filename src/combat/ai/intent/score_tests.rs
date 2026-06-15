@@ -408,6 +408,7 @@ fn cc_reach_prefers_cc_ability_range() {
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
                 causes_disadvantage: false,
+                ..Default::default()
             },
         },
     );

@@ -81,6 +81,7 @@ impl PhaseTagContent {
                 },
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
+                ..Default::default()
             },
         }
     }

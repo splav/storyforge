@@ -691,26 +691,35 @@ fn step_inner(
                 // Applied after damage/heal so RefreshAggregates from ApplyStatus
                 // sees the post-damage state.
                 //
-                // Phase 2 limitation: dot_per_tick = 0.  Phase 3 owns DoT roll.
+                // DoT roll: a dice-DoT status rolls its dice ONCE here (at cast) and
+                // bakes `roll + caster.spell_power` into the applied instance's
+                // `dot_per_tick`. Non-DoT statuses (`dot_dice = None`) consume no RNG.
                 for status_app in &def.statuses {
+                    let dot_dice = content
+                        .status_def(&status_app.status)
+                        .and_then(|sd| sd.dot_dice);
                     match status_app.on {
                         crate::content::StatusOn::Target => {
                             for &affected_id in &affected {
+                                let dot_per_tick =
+                                    dot_dice.map_or(0, |d| rng.roll(d) + caster.spell_power);
                                 effect_queue.push_back(Effect::ApplyStatus {
                                     target: affected_id,
                                     status: status_app.status.clone(),
                                     rounds: status_app.duration_rounds,
-                                    dot_per_tick: 0,
+                                    dot_per_tick,
                                     applier: crate::state::EffectSource::Unit(*actor),
                                 });
                             }
                         }
                         crate::content::StatusOn::MySelf => {
+                            let dot_per_tick =
+                                dot_dice.map_or(0, |d| rng.roll(d) + caster.spell_power);
                             effect_queue.push_back(Effect::ApplyStatus {
                                 target: *actor,
                                 status: status_app.status.clone(),
                                 rounds: status_app.duration_rounds,
-                                dot_per_tick: 0,
+                                dot_per_tick,
                                 applier: crate::state::EffectSource::Unit(*actor),
                             });
                         }

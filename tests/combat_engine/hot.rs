@@ -35,6 +35,7 @@ impl HotContent {
                 },
                 hp_percent_dot: 0,
                 heal_per_tick: 4,
+                ..Default::default()
             },
         );
         Self { statuses }

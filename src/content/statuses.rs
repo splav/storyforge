@@ -140,6 +140,9 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
                             base_speed: r.speed_bonus,
                         }),
                     },
+                    // Mirror of the bridge `dot_dice` (Copy): the engine copy drives the
+                    // cast-time roll into `dot_per_tick`; the bridge copy feeds the UI tint.
+                    dot_dice,
                     hp_percent_dot: r.hp_percent_dot,
                     heal_per_tick: r.heal_per_tick,
                 },

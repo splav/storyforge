@@ -1679,6 +1679,7 @@ mod tests {
         },
         hp_percent_dot: 0,
         heal_per_tick: 0,
+        dot_dice: None,
     };
 
     impl ContentView for StubContent {
@@ -2379,6 +2380,7 @@ mod tests {
             },
             hp_percent_dot: 0,
             heal_per_tick: 0,
+            dot_dice: None,
         };
         impl ContentView for Stub {
             fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {
@@ -2709,6 +2711,7 @@ mod tests {
         },
         hp_percent_dot: 0,
         heal_per_tick: 4,
+        dot_dice: None,
     };
     // Pure-DoT status (no heal) — its damage comes from `ActiveStatus.dot_per_tick`.
     static POISON_STATUS_DEF: StatusDef = StatusDef {
@@ -2725,6 +2728,7 @@ mod tests {
         },
         hp_percent_dot: 0,
         heal_per_tick: 0,
+        dot_dice: None,
     };
     impl ContentView for HotContent {
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> {

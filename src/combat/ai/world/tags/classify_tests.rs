@@ -63,6 +63,7 @@ fn empty_engine_status() -> combat_engine::StatusDef {
         bonuses: combat_engine::StatusBonuses::default(),
         hp_percent_dot: 0,
         heal_per_tick: 0,
+        ..Default::default()
     }
 }
 
@@ -677,6 +678,7 @@ fn derive_status_tags_compulsion_set_for_forces_targeting() {
             hp_percent_dot: 0,
             heal_per_tick: 0,
             causes_disadvantage: false,
+            ..Default::default()
         },
     };
     let tags = derive_status_tags(&def);

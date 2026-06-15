@@ -33,6 +33,7 @@ pub fn insert_stun_status(app: &mut App) {
                     hp_percent_dot: 0,
                     heal_per_tick: 0,
                     causes_disadvantage: false,
+                    ..Default::default()
                 },
             },
         );

@@ -618,6 +618,7 @@ mod tests {
                 hp_percent_dot,
                 heal_per_tick: 0,
                 causes_disadvantage: false,
+                ..Default::default()
             },
         }
     }

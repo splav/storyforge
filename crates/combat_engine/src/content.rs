@@ -295,6 +295,9 @@ pub struct StatusDef {
     pub forces_targeting: bool,
     pub skips_turn: bool,
     pub bonuses: StatusBonuses,
+    /// Dice rolled ONCE at cast time and baked into the applied status's
+    /// `dot_per_tick` (+ caster spell_power). `None` = not a dice-DoT.
+    pub dot_dice: Option<crate::dice::DiceExpr>,
     /// Percent of max_hp dealt as DoT per tick; ceil formula: `(max_hp * pct + 99) / 100`.
     pub hp_percent_dot: i32,
     /// Flat HP restored per HoT tick (content-driven, analogous to `hp_percent_dot` for DoT).

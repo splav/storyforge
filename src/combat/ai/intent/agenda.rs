@@ -436,6 +436,7 @@ mod tests {
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
                 causes_disadvantage: false,
+                ..Default::default()
             },
         };
         content.statuses.insert("taunt".into(), status_def);

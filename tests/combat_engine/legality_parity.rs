@@ -212,6 +212,7 @@ fn insert_mana_block_status(app: &mut App) {
                     hp_percent_dot: 0,
                     heal_per_tick: 0,
                     causes_disadvantage: false,
+                    ..Default::default()
                 },
             },
         );
@@ -238,6 +239,7 @@ fn insert_taunt_status(app: &mut App) {
                     hp_percent_dot: 0,
                     heal_per_tick: 0,
                     causes_disadvantage: false,
+                    ..Default::default()
                 },
             },
         );

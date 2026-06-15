@@ -41,6 +41,7 @@ static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef =
         },
         hp_percent_dot: 0,
         heal_per_tick: 0,
+        dot_dice: None,
     };
 
 impl ContentView for StubContent {

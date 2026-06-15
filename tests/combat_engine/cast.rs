@@ -30,6 +30,7 @@ use storyforge::game::hex::hex_from_offset;
 
 struct StubContent {
     abilities: HashMap<AbilityId, AbilityDef>,
+    statuses: HashMap<StatusId, StatusDef>,
     caster_ctx: HashMap<UnitId, storyforge::combat_engine::CasterContext>,
     templates: HashMap<String, storyforge::combat_engine::UnitTemplate>,
 }
@@ -38,6 +39,7 @@ impl StubContent {
     fn empty() -> Self {
         Self {
             abilities: HashMap::new(),
+            statuses: HashMap::new(),
             caster_ctx: HashMap::new(),
             templates: HashMap::new(),
         }
@@ -48,9 +50,15 @@ impl StubContent {
         abilities.insert(AbilityId::from(id), def);
         Self {
             abilities,
+            statuses: HashMap::new(),
             caster_ctx: HashMap::new(),
             templates: HashMap::new(),
         }
+    }
+
+    fn with_status_def(mut self, id: StatusId, def: StatusDef) -> Self {
+        self.statuses.insert(id, def);
+        self
     }
 
     /// Record a per-unit CasterContext to be applied to the CombatState.
@@ -83,8 +91,8 @@ impl ContentView for StubContent {
     fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
         self.abilities.get(id)
     }
-    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
-        None
+    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
+        self.statuses.get(id)
     }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
         self.templates.get(id).cloned()
@@ -907,7 +915,7 @@ fn cast_aoe_heal_restores_multiple_targets() {
 }
 
 /// Status with `on: Target` is applied to the targeted enemy.
-/// dot_per_tick = 0 (Phase 2 limitation).
+/// dot_per_tick = 0 when the status has no dot_dice (StubContent returns None for status_def).
 #[test]
 fn cast_applies_status_to_target() {
     let actor = make_unit(1, Team::Player, 0, 0);
@@ -942,7 +950,11 @@ fn cast_applies_status_to_target() {
     let s = &target_unit.statuses[0];
     assert_eq!(s.id, StatusId::from("poison"));
     assert_eq!(s.rounds_remaining, 3);
-    assert_eq!(s.dot_per_tick, 0, "Phase 2: dot_per_tick always 0");
+    // StubContent.status_def returns None → dot_dice=None → dot_per_tick=0.
+    assert_eq!(
+        s.dot_per_tick, 0,
+        "no dot_dice in content → dot_per_tick = 0"
+    );
     assert_eq!(
         s.applier,
         combat_engine::state::EffectSource::Unit(UnitId(1))
@@ -1740,5 +1752,91 @@ fn cast_exhausting_ap_mp_self_advances_in_engine_s6() {
             .unwrap_or(0)
             <= 0,
         "AP must be exhausted after the cast",
+    );
+}
+
+/// Cast-time DoT roll: casting an ability that applies a status with `dot_dice`
+/// bakes `dot_per_tick = roll(dot_dice) + caster.spell_power` at cast time.
+/// A 1d1 die always rolls 1; with spell_power=2, dot_per_tick must be 3.
+/// Ticking that status on EndTurn must deal exactly 3 damage.
+#[test]
+fn cast_dot_dice_bakes_roll_plus_spell_power_into_dot_per_tick() {
+    use storyforge::combat_engine::CasterContext;
+
+    let mut actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0);
+    // Give actor spell_power=2 so dot_per_tick = 1 (roll) + 2 (sp) = 3.
+    actor.caster_context = CasterContext {
+        spell_power: 2,
+        ..Default::default()
+    };
+
+    let mut state = state_with(vec![actor, target]);
+    // Set turn queue so EndTurn can advance to target and tick DoTs.
+    state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
+
+    let poison_id = StatusId::from("poison");
+
+    // Ability: apply "poison" to target (no damage).
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::None,
+        statuses: vec![StatusApplication {
+            status: poison_id.clone(),
+            duration_rounds: 3,
+            on: StatusOn::Target,
+        }],
+        ..single_enemy_ability()
+    };
+
+    // StatusDef: 1d1 dot (always rolls 1).
+    let poison_def = StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: storyforge::combat_engine::StatusBonuses::default(),
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+        dot_dice: Some(DiceExpr::new(1, 1, 0)),
+    };
+
+    let content = StubContent::with_ability("poison_strike", ability)
+        .with_status_def(poison_id.clone(), poison_def);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("poison_strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    // Script: d20=10 (no crit-fail), then 1d1=1 for the DoT roll.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[10, 1]);
+
+    step(&mut state, action, &mut rng, &content).expect("cast should succeed");
+
+    let s = &state.unit(UnitId(2)).unwrap().statuses[0];
+    assert_eq!(s.id, poison_id, "poison status applied");
+    assert_eq!(
+        s.dot_per_tick, 3,
+        "dot_per_tick must be roll(1d1)=1 + spell_power=2 = 3; got {}",
+        s.dot_per_tick
+    );
+
+    // Verify the tick deals exactly dot_per_tick damage. A DoT ticks on its
+    // APPLIER's turn (here actor 1), so tick actor 1's maintained statuses
+    // directly (mirrors the HoT/DoT tests in hot.rs).
+    let hp_before = state.unit(UnitId(2)).unwrap().hp();
+    state.tick_actor_statuses(UnitId(1), &content);
+    let hp_after = state.unit(UnitId(2)).unwrap().hp();
+    assert_eq!(
+        hp_before - hp_after,
+        3,
+        "tick must deal exactly dot_per_tick=3 damage; hp_before={}, hp_after={}",
+        hp_before,
+        hp_after
     );
 }

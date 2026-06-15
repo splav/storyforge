@@ -87,6 +87,7 @@ impl AuraContent {
             },
             hp_percent_dot: 0,
             heal_per_tick: 0,
+            ..Default::default()
         }
     }
     fn new(radius: u32, status: &str, applies_to: TeamRelation) -> Self {

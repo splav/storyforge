@@ -162,6 +162,7 @@ fn make_content(id: &str, def: AbilityDef) -> TagContent {
             bonuses: StatusBonuses::default(),
             hp_percent_dot: 0,
             heal_per_tick: 0,
+            ..Default::default()
         },
     }
 }
@@ -392,6 +393,7 @@ fn aura_content_with_tags(_affects_tags: BTreeSet<TagId>) -> TagContent {
             },
             hp_percent_dot: 0,
             heal_per_tick: 0,
+            ..Default::default()
         },
     }
     // We build the unit with an AuraDef that has affects_tags; TagContent

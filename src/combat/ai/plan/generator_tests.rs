@@ -591,6 +591,7 @@ fn stun_status() -> StatusDef {
             hp_percent_dot: 0,
             heal_per_tick: 0,
             causes_disadvantage: false,
+            ..Default::default()
         },
     }
 }
@@ -843,6 +844,7 @@ fn generate_plans_excludes_taunt_violating_casts() {
             hp_percent_dot: 0,
             heal_per_tick: 0,
             causes_disadvantage: false,
+            ..Default::default()
         },
     };
     content
@@ -1014,6 +1016,7 @@ fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
                 causes_disadvantage: false,
+                ..Default::default()
             },
         },
     );
@@ -1261,6 +1264,7 @@ fn disadvantage_status_discounts_plan_damage_estimate() {
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
                 causes_disadvantage: true,
+                ..Default::default()
             },
         },
     );
@@ -1662,6 +1666,7 @@ fn apply_endturn_ticks_status_exactly_once_per_branch() {
             hp_percent_dot: 0,
             heal_per_tick: 0,
             causes_disadvantage: false,
+            ..Default::default()
         },
     };
     content.statuses.insert(poison_id.clone(), poison_def);
