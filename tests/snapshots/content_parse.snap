@@ -1012,7 +1012,13 @@ StatusId("burning") => StatusDef {
         "burning",
     ),
     name: "Ожог",
-    dot_dice: None,
+    dot_dice: Some(
+        DiceExpr {
+            count: 1,
+            sides: 1,
+            bonus: 0,
+        },
+    ),
     ai_controlled: false,
     buff_class: None,
     engine: StatusDef {
@@ -1028,7 +1034,7 @@ StatusId("burning") => StatusDef {
                     base_speed: 0,
                 },
             ),
-            damage_taken_bonus: 1,
+            damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
         heal_per_tick: 0,

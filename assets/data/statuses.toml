@@ -15,9 +15,12 @@ name        = "Оглушён"
 skips_turn  = true
 
 [[statuses]]
-id                 = "burning"
-name               = "Ожог"
-damage_taken_bonus = 1
+id          = "burning"
+name        = "Ожог"
+# Горение наносит свой огонь поверх защиты (DoT), а не «снижает броню» — поэтому
+# не зависит от брони/пробития. 1 ед./тик; длительность из способности `burn` (3 хода).
+dot_count   = 1
+dot_sides   = 1
 
 [[statuses]]
 id          = "paralyzed"
