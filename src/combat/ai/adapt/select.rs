@@ -12,6 +12,7 @@ use crate::combat::ai::adapt::{Adaptation, AdaptationReason, EvaluationMode};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
+use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::plan::TurnPlan;
 use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
@@ -86,6 +87,51 @@ fn plan_has_self_rescue(
         return false;
     }
     actor_post.hp() > pending_dot_before_next_action(actor_post, content)
+}
+
+/// Returns `true` if the actor dies in transit — cumulative self-damage
+/// from AoO hits reaches or exceeds `actor_hp` on a **Move** step that
+/// precedes any terminal action (Cast), meaning the actor never reaches
+/// any subsequent action.
+///
+/// This is the key distinguisher between:
+/// - **Transit death**: actor dies on a Move step BEFORE any Cast has fired.
+///   The plan accomplishes nothing. Mask unconditionally; LastStand heroic-
+///   trade does NOT apply (you can't deal damage from the grave).
+/// - **Death-after-acting**: a Cast fires first (terminal action executes),
+///   then the actor dies on a later Move or Cast step. LastStand still
+///   eligible for these.
+///
+/// Algorithm: walk `plan.outcomes` + `plan.steps` in lockstep.
+/// - Track `cast_has_fired`: set to `true` on the first Cast step.
+/// - Track cumulative `self_damage` across all steps.
+/// - Whenever cumulative damage ≥ `actor_hp` AND the current step is a Move
+///   AND `cast_has_fired == false` → transit death.
+///
+/// Uses `plan.outcomes` (real per-step sim values) rather than
+/// `expected_aoo_damage` (EV aggregate) so the ordering information
+/// (which step is lethal, which step is terminal) is preserved.
+pub(crate) fn plan_has_lethal_transit(plan: &TurnPlan, actor_hp: i32) -> bool {
+    if actor_hp <= 0 {
+        return false; // already dead; not a transit-death scenario.
+    }
+    // Zip terminates at the shorter of steps/outcomes. If outcomes are absent
+    // (deserialized plan, synthetic test plan with empty outcomes), zip produces
+    // no iterations and we return false — conservative side of the fallback.
+    // Only plans with populated sim outcomes can be transit-death detected here.
+    let mut cumulative = 0.0f32;
+    let mut cast_has_fired = false;
+    for (step, outcome) in plan.steps.iter().zip(plan.outcomes.iter()) {
+        if matches!(step, PlanStep::Cast { .. }) {
+            cast_has_fired = true;
+        }
+        cumulative += outcome.self_damage;
+        // Transit death: lethal self-damage on a Move step before any terminal action.
+        if outcome.moved && !cast_has_fired && cumulative >= actor_hp as f32 {
+            return true;
+        }
+    }
+    false
 }
 
 /// Pure mode-selection pass — step 11.0.
@@ -173,11 +219,20 @@ pub fn select_evaluation_modes(
     }
 
     // ── Per-plan rule: ExpectedSelfLethal ─────────────────────────────────
+    // Fix-C gate: transit-death plans (actor dies on a Move step before
+    // any terminal action) are excluded from LastStand here. LastStand's
+    // heroic-trade premise is "execute a final useful action and then die" —
+    // but transit death means the actor never reaches the action at all.
+    // Those plans receive a hard Mask from `TransitDeathMaskStage` instead.
     let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
     let hp_cutoff = active.hp() as f32;
     for (i, plan) in plans.iter().enumerate() {
         if active.hp() <= 0 {
             break;
+        }
+        // Skip transit-death plans — masked downstream, not LastStand.
+        if plan_has_lethal_transit(plan, active.hp()) {
+            continue;
         }
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
         if aoo_dmg >= hp_cutoff {
@@ -302,12 +357,19 @@ pub fn apply_adaptation(
     // "final useful action" table evaluates it on its own terms (kill >
     // cc > damage), so the plan competes honestly against defensive
     // alternatives.
+    //
+    // Fix-C gate: transit-death plans (actor dies on a Move step before
+    // any terminal action) are excluded. See `plan_has_lethal_transit`.
     let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
     let hp_cutoff = active.hp() as f32;
     let mut any_switched = false;
     for (i, plan) in plans.iter().enumerate() {
         if active.hp() <= 0 {
             break; // Dead actor has no plans to adapt — guard against weird snapshots.
+        }
+        // Skip transit-death plans — masked downstream, not LastStand.
+        if plan_has_lethal_transit(plan, active.hp()) {
+            continue;
         }
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
         if aoo_dmg >= hp_cutoff {
@@ -937,5 +999,93 @@ mod tests {
                 adaptation.reasons[i]
             );
         }
+    }
+
+    // ── Fix-C: transit-death gating ──────────────────────────────────────────
+
+    /// Build a plan with a Move step that has populated self_damage (simulating
+    /// real sim output — as opposed to `move_plan` which leaves outcomes empty).
+    fn move_plan_with_sim_self_damage(path: Vec<Hex>, self_damage: f32) -> TurnPlan {
+        use crate::combat::ai::plan::types::StepOutcome;
+        TurnPlan {
+            steps: vec![PlanStep::Move { path: path.clone() }],
+            final_pos: *path.last().unwrap(),
+            outcomes: vec![StepOutcome {
+                moved: true,
+                self_damage,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn transit_death_plan_does_not_get_last_stand_mode() {
+        // Actor 3 HP, move deals 5 self-damage (from AoO in sim outcomes).
+        // plan_has_lethal_transit returns true → LastStand must NOT be set;
+        // the plan stays Default mode so TransitDeathMaskStage can mask it.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(3)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .aoo(5.0, 1)
+            .build();
+        // Plan has populated outcomes (self_damage=5 on Move) → transit death.
+        let transit_plan = move_plan_with_sim_self_damage(vec![hex_from_offset(-1, 0)], 5.0);
+        let raw = vec![PlanFactorValues::default()];
+
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let adaptation =
+            select_evaluation_modes(&[transit_plan], &raw, &TacticalIntent::Reposition, &ctx);
+
+        assert_eq!(
+            adaptation.modes[0],
+            EvaluationMode::Default,
+            "transit-death plan must NOT get LastStand mode (should be masked instead)"
+        );
+        assert!(
+            adaptation.reasons[0].is_none(),
+            "transit-death plan must have no adaptation reason (stays Default)"
+        );
+    }
+
+    #[test]
+    fn non_transit_lethal_plan_still_gets_last_stand() {
+        // Actor 3 HP; plan has EV AoO > 3 but no populated sim outcomes
+        // (outcomes is empty → plan_has_lethal_transit = false).
+        // This represents death-after-acting or EV-only estimate paths.
+        // LastStand should still fire for these.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(3)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .aoo(5.0, 1)
+            .build();
+        // Empty outcomes → plan_has_lethal_transit = false → LastStand eligible.
+        let plan = move_plan(vec![hex_from_offset(-1, 0)]);
+        let raw = vec![PlanFactorValues::default()];
+
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let adaptation = select_evaluation_modes(&[plan], &raw, &TacticalIntent::Reposition, &ctx);
+
+        assert_eq!(
+            adaptation.modes[0],
+            EvaluationMode::LastStand,
+            "plan with EV-lethal AoO but no sim outcomes must still get LastStand"
+        );
     }
 }

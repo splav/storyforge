@@ -123,7 +123,14 @@ pub fn build_agenda(
     status_tags: &crate::combat::ai::world::tags::StatusTagCache,
 ) -> Agenda {
     let mut items = match band {
-        PriorityBand::ForcedTargeting => build_forced_targeting(band_reason, active, snap),
+        // Fix A: ForcedTargeting is no longer emitted by assign_band.
+        // Taunt constrains attack-target via engine legality (taunters_for),
+        // not by routing the actor's intent toward the taunter.
+        // Keep the arm to satisfy exhaustiveness; build_forced_targeting is
+        // preserved as dead code for log-schema compatibility.
+        PriorityBand::ForcedTargeting => {
+            unreachable!("taunt no longer routes via ForcedTargeting band; see Fix A / project_taunt_flee_aoo_fix")
+        }
         PriorityBand::CriticalSelfPreservation => {
             build_critical_self_preservation(band_reason, active, snap, maps, needs)
         }
@@ -161,6 +168,12 @@ pub fn build_agenda(
 // ── Per-band builders ─────────────────────────────────────────────────────────
 
 /// ForcedTargeting: N=1 — the taunter is the only valid target.
+///
+/// **Dead code since Fix A** — `assign_band` no longer emits `ForcedTargeting`.
+/// Preserved for log-schema stability (serde roundtrips of old AI logs that
+/// recorded `ForcedTargeting` band entries must still deserialize correctly).
+/// Do not delete until log schema is versioned past the taunt-routing change.
+#[allow(dead_code)]
 fn build_forced_targeting(
     band_reason: &BandReason,
     active: UnitView<'_>,
@@ -441,24 +454,26 @@ mod tests {
         unit
     }
 
-    // ── 1. ForcedTargeting emits exactly one FocusTarget item ─────────────
+    // ── 1. Taunted unit routes through NormalTactical, not ForcedTargeting ───
+    //
+    // Fix A: assign_band no longer emits ForcedTargeting for taunted actors.
+    // build_agenda's ForcedTargeting arm is unreachable! at runtime.
+    // This test verifies the new contract: a taunted-but-healthy unit gets a
+    // NormalTactical agenda with at least one item.
 
     #[test]
-    fn agenda_forced_targeting_emits_single_item() {
+    fn agenda_taunted_healthy_unit_routes_normal_tactical() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).build();
         let taunter = unit_with_taunt(2, Team::Player, hex_from_offset(1, 0));
-        let taunter_entity = taunter.entity;
         let snap = snapshot_from(vec![active.clone(), taunter], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
-        let band_reason = BandReason::TauntForced {
-            taunter: taunter_entity,
-        };
+        let band_reason = BandReason::Normal;
         let status_tags = taunt_status_tags();
 
         let agenda = build_agenda(
-            PriorityBand::ForcedTargeting,
+            PriorityBand::NormalTactical,
             &band_reason,
             snap.unit(active.entity).expect("active in snap"),
             &snap,
@@ -470,14 +485,11 @@ mod tests {
             &status_tags,
         );
 
-        assert_eq!(
-            agenda.items.len(),
-            1,
-            "ForcedTargeting must emit exactly 1 item"
+        assert_eq!(agenda.band, PriorityBand::NormalTactical);
+        assert!(
+            !agenda.items.is_empty(),
+            "taunted-healthy unit must still get a NormalTactical agenda"
         );
-        let item = &agenda.items[0];
-        assert_eq!(item.kind, IntentKind::FocusTarget);
-        assert_eq!(item.target, Some(taunter_entity));
     }
 
     // ── 2. CriticalSelfPreservation emits two items: ProtectSelf + Reposition

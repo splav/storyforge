@@ -48,6 +48,7 @@
 
 pub mod select;
 
+pub(crate) use select::plan_has_lethal_transit;
 pub use select::{apply_adaptation, pending_dot_before_next_action, select_evaluation_modes};
 
 /// Evaluation regime used when scoring the intent-column of a plan.

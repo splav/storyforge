@@ -1,9 +1,17 @@
-# Scenario: FocusTarget + MoveAndCast melee attack.
+# Scenario: MoveAndCast melee attack (taunted actor).
 #
 # Smoke-level сценарий: у Зверокрова Налётчика (actor 12884901549) активный
-# intent = FocusTarget, ближайший враг в досягаемости melee. Ожидаем, что AI
-# коммитит MoveAndCast через melee_attack, а не тратит ход на EndTurn /
-# отступление.
+# таунт на игроке (12884901551). Ожидаем, что AI коммитит MoveAndCast через
+# melee_attack (единственная законная цель — тaunter), а не тратит ход на
+# EndTurn / отступление.
+#
+# Fix A (2026-06-14): ForcedTargeting band удалён из assign_band. Таунт
+# теперь ограничивает только выбор цели атаки (engine legality / taunters_for),
+# но НЕ принуждает к intent FocusTarget. Актор может выбрать любой intent
+# (здесь — Reposition), но атака всё равно идёт в taunter.
+# intent_kind убран из ожиданий: это внутренняя деталь band router'а,
+# не контракт сценария. Контракт — что MoveAndCast + melee_attack + Damage
+# совершается (не EndTurn/flee).
 #
 # Source: rebuilt из v29 logs 27 апр. 2026 (road_bridge playtest).
 # scope.plan_id = actor_id per replay's v29 reinterpretation (логи не имеют
@@ -15,5 +23,4 @@ plan_id = 12884901549
 [[expectations]]
 decision_kind = ["MoveAndCast"]
 cast_ability = ["melee_attack"]
-intent_kind = ["FocusTarget"]
 primary_effect = ["Damage"]

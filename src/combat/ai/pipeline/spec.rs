@@ -120,7 +120,7 @@ pub const INITIAL_FIELDS: &[AnnotationField] = &[
 
 // ── STAGE_SPECS ───────────────────────────────────────────────────────────────
 
-/// Spec table for all 12 production stages, in the same order as
+/// Spec table for all 13 production stages, in the same order as
 /// `PRODUCTION_PIPELINE`.
 ///
 /// Length must equal `PRODUCTION_PIPELINE.len()` — enforced by test.
@@ -195,7 +195,7 @@ pub const STAGE_SPECS: &[StageSpec] = &[
         writes: &[AnnotationField::ScoreEffects],
         score_effect: Some(ScoreEffect::Multiplier),
     },
-    // 6 — ProtectSelfMask  (Mask: sets score = NEG_INFINITY for non-defensive plans)
+    // 6 — ProtectSelfMask  (Mask: sets score = NEG_INFINITY for non-defensive plans under ProtectSelf)
     StageSpec {
         id: StageId::ProtectSelfMask,
         reads: &[
@@ -206,7 +206,18 @@ pub const STAGE_SPECS: &[StageSpec] = &[
         writes: &[AnnotationField::ScoreEffects],
         score_effect: Some(ScoreEffect::Mask),
     },
-    // 7 — KillableGate  (PostScoreGate: gates after all score effects are applied)
+    // 7 — TransitDeathMask  (Mask: sets score = NEG_INFINITY for lethal-transit plans)
+    StageSpec {
+        id: StageId::TransitDeathMask,
+        reads: &[
+            AnnotationField::Plan,
+            AnnotationField::SnapshotFacts,
+            AnnotationField::ScoreEffects,
+        ],
+        writes: &[AnnotationField::ScoreEffects],
+        score_effect: Some(ScoreEffect::Mask),
+    },
+    // 8 — KillableGate  (PostScoreGate: gates after all score effects)
     StageSpec {
         id: StageId::KillableGate,
         reads: &[
@@ -217,14 +228,14 @@ pub const STAGE_SPECS: &[StageSpec] = &[
         writes: &[AnnotationField::ScoreEffects],
         score_effect: Some(ScoreEffect::PostScoreGate),
     },
-    // 8 — RepairAffinity  (no score effect)
+    // 9 — RepairAffinity  (no score effect)
     StageSpec {
         id: StageId::RepairAffinity,
         reads: &[AnnotationField::SnapshotFacts, AnnotationField::Outcomes],
         writes: &[AnnotationField::RepairAffinity],
         score_effect: None,
     },
-    // 9 — OverlayConsiderations  (no score effect)
+    // 10 — OverlayConsiderations  (no score effect)
     StageSpec {
         id: StageId::OverlayConsiderations,
         reads: &[
@@ -237,7 +248,7 @@ pub const STAGE_SPECS: &[StageSpec] = &[
         writes: &[AnnotationField::PerItem],
         score_effect: None,
     },
-    // 10 — PlanModifiers  (Addend: adds signed delta to score)
+    // 11 — PlanModifiers  (Addend: adds signed delta to score)
     StageSpec {
         id: StageId::PlanModifiers,
         reads: &[
@@ -248,7 +259,7 @@ pub const STAGE_SPECS: &[StageSpec] = &[
         writes: &[AnnotationField::ScoreEffects],
         score_effect: Some(ScoreEffect::Addend),
     },
-    // 11 — PickBest  (no score effect; reads final score effects to pick winner)
+    // 12 — PickBest  (no score effect; reads final score effects to pick winner)
     StageSpec {
         id: StageId::PickBest,
         reads: &[
@@ -410,7 +421,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::pipeline::order::PRODUCTION_PIPELINE;
 
-    /// Production pipeline has 12 stages; STAGE_SPECS must have the same length.
+    /// Production pipeline has 13 stages; STAGE_SPECS must have the same length.
     #[test]
     fn stage_specs_length_matches_pipeline() {
         assert_eq!(

@@ -1901,3 +1901,44 @@ fn factor_weights_continuation_differs_from_discovery_for_non_unit_axis() {
         "with-goal damage score must be finite"
     );
 }
+
+/// Drift guard: the AI weight tables in `Tables` are fixed-width arrays
+/// (`[[f32; 10]; 5]` for plan/step, `[[f32; 8]; 5]` for terminal), but the
+/// factor enums (`StepFactor`/`PlanFactor`/`TerminalFactor`) are the source of
+/// truth for how many columns the aggregator indexes (see `NFACTORS` in
+/// `aggregate.rs`). If a factor variant is added without widening the table
+/// type — or vice versa — the shipped `ai_tuning.toml` still parses (its rows
+/// match the *type*, not the enum), so `content_parse_snapshot` stays green,
+/// yet factor↔weight indexing silently desyncs and the new factor gets no
+/// weight. This pins the two together and fails the moment they drift apart.
+#[test]
+fn weight_table_widths_match_factor_counts() {
+    use crate::combat::ai::config::tuning::Tables;
+    use crate::combat::ai::scoring::factors::{plan, step, terminal};
+
+    let t = Tables::default();
+
+    let plan_step_cols = step::COUNT + plan::COUNT;
+    assert_eq!(
+        t.axis_factor_weights[0].len(),
+        plan_step_cols,
+        "axis_factor_weights width must equal step::COUNT + plan::COUNT — \
+         widen the table type AND ai_tuning.toml rows when adding a factor",
+    );
+    assert_eq!(
+        t.axis_factor_weights_continuation[0].len(),
+        plan_step_cols,
+        "axis_factor_weights_continuation width must equal step::COUNT + plan::COUNT",
+    );
+
+    assert_eq!(
+        t.axis_terminal_weights[0].len(),
+        terminal::COUNT,
+        "axis_terminal_weights width must equal terminal::COUNT",
+    );
+    assert_eq!(
+        t.axis_terminal_weights_continuation[0].len(),
+        terminal::COUNT,
+        "axis_terminal_weights_continuation width must equal terminal::COUNT",
+    );
+}

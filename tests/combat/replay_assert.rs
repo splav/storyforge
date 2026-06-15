@@ -11,10 +11,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Single-entry v28 fixture. Actor = Зверокров Страж (id 51539607196),
-/// intent = FocusTarget, decision = MoveAndCast (melee_attack, target
-/// 42949672607). Rebuilt from beastblood_raid playtest 26 апр. 2026;
-/// schema bumped v27→v28 in step 4.12.
+/// v28 fixture: first non-skip actor_tick entry = actor 12884901543 (taunted).
+/// Fix A (2026-06-14): removed ForcedTargeting band; actor now routes via
+/// NormalTactical → decision = Move (Reposition), no cast.
+/// Tests exercise --assert CLI mechanics (exit codes, OR logic, verbose);
+/// the specific decision values reflect the current AI output for this snapshot.
 const LOG_PATH: &str = "tests/ai_scenarios/snapshots/focus_target_melee_basic/log.jsonl";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -57,13 +58,13 @@ fn empty_overlay_exit_0() {
     assert!(stdout.contains("PASS"), "expected PASS in stdout\n{stdout}");
 }
 
-/// Correct decision_kind passes (entry is MoveAndCast).
+/// Correct decision_kind passes (entry is Move after Fix A).
 #[test]
 fn correct_decision_kind_passes() {
     let out = run_assert(
         r#"
 [[expectations]]
-decision_kind = ["MoveAndCast"]
+decision_kind = ["Move"]
 "#,
         &[],
     );
@@ -106,13 +107,13 @@ decision_kind = ["EndTurn"]
     );
 }
 
-/// any-of: MoveAndCast or CastInPlace → pass (actual is MoveAndCast).
+/// any-of: Move or EndTurn → pass (actual is Move after Fix A).
 #[test]
 fn any_of_decision_kind_passes() {
     let out = run_assert(
         r#"
 [[expectations]]
-decision_kind = ["CastInPlace", "MoveAndCast"]
+decision_kind = ["EndTurn", "Move"]
 "#,
         &[],
     );
@@ -125,13 +126,13 @@ decision_kind = ["CastInPlace", "MoveAndCast"]
     );
 }
 
-/// correct ability name → pass.
+/// correct intent_kind → pass (no cast after Fix A; use intent_kind instead).
 #[test]
 fn correct_cast_ability_passes() {
     let out = run_assert(
         r#"
 [[expectations]]
-cast_ability = ["melee_attack"]
+intent_kind = ["Reposition"]
 "#,
         &[],
     );
@@ -169,10 +170,10 @@ fn two_variants_or_logic_passes() {
     let out = run_assert(
         r#"
 [[expectations]]
-decision_kind = ["EndTurn"]
+decision_kind = ["MoveAndCast"]
 
 [[expectations]]
-decision_kind = ["MoveAndCast"]
+decision_kind = ["Move"]
 "#,
         &[],
     );
@@ -209,7 +210,7 @@ fn verbose_flag_prints_details() {
     let out = run_assert(
         r#"
 [[expectations]]
-decision_kind = ["MoveAndCast"]
+decision_kind = ["Move"]
 "#,
         &["--verbose"],
     );

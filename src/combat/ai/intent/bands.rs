@@ -123,37 +123,31 @@ pub enum BandReason {
 /// Compute the priority band for `active` given the current battle state.
 ///
 /// Evaluation order (first match wins):
-/// 1. `ForcedTargeting` — an enemy with `FORCES_TARGETING` is alive.
-/// 2. `CriticalSelfPreservation` — panic gate: same thresholds as
+/// 1. `CriticalSelfPreservation` — panic gate: same thresholds as
 ///    `select_intent`'s PanicOverride branch.
-/// 3. `HardRescueOpportunity` — `rescue_ally ≥ hard_rescue_threshold` AND the
+/// 2. `HardRescueOpportunity` — `rescue_ally ≥ hard_rescue_threshold` AND the
 ///    actor has `CAN_HEAL`.
-/// 4. `NormalTactical` — fallback.
+/// 3. `NormalTactical` — fallback.
+///
+/// **Taunt semantics (Fix A)**: `ForcedTargeting` band is no longer emitted.
+/// Taunt constrains which enemy the actor may *attack* (engine legality,
+/// `taunters_for`) but does NOT compel the actor to move toward or intent on
+/// the taunter.  A panicking/fleeing taunted unit is free to flee; attacks
+/// remain bound to the taunter by the engine regardless of band.
 ///
 /// **11.1 contract**: result is discarded in `pick_action` — no routing change.
 pub fn assign_band(
     active: UnitView<'_>,
-    snap: &BattleSnapshot,
+    _snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     needs: &NeedSignals,
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
-    status_tags: &StatusTagCache,
+    _status_tags: &StatusTagCache,
 ) -> (PriorityBand, BandReason) {
-    // 1. ForcedTargeting — hard taunt rule.
-    if let Some(taunter) = snap
-        .enemies_of(active.team)
-        .find(|e| e.forces_targeting(status_tags))
-    {
-        return (
-            PriorityBand::ForcedTargeting,
-            BandReason::TauntForced {
-                taunter: taunter.entity(),
-            },
-        );
-    }
+    // (taunt no longer routes via ForcedTargeting — see doc comment above)
 
-    // 2. CriticalSelfPreservation — exact same gate as select_intent PanicOverride.
+    // 1. CriticalSelfPreservation — exact same gate as select_intent PanicOverride.
     let danger = maps.danger.get(active.pos);
     let panic_threshold = tuning.thresholds.panic_self_preserve_threshold;
     let danger_panic = difficulty.awareness_danger_threshold(tuning);
@@ -212,7 +206,11 @@ mod tests {
         DifficultyProfile::default()
     }
 
-    // ── 1. ForcedTargeting fires on canonical taunter ─────────────────────
+    // ── 1. Taunted-but-healthy unit now falls through to NormalTactical ──────
+    //
+    // Fix A: ForcedTargeting band is no longer emitted by assign_band.
+    // The engine-side attack constraint (taunters_for) still binds attacks to
+    // the taunter; only the band routing changes.
 
     fn taunt_status_tags() -> StatusTagCache {
         let mut content = empty_content();
@@ -249,10 +247,12 @@ mod tests {
     }
 
     #[test]
-    fn band_forced_targeting_fires_on_canonical_case() {
+    fn band_taunted_healthy_unit_routes_to_normal_tactical() {
+        // Fix A: a taunted-but-healthy unit no longer gets ForcedTargeting.
+        // It falls through to NormalTactical; the engine attack constraint
+        // (taunters_for) ensures any attack still targets the taunter.
         let active = UnitBuilder::new(1, Team::Enemy, origin()).build();
         let taunter = unit_with_taunt(2, Team::Player, hex_from_offset(1, 0));
-        let taunter_entity = taunter.entity;
         let snap = snapshot_from(vec![active.clone(), taunter], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
@@ -270,13 +270,8 @@ mod tests {
             &status_tags,
         );
 
-        assert_eq!(band, PriorityBand::ForcedTargeting);
-        assert_eq!(
-            reason,
-            BandReason::TauntForced {
-                taunter: taunter_entity
-            }
-        );
+        assert_eq!(band, PriorityBand::NormalTactical);
+        assert_eq!(reason, BandReason::Normal);
     }
 
     // ── 2. CriticalSelfPreservation fires on panic conditions ─────────────
@@ -397,17 +392,20 @@ mod tests {
         assert_eq!(reason, BandReason::Normal);
     }
 
-    // ── 5. Priority order: ForcedTargeting beats CriticalSelfPreservation ─
+    // ── 5. Taunted panicking unit yields CriticalSelfPreservation ────────────
+    //
+    // Fix A: with ForcedTargeting band gone, a unit that is BOTH taunted AND
+    // panicking now routes via CriticalSelfPreservation.  The engine attack
+    // constraint (taunters_for) still binds any attack to the taunter; the
+    // unit is free to flee if that's what panic demands.
 
     #[test]
-    fn band_priority_order_forced_beats_critical() {
-        // Actor is both taunted AND in a panic state — Forced must win.
+    fn band_taunted_panicking_unit_yields_critical_self_preservation() {
         let active = UnitBuilder::new(1, Team::Enemy, origin())
             .hp(2)
             .max_hp(20)
             .build();
         let taunter = unit_with_taunt(2, Team::Player, hex_from_offset(1, 0));
-        let taunter_entity = taunter.entity;
         let snap = snapshot_from(vec![active.clone(), taunter], 1);
 
         let tuning = default_tuning();
@@ -439,14 +437,18 @@ mod tests {
 
         assert_eq!(
             band,
-            PriorityBand::ForcedTargeting,
-            "Forced must beat Critical+HardRescue"
+            PriorityBand::CriticalSelfPreservation,
+            "taunted+panicking unit must route to CriticalSelfPreservation (flee free)"
         );
-        assert_eq!(
-            reason,
-            BandReason::TauntForced {
-                taunter: taunter_entity
+        match reason {
+            BandReason::PanicOverride {
+                self_preserve,
+                danger,
+            } => {
+                assert!(self_preserve >= tuning.thresholds.panic_self_preserve_threshold);
+                assert!(danger > danger_panic);
             }
-        );
+            other => panic!("expected PanicOverride, got {other:?}"),
+        }
     }
 }

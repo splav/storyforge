@@ -9,4 +9,5 @@ pub mod pick_best;
 pub mod protect_self;
 pub mod repair_affinity;
 pub mod sanity;
+pub mod transit_death_mask;
 pub mod viability;

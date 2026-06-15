@@ -13,7 +13,7 @@
 //!
 //! ```text
 //! PRE_MASK:  Viability → ItemScoring → ModeSelection → Finalize → Sanity → Critics
-//! POST_MASK: ProtectSelfMask → KillableGate → RepairAffinity
+//! POST_MASK: ProtectSelfMask → TransitDeathMask → KillableGate → RepairAffinity
 //!            → OverlayConsiderations → PlanModifiers → PickBest
 //! ```
 //!
@@ -33,6 +33,7 @@ pub enum StageId {
     Sanity,
     Critics,
     ProtectSelfMask,
+    TransitDeathMask,
     KillableGate,
     RepairAffinity,
     OverlayConsiderations,
@@ -91,6 +92,11 @@ fn apply_protect_self_mask(pool: &mut ScoredPool, ctx: &mut StageCtx) {
     ProtectSelfMaskStage.apply(pool, ctx);
 }
 
+fn apply_transit_death_mask(pool: &mut ScoredPool, ctx: &mut StageCtx) {
+    use crate::combat::ai::pipeline::stages::transit_death_mask::TransitDeathMaskStage;
+    TransitDeathMaskStage.apply(pool, ctx);
+}
+
 fn apply_killable_gate(pool: &mut ScoredPool, ctx: &mut StageCtx) {
     use crate::combat::ai::pipeline::stages::killable_gate::KillableGateStage;
     KillableGateStage.apply(pool, ctx);
@@ -123,6 +129,12 @@ fn apply_pick_best(pool: &mut ScoredPool, ctx: &mut StageCtx) {
 /// Ends after `Critics` — the last stage that applies multiplicative score
 /// effects. `pick_action` snapshots `pool.annotations[*].score` here as
 /// `base_scored` before proceeding to the post-mask half.
+///
+/// ```text
+/// PRE_MASK:  Viability → ItemScoring → ModeSelection → Finalize → Sanity → Critics
+/// POST_MASK: ProtectSelfMask → TransitDeathMask → KillableGate → RepairAffinity
+///            → OverlayConsiderations → PlanModifiers → PickBest
+/// ```
 pub const PRODUCTION_PIPELINE_PRE_MASK: &[StageEntry] = &[
     StageEntry {
         id: StageId::Viability,
@@ -157,6 +169,10 @@ pub const PRODUCTION_PIPELINE_POST_MASK: &[StageEntry] = &[
     StageEntry {
         id: StageId::ProtectSelfMask,
         apply: apply_protect_self_mask,
+    },
+    StageEntry {
+        id: StageId::TransitDeathMask,
+        apply: apply_transit_death_mask,
     },
     StageEntry {
         id: StageId::KillableGate,
@@ -213,6 +229,10 @@ pub const PRODUCTION_PIPELINE: &[StageEntry] = &[
     StageEntry {
         id: StageId::ProtectSelfMask,
         apply: apply_protect_self_mask,
+    },
+    StageEntry {
+        id: StageId::TransitDeathMask,
+        apply: apply_transit_death_mask,
     },
     StageEntry {
         id: StageId::KillableGate,
