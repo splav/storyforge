@@ -64,6 +64,8 @@ struct StatusRecord {
     #[serde(default)]
     armor_bonus: i32,
     #[serde(default)]
+    magic_resist_bonus: i32,
+    #[serde(default)]
     damage_taken_bonus: i32,
     #[serde(default)]
     skips_turn: bool,
@@ -132,8 +134,11 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
                     forces_targeting: r.forces_targeting,
                     skips_turn: r.skips_turn,
                     bonuses: combat_engine::StatusBonuses {
-                        armor_bonus: r.armor_bonus,
-                        speed_bonus: r.speed_bonus,
+                        runtime: combat_engine::RuntimeStatsDelta(combat_engine::RuntimeStats {
+                            armor: r.armor_bonus,
+                            magic_resist: r.magic_resist_bonus,
+                            base_speed: r.speed_bonus,
+                        }),
                         damage_taken_bonus: r.damage_taken_bonus,
                     },
                     hp_percent_dot: r.hp_percent_dot,

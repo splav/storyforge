@@ -121,10 +121,8 @@ pub enum EffectDef {
 /// `snapshot::status_bonuses`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StatusBonuses {
-    /// Added to `base_speed` to get effective `speed`.
-    pub speed_bonus: i32,
-    /// Added to equipment `armor` to get effective mitigation.
-    pub armor_bonus: i32,
+    /// Additive delta to armor, magic_resist, and base_speed from this status.
+    pub runtime: RuntimeStatsDelta,
     /// Added to incoming damage delta after mitigation.
     pub damage_taken_bonus: i32,
 }
@@ -138,6 +136,33 @@ pub struct RuntimeStats {
     pub armor: i32,
     pub magic_resist: i32,
     pub base_speed: i32,
+}
+
+/// Additive delta over [`RuntimeStats`] fields — carries status/aura-derived
+/// bonuses to armor, magic_resist, and base_speed.
+///
+/// **Newtype, not `Deref`.** Explicit `.0` access prevents a delta from being
+/// accidentally passed where an absolute `RuntimeStats` is expected.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RuntimeStatsDelta(pub RuntimeStats);
+
+impl std::ops::AddAssign for RuntimeStatsDelta {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0.armor += rhs.0.armor;
+        self.0.magic_resist += rhs.0.magic_resist;
+        self.0.base_speed += rhs.0.base_speed;
+    }
+}
+
+impl std::ops::Add<RuntimeStatsDelta> for RuntimeStats {
+    type Output = RuntimeStats;
+    fn add(self, rhs: RuntimeStatsDelta) -> RuntimeStats {
+        RuntimeStats {
+            armor: self.armor + rhs.0.armor,
+            magic_resist: self.magic_resist + rhs.0.magic_resist,
+            base_speed: self.base_speed + rhs.0.base_speed,
+        }
+    }
 }
 
 /// Resource cost for an ability (one entry per resource kind).
@@ -284,6 +309,9 @@ pub struct StatusDef {
 pub struct UnitTemplate {
     pub max_hp: i32,
     pub armor: i32,
+    /// Magic resistance from the template (default 0 for summons without
+    /// explicit magic resist in their template definition).
+    pub magic_resist: i32,
     pub base_speed: i32,
     pub max_ap: i32,
     pub mana_max: i32,
@@ -360,8 +388,9 @@ pub struct AuraDef {
 /// alive-source aura contributions.  Pure query result — never stored.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AuraEffects {
-    pub speed_bonus: i32,
-    pub armor_bonus: i32,
+    /// Additive delta to armor, magic_resist, and base_speed from auras.
+    pub runtime: RuntimeStatsDelta,
+    /// Added to incoming damage delta after mitigation.
     pub damage_taken_bonus: i32,
     pub skips_turn: bool,
     pub causes_disadvantage: bool,

@@ -527,7 +527,7 @@ pub fn compute_plan_intent_sum(
             TacticalIntent::FocusTarget { target } => {
                 return match snap.unit(*target) {
                     Some(t) => {
-                        let reach = (active.speed.max(0) as u32)
+                        let reach = (active.effective_speed().max(0) as u32)
                             .saturating_add(active.cache.max_attack_range);
                         pursuit_move_score(active.pos, plan.final_pos, t.pos, reach)
                     }
@@ -537,8 +537,8 @@ pub fn compute_plan_intent_sum(
             TacticalIntent::ApplyCC { target } => {
                 return match snap.unit(*target) {
                     Some(t) => {
-                        let reach =
-                            (active.speed.max(0) as u32).saturating_add(cc_reach(active, content));
+                        let reach = (active.effective_speed().max(0) as u32)
+                            .saturating_add(cc_reach(active, content));
                         pursuit_move_score(active.pos, plan.final_pos, t.pos, reach)
                     }
                     None => 0.0,
@@ -611,7 +611,7 @@ pub fn compute_plan_intent_sum(
                 let tail_score = match intent {
                     TacticalIntent::FocusTarget { target } => match snap.unit(*target) {
                         Some(t) => {
-                            let reach = (active.speed.max(0) as u32)
+                            let reach = (active.effective_speed().max(0) as u32)
                                 .saturating_add(active.cache.max_attack_range);
                             pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
                         }
@@ -619,7 +619,7 @@ pub fn compute_plan_intent_sum(
                     },
                     TacticalIntent::ApplyCC { target } => match snap.unit(*target) {
                         Some(t) => {
-                            let reach = (active.speed.max(0) as u32)
+                            let reach = (active.effective_speed().max(0) as u32)
                                 .saturating_add(cc_reach(active, content));
                             pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
                         }

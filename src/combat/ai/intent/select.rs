@@ -93,7 +93,8 @@ pub(crate) fn select_intent_normal(
     // NOTE: no ProtectSelf / ProtectAlly — handled by band builders.
 
     // FocusTarget killable enemy / best priority target.
-    let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
+    let reach_budget =
+        (active.effective_speed().max(0) as u32).saturating_add(active.cache.max_attack_range);
     let killable = snap
         .enemies_of(active.team)
         .filter(|_| {
@@ -376,7 +377,7 @@ pub fn select_intent(
         // "Killable" requires BOTH: (a) effective HP within threat (armor-aware),
         // (b) reachable this turn (dist ≤ speed + max attack range).
         let reach_budget =
-            (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
+            (active.effective_speed().max(0) as u32).saturating_add(active.cache.max_attack_range);
         let killable = snap
             .enemies_of(active.team)
             .filter(|_| {

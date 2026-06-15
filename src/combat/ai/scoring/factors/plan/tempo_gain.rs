@@ -31,7 +31,7 @@ pub fn compute_plan_tempo_gain(plan: &TurnPlan, intent: &TacticalIntent, ctx: &S
         return 0.0;
     };
     let actor_start = ctx.active.pos;
-    let speed = ctx.active.speed.max(1);
+    let speed = ctx.active.effective_speed().max(1);
     let max_attack_range = max_offensive_range(ctx);
 
     step_tempo(

@@ -19,7 +19,8 @@ pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
 
     let actor_entity = ctx.active.entity();
     // Find most-endangered ally within reach budget.
-    let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.cache.max_attack_range);
+    let reach = (ctx.active.effective_speed().max(0) as u32)
+        .saturating_add(ctx.active.cache.max_attack_range);
     let best_danger: f32 = ctx
         .snap
         .allies_of(ctx.active.team)

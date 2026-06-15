@@ -184,7 +184,8 @@ pub(crate) fn compute_next_turn_lethality(
         .enemies_of(ctx.active.team)
         .filter(|e| e.hp() > 0)
         .filter(|e| {
-            let reach = (e.speed.max(0) as u32).saturating_add(e.cache.max_attack_range);
+            let reach =
+                (e.effective_speed().max(0) as u32).saturating_add(e.cache.max_attack_range);
             final_pos.unsigned_distance_to(e.pos) <= reach
         })
         .map(crate::combat::ai::scoring::horizon_avg)

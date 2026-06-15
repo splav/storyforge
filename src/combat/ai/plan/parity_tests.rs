@@ -642,6 +642,7 @@ mod tests {
             StatusBonuses {
                 speed_bonus: 2,
                 armor_bonus: 0,
+                magic_resist_bonus: 0,
                 damage_taken_bonus: 0,
             },
         );
@@ -675,9 +676,12 @@ mod tests {
             "haste",
             combat_engine::StatusDef {
                 bonuses: combat_engine::StatusBonuses {
-                    armor_bonus: 0,
+                    runtime: combat_engine::RuntimeStatsDelta(combat_engine::RuntimeStats {
+                        armor: 0,
+                        magic_resist: 0,
+                        base_speed: 2,
+                    }),
                     damage_taken_bonus: 0,
-                    speed_bonus: 2,
                 },
                 skips_turn: false,
                 forces_targeting: false,
@@ -730,9 +734,10 @@ mod tests {
 
         let actor_after = sim.unit(actor_id).expect("actor present after cast");
         assert_eq!(
-            actor_after.speed, 5,
+            actor_after.effective_speed(),
+            5,
             "after haste (speed_bonus=+2), speed should be base(3)+bonus(2)=5, got {}",
-            actor_after.speed,
+            actor_after.effective_speed(),
         );
         assert_eq!(
             actor_after.runtime.base_speed, 3,
@@ -765,9 +770,12 @@ mod tests {
             "stone_skin",
             combat_engine::StatusDef {
                 bonuses: combat_engine::StatusBonuses {
-                    armor_bonus: 5,
+                    runtime: combat_engine::RuntimeStatsDelta(combat_engine::RuntimeStats {
+                        armor: 5,
+                        magic_resist: 0,
+                        base_speed: 0,
+                    }),
                     damage_taken_bonus: 0,
-                    speed_bonus: 0,
                 },
                 skips_turn: false,
                 forces_targeting: false,
@@ -894,11 +902,11 @@ mod tests {
             false,
         );
 
-        // Verify armor_bonus refreshed.
+        // Verify effective_armor refreshed (runtime_bonus.armor = +5).
         assert_eq!(
-            sim.unit(target_id).unwrap().armor_bonus,
+            sim.unit(target_id).unwrap().effective_armor(),
             5,
-            "target armor_bonus must be 5 after stone_skin",
+            "target effective_armor must be 5 after stone_skin (base armor=0, bonus=+5)",
         );
 
         // Step 2: attacker strikes target (swap actor).

@@ -184,9 +184,9 @@ pub fn hypothetical(
                 0.0
             } else {
                 combat_engine::mitigation(
-                    target.runtime.armor,
-                    target.armor_bonus,
-                    target.runtime.magic_resist,
+                    target.effective_armor(),
+                    0,
+                    target.effective_magic_resist(),
                     calc.magic,
                 )
             };
@@ -219,8 +219,8 @@ pub fn hypothetical(
         if sd.bonuses.damage_taken_bonus != 0 {
             vulnerability_applied += sd.bonuses.damage_taken_bonus as f32 * dur;
         }
-        if sd.bonuses.armor_bonus != 0 {
-            armor_shred_applied += sd.bonuses.armor_bonus as f32 * dur;
+        if sd.bonuses.runtime.0.armor != 0 {
+            armor_shred_applied += sd.bonuses.runtime.0.armor as f32 * dur;
         }
     }
 
@@ -269,9 +269,9 @@ pub fn estimate_kill_soon(
         0.0
     } else {
         combat_engine::mitigation(
-            target.runtime.armor,
-            target.armor_bonus,
-            target.runtime.magic_resist,
+            target.effective_armor(),
+            0,
+            target.effective_magic_resist(),
             calc.magic,
         )
     };
@@ -405,9 +405,9 @@ pub(crate) fn build_damage_facts(
             0.0
         } else {
             combat_engine::mitigation(
-                unit.runtime.armor,
-                unit.armor_bonus,
-                unit.runtime.magic_resist,
+                unit.effective_armor(),
+                0,
+                unit.effective_magic_resist(),
                 calc.magic,
             )
         };
@@ -537,8 +537,8 @@ pub(crate) fn build_status_facts(
         if sd.bonuses.damage_taken_bonus != 0 {
             vuln += sd.bonuses.damage_taken_bonus as f32 * dur * n;
         }
-        if sd.bonuses.armor_bonus != 0 {
-            shred += sd.bonuses.armor_bonus as f32 * dur * n;
+        if sd.bonuses.runtime.0.armor != 0 {
+            shred += sd.bonuses.runtime.0.armor as f32 * dur * n;
         }
     }
 

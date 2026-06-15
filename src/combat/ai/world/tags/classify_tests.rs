@@ -155,7 +155,7 @@ fn status_disadvantage_yields_soft_cc() {
 #[test]
 fn status_negative_speed_yields_soft_cc() {
     let mut eng = empty_engine_status();
-    eng.bonuses.speed_bonus = -1;
+    eng.bonuses.runtime.0.base_speed = -1;
     assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::SOFT_CC);
 }
 
@@ -165,7 +165,7 @@ fn status_positive_speed_alone_yields_cosmetic() {
     // speed_bonus is not recognised as a Buff — falls through to Cosmetic.
     // This pins the documented rule against accidental `speed_bonus > 0 → Buff`.
     let mut eng = empty_engine_status();
-    eng.bonuses.speed_bonus = 1;
+    eng.bonuses.runtime.0.base_speed = 1;
     assert_eq!(
         derive_status_tags(&make_status(eng)),
         StatusTagSet::COSMETIC
@@ -192,7 +192,7 @@ fn status_hp_percent_dot_yields_dot() {
 #[test]
 fn status_armor_bonus_yields_buff() {
     let mut eng = empty_engine_status();
-    eng.bonuses.armor_bonus = 4;
+    eng.bonuses.runtime.0.armor = 4;
     assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::BUFF);
 }
 
@@ -225,7 +225,7 @@ fn status_combo_negative_speed_and_dot_yields_soft_cc_and_dot() {
     // Exhaustion-style: SoftCC (speed_bonus<0) + DOT (hp_percent_dot>0).
     // Tests that tags accumulate independently (not mutually exclusive).
     let mut eng = empty_engine_status();
-    eng.bonuses.speed_bonus = -1;
+    eng.bonuses.runtime.0.base_speed = -1;
     eng.hp_percent_dot = 5;
     assert_eq!(
         derive_status_tags(&make_status(eng)),

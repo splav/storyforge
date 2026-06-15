@@ -63,11 +63,7 @@ impl Stub {
                 skips_turn: false,
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
-                bonuses: StatusBonuses {
-                    armor_bonus: 0,
-                    damage_taken_bonus: 0,
-                    speed_bonus: 0,
-                },
+                bonuses: StatusBonuses::default(),
             },
         )
     }
@@ -93,12 +89,13 @@ fn eng_unit(id: u64, team: Team, col: i32, hp: i32) -> Unit {
         UnitId(id),
         team,
         hex_from_offset(col, 0),
-        0, // armor
-        0, // magic_resist
-        0, // armor_bonus
+        storyforge::combat_engine::RuntimeStats {
+            armor: 0,
+            magic_resist: 0,
+            base_speed: 4,
+        },
+        storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
         0, // damage_taken_bonus
-        4, // base_speed
-        4, // speed
         1, // reactions_left
         1, // reactions_max
         vec![],

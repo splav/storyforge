@@ -89,8 +89,8 @@ pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
             let Some(sdef) = ctx.world.content.statuses.get(&sa.status) else {
                 continue;
             };
-            if sdef.bonuses.armor_bonus > 0 {
-                armor_sum += sdef.bonuses.armor_bonus as f32 * 3.0 / max_hp;
+            if sdef.bonuses.runtime.0.armor > 0 {
+                armor_sum += sdef.bonuses.runtime.0.armor as f32 * 3.0 / max_hp;
             }
         }
     }

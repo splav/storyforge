@@ -62,14 +62,15 @@ pub(crate) fn neutral_reference_pair() -> (combat_engine::state::Unit, UnitAiCac
         uid,
         EngineTeam::Player,
         crate::game::hex::hex_from_offset(0, 0),
-        0,          // armor
-        0,          // magic_resist
-        0,          // armor_bonus
+        combat_engine::RuntimeStats {
+            armor: 0,
+            magic_resist: 0,
+            base_speed: 0,
+        },
+        combat_engine::RuntimeStatsDelta::default(),
         0,          // damage_taken_bonus
-        0,          // base_speed
-        0,          // speed
         0,          // reactions_left
-        1,          // ap_max (placeholder; not read by severity)
+        1,          // reactions_max (placeholder; not read by severity)
         Vec::new(), // statuses
         None,       // summoner
         None,       // initiative

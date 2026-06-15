@@ -77,9 +77,14 @@ impl AuraContent {
             forces_targeting: false,
             skips_turn: stun,
             bonuses: StatusBonuses {
-                armor_bonus,
+                runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                    storyforge::combat_engine::RuntimeStats {
+                        armor: armor_bonus,
+                        magic_resist: 0,
+                        base_speed: speed_bonus,
+                    },
+                ),
                 damage_taken_bonus: 0,
-                speed_bonus,
             },
             hp_percent_dot: 0,
             heal_per_tick: 0,
@@ -117,8 +122,13 @@ impl ContentView for AuraContent {
     fn status_bonuses(&self, id: &StatusId) -> StatusBonuses {
         if *id == self.status_id {
             StatusBonuses {
-                speed_bonus: self.speed_bonus,
-                armor_bonus: self.armor_bonus,
+                runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                    storyforge::combat_engine::RuntimeStats {
+                        armor: self.armor_bonus,
+                        magic_resist: 0,
+                        base_speed: self.speed_bonus,
+                    },
+                ),
                 damage_taken_bonus: 0,
             }
         } else {
@@ -162,7 +172,7 @@ fn in_range_gives_speed_bonus() {
         vec![tgt, src],
     );
     let fx = state.aura_effects_on(tgt, &content);
-    assert_eq!(fx.speed_bonus, -1);
+    assert_eq!(fx.runtime.0.base_speed, -1);
 }
 
 #[test]
@@ -179,7 +189,10 @@ fn out_of_range_gives_no_bonus() {
         vec![tgt, src],
     );
     let fx = state.aura_effects_on(tgt, &content);
-    assert_eq!(fx.speed_bonus, 0, "out-of-range: no bonus expected");
+    assert_eq!(
+        fx.runtime.0.base_speed, 0,
+        "out-of-range: no bonus expected"
+    );
 }
 
 #[test]
@@ -196,7 +209,10 @@ fn dead_source_contributes_nothing() {
         vec![tgt, src],
     );
     let fx = state.aura_effects_on(tgt, &content);
-    assert_eq!(fx.speed_bonus, 0, "dead source must not contribute");
+    assert_eq!(
+        fx.runtime.0.base_speed, 0,
+        "dead source must not contribute"
+    );
 }
 
 /// Parametrize team-relation filter: (src_team, tgt_team, relation, should_apply).
@@ -213,7 +229,10 @@ fn ally_only_aura_does_not_affect_enemy() {
         vec![src, tgt],
     );
     let fx = state.aura_effects_on(tgt, &content);
-    assert_eq!(fx.armor_bonus, 0, "ally-only aura must not affect enemies");
+    assert_eq!(
+        fx.runtime.0.armor, 0,
+        "ally-only aura must not affect enemies"
+    );
 }
 
 #[test]
@@ -230,7 +249,7 @@ fn ally_only_aura_affects_ally() {
     );
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(
-        fx.armor_bonus, 2,
+        fx.runtime.0.armor, 2,
         "ally-only aura must affect same-team units"
     );
 }
@@ -249,7 +268,7 @@ fn enemy_aura_does_not_affect_same_team() {
     );
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(
-        fx.speed_bonus, 0,
+        fx.runtime.0.base_speed, 0,
         "enemy-targeted aura must not affect same-team unit"
     );
 }

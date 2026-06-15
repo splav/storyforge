@@ -31,8 +31,7 @@ impl HotContent {
                 forces_targeting: false,
                 skips_turn: false,
                 bonuses: StatusBonuses {
-                    speed_bonus: 0,
-                    armor_bonus: 0,
+                    runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
                     damage_taken_bonus: 0,
                 },
                 hp_percent_dot: 0,

@@ -22,6 +22,7 @@ use super::{AbilityTagSet, StatusTagSet};
 pub struct StatusBonuses {
     pub speed_bonus: i32,
     pub armor_bonus: i32,
+    pub magic_resist_bonus: i32,
     pub damage_taken_bonus: i32,
 }
 
@@ -92,8 +93,9 @@ pub fn build_caches(content: &ActiveContentData) -> (StatusTagCache, AbilityTagC
         bonuses_map.insert(
             id.clone(),
             StatusBonuses {
-                speed_bonus: def.bonuses.speed_bonus,
-                armor_bonus: def.bonuses.armor_bonus,
+                speed_bonus: def.bonuses.runtime.0.base_speed,
+                armor_bonus: def.bonuses.runtime.0.armor,
+                magic_resist_bonus: def.bonuses.runtime.0.magic_resist,
                 damage_taken_bonus: def.bonuses.damage_taken_bonus,
             },
         );

@@ -15,7 +15,8 @@ pub(super) fn compute_apply_cc(ctx: &AppraisalCtx<'_>) -> f32 {
         return 0.0;
     }
 
-    let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.cache.max_attack_range);
+    let reach = (ctx.active.effective_speed().max(0) as u32)
+        .saturating_add(ctx.active.cache.max_attack_range);
     let best_threat: f32 = ctx
         .snap
         .enemies_of(ctx.active.team)

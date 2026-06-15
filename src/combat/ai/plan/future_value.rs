@@ -150,7 +150,7 @@ pub fn future_value_from_committed_state(
         _ => attack_component_intent(active, committed_pos, snap, ctx, intent),
     };
 
-    let lambda_mob = mobility_component(committed_pos, active.speed, snap);
+    let lambda_mob = mobility_component(committed_pos, active.effective_speed(), snap);
     lambda_pos + lambda_attack + lambda_mob
 }
 
@@ -183,7 +183,7 @@ fn attack_component_intent(
     use crate::combat::ai::scoring::policy;
 
     let content = ctx.world.content;
-    let reach_budget = active.speed.max(0) + active.cache.max_attack_range as i32;
+    let reach_budget = active.effective_speed().max(0) + active.cache.max_attack_range as i32;
 
     // Apply `policy::damage::value` to a hypothetical outcome for a single target.
     // Accepts `&Unit` (engine state) — `UnitView` derefs to `Unit`.

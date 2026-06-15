@@ -6,7 +6,8 @@ pub(super) fn compute_finish_target(ctx: &AppraisalCtx<'_>) -> f32 {
     let snap = ctx.snap;
     let memory = ctx.memory;
     let tuning = ctx.tuning;
-    let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
+    let reach_budget =
+        (active.effective_speed().max(0) as u32).saturating_add(active.cache.max_attack_range);
 
     // Best killability metric among reachable killable enemies.
     // None means no killable target exists → signal stays 0.

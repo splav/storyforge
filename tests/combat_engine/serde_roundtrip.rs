@@ -468,8 +468,13 @@ fn crit_fail_outcome_double_cost() {
 #[test]
 fn status_bonuses_roundtrip() {
     roundtrip(StatusBonuses {
-        speed_bonus: 2,
-        armor_bonus: -1,
+        runtime: storyforge::combat_engine::RuntimeStatsDelta(
+            storyforge::combat_engine::RuntimeStats {
+                armor: -1,
+                magic_resist: 0,
+                base_speed: 2,
+            },
+        ),
         damage_taken_bonus: 0,
     });
 }
@@ -477,8 +482,13 @@ fn status_bonuses_roundtrip() {
 #[test]
 fn aura_effects_roundtrip() {
     roundtrip(AuraEffects {
-        speed_bonus: 1,
-        armor_bonus: -2,
+        runtime: storyforge::combat_engine::RuntimeStatsDelta(
+            storyforge::combat_engine::RuntimeStats {
+                armor: -2,
+                magic_resist: 0,
+                base_speed: 1,
+            },
+        ),
         damage_taken_bonus: 3,
         skips_turn: true,
         causes_disadvantage: false,

@@ -39,9 +39,8 @@ impl Stub {
                 hp_percent_dot: 0,
                 heal_per_tick: 0,
                 bonuses: StatusBonuses {
-                    armor_bonus: 0,
+                    runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
                     damage_taken_bonus: 0,
-                    speed_bonus: 0,
                 },
             },
         )
@@ -542,9 +541,8 @@ fn reveal_on_move_halts_and_truncates() {
             hp_percent_dot: 0,
             heal_per_tick: 0,
             bonuses: storyforge::combat_engine::StatusBonuses {
-                armor_bonus: 0,
+                runtime: storyforge::combat_engine::RuntimeStatsDelta(Default::default()),
                 damage_taken_bonus: 0,
-                speed_bonus: 0,
             },
         },
     );

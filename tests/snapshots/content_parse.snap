@@ -967,8 +967,13 @@ StatusId("accumulator_field") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 3,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 3,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -989,8 +994,13 @@ StatusId("broken_faith") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1011,8 +1021,13 @@ StatusId("burning") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 1,
         },
         hp_percent_dot: 0,
@@ -1035,8 +1050,13 @@ StatusId("defending") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 4,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 4,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1057,8 +1077,13 @@ StatusId("disoriented") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1079,8 +1104,13 @@ StatusId("exhaustion") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: -1,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: -1,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 5,
@@ -1101,8 +1131,13 @@ StatusId("injured") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: -1,
-            armor_bonus: -1,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: -1,
+                    magic_resist: 0,
+                    base_speed: -1,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1125,8 +1160,13 @@ StatusId("living_carapace") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 2,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 2,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1147,8 +1187,13 @@ StatusId("numbness") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: -2,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: -2,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1169,8 +1214,13 @@ StatusId("pact_control") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1191,8 +1241,13 @@ StatusId("paralyzed") => StatusDef {
         forces_targeting: false,
         skips_turn: true,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1219,8 +1274,13 @@ StatusId("poisoned") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1243,8 +1303,13 @@ StatusId("prototype_ward") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 2,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 2,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1265,8 +1330,13 @@ StatusId("stunned") => StatusDef {
         forces_targeting: false,
         skips_turn: true,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1287,8 +1357,13 @@ StatusId("taunted") => StatusDef {
         forces_targeting: true,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1309,8 +1384,13 @@ StatusId("vital_infusion") => StatusDef {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: RuntimeStatsDelta(
+                RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,

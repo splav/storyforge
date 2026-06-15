@@ -382,8 +382,13 @@ fn aura_content_with_tags(_affects_tags: BTreeSet<TagId>) -> TagContent {
             forces_targeting: false,
             skips_turn: false,
             bonuses: StatusBonuses {
-                speed_bonus: 5,
-                armor_bonus: 0,
+                runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                    storyforge::combat_engine::RuntimeStats {
+                        armor: 0,
+                        magic_resist: 0,
+                        base_speed: 5,
+                    },
+                ),
                 damage_taken_bonus: 0,
             },
             hp_percent_dot: 0,
@@ -429,14 +434,14 @@ fn aura_with_affects_tags_applies_only_to_tagged_target() {
     // Tagged target receives aura speed bonus
     let fx_tagged = state.aura_effects_on(uid(2), &content);
     assert_eq!(
-        fx_tagged.speed_bonus, 5,
+        fx_tagged.runtime.0.base_speed, 5,
         "tagged target should receive speed bonus"
     );
 
     // Untagged target receives nothing
     let fx_untagged = state.aura_effects_on(uid(3), &content);
     assert_eq!(
-        fx_untagged.speed_bonus, 0,
+        fx_untagged.runtime.0.base_speed, 0,
         "untagged target should not receive bonus"
     );
 }
@@ -455,7 +460,7 @@ fn aura_empty_affects_tags_applies_to_all_targets() {
 
     let fx = state.aura_effects_on(uid(2), &content);
     assert_eq!(
-        fx.speed_bonus, 5,
+        fx.runtime.0.base_speed, 5,
         "empty affects_tags should apply to all targets"
     );
 }

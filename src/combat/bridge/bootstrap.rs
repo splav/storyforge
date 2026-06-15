@@ -87,13 +87,11 @@ pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit
     // Compute status-derived aggregate bonuses from active statuses.
     // Mirrors Effect::RefreshAggregates (status half only); aura-based
     // contributions are added after bootstrap populates unit.auras.
-    let mut armor_bonus: i32 = 0;
-    let mut speed_bonus: i32 = 0;
+    let mut runtime_bonus = combat_engine::RuntimeStatsDelta::default();
     let mut damage_taken_bonus: i32 = 0;
     for s in &input.statuses {
         if let Some(def) = content.statuses.get(&s.id) {
-            armor_bonus += def.engine.bonuses.armor_bonus;
-            speed_bonus += def.engine.bonuses.speed_bonus;
+            runtime_bonus += def.engine.bonuses.runtime;
             damage_taken_bonus += def.engine.bonuses.damage_taken_bonus;
         }
     }
@@ -102,12 +100,13 @@ pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit
         input.uid,
         input.team,
         input.pos,
-        input.armor,
-        input.magic_resist,
-        armor_bonus,
+        combat_engine::RuntimeStats {
+            armor: input.armor,
+            magic_resist: input.magic_resist,
+            base_speed: input.base_speed,
+        },
+        runtime_bonus,
         damage_taken_bonus,
-        input.base_speed,
-        input.base_speed + speed_bonus,
         // Bootstrap-initial: a unit always enters combat with a full reaction
         // budget. We intentionally ignore `Reactions.remaining` here — the ECS
         // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for

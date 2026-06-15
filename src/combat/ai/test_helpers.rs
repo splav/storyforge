@@ -211,16 +211,24 @@ pub(crate) fn fixture_to_pair(
     let aoo_dice = u
         .aoo_expected_damage
         .map(|raw| combat_engine::DiceExpr::new(0, 1, raw.round() as i32));
+    // Derive runtime_bonus from UnitFixture's explicit armor_bonus + speed fields.
+    // speed_bonus = speed - base_speed (the fixture stores effective speed separately).
+    let runtime_bonus = combat_engine::RuntimeStatsDelta(combat_engine::RuntimeStats {
+        armor: u.armor_bonus,
+        magic_resist: 0, // UnitFixture has no magic_resist_bonus field yet
+        base_speed: u.speed - u.base_speed,
+    });
     let engine_unit = combat_engine::state::Unit::new(
         uid,
         team,
         u.pos,
-        u.armor,
-        u.magic_resist,
-        u.armor_bonus,
+        combat_engine::RuntimeStats {
+            armor: u.armor,
+            magic_resist: u.magic_resist,
+            base_speed: u.base_speed,
+        },
+        runtime_bonus,
         u.damage_taken_bonus,
-        u.base_speed,
-        u.speed,
         u.reactions_left,
         1,
         u.statuses.clone(),

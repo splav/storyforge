@@ -571,7 +571,7 @@ impl StatusTint {
 pub fn classify_status(def: &StatusDef) -> StatusTint {
     if def.dot_dice.is_some() || def.skips_turn || def.causes_disadvantage {
         StatusTint::Debuff
-    } else if def.buff_class.is_some() || def.bonuses.armor_bonus > 0 {
+    } else if def.buff_class.is_some() || def.bonuses.runtime.0.armor > 0 {
         StatusTint::Buff
     } else {
         StatusTint::Neutral
@@ -794,7 +794,7 @@ mod tests {
                 name: "defending (armor_bonus=4, buff_class=armor_buff) → Buff",
                 def: || {
                     let mut eng = base_engine_status();
-                    eng.bonuses.armor_bonus = 4;
+                    eng.bonuses.runtime.0.armor = 4;
                     make_status("defending", None, Some(BuffClass::ArmorBuff), eng)
                 },
                 expected: StatusTint::Buff,
@@ -842,7 +842,7 @@ mod tests {
                 name: "armor_bonus > 0 but no buff_class → Buff",
                 def: || {
                     let mut eng = base_engine_status();
-                    eng.bonuses.armor_bonus = 2;
+                    eng.bonuses.runtime.0.armor = 2;
                     make_status("prototype_ward", None, None, eng)
                 },
                 expected: StatusTint::Buff,
@@ -851,7 +851,7 @@ mod tests {
                 name: "dot_dice takes priority over buff_class (hypothetical mixed) → Debuff",
                 def: || {
                     let mut eng = base_engine_status();
-                    eng.bonuses.armor_bonus = 1;
+                    eng.bonuses.runtime.0.armor = 1;
                     make_status(
                         "mixed",
                         Some(combat_engine::DiceExpr::new(1, 6, 0)),

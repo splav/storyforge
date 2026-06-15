@@ -31,8 +31,13 @@ static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef =
         forces_targeting: false,
         skips_turn: false,
         bonuses: storyforge::combat_engine::StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                storyforge::combat_engine::RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                },
+            ),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,

@@ -160,8 +160,8 @@ pub mod turn_queue;
 
 pub use content::{
     AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome,
-    EffectDef, PassiveTrigger, PhaseEntry, PhaseTransition, RuntimeStats, StatusApplication,
-    StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate,
+    EffectDef, PassiveTrigger, PhaseEntry, PhaseTransition, RuntimeStats, RuntimeStatsDelta,
+    StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate,
 };
 pub use dice::{DiceExpr, DiceRng};
 pub use effect::{final_damage_f32, mitigation, SpawnBlockedReason};

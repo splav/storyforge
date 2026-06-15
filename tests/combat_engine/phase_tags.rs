@@ -71,8 +71,13 @@ impl PhaseTagContent {
                 forces_targeting: false,
                 skips_turn: false,
                 bonuses: StatusBonuses {
-                    speed_bonus: -2,
-                    armor_bonus: 0,
+                    runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                        storyforge::combat_engine::RuntimeStats {
+                            armor: 0,
+                            magic_resist: 0,
+                            base_speed: -2,
+                        },
+                    ),
                     damage_taken_bonus: 0,
                 },
                 hp_percent_dot: 0,
@@ -218,7 +223,7 @@ fn aura_cutoff_on_phase_tag_replace() {
     );
     let pre_bonus = state.aura_effects_on(boss, &content);
     assert_eq!(
-        pre_bonus.speed_bonus, -2,
+        pre_bonus.runtime.0.base_speed, -2,
         "boss should receive speed penalty from aura before phase"
     );
 
@@ -255,7 +260,7 @@ fn aura_cutoff_on_phase_tag_replace() {
     // (b) After the step, aura_effects_on(boss) returns zero bonus (no longer member).
     let post_bonus = state.aura_effects_on(boss, &content);
     assert_eq!(
-        post_bonus.speed_bonus, 0,
+        post_bonus.runtime.0.base_speed, 0,
         "boss should no longer receive aura speed penalty after shedding symbiote tag"
     );
 

@@ -194,7 +194,7 @@ fn build_danger(
         // BFS: enemy passes through own teammates, blocked by our units.
         let reachable = reachable_cells(
             enemy.pos,
-            enemy.speed,
+            enemy.effective_speed(),
             |h| is_passable(h, ally_positions),
             |h| can_stop_on(h, enemy_positions, Some(enemy.pos)),
         );

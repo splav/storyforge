@@ -126,9 +126,12 @@ mod tests {
             buff_class: Some(BuffClass::ArmorBuff),
             engine: combat_engine::StatusDef {
                 bonuses: combat_engine::StatusBonuses {
-                    armor_bonus: 4,
+                    runtime: combat_engine::RuntimeStatsDelta(combat_engine::RuntimeStats {
+                        armor: 4,
+                        magic_resist: 0,
+                        base_speed: 0,
+                    }),
                     damage_taken_bonus: 0,
-                    speed_bonus: 0,
                 },
                 skips_turn: false,
                 forces_targeting: false,
@@ -222,9 +225,12 @@ mod tests {
                 buff_class: Some(BuffClass::Haste),
                 engine: combat_engine::StatusDef {
                     bonuses: combat_engine::StatusBonuses {
-                        armor_bonus: 0,
+                        runtime: combat_engine::RuntimeStatsDelta(combat_engine::RuntimeStats {
+                            armor: 0,
+                            magic_resist: 0,
+                            base_speed: 1,
+                        }),
                         damage_taken_bonus: 0,
-                        speed_bonus: 1,
                     },
                     skips_turn: false,
                     forces_targeting: false,

@@ -862,7 +862,8 @@ fn phase_runtime_stats_replace_on_transition() {
     // ── Assert 2: effective speed reflects RefreshAggregates ──────────────────
     // No status bonuses → speed == base_speed.
     assert_eq!(
-        u.speed, phase_runtime.base_speed,
+        u.effective_speed(),
+        phase_runtime.base_speed,
         "Unit.speed must equal new base_speed after RefreshAggregates (no status bonuses)"
     );
 

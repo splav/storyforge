@@ -102,6 +102,7 @@ fn build_engine_template_from_def(
     combat_engine::UnitTemplate {
         max_hp: effective.max_hp,
         armor,
+        magic_resist: 0, // bridge-spawned summons carry no magic resist by default
         base_speed: tpl.speed,
         max_ap: 1, // templates carry no max_ap; matches CombatantBundle hardcoded default
         mana_max: tpl.resources.mana_max,
@@ -182,19 +183,19 @@ mod tests {
 
         let defending = view.status_bonuses(&StatusId::from("defending"));
         assert_eq!(
-            defending.armor_bonus, 4,
-            "defending must report armor_bonus=4 from statuses.toml, not the stub default",
+            defending.runtime.0.armor, 4,
+            "defending must report armor (via runtime.0.armor)=4 from statuses.toml, not the stub default",
         );
 
-        // Sanity: a status without armor_bonus stays at 0 (no false positives).
+        // Sanity: a status without armor stays at 0 (no false positives).
         let taunted = view.status_bonuses(&StatusId::from("taunted"));
-        assert_eq!(taunted.armor_bonus, 0);
-        assert_eq!(taunted.speed_bonus, 0);
+        assert_eq!(taunted.runtime.0.armor, 0);
+        assert_eq!(taunted.runtime.0.base_speed, 0);
 
         // Sanity: unknown status id falls back to default.
         let unknown = view.status_bonuses(&StatusId::from("__nonexistent__"));
-        assert_eq!(unknown.armor_bonus, 0);
-        assert_eq!(unknown.speed_bonus, 0);
+        assert_eq!(unknown.runtime.0.armor, 0);
+        assert_eq!(unknown.runtime.0.base_speed, 0);
     }
 
     /// End-to-end sanity: after `Effect::ApplyStatus(defending)` runs through
@@ -213,12 +214,13 @@ mod tests {
             UnitId(1),
             Team::Player,
             Hex::ZERO,
-            3, // armor
-            0, // magic_resist
-            0, // armor_bonus
+            combat_engine::RuntimeStats {
+                armor: 3,
+                magic_resist: 0,
+                base_speed: 3,
+            },
+            combat_engine::RuntimeStatsDelta::default(),
             0, // damage_taken_bonus
-            3, // base_speed
-            3, // speed
             1, // reactions_left
             1, // reactions_max
             Vec::new(),
@@ -266,8 +268,11 @@ mod tests {
         }
 
         let u = state.unit(UnitId(1)).unwrap();
-        assert_eq!(u.armor_bonus, 4, "defending must contribute +4 armor_bonus");
-        // Damage mitigation = armor + armor_bonus = 3 + 4 = 7.
-        assert_eq!(u.runtime.armor + u.armor_bonus, 7);
+        assert_eq!(
+            u.runtime_bonus.0.armor, 4,
+            "defending must contribute +4 runtime_bonus.armor"
+        );
+        // Effective armor = base armor + bonus = 3 + 4 = 7.
+        assert_eq!(u.effective_armor(), 7);
     }
 }

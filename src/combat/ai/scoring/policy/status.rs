@@ -78,8 +78,8 @@ pub fn value(
                 total += vulnerability_value(sd.bonuses.damage_taken_bonus, d);
             }
             // Armor delta: negative = shred on enemy, positive = buff on ally.
-            if sd.bonuses.armor_bonus != 0 {
-                total += armor_shred_value(sd.bonuses.armor_bonus, d);
+            if sd.bonuses.runtime.0.armor != 0 {
+                total += armor_shred_value(sd.bonuses.runtime.0.armor, d);
             }
             // DoT: expected tick damage × duration.
             if let Some(ref dice) = sd.dot_dice {
@@ -95,8 +95,8 @@ pub fn value(
                 total += 0.5 * horizon_window_sum(target, d);
             }
             // Speed penalty: reduces tactical options.
-            if sd.bonuses.speed_bonus < 0 {
-                total += (-sd.bonuses.speed_bonus) as f32 * d;
+            if sd.bonuses.runtime.0.base_speed < 0 {
+                total += (-sd.bonuses.runtime.0.base_speed) as f32 * d;
             }
             total
         })

@@ -256,19 +256,16 @@ pub struct Unit {
     pub team: Team,
     pub pos: Hex,
     /// Equipment/template-derived base defensive stats. Replaced atomically on
-    /// phase swap. Status-derived modifiers (`armor_bonus`, `damage_taken_bonus`,
-    /// effective `speed`) stay as flat fields and are recomputed by
-    /// `RefreshAggregates` on top of this base.
+    /// phase swap.
     pub runtime: crate::content::RuntimeStats,
-    /// Armor bonus from active statuses (recomputed by `RefreshAggregates`).
-    pub armor_bonus: i32,
+    /// Additive bonus to armor, magic_resist, and base_speed from active
+    /// statuses AND auras (recomputed by `RefreshAggregates`).
+    pub runtime_bonus: crate::content::RuntimeStatsDelta,
     /// Incoming-damage multiplier bonus from active statuses (recomputed by
     /// `RefreshAggregates`). Positive = unit takes more damage (vulnerability).
     /// Mirrors `UnitSnapshot.damage_taken_bonus`; kept in sync via the engine's
     /// aggregate refresh.
     pub damage_taken_bonus: i32,
-    /// Effective speed = runtime.base_speed + speed bonuses from statuses.
-    pub speed: i32,
     pub reactions_left: i32,
     /// Maximum reactions per round. Populated by the bridge from `Reactions.max`.
     pub reactions_max: i32,
@@ -392,6 +389,12 @@ struct UnitWire {
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub magic_resist: i32,
 
+    // ── magic_resist_bonus (v51+; value-0 backward compatible) ───────────────
+    // Bonus magic resist from active statuses/auras. Zero for all existing
+    // fixtures → field absent in wire; serialization byte-identical to pre-v51.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub magic_resist_bonus: i32,
+
     // ── passives (transient; not serialized to trace files) ─────────────────
     // Always defaulted to empty on deserialization — the bridge re-populates
     // this from ECS at combat init, so stored traces round-trip cleanly.
@@ -493,6 +496,16 @@ impl From<UnitWire> for Unit {
             }
         }
 
+        // Reconstruct runtime_bonus from wire fields (armor_bonus, magic_resist_bonus, speed_bonus).
+        // Legacy traces lack magic_resist_bonus (defaults to 0 via #[serde(default)]).
+        // We derive speed from (speed − base_speed) to recover the legacy speed_bonus.
+        let speed_bonus = w.speed - w.base_speed;
+        let runtime_bonus = crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+            armor: w.armor_bonus,
+            magic_resist: w.magic_resist_bonus,
+            base_speed: speed_bonus,
+        });
+
         Unit {
             id: w.id,
             team: w.team,
@@ -502,9 +515,8 @@ impl From<UnitWire> for Unit {
                 magic_resist: w.magic_resist,
                 base_speed: w.base_speed,
             },
-            armor_bonus: w.armor_bonus,
+            runtime_bonus,
             damage_taken_bonus: w.damage_taken_bonus,
-            speed: w.speed,
             reactions_left: w.reactions_left,
             reactions_max: w.reactions_max,
             statuses: w.statuses,
@@ -533,10 +545,13 @@ impl From<Unit> for UnitWire {
             pos: u.pos,
             armor: u.runtime.armor,
             magic_resist: u.runtime.magic_resist,
-            armor_bonus: u.armor_bonus,
+            // Map runtime_bonus back to legacy wire fields for backward-compat.
+            armor_bonus: u.runtime_bonus.0.armor,
+            magic_resist_bonus: u.runtime_bonus.0.magic_resist,
             damage_taken_bonus: u.damage_taken_bonus,
             base_speed: u.runtime.base_speed,
-            speed: u.speed,
+            // speed = base_speed + speed bonus (runtime_bonus.base_speed).
+            speed: u.runtime.base_speed + u.runtime_bonus.0.base_speed,
             reactions_left: u.reactions_left,
             reactions_max: u.reactions_max,
             statuses: u.statuses,
@@ -577,6 +592,11 @@ impl Unit {
     /// `Unit` struct literal.  All other constructors and test helpers must call
     /// this function.
     ///
+    /// `base` carries equipment/template-derived defensive stats (armor,
+    /// magic_resist, base_speed). `runtime_bonus` carries the pre-computed
+    /// status+aura delta; callers that have not yet run `RefreshAggregates`
+    /// should pass `RuntimeStatsDelta::default()`.
+    ///
     /// `pools` must have `pools[PoolKind::Hp] = Some((hp, max_hp))` before
     /// calling; this invariant is enforced by a debug-mode assertion.
     ///
@@ -587,12 +607,9 @@ impl Unit {
         id: UnitId,
         team: Team,
         pos: Hex,
-        armor: i32,
-        magic_resist: i32,
-        armor_bonus: i32,
+        base: crate::content::RuntimeStats,
+        runtime_bonus: crate::content::RuntimeStatsDelta,
         damage_taken_bonus: i32,
-        base_speed: i32,
-        speed: i32,
         reactions_left: i32,
         reactions_max: i32,
         statuses: Vec<ActiveStatus>,
@@ -614,14 +631,9 @@ impl Unit {
             id,
             team,
             pos,
-            runtime: crate::content::RuntimeStats {
-                armor,
-                magic_resist,
-                base_speed,
-            },
-            armor_bonus,
+            runtime: base,
+            runtime_bonus,
             damage_taken_bonus,
-            speed,
             reactions_left,
             reactions_max,
             statuses,
@@ -655,6 +667,27 @@ impl Unit {
     /// only possible for non-combatant entities (currently unused).
     pub fn is_alive(&self) -> bool {
         self.pools[crate::PoolKind::Hp].is_some_and(|(cur, _)| cur > 0)
+    }
+
+    /// Effective armor = base armor (from equipment/template/phase) + armor bonus
+    /// from active statuses and auras (folded into `runtime_bonus`).
+    #[inline]
+    pub fn effective_armor(&self) -> i32 {
+        self.runtime.armor + self.runtime_bonus.0.armor
+    }
+
+    /// Effective magic resistance = base magic_resist + magic_resist bonus
+    /// from active statuses and auras (folded into `runtime_bonus`).
+    #[inline]
+    pub fn effective_magic_resist(&self) -> i32 {
+        self.runtime.magic_resist + self.runtime_bonus.0.magic_resist
+    }
+
+    /// Effective speed = base_speed + speed bonus from active statuses and auras
+    /// (folded into `runtime_bonus`).
+    #[inline]
+    pub fn effective_speed(&self) -> i32 {
+        self.runtime.base_speed + self.runtime_bonus.0.base_speed
     }
 
     /// Current HP — reads from `pools[PoolKind::Hp]`, the canonical source of
@@ -986,7 +1019,7 @@ impl CombatState {
                 // Capture effective speed before the mutable pool iteration —
                 // needed to sync pools[Mp].max for RefillToMax (mirrors prior
                 // `u.movement_points = u.speed` behavior).
-                let effective_speed = u.speed;
+                let effective_speed = u.effective_speed();
 
                 // Unified regen loop: iteration order is load-bearing for
                 // determinism (Mana, Rage, Energy, Ap, Mp).
@@ -1356,10 +1389,9 @@ impl CombatState {
                 if !aura_target_matches(target_team, &target_tags, src_team, dist, aura) {
                     continue;
                 }
-                // Fold all bonuses (speed, armor, damage_taken) and flags via one call.
+                // Fold all bonuses (runtime delta and damage_taken) and flags via one call.
                 let b = content.status_bonuses(&aura.status_id);
-                out.speed_bonus += b.speed_bonus;
-                out.armor_bonus += b.armor_bonus;
+                out.runtime += b.runtime;
                 out.damage_taken_bonus += b.damage_taken_bonus;
                 if let Some(def) = content.status_def(&aura.status_id) {
                     out.skips_turn |= def.skips_turn;
@@ -1651,8 +1683,11 @@ mod tests {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 0,
+            }),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1677,12 +1712,13 @@ mod tests {
             id,
             Team::Player,
             Hex::ZERO,
-            0, // armor
-            0, // magic_resist
-            0, // armor_bonus
+            crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 3,
+            },
+            crate::content::RuntimeStatsDelta::default(),
             0, // damage_taken_bonus
-            3, // base_speed
-            3, // speed
             1, // reactions_left
             1, // reactions_max
             vec![],
@@ -1792,7 +1828,7 @@ mod tests {
         let uid = UnitId(11);
         let mut unit = make_unit(uid, 0, 2, None);
         unit.runtime.base_speed = 4;
-        unit.speed = 4;
+        // runtime_bonus.base_speed stays 0; effective_speed() = 4
         unit.pools[PoolKind::Mp] = Some((0, 4)); // depleted, max matches speed
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
@@ -1808,13 +1844,13 @@ mod tests {
 
     #[test]
     fn start_actor_turn_refills_mp_to_effective_speed_including_bonus() {
-        // When a status grants +2 speed_bonus, u.speed = base_speed + bonus.
-        // start_actor_turn must refill to u.speed, not u.base_speed.
+        // When a status grants +2 speed_bonus, effective_speed = base_speed + bonus.
+        // start_actor_turn must refill to effective_speed(), not base_speed.
         use crate::PoolKind;
         let uid = UnitId(12);
         let mut unit = make_unit(uid, 0, 2, None);
         unit.runtime.base_speed = 3;
-        unit.speed = 5; // reflects status speed_bonus of +2
+        unit.runtime_bonus.0.base_speed = 2; // status grants +2 speed
         unit.pools[PoolKind::Mp] = Some((0, 3)); // old max was 3; will be updated to 5
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
@@ -2198,8 +2234,11 @@ mod tests {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 0,
+            }),
             damage_taken_bonus: 2,
         },
         hp_percent_dot: 0,
@@ -2406,8 +2445,11 @@ mod tests {
             forces_targeting: false,
             skips_turn: false,
             bonuses: StatusBonuses {
-                speed_bonus: 0,
-                armor_bonus: 0,
+                runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                    armor: 0,
+                    magic_resist: 0,
+                    base_speed: 0,
+                }),
                 damage_taken_bonus: 0,
             },
             hp_percent_dot: 0,
@@ -2734,8 +2776,11 @@ mod tests {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 0,
+            }),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -2748,8 +2793,11 @@ mod tests {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 0,
+            }),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,

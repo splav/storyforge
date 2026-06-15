@@ -472,15 +472,15 @@ pub fn apply_effect(
             pierces,
             magic,
         } => {
-            // Read the target's current armor (base + bonus) for mitigation.
-            let (armor, armor_bonus, magic_resist) = state
+            // Read the target's effective armor and magic_resist for mitigation.
+            let (eff_armor, eff_magic_resist) = state
                 .unit(*target)
-                .map(|u| (u.runtime.armor, u.armor_bonus, u.runtime.magic_resist))
-                .unwrap_or((0, 0, 0));
+                .map(|u| (u.effective_armor(), u.effective_magic_resist()))
+                .unwrap_or((0, 0));
 
-            // Magic damage uses magic_resist; physical uses armor+armor_bonus.
+            // Magic damage uses magic_resist; physical uses effective armor.
             // `pierces=true` bypasses ALL mitigation regardless of damage type.
-            let mit = mitigation(armor, armor_bonus, magic_resist, *magic);
+            let mit = mitigation(eff_armor, 0, eff_magic_resist, *magic);
             let final_dmg = final_damage_f32(*raw, mit, 0.0, *pierces);
 
             // Apply HP reduction.
@@ -508,7 +508,7 @@ pub fn apply_effect(
             let max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
             derived.extend(phase_or_death(state, *target, hp_after, max_hp));
 
-            let mitigation = if *pierces { 0 } else { armor + armor_bonus };
+            let mitigation = if *pierces { 0 } else { eff_armor };
             (
                 derived,
                 ApplyCtx {
@@ -751,29 +751,25 @@ pub fn apply_effect(
         }
 
         Effect::RefreshAggregates { unit } => {
-            // Recompute speed, armor_bonus, and damage_taken_bonus from active
-            // statuses + aura effects.
+            // Recompute runtime_bonus (armor/magic_resist/base_speed delta) and
+            // damage_taken_bonus from active statuses + aura effects.
             // Reads status bonuses via ContentView — no Bevy dep in the engine.
             let unit_id = *unit;
             if let Some(u) = state.unit_mut(unit_id) {
-                let mut speed_bonus: i32 = 0;
-                let mut armor_bonus: i32 = 0;
+                let mut bonus = crate::content::RuntimeStatsDelta::default();
                 let mut damage_taken_bonus: i32 = 0;
                 for s in &u.statuses {
                     let b = content.status_bonuses(&s.id);
-                    speed_bonus += b.speed_bonus;
-                    armor_bonus += b.armor_bonus;
+                    bonus += b.runtime;
                     damage_taken_bonus += b.damage_taken_bonus;
                 }
-                u.speed = u.runtime.base_speed + speed_bonus;
-                u.armor_bonus = armor_bonus;
+                u.runtime_bonus = bonus;
                 u.damage_taken_bonus = damage_taken_bonus;
             }
             // Fold aura bonuses on top of status-derived aggregates.
             let aura_fx = state.aura_effects_on(unit_id, content);
             if let Some(u) = state.unit_mut(unit_id) {
-                u.speed += aura_fx.speed_bonus;
-                u.armor_bonus += aura_fx.armor_bonus;
+                u.runtime_bonus += aura_fx.runtime;
                 u.damage_taken_bonus += aura_fx.damage_taken_bonus;
             }
             (vec![], ApplyCtx::default())
@@ -1167,14 +1163,15 @@ pub fn apply_effect(
                 new_uid,
                 summoner_team,
                 pos,
-                template.armor,
-                0, // magic_resist: summons carry none (template has no magic_resist field)
-                0,
-                0,
-                template.base_speed,
-                template.base_speed,
-                0,
-                1,
+                crate::content::RuntimeStats {
+                    armor: template.armor,
+                    magic_resist: template.magic_resist,
+                    base_speed: template.base_speed,
+                },
+                crate::content::RuntimeStatsDelta::default(),
+                0, // damage_taken_bonus
+                0, // reactions_left
+                1, // reactions_max
                 Vec::new(),
                 Some(*summoner),
                 None, // initiative: not yet rolled
@@ -1235,12 +1232,13 @@ mod tests {
             id,
             Team::Player,
             Hex::ZERO,
-            0, // armor
-            0, // magic_resist
-            0, // armor_bonus
+            crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 3,
+            },
+            crate::content::RuntimeStatsDelta::default(),
             0, // damage_taken_bonus
-            3, // base_speed
-            3, // speed
             1, // reactions_left
             1, // reactions_max
             vec![],
@@ -1280,8 +1278,11 @@ mod tests {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 0,
+            }),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1293,8 +1294,11 @@ mod tests {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 0,
+            }),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,
@@ -1306,8 +1310,11 @@ mod tests {
         forces_targeting: false,
         skips_turn: false,
         bonuses: StatusBonuses {
-            speed_bonus: 0,
-            armor_bonus: 0,
+            runtime: crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
+                armor: 0,
+                magic_resist: 0,
+                base_speed: 0,
+            }),
             damage_taken_bonus: 0,
         },
         hp_percent_dot: 0,

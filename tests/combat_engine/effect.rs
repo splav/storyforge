@@ -34,9 +34,14 @@ impl StubContent {
             forces_targeting: false,
             skips_turn: false,
             bonuses: storyforge::combat_engine::StatusBonuses {
-                armor_bonus,
+                runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                    storyforge::combat_engine::RuntimeStats {
+                        armor: armor_bonus,
+                        magic_resist: 0,
+                        base_speed: speed_bonus,
+                    },
+                ),
                 damage_taken_bonus: 0,
-                speed_bonus,
             },
             hp_percent_dot,
             heal_per_tick: 0,
@@ -87,8 +92,13 @@ impl StubContent {
 impl ContentView for StubContent {
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses {
         StatusBonuses {
-            speed_bonus: self.speed_bonus,
-            armor_bonus: self.armor_bonus,
+            runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                storyforge::combat_engine::RuntimeStats {
+                    armor: self.armor_bonus,
+                    magic_resist: 0,
+                    base_speed: self.speed_bonus,
+                },
+            ),
             damage_taken_bonus: 0,
         }
     }
@@ -466,7 +476,7 @@ fn death_sets_hp_to_zero_and_unit_is_dead() {
 fn refresh_aggregates_recomputes_speed_from_statuses() {
     let mut u = make_unit(1, 10, 10);
     u.runtime.base_speed = 3;
-    u.speed = 3;
+    u.runtime_bonus.0.base_speed = 99; // stale; RefreshAggregates must overwrite
     u.statuses = vec![ActiveStatus {
         id: "haste".into(),
         rounds_remaining: 2,
@@ -482,7 +492,7 @@ fn refresh_aggregates_recomputes_speed_from_statuses() {
         &StubContent::with_speed(2),
     );
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().speed, 5); // 3 + 2
+    assert_eq!(state.unit(UnitId(1)).unwrap().effective_speed(), 5); // 3 + 2
 }
 
 /// RefreshAggregates with armor-buff status bumps armor_bonus.
@@ -490,7 +500,7 @@ fn refresh_aggregates_recomputes_speed_from_statuses() {
 fn refresh_aggregates_recomputes_armor_bonus_from_statuses() {
     let mut u = make_unit(1, 10, 10);
     u.runtime.armor = 2;
-    u.armor_bonus = 0;
+    u.runtime_bonus.0.armor = 99; // stale; RefreshAggregates must overwrite
     u.statuses = vec![ActiveStatus {
         applier: EffectSource::Unit(UnitId(1)),
         id: "iron_skin".into(),
@@ -505,16 +515,16 @@ fn refresh_aggregates_recomputes_armor_bonus_from_statuses() {
         &StubContent::with_armor(3),
     );
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().armor_bonus, 3);
-    assert_eq!(state.unit(UnitId(1)).unwrap().speed, 4); // unchanged
+    assert_eq!(state.unit(UnitId(1)).unwrap().runtime_bonus.0.armor, 3);
+    assert_eq!(state.unit(UnitId(1)).unwrap().effective_speed(), 4); // unchanged
 }
 
 /// No statuses → RefreshAggregates resets bonuses to zero.
 #[test]
 fn refresh_aggregates_clears_bonuses_when_no_statuses() {
     let mut u = make_unit(1, 10, 10);
-    u.armor_bonus = 5; // stale from before status expired
-    u.speed = 10; // stale
+    u.runtime_bonus.0.armor = 5; // stale from before status expired
+    u.runtime_bonus.0.base_speed = 6; // stale
     u.runtime.base_speed = 4;
     let mut state = state_with(vec![u]);
 
@@ -524,8 +534,8 @@ fn refresh_aggregates_clears_bonuses_when_no_statuses() {
         &StubContent::neutral(),
     );
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().armor_bonus, 0);
-    assert_eq!(state.unit(UnitId(1)).unwrap().speed, 4); // base_speed
+    assert_eq!(state.unit(UnitId(1)).unwrap().runtime_bonus.0.armor, 0);
+    assert_eq!(state.unit(UnitId(1)).unwrap().effective_speed(), 4); // base_speed
 }
 
 // ── Heal ─────────────────────────────────────────────────────────────────────
@@ -1380,6 +1390,7 @@ fn test_template() -> UnitTemplate {
     UnitTemplate {
         max_hp: 8,
         armor: 1,
+        magic_resist: 0,
         base_speed: 4,
         max_ap: 1,
         mana_max: 0,
@@ -1783,6 +1794,7 @@ fn melee_template() -> UnitTemplate {
     UnitTemplate {
         max_hp: 10,
         armor: 2,
+        magic_resist: 0,
         base_speed: 3,
         max_ap: 1,
         mana_max: 0,

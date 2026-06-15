@@ -523,9 +523,12 @@ fn status_applied_this_step_armor_affects_next_step() {
             buff_class: None,
             engine: combat_engine::StatusDef {
                 bonuses: combat_engine::StatusBonuses {
-                    armor_bonus: 5,
+                    runtime: combat_engine::RuntimeStatsDelta(combat_engine::RuntimeStats {
+                        armor: 5,
+                        magic_resist: 0,
+                        base_speed: 0,
+                    }),
                     damage_taken_bonus: 0,
-                    speed_bonus: 0,
                 },
                 skips_turn: false,
                 forces_targeting: false,
@@ -591,9 +594,9 @@ fn status_applied_this_step_armor_affects_next_step() {
 
     let t_mid = sim.unit(target_id).unwrap();
     assert_eq!(
-        t_mid.armor_bonus, 5,
+        t_mid.runtime_bonus.0.armor, 5,
         "aggregate should refresh after status apply, got {}",
-        t_mid.armor_bonus,
+        t_mid.runtime_bonus.0.armor,
     );
 
     // Step 2: attacker strikes target. Swap active actor.

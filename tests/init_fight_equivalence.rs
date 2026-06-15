@@ -577,9 +577,28 @@ fn compare_units(
             ident, ru.runtime.base_speed, cu.runtime.base_speed
         ));
     }
-    cmp!(armor_bonus);
+    if ru.runtime.magic_resist != cu.runtime.magic_resist {
+        errs.push(format!(
+            "unit {:?}: .magic_resist differs\n        ref:  {:?}\n        cand: {:?}",
+            ident, ru.runtime.magic_resist, cu.runtime.magic_resist
+        ));
+    }
+    // armor/magic_resist/base_speed status+aura deltas unified under runtime_bonus.
+    if ru.runtime_bonus != cu.runtime_bonus {
+        errs.push(format!(
+            "unit {:?}: .runtime_bonus differs\n        ref:  {:?}\n        cand: {:?}",
+            ident, ru.runtime_bonus, cu.runtime_bonus
+        ));
+    }
     cmp!(damage_taken_bonus);
-    cmp!(speed);
+    if ru.effective_speed() != cu.effective_speed() {
+        errs.push(format!(
+            "unit {:?}: effective_speed differs\n        ref:  {:?}\n        cand: {:?}",
+            ident,
+            ru.effective_speed(),
+            cu.effective_speed()
+        ));
+    }
     cmp!(reactions_left);
     cmp!(reactions_max);
     cmp!(initiative);

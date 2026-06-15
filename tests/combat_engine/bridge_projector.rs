@@ -425,8 +425,13 @@ fn from_ecs_round1_aggregates_preseeded_status_bonuses() {
                     forces_targeting: false,
                     skips_turn: false,
                     bonuses: StatusBonuses {
-                        armor_bonus: -1,
-                        speed_bonus: -1,
+                        runtime: storyforge::combat_engine::RuntimeStatsDelta(
+                            storyforge::combat_engine::RuntimeStats {
+                                armor: -1,
+                                magic_resist: 0,
+                                base_speed: -1,
+                            },
+                        ),
                         damage_taken_bonus: 0,
                     },
                     hp_percent_dot: 0,
@@ -447,11 +452,11 @@ fn from_ecs_round1_aggregates_preseeded_status_bonuses() {
     // from_ecs seeds speed = base_speed + speed_bonus from statuses.
     // Hero was spawned with speed=6 (bridge_stats default). injured adds -1 → effective speed=5.
     assert_eq!(
-        unit.armor_bonus, -1,
+        unit.runtime_bonus.0.armor, -1,
         "armor_bonus must be -1 from injured status"
     );
     assert_eq!(
-        unit.speed,
+        unit.effective_speed(),
         6 - 1,
         "effective speed must be base(6) + injured speed_bonus(-1)"
     );

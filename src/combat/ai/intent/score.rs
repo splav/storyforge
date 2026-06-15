@@ -351,7 +351,7 @@ pub fn intent_score(
                 // Pure move: pursuit geometry hook.
                 return match snap.unit(*focus) {
                     Some(t) => {
-                        let reach = (active.speed.max(0) as u32)
+                        let reach = (active.effective_speed().max(0) as u32)
                             .saturating_add(active.cache.max_attack_range);
                         pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
                     }
@@ -371,8 +371,8 @@ pub fn intent_score(
                 // Pure move during ApplyCC: reach uses CC-capable range.
                 return match snap.unit(*cc_target) {
                     Some(t) => {
-                        let reach =
-                            (active.speed.max(0) as u32).saturating_add(cc_reach(active, content));
+                        let reach = (active.effective_speed().max(0) as u32)
+                            .saturating_add(cc_reach(active, content));
                         pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
                     }
                     None => 0.0,
