@@ -39,7 +39,7 @@ impl PlanCritic for SelfLethalWithoutPayoff {
     fn evaluate(
         &self,
         plan: &TurnPlan,
-        ann: &PlanAnnotation,
+        _ann: &PlanAnnotation,
         ctx: &ScoringCtx,
     ) -> Option<CriticHit> {
         let active = ctx.active;
@@ -71,8 +71,11 @@ impl PlanCritic for SelfLethalWithoutPayoff {
             .map(|o| o.enemy_damage + o.p_kill_now * max_hp * 0.5)
             .sum();
 
-        // Terminal AllyRescue contribution — scales into the same HP units.
-        let ally_rescue_payoff = ann.terminal.get(TerminalFactor::AllyRescue) * max_hp * 0.2;
+        // Terminal AllyRescue contribution — scales into the same HP units. Read
+        // from `plan.annotation` (where `score_plans_with_raw` populates it),
+        // same side as `outcomes` above; the pipeline annotation's terminal is default.
+        let ally_rescue_payoff =
+            plan.annotation.terminal.get(TerminalFactor::AllyRescue) * max_hp * 0.2;
 
         let payoff = enemy_damage_payoff + ally_rescue_payoff;
 
@@ -713,8 +716,10 @@ mod tests {
             self_damage: 40.0,
             ..Default::default()
         });
-        let mut ann = PlanAnnotation::default();
-        ann.terminal.set(TerminalFactor::AllyRescue, 1.0); // contributes 20 payoff
+        plan.annotation
+            .terminal
+            .set(TerminalFactor::AllyRescue, 1.0); // contributes 20 payoff
+        let ann = PlanAnnotation::default();
 
         assert_critic_passes(&SelfLethalWithoutPayoff, &plan, &ann, &scn);
     }

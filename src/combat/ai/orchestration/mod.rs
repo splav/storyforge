@@ -344,14 +344,19 @@ pub fn pick_action(
     let (initial_scored, initial_raw) =
         { crate::combat::ai::plan::score_plans_with_raw(&mut plans, &choice.intent, &scoring_ctx) };
     let mut pool = ScoredPool::new(plans);
-    for (ann, (score, raw)) in pool
+    for ((ann, plan), (score, raw)) in pool
         .annotations
         .iter_mut()
+        .zip(pool.plans.iter())
         .zip(initial_scored.into_iter().zip(initial_raw.into_iter()))
     {
         ann.set_score(score);
         ann.score_initial = score; // Step 11.4: snapshot pre-pipeline score for multiplier_ratio.
         ann.factors = raw;
+        // `terminal` is computed plan-side in `score_plans_with_raw`; carry it into
+        // the pool annotation so pipeline stages (overlay) read real values, not the
+        // default-built zero. (Phase 2 type-split removes this dual storage.)
+        ann.terminal = plan.annotation.terminal;
     }
 
     // Step 9.A: populate effective_ai_tags per Cast step (diagnostic only).
