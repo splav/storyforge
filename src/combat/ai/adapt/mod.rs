@@ -14,29 +14,22 @@
 //! wrong. The only evaluation regime that stays meaningful is **LastStand**:
 //! "what useful thing do I achieve before going down".
 //!
-//! # Invariants
-//!
-//! The layer is intentionally narrow. These are load-bearing:
+//! # Invariants (load-bearing)
 //!
 //! 1. **ONE PASS.** `apply_adaptation` runs once per `pick_action`, after
-//!    sanity, before contract masks. No internal loops, no re-entry.
-//! 2. **FACTS ONLY.** Triggers are snapshot facts
-//!    (`expected_aoo_damage >= hp`, `plan_is_defensive`, `global_intent`).
-//!    Never post-score comparisons — that would create circular meaning.
-//! 3. **NO PENALTIES / NO MASKS.** The layer only maps
-//!    `(plan → EvaluationMode)` and triggers intent-column rescore for the
-//!    affected rows. It does not multiply scores and does not write `-∞`.
-//!    That territory belongs to sanity (multipliers) and contract (masks).
-//! 4. **IDEMPOTENT.** Applying adaptation a second time is a no-op.
-//!    `EvaluationMode` changes at most once per plan.
-//! 5. **CONTRACT-NEUTRAL.** Adaptation does not know about contract masks.
-//!    Contract runs AFTER adaptation and masks only plans with
-//!    `mode = Default` — plans with `mode != Default` have already opted
-//!    out of the original intent's contract by virtue of the regime switch.
+//!    sanity, before contract masks. No re-entry.
+//! 2. **FACTS ONLY.** Triggers are snapshot facts, never post-score
+//!    comparisons — that would create circular meaning.
+//! 3. **NO PENALTIES / NO MASKS.** Only maps `plan → EvaluationMode` and
+//!    triggers intent-column rescore. No score multiply, no `-∞` — that's
+//!    sanity (multipliers) and contract (masks).
+//! 4. **IDEMPOTENT.** `EvaluationMode` changes at most once per plan.
+//! 5. **CONTRACT-NEUTRAL.** Contract runs after and masks only `mode =
+//!    Default` plans; `mode != Default` has already opted out of the
+//!    original intent's contract via the regime switch.
 //!
-//! Adding a new `AdaptationReason`: only if the new case satisfies all five
-//! invariants. A "I want to penalise X a bit more" rule belongs in sanity,
-//! not here.
+//! A new `AdaptationReason` must satisfy all five. "Penalise X a bit more"
+//! belongs in sanity, not here.
 //!
 //! # Layout
 //!
@@ -52,20 +45,8 @@ pub(crate) use select::plan_has_lethal_transit;
 pub use select::{apply_adaptation, pending_dot_before_next_action, select_evaluation_modes};
 
 /// Evaluation regime used when scoring the intent-column of a plan.
-///
-/// `Default` = score under the global `TacticalIntent` selected by
-/// `select_intent`. `LastStand` = score under the "final useful action"
-/// weighting via `evaluate_last_stand_step` in `intent_score()` — the
-/// global tactical intent is bypassed entirely. `Flee` = score under the
-/// flee regime — unit maximises distance from the nearest enemy; offensive
-/// casts are suppressed, self-heal/self-buff are allowed.
-///
-/// Populated by `apply_adaptation`; consumed by the scorer's per-plan
-/// intent rescore (passed as `mode` to `intent_score`).
-///
-/// **Invariants:**
-/// - `Forced { mode }` in `AdaptationReason` is a unit-level fact override:
-///   FACTS-ONLY, IDEMPOTENT, highest precedence over all other adaptation rules.
+/// Per-variant semantics below. Populated by `apply_adaptation`; consumed by
+/// the scorer's per-plan intent rescore (passed as `mode` to `intent_score`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationMode {
@@ -88,41 +69,30 @@ pub enum EvaluationMode {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AdaptationReason {
-    /// Plan's expected AoO damage on its move transitions reaches or
-    /// exceeds the actor's current HP → continue-to-exist value = 0 →
-    /// evaluate under LastStand. Per-plan override.
+    /// Plan's expected move-transition AoO damage ≥ actor HP →
+    /// continue-to-exist value = 0 → LastStand. Per-plan override.
     ///
-    /// **Horizon — step-local.** AoO fires *during* a specific Move
-    /// transition; the suffix of the plan doesn't help if the actor
-    /// dies mid-path. So `expected_aoo_damage(plan)` sums per-step AoO
-    /// bleed on transitions, not an end-of-turn projection.
-    ///
-    /// "Expected" because `expected_aoo_damage` is an EV aggregate
-    /// (crit-fail is disabled in sim); in a live turn the plan may or
-    /// may not kill the actor. The adaptation threshold is conservative:
-    /// if EV says ≥ HP, treat it as self-terminating.
+    /// **Horizon — step-local.** AoO fires *during* a Move transition, so
+    /// `expected_aoo_damage` sums per-step bleed, not an end-of-turn
+    /// projection. "Expected" = EV aggregate (crit-fail disabled in sim);
+    /// the EV-≥-HP threshold is conservative.
     ExpectedSelfLethal { aoo_dmg: f32, actor_hp: i32 },
     /// Global intent is `ProtectSelf` but **no** plan in the pool is
     /// defensive (by `plan_is_defensive`). The ProtectSelf contract
     /// cannot be satisfied *spatially*, so every plan is evaluated
     /// under LastStand. Global override (applied to all plans).
     ProtectSelfNoDefensive,
-    /// Global intent is `ProtectSelf`, defensive options exist, but
-    /// pending DoT (`sum(dot_per_tick + hp_percent_dot) over active
-    /// statuses`) exceeds `actor.hp` AND no plan in the pool would
-    /// leave the actor alive at end-of-turn. Contract is *temporally*
-    /// unsatisfiable: the actor can get to safety but still dies from
-    /// DoT before acting again.
+    /// `ProtectSelf`, defensive options exist, but pending DoT exceeds
+    /// `actor.hp` AND no plan leaves the actor alive at end-of-turn.
+    /// Contract is *temporally* unsatisfiable: reachable safety, still dies
+    /// from DoT before acting again.
     ///
-    /// **Horizon — end-of-turn.** In this engine only the current actor
-    /// mutates state during his own turn; DoT ticks fire on the
-    /// applier's turn, *after* this actor finishes. So the correct
-    /// rescue horizon is `sim_snapshots.last()` — "will I be alive when
-    /// my turn ends" — not the committed prefix.
+    /// **Horizon — end-of-turn.** DoT ticks fire on the applier's turn,
+    /// after this actor finishes, so the rescue horizon is
+    /// `sim_snapshots.last()`, not the committed prefix.
     ///
-    /// Global override (applied to all plans). Payload:
-    /// `pending_dot` = `pending_dot_before_next_action(active)`,
-    /// `actor_hp` = `active.hp`.
+    /// Global override. Payload: `pending_dot =
+    /// pending_dot_before_next_action(active)`, `actor_hp = active.hp`.
     ProtectSelfFutile { pending_dot: i32, actor_hp: i32 },
     /// A unit-level fact override imposed by a content phase transition
     /// (`ai_behavior` field in PhaseDef). Highest precedence — short-circuits

@@ -74,12 +74,9 @@ impl<'w, 's> StageCtx<'w, 's> {
 
 /// Typed pool of plans together with their per-plan annotations.
 ///
-/// **Invariant:** `plans.len() == annotations.len()` at all times.
-/// Constructors uphold this; stages must preserve it.
-///
-/// Step 7.4: `score` and `raw_factors` live inside `PlanAnnotation` rather
-/// than in separate parallel vecs. Callers read/write `annotations[i].score`
-/// and `annotations[i].raw_factors` directly.
+/// **Invariant:** `plans.len() == annotations.len()` at all times — constructors
+/// uphold it, stages must preserve it. `score` / `raw_factors` live inside
+/// `PlanAnnotation`, not in parallel vecs.
 pub struct ScoredPool {
     pub plans: Vec<TurnPlan>,
     pub annotations: Vec<PlanAnnotation>,
@@ -119,12 +116,9 @@ impl ScoredPool {
             .map(|(plan, ann)| (plan, ann, ann.score))
     }
 
-    /// Authoritative outcomes for plan at `idx`. Outcomes are populated in
-    /// `generator.rs` and live on `TurnPlan.annotation`. The `outcomes` field
-    /// on `pool.annotations[i]` is dead during pipeline (default-empty) and
-    /// only populated at log serialization time — see `log/mod.rs`. Pipeline
-    /// stages and critics MUST use this accessor (or `pool.plans[i].annotation
-    /// .outcomes` directly), never `pool.annotations[i].outcomes`.
+    /// Authoritative outcomes for plan at `idx` — live on `TurnPlan.annotation`.
+    /// `pool.annotations[i].outcomes` is dead during the pipeline (populated only
+    /// at log time), so stages and critics MUST read through this accessor.
     pub fn plan_outcomes(
         &self,
         idx: usize,
@@ -168,15 +162,10 @@ mod tests {
         assert_eq!(pool.len(), 0);
     }
 
-    /// Verify that `PRODUCTION_PIPELINE` applies `PlanModifiersStage` after
-    /// `RepairAffinityStage` and before `PickBestStage` by checking that every
-    /// plan's `annotation.modifiers` has exactly one entry per registered
-    /// modifier (PLAN_MODIFIERS.len() == 3), in canonical order.
-    ///
-    /// Pipeline-order regression test: if `PlanModifiersStage` were removed or
-    /// reordered after `PickBestStage`, the chosen plan would have an empty
-    /// `modifiers` vec.  The test uses `PRODUCTION_PIPELINE` directly so that
-    /// production and test order are always identical.
+    /// Pipeline-order regression: `PlanModifiersStage` must run after
+    /// `RepairAffinityStage` and before `PickBestStage`, so every plan ends with
+    /// one addend per registered modifier in canonical order. Reordering it past
+    /// `PickBestStage` would leave the chosen plan's `modifiers` empty.
     #[test]
     fn pipeline_runs_modifiers_after_repair_before_pick() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
@@ -239,13 +228,9 @@ mod tests {
         assert_eq!(chosen.score_trace.addends[2].name, "repair_bonus");
     }
 
-    /// P3a.6 verification: after the full PRODUCTION_PIPELINE, the invariant
-    /// `ann.score == ann.score_trace.compute()` holds for every finite-score plan.
-    ///
-    /// This is the critical equivalence check: trace accumulates through the
-    /// pipeline starting from `FinalizeStage::base`, and every downstream stage
-    /// pushes hits on top. If any stage still carries a bridging-reset or fails
-    /// to push a hit, this test will catch the drift.
+    /// P3a.6: after the full pipeline, `ann.score == ann.score_trace.compute()`
+    /// for every finite-score plan. Catches any stage that resets the score or
+    /// forgets to push its trace hit (trace accumulates from `FinalizeStage::base`).
     #[test]
     fn p3a_full_pipeline_trace_compute_equals_ann_score() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;

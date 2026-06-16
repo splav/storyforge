@@ -453,16 +453,12 @@ fn gradient_color(t: f32) -> ColorMaterial {
 
 // ── Snapshot builders ───────────────────────────────────────────────────────
 //
-// Rules:
-// 1. Never re-derive the "why" of a decision here. The `reason` strings must
-//    come from the function that made the decision (see `intent::select_intent`
-//    and the intent-fallback block in `utility::pick_action`). Builders only
-//    format the data that was captured at decision time.
-// 2. Factors come from the scorer's `raw_factors` matrix — plan-aggregate,
-//    the exact values that fed ranking and JSONL logging. Never recompute
-//    per-committed-step here: that produces single-step numbers that diverge
-//    from what the log stores, and the debug output ends up labelled
-//    identically but carrying different semantics.
+// Builders only FORMAT data captured at decision time, never re-derive it:
+// 1. `reason` strings come from the deciding function (`intent::select_intent`,
+//    the fallback block in `utility::pick_action`).
+// 2. Factors come from the scorer's `raw_factors` (plan-aggregate, the exact
+//    values fed to ranking + JSONL). Recomputing per-committed-step here would
+//    diverge from the log while looking identically labelled.
 
 fn format_intent(intent: &TacticalIntent, names: &HashMap<Entity, String>) -> String {
     match intent {

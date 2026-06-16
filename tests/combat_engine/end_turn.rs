@@ -1,10 +1,8 @@
-//! Engine integration tests for `step(Action::EndTurn)` — Phase 4b.
+//! Engine integration tests for `step(Action::EndTurn)`.
 //!
-//! Covers: mid-round handoff, end-of-round wrap, dead-skip, stunned-skip
-//! (direct status), all-stunned budget break, sirota DoT during dead-skip,
-//! NotCurrent rejection.
-//!
-//! Also covers `settle_round_start` (Change B): round-start cursor settlement.
+//! Covers: mid-round handoff, end-of-round wrap, dead-skip, stunned-skip,
+//! all-stunned budget break, sirota DoT during dead-skip, NotCurrent rejection,
+//! and `settle_round_start` round-start cursor settlement.
 
 use storyforge::combat_engine::{
     action::{Action, ActionError},

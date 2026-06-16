@@ -278,13 +278,10 @@ fn validate_content(scen_id: &str, c: &ActiveContentData) {
     }
 }
 
-/// Recursively walk a `VictoryCondition` tree and validate every name reference
-/// (`KillTarget.enemy_name`, `KeepAlive.target_name`) actually exists in the
-/// encounter's enemies or in the active party for that combat scene.
-///
-/// Closes F10 (silent instant-defeat from typo'd KeepAlive target_name) and
-/// F17 (silent instant-victory from typo'd KillTarget enemy_name) at content
-/// load time, so a misspelled name fails fast with a clear error.
+/// Recursively validate every name reference in a `VictoryCondition` tree
+/// (`KillTarget.enemy_name`, `KeepAlive.target_name`) against the encounter's
+/// enemies / active party. Fails fast at load time so a typo can't cause silent
+/// instant-defeat (F10) or instant-victory (F17).
 fn validate_victory_names(
     cond: &crate::content::encounters::VictoryCondition,
     enc: &crate::content::encounters::EncounterDef,
@@ -763,9 +760,8 @@ pub struct CampaignState {
 
 /// Spatial index for the **occupancy layer** — alive units only.
 ///
-/// Living units have a one-per-hex invariant: at most one entity at any
-/// given hex. Dead units live in [`HexCorpses`] — corpse layer — and do not
-/// appear here. Pathfinder / legality / occupancy queries should read this.
+/// One-per-hex invariant; dead units live in [`HexCorpses`]. Pathfinder /
+/// legality / occupancy queries read this.
 #[derive(Resource, Default)]
 pub struct HexPositions {
     by_entity: HashMap<Entity, hexx::Hex>,
@@ -815,11 +811,9 @@ impl HexPositions {
 
 /// Spatial index for the **corpse layer** — dead units.
 ///
-/// Living units live in [`HexPositions`] (one-per-hex invariant). Dead units
-/// live here — multiple corpses per hex are allowed (sequential deaths,
-/// AoO-mid-move on ally hex, etc.). Pathfinder / legality / occupancy queries
-/// should read [`HexPositions`]; rendering or corpse-targeting effects
-/// (future resurrect / cleave / loot) should read this index.
+/// Multiple corpses per hex are allowed (unlike [`HexPositions`]). Occupancy
+/// queries read [`HexPositions`]; rendering and corpse-targeting effects (future
+/// resurrect / cleave / loot) read this index.
 #[derive(Resource, Default)]
 pub struct HexCorpses {
     by_entity: HashMap<Entity, hexx::Hex>,
@@ -833,10 +827,9 @@ impl HexCorpses {
             if old_pos == pos {
                 return;
             }
-            // Corpses are stationary by design — only living units traverse
-            // the map. If this fires, either engine semantics changed
-            // (push-corpse, drag-body) or a writer mis-routed an alive entity
-            // into the corpse layer. Release builds still re-link safely.
+            // Corpses are stationary by design. If this fires, either engine
+            // semantics changed (push/drag-body) or a writer mis-routed an alive
+            // entity here. Release builds still re-link safely.
             debug_assert!(
                 false,
                 "HexCorpses: entity {entity:?} moved from {old_pos:?} to {pos:?} — \

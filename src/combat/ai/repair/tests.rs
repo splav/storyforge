@@ -1,12 +1,6 @@
-//! Tests for `mod.rs` (repair) — split from the source file via `#[path]` in
-//! `mod.rs` (see end of that file). Production code stays in `mod.rs`; this
-//! file holds the test module body.
-//!
-//! Split per [docs/testing.md §2](../../../../docs/testing.md): `repair/mod.rs`
-//! grew to 921 LOC with tests dominating the lower half.
-//!
-//! `super::*` here resolves to `repair/mod.rs` (since this file is included
-//! as `mod tests` inside mod.rs).
+//! Tests for `repair/mod.rs` — split out via `#[path]` (see end of that file).
+//! Rationale: [docs/testing.md §2](../../../../docs/testing.md). `super::*`
+//! resolves to `mod.rs` (this file is its `mod tests`).
 
 use super::*;
 

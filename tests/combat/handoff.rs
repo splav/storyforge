@@ -1,9 +1,6 @@
-//! Regression test for the ActiveCombatant multi-entity bug fixed in Phase 4e.
-//!
-//! Before the fix, `translate_end_turn_events` inserted `ActiveCombatant` on
-//! the new actor but never removed it from the old one.  After a mid-round
-//! handoff `active_q.single()` would return `Err(MultipleEntities)` and combat
-//! would freeze.
+//! Regression tests for the ActiveCombatant multi-entity bug: a mid-round
+//! handoff must leave exactly one entity carrying `ActiveCombatant`, else
+//! `active_q.single()` returns `Err(MultipleEntities)` and combat freezes.
 
 use bevy::prelude::*;
 
@@ -81,14 +78,10 @@ fn exactly_one_active_combatant_after_mid_round_handoff() {
 /// Regression test: when the first actor by initiative is dead at round start,
 /// the StartRound chain must skip them and activate the first *alive* actor.
 ///
-/// New design (Chunk 2): `build_turn_order` no longer sets `ActiveCombatant`
-/// or skips dead actors — it just sorts by initiative.  The engine's
-/// `settle_round_start` (called in `bootstrap_combat_state`) advances the cursor
-/// past dead/stunned actors and pushes the settled actor into `insert_active`.
-/// `apply_bridge_queues_pre_projection` then drains `insert_active` to set
-/// `ActiveCombatant` on the correct entity.
-///
-/// This test runs the full StartRound chain to verify the end-to-end invariant.
+/// `build_turn_order` only sorts by initiative; the engine's `settle_round_start`
+/// (in `bootstrap_combat_state`) advances past dead/stunned actors and pushes the
+/// settled actor into `insert_active`, which `apply_bridge_queues_pre_projection`
+/// drains to set `ActiveCombatant`. Runs the full StartRound chain end-to-end.
 #[test]
 fn build_turn_order_skips_dead_first_initiative() {
     use bevy::ecs::system::RunSystemOnce;
@@ -119,10 +112,8 @@ fn build_turn_order_skips_dead_first_initiative() {
         "Hero",
     );
 
-    // Mark the enemy dead before the round starts:
-    // - Set hp=0 in Vital (engine from_ecs checks this)
-    // - Move position to HexCorpses (from_ecs gets dead-unit positions from corpses)
-    // - Add Dead component (bridge queries may check this)
+    // Mark the enemy dead before the round starts: hp=0 in Vital, position into
+    // HexCorpses (from_ecs reads dead-unit positions there), and a Dead marker.
     {
         use storyforge::game::resources::HexCorpses;
         app.world_mut()
@@ -181,23 +172,19 @@ fn build_turn_order_skips_dead_first_initiative() {
     );
 }
 
-// ── B3 regression tests ──────────────────────────────────────────────────────
+// ── Bridge turn-lifecycle regression tests ───────────────────────────────────
 //
 // Each test covers one bug class fixed during the bridge turn-lifecycle work.
-// Tests are ordered chronologically by the commit that fixed the bug.
 
-// ── Test 1: frame-ordering at round boundary (B0+B1, commit faaaded) ─────────
+// ── Test 1: frame-ordering at round boundary ─────────────────────────────────
 
 /// After a hero exhausts all AP and MP in round 1, they must start round 2 with
 /// full resources.
 ///
-/// Pre-B0+B1 the engine refilled AP/MP inside `engine_turn_start_system` (after
-/// OnEnter(AwaitCommand)), but `player_command_system` read ECS which still
-/// showed the previous round's exhausted values → silent auto-EndTurn.
-///
-/// Fix: engine cascade `step(EndTurn)` now calls `start_actor_turn` for the
-/// incoming actor, and `project_state_to_ecs` propagates the refill before any
-/// command system runs.
+/// The regression: `player_command_system` read ECS still showing the previous
+/// round's exhausted values → silent auto-EndTurn. Fix: the engine cascade
+/// `step(EndTurn)` calls `start_actor_turn` for the incoming actor and
+/// `project_state_to_ecs` propagates the refill before any command system runs.
 #[test]
 fn actor_with_exhausted_resources_can_act_on_round_2() {
     use storyforge::game::components::{ActionPoints, ActiveCombatant};
@@ -228,14 +215,11 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
         "Enemy",
     );
 
-    // Wave 3: engine owns turn order via roll_initiative_for_all + reconcile_turn_order
-    // in bootstrap_combat_state. Presets above guarantee hero first, enemy second.
+    // Presets above guarantee hero first, enemy second (engine owns turn order).
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     init_engine_state(&mut app);
 
-    // ── Round 1: hero acts (drains AP/MP via the engine), then ends turn. ─────
-    // Set hero's AP=0 / MP=0 directly in ECS to simulate a fully-spent turn.
-    // (We don't actually issue Move/Cast — we just drain and end manually.)
+    // ── Round 1: drain hero's AP/MP directly in ECS, then end turn. ───────────
     {
         let mut ap = app.world_mut().get_mut::<ActionPoints>(hero).unwrap();
         ap.action_points = 0;
@@ -253,9 +237,7 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
     app.update();
     app.update();
 
-    // ── Assertions for round 2 ───────────────────────────────────────────────
-    // TurnQueue must have a current actor.
-    // Exactly one entity must carry ActiveCombatant.
+    // ── Assertions for round 2: exactly one ActiveCombatant, refilled AP/MP. ──
     let active_count = app
         .world_mut()
         .query::<&ActiveCombatant>()
@@ -266,9 +248,8 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
         "exactly one ActiveCombatant expected in round 2, got {active_count}"
     );
 
-    // The current actor (whoever won initiative in round 2) must have full AP/MP.
-    // Both hero and enemy had their AP/MP drained before ending their round-1 turns.
-    // The engine cascade (B0+B1 fix) must refill the incoming actor via start_actor_turn.
+    // Both actors drained AP/MP in round 1; the engine cascade must refill the
+    // incoming actor via start_actor_turn.
     let queue = app.world().resource::<TurnQueue>();
     let active_entity = queue
         .order
@@ -292,7 +273,7 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
     );
 }
 
-// ── Test 2: double-tick from re-importing engine state (B2, ebde94e) ─────────
+// ── Test 2: double-tick from re-importing engine state ───────────────────────
 
 /// A self-applied status must tick exactly once per actor-turn start, not extra
 /// times from the EndTurn handler or any other double-tick path.
@@ -388,17 +369,15 @@ fn status_does_not_tick_twice_per_turn() {
     );
 }
 
-// ── Test 3: death-mid-action cascade (B5, 4879934) ───────────────────────────
+// ── Test 3: death-mid-action cascade ─────────────────────────────────────────
 
 /// Bridge-level integration test: when the **current actor** (enemy) dies during
 /// a Move (killed by a hero's AoO), the engine auto-advances the turn queue to
 /// the next alive actor (hero).  The ECS must reflect this: `Dead` on the enemy,
 /// `ActiveCombatant` on the hero, and no hang.
 ///
-/// There is a pure-engine counterpart in `tests/combat_engine/step.rs`
-/// (`current_actor_dies_mid_move_via_aoo_settles_on_next_alive`).  This test
-/// exercises the ECS pipeline end-to-end: `process_action_system` →
-/// `translate_move_events` → `translate_end_turn_events` → ECS projection.
+/// Pure-engine counterpart: `current_actor_dies_mid_move_via_aoo_settles_on_next_alive`
+/// in `tests/combat_engine/step.rs`. This exercises the full ECS pipeline.
 #[test]
 fn current_actor_dies_mid_move_settles_on_next() {
     use storyforge::game::components::{ActiveCombatant, Dead, Vital};
@@ -414,8 +393,8 @@ fn current_actor_dies_mid_move_settles_on_next() {
     let hero = spawn_at(&mut app, hero_pos, test_hero(base_stats()), "Hero");
     let enemy = spawn_at(&mut app, enemy_pos, test_enemy(base_stats()), "Enemy");
 
-    // Enemy is the current (active) actor — give it highest initiative via preset.
-    // Wave 3: engine owns turn order so we must use PresetInitiative, not queue.order.
+    // Enemy is the current actor — highest initiative via preset (engine owns
+    // turn order, so we must use PresetInitiative, not queue.order).
     {
         use storyforge::game::resources::PresetInitiative;
         app.world_mut()
@@ -429,10 +408,8 @@ fn current_actor_dies_mid_move_settles_on_next() {
     }
     app.world_mut().entity_mut(enemy).insert(ActiveCombatant);
 
-    // Make the AoO lethal: enemy has 1 hp; dice roll scripted to 8 (well above 1).
-    // Note: roll_initiative_for_all consumes N dice draws (one per unit without a
-    // preset). With both units preset, no dice are drawn here, so script([8]) still
-    // applies to the AoO roll alone.
+    // Make the AoO lethal: enemy has 1 hp; dice scripted to 8. Both units preset,
+    // so roll_initiative_for_all draws no dice → script([8]) hits the AoO roll alone.
     app.world_mut().get_mut::<Vital>(enemy).unwrap().hp = 1;
     app.world_mut()
         .resource_mut::<storyforge::combat::DiceRngRes>()
@@ -471,17 +448,12 @@ fn current_actor_dies_mid_move_settles_on_next() {
     );
 }
 
-// ── Test 4: engine mirror teardown (80ae900 + 0e09215) ───────────────────────
+// ── Test 4: engine mirror teardown ───────────────────────────────────────────
 
 /// `reset_engine_mirrors_on_exit_combat` must clear `CombatStateRes`, `UnitIdMap`,
-/// and `PendingPhaseTransitions` so a second combat starts from a clean slate.
-///
-/// Pre-fix: stale unit data from the first combat survived into the second,
-/// causing `project_state_to_ecs` to write dead positions over freshly spawned
-/// combatants.
-///
-/// This test calls the system directly via `run_system_once` — simulating the
-/// `OnExit(AppState::Combat)` trigger without the full state-machine overhead.
+/// and `PendingPhaseTransitions` so a second combat starts clean. Without it,
+/// stale unit data survives and `project_state_to_ecs` writes dead positions over
+/// freshly spawned combatants. Calls the system directly via `run_system_once`.
 #[test]
 fn combat_2_starts_clean_after_combat_1() {
     use bevy::ecs::system::RunSystemOnce;
@@ -566,18 +538,12 @@ fn combat_2_starts_clean_after_combat_1() {
 
 // ── Test 4b: bootstrap is fresh after teardown + respawn ─────────────────────
 
-/// After combat 1 → teardown → fresh spawn → bootstrap, the engine must
-/// have the new units, no tombstones from combat 1, and accept an action
-/// without stale id_map errors.
+/// After combat 1 → teardown → fresh spawn → bootstrap, the engine must have the
+/// new units, no tombstones from combat 1, and accept an action without stale
+/// id_map errors. `PresetInitiative` fixes the order for a deterministic assertion.
 ///
-/// Wave 3: engine now owns round-1 order via `roll_initiative_for_all` +
-/// `reconcile_turn_order` in `bootstrap_combat_state`.  We use `PresetInitiative`
-/// to fix the order so the assertion is deterministic, mirroring the pattern
-/// used in `build_turn_order_skips_dead_first_initiative` and
-/// `no_stun_active_combatant_is_highest_initiative`.
-///
-/// Complements `combat_2_starts_clean_after_combat_1` which validates teardown
-/// only; this test validates the POST-teardown bootstrap.
+/// Complements `combat_2_starts_clean_after_combat_1` (teardown only) by
+/// validating the POST-teardown bootstrap.
 #[test]
 fn combat_2_bootstraps_fresh_after_combat_1() {
     use bevy::ecs::system::RunSystemOnce;
@@ -703,21 +669,12 @@ fn combat_2_bootstraps_fresh_after_combat_1() {
     app.update();
 }
 
-// ── Test 5: synthetic UnitId snapshot lookup (B-prime, 1b522d3) ──────────────
+// ── Test 5: synthetic UnitId snapshot lookup ─────────────────────────────────
 
 /// `BattleSnapshot::entity_for_uid` must not panic for synthetic UnitIds
-/// (summons) whose `uid.0` value is above the valid `Entity::from_bits` range.
-///
-/// Pre-B-prime: callers used `Entity::from_bits(uid.0)` directly, which panics
-/// when the UnitId was allocated synthetically by the engine (high-bit set to
-/// distinguish from Bevy entity bits).
-///
-/// Two assertions:
-/// 1. `BattleSnapshot::new` (legacy path using `to_bits()` shortcut) silently
-///    omits synthetic UIDs — no panic, just `None`.
-/// 2. The corrected path (`build_snapshot` via `id_map`) would include them,
-///    but we verify the no-panic guarantee here since `build_snapshot` needs full
-///    Bevy queries.
+/// (summons) whose `uid.0` is above the valid `Entity::from_bits` range — the
+/// old code called `Entity::from_bits(uid.0)` directly, which panics for the
+/// high-bit-set ids the engine allocates for summons. Here it must return `None`.
 #[test]
 fn entity_for_uid_lookup_works_for_summoned_units() {
     use combat_engine::state::{CombatState, UnitId};
@@ -761,18 +718,14 @@ fn entity_for_uid_lookup_works_for_summoned_units() {
     );
 }
 
-// ── Test 6: snap.unit(entity) works for summoned units (B-prime audit) ─────────
+// ── Test 6: snap.unit(entity) works for summoned units ───────────────────────
 
 /// `BattleSnapshot::unit(entity)` must return `Some(UnitView)` for a summoned
 /// unit whose engine `UnitId` is synthetic (high bit set — not `entity.to_bits()`).
 ///
-/// Pre-fix: `unit()` computed `UnitId(entity.to_bits())` and looked up that in
-/// the engine state, which stored the summon under its synthetic UnitId → `None`.
-/// The AI system then wrote `ActionInput::EndTurn` and the summon silently skipped.
-///
-/// Post-fix: `unit()` uses `entity_to_uid` (populated by `build_snapshot` via
-/// `id_map`, or by `new_with_id_map` in tests) — the synthetic-uid summon
-/// resolves correctly to `Some(UnitView)`.
+/// The regression: `unit()` computed `UnitId(entity.to_bits())`, missing the
+/// summon stored under its synthetic UnitId → `None` → the AI silently skipped it.
+/// `unit()` now resolves via `entity_to_uid` (populated by `new_with_id_map` in tests).
 #[test]
 fn summoned_unit_can_act_in_ai_turn() {
     use bevy::prelude::App;
@@ -873,11 +826,11 @@ fn summoned_unit_can_act_in_ai_turn() {
     assert_eq!(snap.entity_for_uid(synthetic_uid), Some(summon_entity));
 }
 
-// ── Chunk 2 stun-at-round-start tests ────────────────────────────────────────
+// ── Stun-at-round-start tests ────────────────────────────────────────────────
 //
-// These tests verify the engine is the sole authority for "whose turn it is":
-// a stunned unit that wins initiative is skipped at round start, and
-// `ActiveCombatant` is placed on the first alive-and-not-stunned actor.
+// The engine is the sole authority for "whose turn it is": a stunned unit that
+// wins initiative is skipped at round start, and `ActiveCombatant` lands on the
+// first alive-and-not-stunned actor.
 
 /// Round 1: a stunned unit with the highest initiative is skipped; the first
 /// alive-not-stunned actor gets `ActiveCombatant`; `TurnSkipped` is logged.
@@ -928,9 +881,8 @@ fn stunned_first_initiative_skipped_on_round_1() {
     // Reset ctx.round (movement_app runs StartRound once with no combatants → round=1).
     app.world_mut().resource_mut::<CombatContext>().round = 0;
 
-    // Run the StartRound chain: build_turn_order → bootstrap → drain queues.
-    // bootstrap calls settle_round_start which advances past the stunned enemy and
-    // pushes the hero into insert_active; apply_bridge_queues_pre_projection sets ActiveCombatant.
+    // StartRound chain: bootstrap's settle_round_start advances past the stunned
+    // enemy and pushes the hero into insert_active for apply_bridge_queues to set.
     app.world_mut()
         .run_system_once(build_turn_order)
         .expect("build_turn_order");

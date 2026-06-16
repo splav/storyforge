@@ -1,20 +1,8 @@
-//! BuffIntoVoid critic — step 10.3.
+//! BuffIntoVoid critic: penalises a status cast onto a target that already
+//! carries that status — either active at plan start, or applied by an earlier
+//! step in the same plan ("buff into void").
 //!
-//! Fires when a plan contains a Cast step that applies a status effect to a
-//! target who already has that same status active (or who received the same
-//! status from an earlier step in the same plan). The cast is therefore wasted
-//! ("buff into void").
-//!
-//! Fire condition:
-//!   A `PlanStep::Cast { ability, target_pos, .. }` where `ability.statuses`
-//!   is non-empty AND the primary target already carries at least one of those
-//!   statuses (checked against `UnitSnapshot.statuses` at plan start, plus any
-//!   statuses applied by earlier plan steps to the same target).
-//!
-//! One `CriticHit` is returned for the **first** wasted cast detected. If
-//! multiple steps waste buffs the first one is sufficient to signal the problem.
-//!
-//! Multiplier: **0.6** (moderate — wasteful, but not catastrophic).
+//! Returns one `CriticHit` for the first wasted cast; multiplier **0.6**.
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;

@@ -28,13 +28,8 @@ fn load_content() -> ActiveContentData {
     ActiveContentData::load_layered(&campaign_dir, &scenario_dir)
 }
 
-/// An obstacle wall at col=5 blocking LOS on the east side of archer at (9,4).
-///
-/// Positions:
-///   actor (archer) at hex offset (0,0)
-///   target_behind at offset (4,0) — behind obstacle at offset (2,0)
-///   target_clear  at offset (4,2) — diagonal path not blocked
-///   obstacle at offset (2,0)
+/// Single-hex obstacle set at `(col, row)`; each test places it on or off the
+/// archer→target line to drive the LOS check.
 fn obstacle_set(col: i32, row: i32) -> HashSet<hexx::Hex> {
     let mut s = HashSet::new();
     s.insert(hex_from_offset(col, row));

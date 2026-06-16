@@ -1,17 +1,9 @@
-//! In-process record/replay tests for the engine trace (Phase 5 step 5e).
+//! In-process record/replay tests for the engine trace.
 //!
-//! No Bevy, no file I/O — uses `trace::serialize_*` / `parse_*` helpers
-//! purely in memory.  Each test follows a fixed pattern:
-//!
-//! 1. **Record phase:** build state + content, drive `step()`, construct
-//!    `InitLine` + `StepLine`s via `serialize_*`.  Stored as `Vec<String>`.
-//! 2. **Replay phase:** parse each line, reconstruct `CombatState` + `DiceRng`
-//!    from the `InitLine`, replay each `step()`.  Assert per-step:
-//!    - `events` byte-equal,
-//!    - `rng_calls` match,
-//!    - `post_state_hash` matches.
-//!
-//! Gate criteria: #4 (canonical scenarios), #9 (size benchmark).
+//! No Bevy, no file I/O — uses `trace::serialize_*` / `parse_*` in memory.
+//! Each test records (drive `step()`, serialize `InitLine` + `StepLine`s) then
+//! replays, asserting per step that `events`, `rng_calls`, and `post_state_hash`
+//! all match.
 
 #![allow(clippy::field_reassign_with_default)]
 

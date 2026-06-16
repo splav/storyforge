@@ -1,30 +1,15 @@
-//! FinalizeStage — step 11.0.
+//! FinalizeStage — mode-aware score finalization.
 //!
-//! Works in tandem with `ModeSelectionStage` (the mode-selection half, B3 fix). Applies
-//! mode-aware score finalization: reads `ann.adaptation` for each plan
-//! to determine its `EvaluationMode`, then calls `rescore_with_per_plan_modes`
-//! to rewrite `ann.score` and `ann.factors` from raw intent/tempo factors.
+//! Reads each plan's `EvaluationMode` from `ann.adaptation`, then calls
+//! `rescore_with_per_plan_modes` to **replace** (not multiply) `ann.score` and
+//! `ann.factors` from raw intent/tempo factors. Runs right after
+//! `ModeSelectionStage`; Sanity/Critics multiply on top and nothing downstream
+//! overwrites the score again.
 //!
-//! This is a **replacement** finalization pass, not a multiplicative one.
-//! After this stage runs, Sanity and Critics apply their multipliers on top
-//! — and nothing downstream overwrites the score again (B3 fix).
-//!
-//! # Pipeline position (step 11.0)
-//!
-//! ```text
-//! Viability → ModeSelection → Finalize → Sanity → Critics → ProtectSelfMask
-//!          → KillableGate → RepairAffinity → PlanModifiers → PickBest
-//! ```
-//!
-//! # Behaviour
-//!
-//! - For plans with `ann.adaptation = None` (mode = Default): the rescore
-//!   uses the same global intent as the initial pass → **idempotent** (same
-//!   factor weights, same score). Slight redundant compute, zero behavior change.
-//! - For plans with `ann.adaptation = Some(_)` (mode = LastStand): the
-//!   rescore applies the LastStand intent column → score diverges from the
-//!   initial Default-mode score. This is the fix: Sanity/Critics then
-//!   multiply on the correct base.
+//! - `adaptation = None` (Default mode): rescore uses the global intent →
+//!   idempotent (redundant compute, no behaviour change).
+//! - `adaptation = Some(_)` (LastStand/Flee): rescore applies that intent column
+//!   → score diverges from Default, giving Sanity/Critics the correct base.
 
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::pipeline::score_trace::ScoreTrace;
@@ -43,12 +28,9 @@ impl PlanStage for FinalizeStage {
             return;
         }
 
-        // Derive per-plan EvaluationMode from adaptation annotations.
-        // Read the real mode stored on AdaptationData (set by ModeSelectionStage)
-        // rather than inferring it from `adaptation.is_some()`. This ensures
-        // that Flee plans get EvaluationMode::Flee (not LastStand), while
-        // LastStand adaptations keep EvaluationMode::LastStand — behaviour
-        // identical to before for existing adaptations.
+        // Per-plan mode from the real value on AdaptationData (set by
+        // ModeSelectionStage), not inferred from `adaptation.is_some()` — so
+        // Flee plans get Flee, not LastStand.
         let modes: Vec<EvaluationMode> = pool
             .annotations
             .iter()
@@ -82,22 +64,20 @@ impl PlanStage for FinalizeStage {
             ann.set_score(new_score);
             ann.factors = new_raw;
 
-            // P3a.5: Rescore semantics — base = new_score, rescore_mode = mode, effects cleared.
-            // FinalizeStage is the ONLY stage with ScoreEffect::Rescore (see STAGE_SPECS).
-            // Any upstream effects accumulated in trace before Finalize are considered stale.
+            // Rescore semantics: base = new_score, effects cleared. FinalizeStage
+            // is the ONLY stage with ScoreEffect::Rescore — upstream trace effects
+            // are stale and dropped here.
             ann.score_trace = ScoreTrace {
                 base: new_score,
                 rescore_mode: Some(modes[i]),
                 ..Default::default()
             };
 
-            // Flee re-stamp: Flee's objective (maximise distance) is opposed to the
-            // Default offensive base that rides through the PickBest agenda composition
-            // formula (composed = score_initial + intent_delta + ...). Re-stamp
-            // score_initial to the Flee-rescored value so the agenda path also evaluates
-            // correctly under the flee regime.
-            // Keyed on Flee specifically so LastStand (incidentally safe) and its
-            // replay baselines remain untouched.
+            // Flee re-stamp: Flee (maximise distance) opposes the Default offensive
+            // base that rides through PickBest's composition (score_initial +
+            // intent_delta + ...). Re-stamp score_initial so the agenda path also
+            // evaluates under the flee regime. Flee-only so LastStand replay
+            // baselines stay untouched.
             if modes[i] == EvaluationMode::Flee {
                 ann.score_initial = new_score;
             }

@@ -1,4 +1,4 @@
-//! Engine integration tests for `Effect::EnterPhase` — Phase 4 step 4d.
+//! Engine integration tests for `Effect::EnterPhase`.
 //!
 //! Covers:
 //! - Phase trigger fires on Damage crossing threshold.
@@ -421,15 +421,9 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
 fn multi_threshold_each_damage_fires_own_phase() {
     let boss = uid(1);
     let attacker = uid(2);
-    // Boss: 100 max_hp, starts at 100 hp.
-    // First Damage: 55 → hp=45 → crosses 50% → EnterPhase(0).
-    // After phase 0 heals to full (120 new_max_hp), then…
-    // Second Damage: 35 → hp=85 → does NOT cross 50% of 120 (60); 85 > 60.
-    // So multi-trigger in a single step requires NOT heal_to_full or lower thresholds.
-    //
-    // Alternative: no heal, boss stays at 45 hp after phase 0.
-    // Second Damage: 20 → hp=25 → crosses 25% of 100 = 25 → EnterPhase(1).
-    // We use TwoPhaseContent for this.
+    // Boss 100/100, two non-healing phases (50%, 25%). First Damage 55 → hp=45
+    // crosses 50% → EnterPhase(0); second Damage 20 → hp=25 crosses 25% of the
+    // new 120 max → EnterPhase(1).
     let mut state = make_state(
         vec![
             make_boss(
@@ -575,11 +569,8 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
     assert!(has_death, "Death must fire for the non-boss unit at 0 hp");
 }
 
-/// Full step()-level test: Cast that kills boss triggers phase, unit ends alive.
-/// Uses Action::EndTurn to keep the test self-contained without Cast plumbing.
-///
-/// Instead, directly verify via apply_effect (unit-level) that the preempt-death
-/// chain produces no Died event in the full derived set.
+/// Lethal damage into a heal_to_full phase: the full derived event stream
+/// contains PhaseEntered but no UnitDied, and the boss ends alive.
 #[test]
 fn preempt_death_no_died_event_in_stream() {
     use storyforge::combat_engine::event::effect_to_event;
@@ -769,9 +760,8 @@ fn phase_runtime_stats_replace_on_transition() {
     let boss = uid(1);
     let attacker = uid(2);
 
-    // Initial boss runtime: armor=5, magic_resist=2, base_speed=6.
-    // Phase runtime:        armor=10, magic_resist=8, base_speed=4.
-    // Chosen so every field changes and damage math is clearly distinguishable.
+    // Every field changes so the replace is unambiguous, and damage math under
+    // old vs new armor is distinguishable.
     let initial_runtime = RuntimeStats {
         armor: 5,
         magic_resist: 2,
@@ -814,10 +804,7 @@ fn phase_runtime_stats_replace_on_transition() {
         initial_runtime.base_speed
     );
 
-    // Damage crosses 50%: hp 60 → 35 (raw=25, armor=5 → final=max(1,25-5)=20 → hp=40... wait)
-    // With armor=5: final = max(1, 25 - 5) = 20, hp = 60 - 20 = 40.  Still above 50% (50).
-    // Need to cross 50 hp.  Use raw=15: final = max(1, 15-5) = 10, hp = 60-10 = 50. Not below.
-    // Use raw=16: final = max(1, 16-5) = 11, hp = 60-11 = 49. 49*100 = 4900 <= 100*50 = 5000. Triggers!
+    // raw=16, armor=5 → final=11 → hp=49 < 50% of 100 → phase triggers.
     let (derived, _) = apply_effect(
         &mut state,
         &Effect::Damage {
@@ -868,10 +855,7 @@ fn phase_runtime_stats_replace_on_transition() {
     );
 
     // ── Assert 3: post-phase damage uses NEW armor ────────────────────────────
-    // Prove the armor change is load-bearing: apply raw=12 to the boss.
-    //   Old armor=5:  final = max(1, 12 - 5) = 7
-    //   New armor=10: final = max(1, 12 - 10) = 2
-    // Only one of these can be true — we assert the new-armor result.
+    // raw=12 gives final=7 under old armor=5, final=2 under new armor=10.
     let hp_before = state.unit(boss).unwrap().hp();
     apply_effect(
         &mut state,

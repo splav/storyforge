@@ -1,14 +1,11 @@
-//! Appraisal / Need layer (step 3 of ai-rework).
+//! Appraisal / Need layer.
 //!
 //! Aggregates raw tactical facts (`BattleSnapshot` + `InfluenceMaps` + `AiMemory`)
-//! into normalised "urgency" signals consumed by `select_intent` and downstream
-//! scoring layers. `compute_need_signals` accepts `&AppraisalCtx` and populates
-//! 7 signals: `self_preserve`, `continue_commitment`, `finish_target`,
-//! `reposition`, `conserve_resource`, `rescue_ally`, `apply_cc`.
-//! `setup_aoe` stays at 0.0 — no Setup mechanic exists in shape (see plan §9.B scope).
+//! into normalised urgency signals consumed by `select_intent` and downstream
+//! scoring. `compute_need_signals` populates 7 signals; `setup_aoe` stays 0.0
+//! (no Setup mechanic in shape).
 //!
-//! Spec: `docs/ai_need_signals.md` (mining-driven taxonomy + curve params).
-//! Decomposition: `docs/ai_rework_step3_plan.md`.
+//! Spec: `docs/ai_need_signals.md`. Decomposition: `docs/ai_rework_step3_plan.md`.
 
 mod apply_cc;
 mod conserve_resource;
@@ -47,10 +44,8 @@ pub struct AppraisalCtx<'a> {
     pub content: &'a ActiveContentData,
 }
 
-/// Normalised need-signal vector. Each field in [0, 1] semantically; producers
-/// clamp. Seven signals are populated via `compute_need_signals`: `self_preserve`,
-/// `continue_commitment`, `finish_target`, `reposition`, `conserve_resource`,
-/// `rescue_ally`, `apply_cc`. `setup_aoe` stays at 0.0 — no Setup mechanic in shape.
+/// Normalised need-signal vector. Each field in [0, 1] (producers clamp).
+/// `compute_need_signals` populates all except `setup_aoe`, which stays 0.0.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct NeedSignals {
     pub self_preserve: f32,
@@ -64,9 +59,6 @@ pub struct NeedSignals {
 }
 
 /// Compute need signals from raw tactical state via `AppraisalCtx`.
-///
-/// Populates all 7 active signals; `rescue_ally` and `apply_cc` read tag-caches.
-/// `setup_aoe` stays at 0.0 — no Setup mechanic in shape (see inline comment).
 pub fn compute_need_signals(ctx: &AppraisalCtx<'_>) -> NeedSignals {
     NeedSignals {
         self_preserve: self_preserve::compute_self_preserve(ctx),

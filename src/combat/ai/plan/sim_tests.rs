@@ -1,12 +1,6 @@
-//! Tests for `sim.rs` — split from the source file via `#[path]` in
-//! `sim.rs` (see end of that file). Production code stays in `sim.rs`;
-//! this file holds the test module body.
-//!
-//! Split per [docs/testing.md §2](../../../../docs/testing.md):
-//! `sim.rs` grew to 1676 LOC with tests dominating the lower half.
-//!
-//! `super::*` here resolves to `sim.rs` (since this file is included
-//! as `mod tests` inside sim.rs).
+//! Tests for `sim.rs` — included as `mod tests` via `#[path]` at the end of
+//! `sim.rs`, so `super::*` resolves to `sim.rs`.
+//! Split out per [docs/testing.md §2](../../../../docs/testing.md).
 
 use super::*;
 use crate::combat::ai::test_helpers::{
@@ -726,13 +720,10 @@ fn grant_movement_pays_ap_engine_defers_mp() {
     );
 }
 
-// ── AoO propagation (step 12.2) ─────────────────────────────────────────
+// ── AoO propagation ─────────────────────────────────────────────────────
 //
-// Positions from `tests/aoo.rs` (verified adjacent/non-adjacent):
-//   actor_pos  = hex_from_offset(3, 3)  — hero start
-//   enemy_pos  = hex_from_offset(4, 3)  — goblin; distance 1 from actor_pos
-//   away_pos   = hex_from_offset(2, 3)  — distance 2 from enemy (verified in aoo.rs)
-//   near_pos   = hex_from_offset(3, 4)  — distance 1 from actor_pos AND enemy_pos
+// Positions (verified in tests/aoo.rs): actor (3,3), enemy (4,3) adjacent;
+// (2,3) dist 2 from enemy (leaves adjacency); (3,4) dist 1 from both.
 
 /// Moving out of adjacency with a reacting enemy records AoO self_damage
 /// and applies it to actor hp.
@@ -825,15 +816,12 @@ fn apply_move_no_aoo_when_already_used_reaction() {
     assert_eq!(sim.actor_unit().unwrap().hp(), 20, "hp unchanged");
 }
 
-/// A lethal AoO sets actor hp to 0; self_damage reports HP actually lost
-/// (the HP delta, not raw dealt damage). With hp=1 and raw=10, HP delta = 1.
+/// A lethal AoO sets actor hp to 0; `self_damage` reports HP actually lost (the
+/// HP delta), not raw dealt damage. With hp=1 and raw=10, delta = 1.
 ///
-/// **Behaviour change from legacy sim (manifest):** the old `apply_move`
-/// tracked `self_damage` as actual dealt damage post-armor (`final_damage_f32`),
-/// which could exceed the actor's remaining HP (e.g., 10 dealt vs 1 HP).
-/// The engine shim uses HP delta instead, which is the HP actually lost (1).
-/// For safety scoring (`total_self_damage / actor_max_hp`) this is equivalent
-/// in the lethal case: both produce a ratio that clamps to 1.0.
+/// Behaviour change vs legacy sim: the old `apply_move` tracked dealt damage
+/// post-armor (could exceed remaining HP). The engine shim uses HP delta.
+/// Equivalent for safety scoring (`self_damage / max_hp` clamps to 1.0 either way).
 #[test]
 fn apply_move_kills_actor_with_lethal_aoo() {
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
@@ -1408,13 +1396,9 @@ fn apply_move_aoo_rage_caps_at_max() {
     );
 }
 
-// TODO(12.3): `self_damage_grants_two_rage_for_self_aoe` — actor is both
-// source and defender in friendly-fire AoE. The real pipeline iterates
-// `for actor in [source, target]` so the same unit's `rage.gain()` is
-// called twice → total +2. Setting up a single-unit self-AoE scenario
-// requires a friendly_fire=true AoE ability that targets the caster — the
-// existing `ability()` helper only supports SingleEnemy target type, and
-// `TargetType::Myself` with AoE is not exercised by current content.
-// The structural correctness is verified by inspection: in
-// `apply_primary`, defender rage is bumped inside the `unit_mut(ent)` borrow,
-// then `actor_unit_mut()` (same entity) bumps it again — producing +2.
+// TODO(12.3): `self_damage_grants_two_rage_for_self_aoe` — friendly-fire AoE
+// where the actor is both source and defender; the pipeline iterates
+// `[source, target]` so the same unit's `rage.gain()` fires twice (+2). Needs a
+// friendly_fire AoE self-cast, which the SingleEnemy-only `ability()` helper and
+// current content don't exercise. Verified by inspection in `apply_primary`:
+// defender bump (`unit_mut`) then actor bump (`actor_unit_mut`, same entity).

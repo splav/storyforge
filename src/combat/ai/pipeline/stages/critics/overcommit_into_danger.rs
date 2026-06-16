@@ -1,13 +1,10 @@
-//! OvercommitIntoDanger critic — step 10.1.
+//! OvercommitIntoDanger critic.
 //!
-//! Fires when an actor moves into a dangerous path or provokes AoO while
-//! already under HP pressure. Absorbs the logic of `SanityRule::Survival`
-//! and `SanityRule::AoOBleed` from `sanity_adjust_plans`; those branches
-//! are disabled in 10.1 and will be removed in 10.4.
+//! Fires when an actor moves into a dangerous path or provokes AoO while already
+//! under HP pressure (absorbs `SanityRule::Survival` + `SanityRule::AoOBleed`).
 //!
-//! Combined penalty = **max** of both sources (not a product) so that the
-//! two signals are independent — each represents a distinct hazard class
-//! and their worst case is what matters.
+//! Combined penalty = **max** (stricter multiplier) of the two sources, not a
+//! product — they are independent hazard classes and the worst case is what matters.
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -127,8 +124,6 @@ mod tests {
 
     // ── name is stable ────────────────────────────────────────────────────────
 
-    // NOTE: overcommit name() mutations are NOT in the missed-mutant list;
-    // this test is kept as a cheap safety net only.
     #[test]
     fn overcommit_name_is_stable() {
         let critic = OvercommitIntoDanger;

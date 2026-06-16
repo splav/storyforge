@@ -1,8 +1,5 @@
-//! Repair-affinity bonus modifier (step 8.B).
-//!
-//! Lifted from `scorer.rs::finalize_scores` (lines 282–294).
-//! Logic is byte-for-byte identical: aggregate then clamp to ≥0,
-//! modulate by `continue_commitment`, scale by `repair_bonus_scale`.
+//! Repair-affinity bonus modifier: aggregate affinity, clamp to ≥0, modulate by
+//! `continue_commitment`, scale by `repair_bonus_scale`. Inert without a stored goal.
 
 use super::{ModifierCtx, PlanModifier};
 use crate::combat::ai::outcome::PlanAnnotation;
@@ -17,7 +14,7 @@ impl PlanModifier for RepairBonus {
     }
 
     fn modify(&self, _plan: &TurnPlan, ann: &PlanAnnotation, ctx: &ModifierCtx<'_, '_, '_>) -> f32 {
-        // Guard: only active when a stored goal is present (legacy line :282).
+        // Only active when a stored goal is present.
         if ctx.stage.scoring.last_goal.is_none() {
             return 0.0;
         }
@@ -26,7 +23,7 @@ impl PlanModifier for RepairBonus {
         let continue_commitment = ctx.stage.scoring.need_signals.continue_commitment;
         let affinity = ann.repair_affinity;
 
-        // clamp: aggregate is always additive (legacy line :291).
+        // Clamp: the aggregate only ever adds, never penalises.
         let bonus = affinity.aggregate(&ctx.repair_weights).max(0.0);
         bonus * (1.0 + continue_commitment) * bonus_scale
     }

@@ -64,13 +64,11 @@ pub struct EnvObject {
     pub ability: crate::AbilityId,
     /// Which team placed / owns this object. `None` = neutral hazard.
     /// The owning team always sees it regardless of `revealed_to`.
-    /// `#[serde(default)]` ensures pre-v46 logs missing this field deserialize
-    /// to `None` (hidden neutral trap) rather than failing.
+    /// `#[serde(default)]` → `None` (hidden neutral trap) on pre-v46 logs.
     #[serde(default)]
     pub owner: Option<Team>,
     /// Which teams have discovered this object via a reveal mechanic.
-    /// `#[serde(default)]` ensures pre-v46 logs missing this field deserialize
-    /// to `TeamSet::default()` (EMPTY — not visible to anyone) rather than failing.
+    /// `#[serde(default)]` → EMPTY (invisible to all) on pre-v46 logs.
     #[serde(default)]
     pub revealed_to: TeamSet,
 }
@@ -86,13 +84,9 @@ impl EnvObject {
 /// Who produced a damage or status effect — either a living unit or an
 /// environment object (trap, hazard, etc.).
 ///
-/// **Backward-compatible deserialization.** Before schema v45 this field was a
-/// bare `UnitId` (serialized as an integer). The hand-written `Deserialize`
-/// below accepts BOTH the legacy bare-integer form (→ `Unit`) and the current
-/// externally-tagged enum form (`{"Unit": n}` / `{"Env": n}`), so v43/v44 logs
-/// and engine traces keep parsing without a fixture rebuild — mirroring the
-/// `de_legacy_pool` approach used for legacy resource pools. Serialization is
-/// always the new tagged form (writes are v45).
+/// The hand-written `Deserialize` below accepts both the legacy bare-integer
+/// form (pre-v45, → `Unit`) and the current tagged-enum form, so old traces
+/// parse without a fixture rebuild. Serialization always writes the tagged form.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum EffectSource {
     Unit(UnitId),
@@ -174,11 +168,9 @@ pub struct ActiveStatus {
     pub rounds_remaining: u32,
     /// DoT damage per end-of-turn tick. 0 = no DoT.
     pub dot_per_tick: i32,
-    /// The unit whose end-turn ticks down `rounds_remaining`.  Used by
-    /// status-removal (`advance_turn`) and aura cleanup (`auras_system`) to
-    /// distinguish ability-applied from aura-applied entries.  Engine itself
-    /// doesn't read this in Phase 2 — recorded for the projector + Phase 3
-    /// DoT tick attribution.
+    /// The unit/env whose end-turn ticks down `rounds_remaining`. Used by
+    /// status-removal and aura cleanup to distinguish ability- from aura-applied
+    /// entries, and for DoT tick attribution.
     pub applier: EffectSource,
 }
 
@@ -240,15 +232,12 @@ pub enum RoundPhase {
 
 /// A single combat participant in `CombatState`.
 ///
-/// **HP layout (post Stage 3c / v44):** HP is stored exclusively in
-/// `pools[PoolKind::Hp]` — `(current_hp, max_hp)`. The legacy `hp` and
-/// `max_hp` fields were removed; use the `Unit::hp()` / `Unit::max_hp()`
-/// accessors. All other resource pools (`Mana`, `Rage`, `Energy`, `Ap`, `Mp`)
-/// follow the same `pools` layout.
+/// HP lives exclusively in `pools[PoolKind::Hp]` — `(current_hp, max_hp)`;
+/// read it via [`Unit::hp`] / [`Unit::max_hp`]. All resource pools (`Mana`,
+/// `Rage`, `Energy`, `Ap`, `Mp`) follow the same `pools` layout.
 ///
-/// Serialization goes through `UnitWire` (serde `into`). Pre-v44 traces
-/// that contain legacy `hp`/`max_hp` fields are back-compat read via
-/// `#[serde(default)]` on those fields in `UnitWire`.
+/// Serialization goes through `UnitWire` (serde `into`); legacy `hp`/`max_hp`
+/// fields are back-compat read there for pre-v44 traces.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(into = "UnitWire")]
 pub struct Unit {
@@ -292,8 +281,7 @@ pub struct Unit {
     /// write ECS-only deltas on `Event::PhaseEntered`. Empty for non-bosses.
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
 
-    /// Unified resource table. Canonical source of truth for all resource pools
-    /// (Hp, Mana, Rage, Energy, Ap, Mp) since Stage 3c.
+    /// Unified resource table — canonical source of truth for all pools.
     ///
     /// Iteration order: `Hp, Mana, Rage, Energy, Ap, Mp` (declaration order of
     /// `PoolKind`). Load-bearing for replay-trace determinism.
@@ -316,19 +304,14 @@ pub struct Unit {
     /// must be applied at combat start (engine-side, idempotent).
     pub template_id: Option<String>,
 
-    /// Passive ability ids for this unit.
-    ///
-    /// Populated transiently at combat init from ECS `Abilities` component
-    /// (filtered to abilities with `passive.is_some()`).  Not serialized to
-    /// trace files — defaults to empty on deserialization.  The engine reads
-    /// this list in `resolve_turn_start_passives` to auto-fire passives.
+    /// Passive ability ids for this unit. Transient: populated at combat init
+    /// from the ECS `Abilities` component, not serialized (empty after deser).
+    /// Read by `resolve_turn_start_passives` to auto-fire passives.
     pub passives: Vec<crate::AbilityId>,
 
-    /// Creature tags (e.g. "undead", "beast", "living").
-    ///
-    /// Populated at spawn from `UnitTemplate.tags`; empty for units without
-    /// an explicit template. Used by Slice B/C for aura/legality predicates.
-    /// `BTreeSet` ensures deterministic serialization order for `post_state_hash`.
+    /// Creature tags (e.g. "undead", "beast", "living"). Populated at spawn from
+    /// `UnitTemplate.tags`. Used by aura/legality predicates. `BTreeSet` gives
+    /// deterministic serialization order for `post_state_hash`.
     pub tags: std::collections::BTreeSet<crate::TagId>,
 }
 
@@ -364,60 +347,43 @@ struct UnitWire {
     #[serde(default)]
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
 
-    // ── canonical pools (Stage 3c+) ─────────────────────────────────────────
-    // pools[Hp] is the canonical HP representation.
     #[serde(default)]
     pub pools: enum_map::EnumMap<crate::PoolKind, Option<(i32, i32)>>,
     #[serde(default)]
     pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
 
-    // ── template id (optional; absent in older traces) ──────────────────────
     #[serde(default)]
     pub template_id: Option<String>,
 
-    // ── magic_resist (new; value-0 backward compatible) ──────────────────────
-    // Absent from all existing fixtures (0 = no magic mitigation). The
-    // `skip_serializing_if` ensures the field is never written when zero, so
-    // baseline/snapshot byte-streams are identical to pre-magic_resist traces.
+    // `skip_serializing_if` keeps the field out of the wire when zero, so
+    // pre-magic_resist baselines stay byte-identical.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub magic_resist: i32,
-
-    // ── magic_resist_bonus (v51+; value-0 backward compatible) ───────────────
-    // Bonus magic resist from active statuses/auras. Zero for all existing
-    // fixtures → field absent in wire; serialization byte-identical to pre-v51.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub magic_resist_bonus: i32,
 
-    // ── passives (transient; not serialized to trace files) ─────────────────
-    // Always defaulted to empty on deserialization — the bridge re-populates
-    // this from ECS at combat init, so stored traces round-trip cleanly.
+    // Transient — re-populated from ECS at combat init, never written.
     #[serde(default, skip_serializing)]
     pub passives: Vec<crate::AbilityId>,
 
-    // ── creature tags (v48+) ─────────────────────────────────────────────────
-    // `#[serde(default)]` → empty BTreeSet for pre-v48 traces (no `tags` key).
     #[serde(default)]
     pub tags: std::collections::BTreeSet<crate::TagId>,
 
-    // ── legacy fields (pre-C6, for backward-compat deserialization only) ───
-    // Silently ignored on read if `pools` is already populated.
+    // ── legacy fields: read-only backward-compat, never written ─────────────
+    // Used to populate the canonical pools when they are absent (old traces).
     #[serde(default)]
     action_points: Option<i32>,
     #[serde(default)]
     max_ap: Option<i32>,
     #[serde(default)]
     movement_points: Option<i32>,
-    // Stored as Option<(i32, i32)> in old JSON: [current, max]
+    // Old JSON stored these as `[current, max]` arrays.
     #[serde(default, deserialize_with = "de_legacy_pool")]
     mana: Option<(i32, i32)>,
     #[serde(default, deserialize_with = "de_legacy_pool")]
     rage: Option<(i32, i32)>,
     #[serde(default, deserialize_with = "de_legacy_pool")]
     energy: Option<(i32, i32)>,
-
-    // ── legacy hp fields (pre-Stage-3c, for backward-compat only) ──────────
-    // If pools[Hp] is absent (old traces), these fields are used to populate it.
-    // On new traces, hp/max_hp are absent; pools[Hp] is canonical.
     #[serde(default)]
     hp: Option<i32>,
     #[serde(default)]
@@ -489,9 +455,8 @@ impl From<UnitWire> for Unit {
             }
         }
 
-        // Reconstruct runtime_bonus from wire fields (armor_bonus, magic_resist_bonus, speed_bonus).
-        // Legacy traces lack magic_resist_bonus (defaults to 0 via #[serde(default)]).
-        // We derive speed from (speed − base_speed) to recover the legacy speed_bonus.
+        // Reconstruct runtime_bonus from wire fields; speed_bonus is recovered
+        // as (speed − base_speed) since the wire stores absolute speed.
         let speed_bonus = w.speed - w.base_speed;
         let runtime_bonus = crate::content::RuntimeStatsDelta(crate::content::RuntimeStats {
             armor: w.armor_bonus,
@@ -579,17 +544,12 @@ impl<'de> serde::Deserialize<'de> for Unit {
 }
 
 impl Unit {
-    /// Canonical constructor — the **only** place in the codebase that builds a
-    /// `Unit` struct literal.  All other constructors and test helpers must call
-    /// this function.
+    /// Canonical constructor — the **only** place that builds a `Unit` struct
+    /// literal; all other constructors and test helpers route through it.
     ///
-    /// `base` carries equipment/template-derived defensive stats (armor,
-    /// magic_resist, base_speed). `runtime_bonus` carries the pre-computed
-    /// status+aura delta; callers that have not yet run `RefreshAggregates`
-    /// should pass `RuntimeStatsDelta::default()`.
-    ///
-    /// `pools` must have `pools[PoolKind::Hp] = Some((hp, max_hp))` before
-    /// calling; this invariant is enforced by a debug-mode assertion.
+    /// `base` carries equipment/template-derived defensive stats. `runtime_bonus`
+    /// carries the pre-computed status+aura delta; callers that have not yet run
+    /// `RefreshAggregates` should pass `RuntimeStatsDelta::default()`.
     ///
     /// # Panics (debug only)
     /// Panics if `pools[PoolKind::Hp]` is `None`.
@@ -679,25 +639,19 @@ impl Unit {
         self.runtime.base_speed + self.runtime_bonus.0.base_speed
     }
 
-    /// Current HP — reads from `pools[PoolKind::Hp]`, the canonical source of
-    /// truth since Stage 3c. Returns 0 if the pool is absent (should not
+    /// Current HP from `pools[Hp]`. Returns 0 if the pool is absent (should not
     /// occur for live combat units).
     pub fn hp(&self) -> i32 {
         self.pools[crate::PoolKind::Hp].map_or(0, |(c, _)| c)
     }
 
-    /// Max HP — reads from `pools[PoolKind::Hp]`, the canonical source of
-    /// truth since Stage 3c. Returns 0 if the pool is absent (should not
-    /// occur for live combat units).
+    /// Max HP from `pools[Hp]`. Returns 0 if the pool is absent.
     pub fn max_hp(&self) -> i32 {
         self.pools[crate::PoolKind::Hp].map_or(0, |(_, m)| m)
     }
 
-    /// Debug assertion: `pools[Hp]` must be `Some` for every live unit.
-    ///
-    /// After Stage 3c the legacy `hp`/`max_hp` fields are gone and
-    /// `pools[Hp]` is the sole source of truth. This assertion guards
-    /// against accidental `None` after an HP-mutating effect.
+    /// Debug assertion: `pools[Hp]` must be `Some` for every live unit —
+    /// guards against accidental `None` after an HP-mutating effect.
     #[inline]
     pub fn assert_hp_pool_sync(&self) {
         #[cfg(debug_assertions)]
@@ -767,18 +721,16 @@ pub struct CombatState {
     pub round: u32,
     pub phase: RoundPhase,
     /// Engine-owned turn order. Populated by the bridge via `set_turn_queue` at
-    /// combat init.  Nothing reads this field yet in Phase 4a — Bevy still owns
-    /// advance logic.  Phase 4b wires `Effect::AdvanceTurn` to consume it.
+    /// combat init; consumed by `Effect::AdvanceTurn`.
     pub turn_queue: TurnQueue,
     /// Seed carried along for replay reproducibility.
     pub random_seed: u64,
     next_synthetic_uid: u64,
     /// Static obstacles that block both movement and LOS.
-    /// Added in Wave 1 ch2 (schema v43). Serialized as sorted Vec in CombatStateRepr.
+    /// Serialized as a sorted `Vec` (via `CombatStateRepr`) for determinism.
     pub blocked_hexes: HashSet<hexx::Hex>,
     /// Active environmental objects (traps, hazards) placed on the grid.
-    /// Added in commit B of the environmental-traps feature.
-    /// Serialized as a Vec sorted by id for deterministic output (CombatStateRepr).
+    /// Serialized as a `Vec` sorted by id (via `CombatStateRepr`) for determinism.
     pub environment: Vec<EnvObject>,
 }
 
@@ -959,16 +911,9 @@ impl CombatState {
         self.units.iter().filter(|u| u.is_alive())
     }
 
-    /// Apply `initial_statuses` from each unit's template at combat bootstrap.
-    ///
-    /// Called once from `bootstrap_combat_state` after `from_ecs` populates the
-    /// engine state.  For every unit that carries a `template_id`, the method
-    /// looks up the template via `content` and applies each listed status with
-    /// `PERMANENT_DURATION` if the unit does not already have a status with that
-    /// id (idempotency guard — safe to call twice in tests).
-    ///
-    /// The unit is the applier of its own initial statuses (permanent stun has no
-    /// meaningful external source).
+    /// Apply each templated unit's `initial_statuses` with `PERMANENT_DURATION`
+    /// at combat bootstrap. Idempotent (skips statuses already present), so safe
+    /// to call twice. The unit is the applier of its own initial statuses.
     pub fn apply_initial_statuses(&mut self, content: &dyn ContentView) {
         for unit in self.units.iter_mut() {
             let Some(ref tid) = unit.template_id.clone() else {
@@ -1005,13 +950,11 @@ impl CombatState {
             if u.is_alive() {
                 use crate::{PoolKind, RegenRule};
 
-                // Capture effective speed before the mutable pool iteration —
-                // needed to sync pools[Mp].max for RefillToMax (mirrors prior
-                // `u.movement_points = u.speed` behavior).
+                // Captured before the mutable pool loop to sync pools[Mp].max
+                // for RefillToMax (effective speed includes status/aura bonuses).
                 let effective_speed = u.effective_speed();
 
-                // Unified regen loop: iteration order is load-bearing for
-                // determinism (Mana, Rage, Energy, Ap, Mp).
+                // Iteration order is load-bearing for determinism.
                 for (kind, rule) in u.regen_per_pool.iter() {
                     let Some((cur, max)) = u.pools[kind].as_mut() else {
                         continue;
@@ -1032,15 +975,12 @@ impl CombatState {
                             }
                         }
                         RegenRule::RefillToMax => {
-                            // For Mp, the effective max is the unit's current speed
-                            // (which includes status/aura bonuses via RefreshAggregates),
-                            // not the stale pool max. Sync it here so refill matches
-                            // the prior `u.movement_points = u.speed` behavior.
+                            // Mp's effective max is current speed (incl. bonuses),
+                            // not the stale pool max.
                             if kind == PoolKind::Mp {
                                 *max = effective_speed;
                             }
-                            // Emit-on-change only: emit PoolChanged{Refill} when
-                            // AP/MP were spent (cur < max).
+                            // Emit PoolChanged{Refill} only when actually spent.
                             if *cur != *max {
                                 *cur = *max;
                                 events.push(Event::PoolChanged {
@@ -1439,13 +1379,11 @@ impl CombatState {
     /// Shared advance-turn pump: drains `seed` effects through the
     /// `AdvanceTurn`/`BumpRound` cascade, collecting all skip + pool events.
     ///
-    /// This REPLICATES the budget-bounded drain discipline that `step_inner`
-    /// uses for the `EndTurn` cascade (derived-effects-to-front, same budget).
-    /// `step_inner` does NOT call this helper today — keep the two in sync if
-    /// `AdvanceTurn`/`BumpRound` semantics change. The divergence surface is
-    /// small: only `AdvanceTurn`/`BumpRound`-derived effects are expected in
-    /// `seed` (the caller must not seed move/damage effects here), and those
-    /// cascades never produce Cast/Move/AoO sub-queues.
+    /// Replicates the budget-bounded drain discipline of `step_inner`'s `EndTurn`
+    /// cascade (derived-effects-to-front, same budget). `step_inner` does NOT call
+    /// this helper — keep the two in sync if `AdvanceTurn`/`BumpRound` semantics
+    /// change. Callers must seed only `AdvanceTurn`/`BumpRound`-derived effects
+    /// (never move/damage), which never spawn Cast/Move/AoO sub-queues.
     fn pump_advance_turn(
         &mut self,
         seed: std::collections::VecDeque<crate::effect::Effect>,
@@ -1578,9 +1516,8 @@ impl CombatState {
     /// behaviour of the legacy `build_turn_order` preset path.
     ///
     /// # Dead units
-    /// Dead units (hp == 0) are included — no `is_alive()` filter — to keep
-    /// the dice-draw count identical to the legacy `build_turn_order` draw set
-    /// (required for RNG parity during the migration window).
+    /// Dead units (hp == 0) are included — no `is_alive()` filter — so the
+    /// dice-draw count is independent of who is alive (RNG parity).
     pub fn roll_initiative_for_all(
         &mut self,
         rng: &mut dyn crate::dice::DiceSource,

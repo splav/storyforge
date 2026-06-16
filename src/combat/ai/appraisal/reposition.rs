@@ -41,15 +41,10 @@ pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
         .reposition_pos_gain
         .eval(best_position_improvement);
 
-    // Idle AP boost: no enemies in attack range, we have AP, AND there is a
-    // real positional improvement to take. Without the improvement gate, the
-    // boost forced reposition to fire even when no useful tile existed —
-    // post-step-3 mining (3.6) showed this drove Reposition to 15% chosen
-    // intent (target 3–5%) and inflated viability_fallback (5.1% → 16.8%)
-    // because intent fired without a viable Move plan to back it. Tying the
-    // boost to `best_position_improvement >= reposition_pos_gain.x_lo` keeps
-    // the idle nudge but only when the curve already says there is somewhere
-    // worth going.
+    // Idle AP boost: no enemies in range, have AP, AND a real positional gain.
+    // The improvement gate is essential — without it the boost fired Reposition
+    // with no useful tile, over-firing the intent and inflating
+    // viability_fallback (intent without a backing Move plan).
     if engagement_gap && has_ap && best_position_improvement >= 0.05 {
         reposition = reposition.max(0.5);
     }

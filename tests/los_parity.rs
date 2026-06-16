@@ -1,13 +1,8 @@
-//! LOS parity tests (T1.2.4).
+//! LOS parity tests.
 //!
-//! Verifies that all three `ActionState` backends agree on `is_blocked_los`,
-//! and that each delegates to the canonical `combat_engine::has_los`.
-//!
-//! Four tests:
-//! 1. `bevy_actions_is_blocked_los_matches_has_los`
-//! 2. `snapshot_actions_is_blocked_los_matches_has_los`
-//! 3. `engine_action_state_is_blocked_los_matches_has_los`
-//! 4. `prop_all_three_backends_agree_on_los` — property-test (≥150 random cases)
+//! Verify that all three `ActionState` backends (Bevy / snapshot / engine) agree
+//! on `is_blocked_los` and each delegates to the canonical `combat_engine::has_los`
+//! — three fixed-case tests plus one randomised property test.
 
 use std::collections::HashSet;
 
@@ -228,15 +223,10 @@ fn engine_action_state_is_blocked_los_matches_has_los() {
 
 /// Property test: all three backends agree on is_blocked_los for random inputs.
 ///
-/// Since the refactor that moved `is_blocked_los` to a default-impl in the
-/// trait (over abstract `blocked_hexes()` getter), parity is structural —
-/// each backend overrides only the getter, the LOS algorithm is a single
-/// shared default-impl calling `combat_engine::geom::has_los`. This test is
-/// a regression guard against accidental future overrides on any backend.
-///
-/// Uses a deterministic PRNG (no external crate needed).
-/// n_cases is 60 (reduced from 200) because `bevy_blocked_los` spins up a
-/// `MinimalPlugins` App per call — 60 cases keep the test well under 10 s.
+/// Parity is structural — `is_blocked_los` is a shared trait default-impl over a
+/// `blocked_hexes()` getter, so this guards against an accidental future override.
+/// n_cases is kept at 60 because `bevy_blocked_los` spins up a `MinimalPlugins`
+/// App per call; 60 keeps the test well under 10 s.
 #[test]
 fn prop_all_three_backends_agree_on_los() {
     // Simple LCG for reproducible pseudo-random numbers without external deps.

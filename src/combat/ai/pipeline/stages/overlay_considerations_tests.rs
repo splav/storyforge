@@ -758,21 +758,12 @@ fn feasibility_zero_when_viability_failed() {
         );
 }
 
-/// Safety probe (step 11.8 §D): formula isolation test.
-///
-/// Asserts that `safety = 1.0 - max(self_damage_ratio, exposure_at_end)` correctly
-/// drops below 1.0 when `terminal.ExposureAtEnd` is high. With exposure=0.8 and
-/// self_damage=0, expected safety = 1.0 - 0.8 = 0.2.
+/// Isolation test for `safety = 1.0 - max(self_damage_ratio, exposure_at_end)`:
+/// with exposure=0.8, self_damage=0, safety must be 0.2.
 ///
 /// Sets `terminal.ExposureAtEnd` directly — does NOT exercise the
-/// `maps.danger → TerminalStage → exposure_at_end` pipeline (that's covered by
-/// 11.7b synthetic tests in `planning::terminal::tests`). This pins the overlay
-/// formula in isolation.
-///
-/// Production context: the H1c histogram shows safety flat at 1.0. That is
-/// corpus-bound (OvercommitIntoDanger critic + scenario design keep actors in
-/// safe tiles), not a code bug. If THIS isolation test fails (safety stays 1.0
-/// despite high exposure), the formula itself is broken → escalate to backlog.
+/// `maps.danger → TerminalStage → exposure_at_end` pipeline (covered in
+/// `planning::terminal::tests`). This pins the overlay formula in isolation.
 #[test]
 fn safety_drops_below_one_when_exposure_at_end_is_high() {
     let agenda = Agenda {
@@ -805,11 +796,10 @@ fn safety_drops_below_one_when_exposure_at_end_is_high() {
     );
 }
 
-/// Regression: outcomes consumers must read from `plan.annotation.outcomes`
-/// (authoritative — populated by generator), NOT `pool.annotations[i].outcomes`
-/// (dead during pipeline; only populated at log serialization). This test pins
-/// the bug that previously caused FocusTarget/ApplyCC/ProtectAlly/LastStand
-/// leverage to read empty outcomes → all returned 0 even for winning items.
+/// Regression: outcome consumers must read `plan.annotation.outcomes`
+/// (generator-populated, authoritative), NOT `pool.annotations[i].outcomes`
+/// (dead during pipeline, populated only at log serialization). The bug made
+/// leverage read empty outcomes → 0 even for winning items.
 #[test]
 fn overlay_uses_plan_annotation_outcomes_not_pipeline_annotation() {
     let target_ent = make_entity(10);

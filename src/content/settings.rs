@@ -16,9 +16,8 @@ pub struct GameSettings {
     pub ai_log_path: String,
     pub current_slot: u8,
     /// When true (default), the AI reuses the stored plan after a MoveOnly step
-    /// instead of replanning from scratch. The fresh plan is still computed for
-    /// divergence diagnostics. Set to false to restore the old replan-every-tick
-    /// behaviour for comparison.
+    /// instead of replanning. The fresh plan is still computed for divergence
+    /// diagnostics. False = replan every tick (for comparison).
     pub ai_freeze_plan_after_move: bool,
     /// Dev-only: id of the campaign scenario to start a fresh campaign at.
     /// Empty = normal start (scenario_ids[0]). Only honoured under `--features dev`.

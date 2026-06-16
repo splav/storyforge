@@ -1,33 +1,23 @@
-//! TransitDeathMaskStage — Fix C: veto lethal-AoO movement plans.
+//! TransitDeathMaskStage: vetoes plans where the actor takes lethal self-damage
+//! (≥ HP) on a **Move** step before any terminal action — it dies in transit, so
+//! the plan accomplishes nothing. Distinct from death-after-acting (terminal Cast
+//! fires first), which is where the LastStand heroic-trade applies; transit death
+//! never qualifies.
 //!
-//! A plan where the actor accumulates lethal self-damage (≥ actor HP) on a
-//! **Move** step that precedes any terminal action accomplishes nothing: the
-//! actor dies in transit before the terminal step can execute. This differs
-//! from death-after-acting (where the terminal Cast fires first, then the
-//! actor may die from retaliation) — LastStand heroic-trade applies to the
-//! latter but NOT to transit death.
+//! Masks such plans (`score = −∞`, `selectable = false`) unconditionally. If that
+//! masks every candidate, `pick_best_plan` falls back to ranked[0] rather than
+//! returning empty, preserving the non-empty-candidate invariant.
 //!
-//! This stage masks (`score = −∞`, `selectable = false`) such plans
-//! unconditionally regardless of intent. The non-empty-candidate invariant
-//! is guaranteed by `pick_best_plan`'s fallback path: if every candidate is
-//! masked, it falls back to the highest-ranked masked plan (ranked[0]) rather
-//! than panicking or returning an empty result.
-//!
-//! # Relationship to ModeSelectionStage
-//!
-//! `ModeSelectionStage` (which runs before us) explicitly SKIPS transit-death
-//! plans when assigning `EvaluationMode::LastStand` for `ExpectedSelfLethal`.
-//! We then mask them here. The two stages are complementary:
-//! - ModeSelection: "transit-death plans do NOT get heroic LastStand mode"
-//! - TransitDeathMask: "transit-death plans are masked from normal selection"
+//! Complements `ModeSelectionStage` (runs earlier), which skips transit-death
+//! plans when assigning `EvaluationMode::LastStand`.
 //!
 //! # Detection
 //!
-//! Uses `plan_has_lethal_transit` from `adapt::select`, which reads
-//! `plan.outcomes` (real per-step sim values, not the EV estimate). This is
-//! critical: the `ActionOutcomeEstimate` builder zeroes `self_damage` for
-//! Move arms, so the estimate channel is blind to move-induced death. The
-//! `plan.outcomes` field carries the truth from `sim::apply_move`.
+//! Uses `plan_has_lethal_transit` (from `adapt::select`), which reads
+//! `plan.outcomes` — the real per-step sim values, not the EV estimate. Critical:
+//! the `ActionOutcomeEstimate` builder zeroes `self_damage` for Move arms, so the
+//! estimate channel is blind to move-induced death; `plan.outcomes` carries the
+//! truth from `sim::apply_move`.
 
 use crate::combat::ai::adapt::plan_has_lethal_transit;
 use crate::combat::ai::outcome::ContractMaskHit;

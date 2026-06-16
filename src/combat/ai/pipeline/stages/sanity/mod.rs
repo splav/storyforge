@@ -8,9 +8,8 @@
 //! - `retreat_trap.rs` — Rule 2: final tile with < 2 open neighbours.
 //! - `synergy_bonus.rs` — Rule 3: reposition to safer tile + useful cast.
 //!
-//! The three rules that were migrated to critics in steps 10.1–10.2
-//! (`Survival`, `AoOBleed`, `LosBlindspot`, `SelfAoe`) are no longer present;
-//! `SanityRule` has exactly three variants.
+//! `SanityRule` has exactly three variants; `Survival`, `AoOBleed`,
+//! `LosBlindspot`, and `SelfAoe` were migrated to critics.
 
 mod healer_exposure;
 mod retreat_trap;
@@ -33,10 +32,7 @@ use std::collections::HashSet;
 
 // ── Sanity rule observability ──────────────────────────────────────────────
 
-/// Identifies one residual sanity rule. Variants that were migrated to
-/// `PlanCritic` in steps 10.1–10.2 (`Survival`, `AoOBleed`, `LosBlindspot`,
-/// `SelfAoe`) are removed in step 10.4. Stable codes consumed by offline
-/// analyzers.
+/// Identifies one residual sanity rule. Stable codes consumed by offline analyzers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SanityRule {
@@ -119,15 +115,11 @@ impl PlanStage for SanityStage {
 /// Apply residual sanity multipliers to `scores` in place and return a
 /// per-plan breakdown of which rules fired and with what multiplier.
 ///
-/// The outer `Vec` is parallel to `plans`/`scores`. Each inner `Vec` lists
-/// the `SanityHit`s for that plan in the order they fired; an empty inner
-/// vec means no rules fired for that plan and the score was unchanged.
+/// The outer `Vec` is parallel to `plans`/`scores`; each inner `Vec` lists the
+/// `SanityHit`s for that plan in fire order (empty = no rules fired).
 ///
-/// **Early-return case (`scores.len() <= 1`):** returns a `Vec` of empty
-/// inner vecs sized to `scores.len()` (0 or 1 entries). The single-plan
-/// edge case does not run any rule, so the breakdown is empty — but the
-/// outer length still matches `scores.len()` so callers can index it safely
-/// without a special-case check.
+/// The outer length always matches `scores.len()` so callers can index safely —
+/// including the `scores.len() <= 1` early return, where no rules run.
 pub fn sanity_adjust_plans(
     scores: &mut [f32],
     plans: &[TurnPlan],
@@ -336,15 +328,11 @@ mod tests {
 
     // ── sanity_survives_adaptation_path (B3 regression) ──────────────────
     //
-    // Regression test for B3 fix (step 11.0): in the old pipeline order
-    // SanityStage ran before FinalizeStage, which would rescore ann.score
-    // from raw factors — wiping the Sanity multipliers. In the new order:
+    // Sanity runs AFTER Finalize in the pipeline order
     //   ModeSelection → Finalize → Sanity → Critics → ...
-    // Sanity runs AFTER Finalize, so its adjustments survive.
-    //
-    // This test runs: FinalizeStage (pre-populated adaptation) → SanityStage,
-    // and verifies that the output of Sanity is a *modified version* of the
-    // Finalize output (not the pre-finalize score).
+    // so its multipliers survive (the old order let Finalize rescore from raw
+    // factors and wipe them). Runs Finalize → Sanity and verifies the output is
+    // a modified version of the Finalize output, not the pre-finalize score.
 
     #[test]
     fn sanity_survives_adaptation_path() {
@@ -858,11 +846,9 @@ mod tests {
 
     // ── plan_has_self_aoe: routed through shared `aoe_area` ─────────────
     //
-    // Smoke test: a friendly-fire Circle AoE centred on the caster's tile
-    // must be detected as self-AoE. The inline match that used to live here
-    // covered Circle/Line only; `aoe_area` (shared with every other AoE
-    // caller) automatically picks up new `AoEShape` variants, so adding
-    // e.g. Cone later will be covered without a code change here.
+    // Smoke test: a friendly-fire Circle AoE centred on the caster's tile must
+    // be detected as self-AoE. Routing through `aoe_area` (vs the old inline
+    // Circle/Line match) means new `AoEShape` variants are covered for free.
 
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
     use combat_engine::{AbilityId, DiceExpr};

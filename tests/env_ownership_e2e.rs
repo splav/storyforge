@@ -1,18 +1,9 @@
-//! E2E tests for per-trap ownership + per-team reveal + AI hazard avoidance (T10).
+//! E2E tests for per-trap ownership + per-team reveal + AI hazard avoidance.
 //!
-//! Covers four equivalence classes and one parity check:
-//!
-//! 1. `enemy_owned_trap_visible_to_enemy_ai_not_player`
-//!    — ownership + T3 snapshot filter.
-//! 2. `enemy_ai_soft_avoids_own_visible_trap_when_alternative_exists`
-//!    — hazard_costs wiring in `reach_from` (T9 via snapshot).
-//! 3. `player_steps_on_hidden_enemy_trap_and_it_fires`
-//!    — engine-level firing is visibility-agnostic.
-//! 4. `neutral_trap_fires_on_both_teams`
-//!    — `owner=None` trap fires regardless of which team steps on it.
-//! 5. `ai_sim_and_prod_hazard_costs_agree`
-//!    — same team-filtered snapshot yields identical `hazard_costs`
-//!    for the same actor (parity by construction).
+//! Covers: snapshot visibility filtering by owner/reveal, AI soft-avoidance of
+//! own visible traps, visibility-agnostic firing, neutral (`owner=None`) traps
+//! firing on either team, and hazard_cost parity across independently-built
+//! snapshots.
 
 use std::collections::HashMap;
 
@@ -341,17 +332,11 @@ fn neutral_trap_fires_on_both_teams() {
 
 // ── Test 5: AI-sim and prod hazard_costs agree (parity) ──────────────────────
 
-/// Property/example test: the same team-filtered snapshot yields identical
-/// `hazard_costs` for the same actor regardless of how the snapshot is reached.
-///
-/// Parity holds by construction: both `BattleSnapshot.state.environment` (the
-/// input) and `BattleSnapshot.cache.env_severity` (the lookup table) are
-/// serialised inside the snapshot.  Two independently-built snapshots with
-/// the same contents must produce the same `hazard_costs` in `reach_from`.
-///
-/// We verify over two different snapshots (varying unit stats) that the
-/// resulting paths to a common goal are identical — confirming the per-unit
-/// stats do NOT influence hazard_costs.
+/// The same team-filtered snapshot yields identical `hazard_costs` for the same
+/// actor regardless of how it was built: `state.environment` and
+/// `cache.env_severity` both live in the snapshot, so two snapshots with equal
+/// contents but differing unit stats must produce identical paths to a goal —
+/// confirming per-unit stats do not influence hazard_costs.
 #[test]
 fn ai_sim_and_prod_hazard_costs_agree() {
     use storyforge::combat_engine::state::EnvId;

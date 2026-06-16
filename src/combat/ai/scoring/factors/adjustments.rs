@@ -7,8 +7,6 @@ use crate::content::races::CritFailEffect;
 use combat_engine::ResourceKind;
 
 /// Coordination knob: overkill penalty + duplicate-CC.
-/// Phase 6 removed `focus` and `position` as scored factors, so the
-/// focus-fire bonus and tile-collision penalty were dropped here too.
 pub(crate) fn apply_reservation_adjustments(
     step: &ScoredStep,
     off: &mut OffensiveFactors,
@@ -23,11 +21,9 @@ pub(crate) fn apply_reservation_adjustments(
             if let Some(target_unit) = snap.unit(target_ent) {
                 let hp_left = target_unit.hp() as f32 - reserved_dmg;
                 if hp_left <= 0.0 {
-                    // Team-mates already reserved lethal damage. Our hit is
-                    // waste (apart from a crit-fail hedge). Scale damage AND
-                    // kill together — previously `kill = 0.0` was absolute
-                    // while damage leaked `mult` through, leaving overkill
-                    // plans attractive whenever raw damage was high.
+                    // Team-mates already reserved lethal damage — our hit is
+                    // waste. Scale damage AND kill by the same multiplier;
+                    // scaling only one left overkill plans attractive on high raw.
                     let mult = difficulty.overkill_multiplier();
                     off.damage *= mult;
                     off.kill_now *= mult;

@@ -1,11 +1,6 @@
-//! Replay assertion umbrella — DSL primitives (this module) and assertion
-//! pipeline ([`pipeline`]).
-//!
-//! This module contains the overlay-based assertion DSL used by integration
-//! tests (e.g. `tests/ai_scenarios.rs`) and by the `replay_ai_log` binary.
-//! The assertion pipeline (reading JSONL, rebuilding decisions, comparing
-//! against overlays) lives in [`pipeline`] and is re-exported here for
-//! convenience.
+//! Replay assertion umbrella — overlay-based assertion DSL (this module) used by
+//! integration tests and the `replay_ai_log` binary. The assertion pipeline
+//! (JSONL → rebuilt decisions → overlay comparison) lives in [`pipeline`].
 //!
 //! # Overlay format (`*.expected.toml`)
 //!
@@ -29,23 +24,14 @@
 //!
 //! ## `decision_kind` mapping
 //!
-//! The overlay uses four canonical strings:
-//! - `"CastInPlace"` — plan commits a cast without a prior move.
-//! - `"MoveAndCast"` — plan moves then casts.
-//! - `"Move"` — plan only moves (covers both `MoveOnlyRetreat` and
-//!   `MoveCloser` from `DecisionBlock`; they are both plain moves from the
-//!   test author's perspective).
-//! - `"EndTurn"` — no actions taken.
-//!
-//! `MoveOnlyRetreat` and `MoveCloser` from `log::DecisionBlock` are both
-//! mapped to `"Move"` during comparison.
+//! Four canonical strings: `"CastInPlace"` (cast, no prior move), `"MoveAndCast"`,
+//! `"Move"` (both `MoveOnlyRetreat` and `MoveCloser` map here), `"EndTurn"`.
 //!
 //! ## `primary_effect` values
 //!
-//! Inferred from the chosen plan's first `Cast` step via `AbilityDef.effect`:
-//! `"Damage"`, `"Heal"`, `"GrantMovement"`, `"RestoreResources"`, `"Summon"`,
-//! `"None"`. If the decision is Move or EndTurn and `primary_effect` is
-//! asserted, the assertion fails.
+//! Inferred from the first `Cast` step via `AbilityDef.effect`: `"Damage"`,
+//! `"Heal"`, `"GrantMovement"`, `"RestoreResources"`, `"Summon"`, `"None"`.
+//! Asserting it on a Move/EndTurn decision fails.
 
 use serde::Deserialize;
 
@@ -68,14 +54,9 @@ pub struct Overlay {
     pub expectations: Vec<Expectation>,
 }
 
-/// Flat representation of `AiMemory` fields for TOML overlay injection.
-///
-/// All fields are optional. When `[ai_memory]` is present in the overlay,
-/// `build_stored_goal` reads these fields and constructs `StoredGoalContext`
-/// if any goal-kind-specific field is provided.
-///
-/// Flat layout (no nesting) is intentional: TOML table syntax is more
-/// readable than inline table syntax for multi-field goal specifications.
+/// Flat representation of `AiMemory` fields for TOML overlay injection. All
+/// fields optional; `build_stored_goal` constructs `StoredGoalContext` when any
+/// goal-kind-specific field is set. Flat (un-nested) for readable TOML tables.
 #[derive(Debug, Deserialize, Default)]
 pub struct AiMemoryOverlay {
     /// Goal kind: `"Finish"`, `"Pressure"`, `"DisableEnemy"`, `"HealAlly"`,
@@ -99,11 +80,8 @@ pub struct AiMemoryOverlay {
     pub last_goal_actor_hp_at_store: Option<i32>,
     /// Actor rage at store time (default: 0).
     pub last_goal_actor_rage_at_store: Option<i32>,
-    /// Actor status hash at store time (default: 0).
-    /// Accepts either a decimal string (e.g. `"15130871412783076140"`) or a
-    /// hex string with `0x` prefix (e.g. `"0xD1CE5E7E47D1B3AC"`).
-    /// Plain TOML integers are limited to i64 range, so large u64 values must
-    /// use this string form.
+    /// Actor status hash at store time (default: 0). String form (decimal or
+    /// `0x`-prefixed hex) because TOML ints cap at i64 but this is u64.
     pub last_goal_actor_status_hash: Option<String>,
     /// Target HP at store time (default: 0).
     pub last_goal_target_hp_at_store: Option<i32>,

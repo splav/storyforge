@@ -441,15 +441,8 @@ fn turn_start_reveal_still_fires_aoe_radius_source() {
 
 // ── Wave-1: trap halts movement ──────────────────────────────────────────────
 
-/// A multi-hex path whose intermediate hex holds a hazard: the trap fires on
-/// arrival and halts the remaining movement even when the hit is non-lethal.
-/// The mover's final position is the trap hex, NOT the originally requested
-/// destination.  `ctx.interrupted == true`.
-/// A trap on an intermediate hex: fires on arrival, halts the mover, and sets
-/// `ctx.interrupted`.
-///
-/// Merges: `trap_fires_on_pass_through`, `trap_on_arrival_triggers_and_halts`,
-/// and `trap_on_arrival_sets_interrupted_flag` — all used the identical fixture.
+/// A trap on an intermediate hex: fires on arrival even when non-lethal, halts
+/// the mover at the trap hex (not the requested dest), and sets `ctx.interrupted`.
 #[test]
 fn trap_on_arrival_triggers_halts_and_sets_interrupted() {
     // mover at col=0, trap at col=1, dest at col=2. Non-lethal (2 dmg, 10 hp).
@@ -782,13 +775,9 @@ fn on_move_and_turn_start_share_handler() {
         &content,
     )
     .expect("move step");
-    // No new EnvRevealed (already revealed), no interrupt from reveal.
-    // (HazardTriggered fires because the unit stepped on the hazard hex, but
-    //  that's unrelated to the reveal test — we just confirm no SECOND EnvRevealed.)
-    // Also: if the step reveals a NEW hazard it would interrupt, but here there
-    // is none — so interrupted state may be true (trap fire) or false, we don't
-    // constrain it here.
-    let _ = ctx; // interrupt state depends on whether a trap was placed; not asserted here.
+    // Already-revealed hazard emits no new EnvRevealed. The unit also steps onto
+    // the hazard hex, so interrupt state is unrelated to the reveal — not asserted.
+    let _ = ctx;
 
     // Reset and test OnMove alone (hazard not yet revealed, unit starts at col=0).
     let mut scout2 = unit(2, Team::Player, 0, 10, None);

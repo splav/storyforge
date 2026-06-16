@@ -32,14 +32,10 @@ pub fn compute(plan: &TurnPlan, _intent: &TacticalIntent, ctx: &ScoringCtx) -> f
 /// since we don't model new-AoO-exposure here).
 ///
 /// # Overlap note (5.5)
-/// `compute_plan_self_survival` ≠ `terminal::next_turn_lethality`: this
-/// factor measures *what the plan does to improve the actor's defences* —
-/// self-heals, armor-buffs, and moving out of danger (danger[start] −
-/// danger[committed_final_pos]). `next_turn_lethality` measures *how much
-/// incoming threat awaits the actor at their final position next turn* —
-/// Σ enemy DPR reachable at end_pos / actor_hp_at_end. The two signals are
-/// complementary: `self_survival` is proactive (did we improve?), lethality
-/// is reactive (how bad is the endpoint?). Keep both.
+/// Distinct from `terminal::next_turn_lethality`: this factor is proactive
+/// (did the plan improve defences — self-heal, armor-buff, danger reduction),
+/// lethality is reactive (incoming threat at the endpoint). Complementary —
+/// keep both.
 pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
     let active = ctx.active;
     let max_hp = active.max_hp().max(1) as f32;

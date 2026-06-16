@@ -493,11 +493,9 @@ fn cc_reach_prefers_cc_ability_range() {
 
 // ── intent_score wiring: FocusTarget Move uses pursuit ──────────────
 
-/// Regression test for logs #1/#3/#7: a melee pursuer whose Move
-/// enters the (speed + range) bubble must score at/above the
-/// FocusTarget viability threshold (0.5). Before Fix B Move scored
-/// 0.0, so viability_fallback ran every turn even when the warrior
-/// was actively closing.
+/// Regression (logs #1/#3/#7): a melee pursuer whose Move enters the
+/// (speed + range) bubble must score ≥ the FocusTarget viability threshold (0.5).
+/// Before Fix B, Move scored 0.0 so viability_fallback ran even while closing.
 #[test]
 fn focus_target_pursuit_enters_bubble_above_viability() {
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))

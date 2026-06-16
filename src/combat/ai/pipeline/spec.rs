@@ -8,19 +8,13 @@
 //!
 //! # Design choice: separate STAGE_SPECS table
 //!
-//! `StageSpec` lives in a parallel `STAGE_SPECS: &[StageSpec]` table rather than
-//! inside `StageEntry`. Rationale:
-//! - Spec is logically independent of pipeline split (PRE_MASK / POST_MASK share
-//!   the same spec, so duplicating spec data into three constants is noise).
-//! - `StageEntry` stays `const`-constructible with simple fn-pointers; adding
-//!   a `spec: StageSpec` field with slice references would require `&'static` and
-//!   careful const initialisation for every existing table.
-//! - Validator operates on a `&[StageSpec]` slice and doesn't need `apply` ptrs.
+//! `StageSpec` lives in a parallel `STAGE_SPECS` table, not inside `StageEntry`:
+//! spec is independent of the PRE/POST pipeline split, `StageEntry` stays
+//! const-constructible with plain fn-pointers, and the validator needs only
+//! `&[StageSpec]` (no `apply` ptrs).
 //!
-//! Invariant: `STAGE_SPECS.len() == PRODUCTION_PIPELINE.len()` and both are
-//! ordered identically.  Enforced by the `stage_specs_length_matches_pipeline`
-//! test below and by `validate_pipeline(STAGE_SPECS)` in
-//! `production_pipeline_order_is_valid`.
+//! Invariant: `STAGE_SPECS` and `PRODUCTION_PIPELINE` have equal length and
+//! identical order — enforced by tests below.
 
 use crate::combat::ai::pipeline::order::StageId;
 
@@ -73,9 +67,8 @@ pub enum AnnotationField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScoreEffect {
     /// Filters/marks plans *before* Finalize; does not touch `ann.score`.
-    /// Example: `ViabilityStage` (may rescore via `rescore_with_intent` when
-    /// the gate fails, but from the pipeline-validator perspective it is a
-    /// pre-score gate that runs before `Finalize` establishes `ScoreBase`).
+    /// Example: `ViabilityStage` (may rescore internally, but to the validator
+    /// it's a pre-score gate running before `Finalize` sets `ScoreBase`).
     PreScoreGate,
     /// Establishes `ScoreBase` — the mode-aware baseline score.
     /// Example: `FinalizeStage`.

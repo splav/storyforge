@@ -11,11 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// v28 fixture: first non-skip actor_tick entry = actor 12884901543 (taunted).
-/// Fix A (2026-06-14): removed ForcedTargeting band; actor now routes via
-/// NormalTactical → decision = Move (Reposition), no cast.
-/// Tests exercise --assert CLI mechanics (exit codes, OR logic, verbose);
-/// the specific decision values reflect the current AI output for this snapshot.
+/// Fixture log. Its first non-skip actor_tick routes via NormalTactical →
+/// decision = Move (Reposition), no cast — the expectations below assert against
+/// that. Tests exercise --assert CLI mechanics (exit codes, OR logic, verbose).
 const LOG_PATH: &str = "tests/ai_scenarios/snapshots/focus_target_melee_basic/log.jsonl";
 
 // ── helpers ──────────────────────────────────────────────────────────────────

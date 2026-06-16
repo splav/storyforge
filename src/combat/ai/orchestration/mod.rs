@@ -91,20 +91,18 @@ pub struct PickResult {
     pub intent: TacticalIntent,
     /// Reason for intent selection (original select_intent reason, unmodified by adaptation).
     pub intent_reason: IntentReason,
-    /// Adaptation reason that switched the chosen plan's evaluation regime,
-    /// or `None` when the chosen plan was scored under `EvaluationMode::Default`.
-    /// Parallel to `intent_reason` but carries the *adaptation* context — these
-    /// two fields together replace the old `IntentReason::Adapted` wrapper.
+    /// Adaptation reason that switched the chosen plan's evaluation regime, or
+    /// `None` under `EvaluationMode::Default`. Parallel to `intent_reason` but
+    /// carries *adaptation* context.
     pub evaluation_mode_reason: Option<crate::combat::ai::adapt::AdaptationReason>,
-    /// Pre-adaptation (post-sanity) scores — used by the log to show
-    /// pre/post-adaptation deltas. Same length as `pool`.
+    /// Pre-adaptation (post-sanity) scores. Same length as `pool`.
     pub base_scored: Vec<f32>,
-    /// Step 11.6: priority band and reason assigned this tick.
+    /// Priority band and reason assigned this tick.
     pub band: (
         crate::combat::ai::intent::bands::PriorityBand,
         crate::combat::ai::intent::bands::BandReason,
     ),
-    /// Step 11.6: agenda built this tick (items in raw_score-desc order).
+    /// Agenda built this tick (items in raw_score-desc order).
     pub agenda: crate::combat::ai::intent::agenda::Agenda,
 }
 
@@ -121,34 +119,22 @@ pub enum MoveOrigin {
 
 // ── Context ─────────────────────────────────────────────────────────────────
 //
-// The AI chain reads two categories of data. After arch E (per-actor data
-// migrated onto `UnitSnapshot`), only the world-scope half remains as a
-// shared context — every per-actor fact is on the actor's snapshot row.
-//
-// - `AiWorld` — content + difficulty + combat-wide rules (crit_fail_chance).
-//   Stable for the entire combat.
-// - per-actor data lives on `UnitSnapshot` directly (caster_ctx,
-//   crit_fail_effect, abilities). The scoring layer reads it through
-//   `ScoringCtx.active`.
-//
-// Pathfinding stop-blockers come from `BattleSnapshot` directly — corpses
-// are hp=0 units, no separate `blocked_tiles` channel.
+// The AI chain reads world-scope data (`AiWorld`) plus per-actor facts that
+// live on `UnitSnapshot` directly, read via `ScoringCtx.active`. Pathfinding
+// stop-blockers come from `BattleSnapshot` — corpses are hp=0 units.
 
 /// World-scope data. Stable for the entire combat.
 ///
-/// `crit_fail_chance` is a combat-wide rule (one die per combat, player +
-/// AI pay the same odds) — sits alongside `content` and `difficulty` as
-/// "how this world works for every actor".
+/// `crit_fail_chance` is a combat-wide rule (one die per combat, player + AI
+/// pay the same odds).
 pub struct AiWorld<'a> {
     pub content: &'a ActiveContentData,
     pub difficulty: &'a DifficultyProfile,
     pub tuning: &'a AiTuning,
     pub crit_fail_chance: f32,
-    /// Step 9.A: tag cache for effective_ai_tags writeback in pick_action.
-    /// Default (empty) value is used in test contexts via `make_test_ctx`.
+    /// Tag cache for effective_ai_tags writeback. Empty in test contexts.
     pub ability_tags: &'a crate::combat::ai::world::tags::AbilityTagCache,
-    /// Step 9.B commit 2: status tag cache for `compute_apply_cc` (HardCC filter).
-    /// Default (empty) value is used in test contexts via `make_test_ctx`.
+    /// Status tag cache for `compute_apply_cc` (HardCC filter). Empty in tests.
     pub status_tags: &'a crate::combat::ai::world::tags::StatusTagCache,
 }
 
@@ -169,15 +155,12 @@ pub struct ScoringCtx<'w, 'p> {
     /// must be in the snapshot (enforced by `pick_action` early-return and the
     /// `make_scoring_ctx` / `with_perspective` invariants).
     pub active: UnitView<'p>,
-    /// Need signals computed once per actor in `pick_action`; carried through
-    /// scoring/factors/intent. Step 3.0 fills with zeros (`Default::default()`);
-    /// step 3.1 fills via `appraisal::compute_need_signals`. Owned (Copy) —
-    /// small struct (8 f32s), avoids lifetime gymnastics in test sites.
+    /// Need signals computed once per actor in `pick_action` via
+    /// `compute_need_signals`; carried through scoring/factors/intent. Owned
+    /// (Copy) — small struct, avoids lifetime gymnastics in tests.
     pub need_signals: crate::combat::ai::appraisal::NeedSignals,
-    /// Step 6.3: stored goal context for repair-affinity consumer in
-    /// `finalize_scores`. `None` when the actor has no stored goal (first
-    /// tick or after Cast/EndTurn). Reference borrowed from `AiMemory.last_goal`
-    /// for the duration of `pick_action`.
+    /// Stored goal context for the repair-affinity consumer in `finalize_scores`.
+    /// `None` when the actor has no stored goal (first tick or after Cast/EndTurn).
     pub last_goal: Option<&'p crate::combat::ai::repair::StoredGoalContext>,
 }
 
@@ -270,9 +253,6 @@ pub fn pick_action(
     };
     let need_signals = crate::combat::ai::appraisal::compute_need_signals(&appraisal_ctx);
 
-    // ── Step 11.1: band assignment (computed for telemetry plumbing only) ──
-    // Band is NOT used for routing here — routing lands in 11.4.
-    // Explicit discard so reviewers can see the intent without compiler noise.
     let (band, band_reason) = assign_band(
         active,
         snap,
@@ -283,11 +263,9 @@ pub fn pick_action(
         world.status_tags,
     );
 
-    // ── Step 11.2 / 11.4 / 11.5: agenda construction ─────────────────────
-    // In 11.4, agenda is passed into StageCtx so ItemScoringStage and
-    // PickBestStage can perform per-item composition.
-    // In 11.5, `memory` is forwarded so NormalTactical band's stickiness
-    // bonuses match prior `select_intent` behaviour.
+    // Agenda is passed into StageCtx for per-item composition (ItemScoring,
+    // PickBest). `memory` forwarded so NormalTactical stickiness bonuses match
+    // prior `select_intent` behaviour.
     let agenda = crate::combat::ai::intent::build_agenda(
         band,
         &band_reason,
@@ -301,15 +279,9 @@ pub fn pick_action(
         world.status_tags,
     );
 
-    // ── Step 11.5: primary intent derived from agenda ─────────────────────
-    // `choice` drives (a) the initial `score_plans_with_raw` pass (producing
-    // `score_initial` used by PickBestStage's additive composition formula)
-    // and (b) `StageCtx.intent` for stages that still read the legacy field.
-    //
-    // Primary item = agenda.items[0] (highest raw_score).  Fallback to
-    // Reposition / NoRuleDefault when the agenda is unexpectedly empty —
-    // this should not happen in practice because every band builder guarantees
-    // at least one item, but we keep the fallback for robustness.
+    // Primary intent = agenda.items[0] (highest raw_score). Drives the initial
+    // `score_plans_with_raw` pass and `StageCtx.intent`. Fallback to Reposition
+    // when the agenda is empty (shouldn't happen — every band yields ≥1 item).
     let choice = if let Some(primary) = agenda.items.first() {
         crate::combat::ai::intent::IntentChoice {
             intent: primary.intent_for_scoring(),
@@ -752,16 +724,11 @@ mod tests {
         }
     }
 
-    // ── shepherd_heal: tag-gated heal (Atom 6) ───────────────────────────────
+    // ── shepherd_heal: tag-gated heal ────────────────────────────────────────
     //
-    // Verifies the enemy AI sensibly casts the tag-gated heal `shepherd_heal`
-    // (target_type=single_ally, effect=heal, requires_tags=["symbiote"]):
-    //   1. legality honours `requires_tags` — the heal is illegal on a
-    //      non-symbiote ally, legal on a symbiote ally (the same `check_legality`
-    //      path the AI plan generator filters candidates through);
-    //   2. with a wounded symbiote ally in range the AI *chooses* the heal,
-    //      targeting the symbiote (never the non-symbiote);
-    //   3. at full ally HP the AI does NOT heal (overheal gate) and attacks.
+    // Tag-gated heal (requires_tags=["symbiote"]): legality honours the tag,
+    // the AI chooses the heal on a wounded symbiote (never the non-symbiote),
+    // and skips it at full ally HP (overheal gate) to attack instead.
 
     use crate::combat::ai::plan::types::PlanStep;
     use crate::combat::ai::world::tags::AiTags;

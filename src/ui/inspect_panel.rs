@@ -4,8 +4,7 @@
 //! buff/debuff/neutral), and ability list for the inspected unit.
 //! Gated on `UiDirtyFlags::INSPECT`.
 //!
-//! Panel is absolute-positioned in the bottom-right corner, above the turn-order
-//! strip.  It is initially hidden and becomes visible whenever
+//! Absolute-positioned bottom-right, above the turn-order strip; hidden until
 //! `SelectionState.inspected` is `Some`.
 
 use super::{

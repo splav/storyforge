@@ -63,12 +63,9 @@ pub enum Event {
         pierces: bool,
         amount: i32,
     },
-    /// Fused event emitted when a HoT tick restores HP.  Analogous to
-    /// `DotDamaged` for the heal-over-time path.  Emitted by
-    /// `effect_to_event(TickHeal)` when `heal_per_tick > 0` and the unit is
-    /// not already at max HP.  When the tick is a no-op (zero heal or already
-    /// at max), `StatusTicked` is emitted instead — matching the zero-damage
-    /// DoT convention.
+    /// Fused event when a HoT tick restores HP (the heal-over-time analogue of
+    /// `DotDamaged`). A no-op tick (zero heal or already at max HP) emits
+    /// `StatusTicked` instead, matching the zero-damage DoT convention.
     HotHealed {
         target: UnitId,
         source_status: StatusId,
@@ -150,13 +147,9 @@ pub enum Event {
         source: UnitId,
         status_id: StatusId,
     },
-    /// A boss entered a new phase.  Emitted by `apply_effect(EnterPhase)`
-    /// after the cascade (SetMaxHp, SetArmor, SetBaseSpeed, Heal,
-    /// RefreshAggregates) is derived.
-    ///
-    /// Bridge translator reads this to write ECS-only deltas (name, abilities,
-    /// AxisProfile, flavor text, `pop_front()` on `EnemyPhases.pending`,
-    /// remove `Dead` if `heal_to_full` revived the unit).
+    /// A boss entered a new phase, emitted after the `EnterPhase` effect cascade.
+    /// The bridge translator reads this to write ECS-only deltas (name, abilities,
+    /// AxisProfile, flavor, `EnemyPhases.pending` pop, `Dead` removal on revive).
     PhaseEntered {
         unit: UnitId,
         phase_idx: usize,
@@ -173,24 +166,19 @@ pub enum Event {
         victim: crate::state::UnitId,
     },
 
-    /// An environment object became visible (either by triggering or by
-    /// other means).  Emitted alongside `HazardTriggered` when the object
-    /// was not yet revealed before the trigger.
-    ///
-    /// Commit C will use this to render the trap tile in the UI.
+    /// An environment object became visible (by triggering or otherwise).
+    /// Emitted alongside `HazardTriggered` when the object was not yet revealed
+    /// before the trigger.
     EnvRevealed {
         env_id: crate::state::EnvId,
     },
 
-    /// Unified pool-change event. Fires for every mutation of a unit's
-    /// resource pool (regen, refill, spend, gain, max-shift). Sole canonical
-    /// pool-mutation event since Phase C-6.
+    /// Unified pool-change event — the sole canonical pool-mutation event. Fires
+    /// for every mutation of a unit's resource pool; `cause` carries the reason
+    /// (Regen/Refill/Spent/Gained/MaxChanged).
     ///
-    /// `cause` carries the reason (Regen/Refill/Spent/Gained/MaxChanged).
-    ///
-    /// Note: `PoolChangeCause::MaxChanged` is declared but not yet emitted —
-    /// reserved for when `RefreshAggregates` is wired to propagate pool-max
-    /// changes (e.g. MP-max from speed_bonus). Will be added in a future commit.
+    /// `PoolChangeCause::MaxChanged` is declared but not yet emitted — reserved
+    /// for when `RefreshAggregates` propagates pool-max changes.
     PoolChanged {
         unit: UnitId,
         pool: crate::PoolKind,

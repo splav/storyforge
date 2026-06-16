@@ -1,8 +1,5 @@
-//! Unit tests for `CombatState::roll_initiative_for_all` and
-//! `CombatState::reconcile_turn_order` (Waves 2–4).
-//!
-//! Waves 2–3: engine-only roller + reconciler.
-//! Wave 4: summon initiative roll in `step()` pump + reconcile wiring in BumpRound.
+//! Unit tests for `CombatState::roll_initiative_for_all`,
+//! `reconcile_turn_order`, and mid-combat summon initiative rolling.
 
 #![allow(clippy::field_reassign_with_default)]
 

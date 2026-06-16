@@ -18,13 +18,8 @@ use crate::{
     step::step,
 };
 
-/// Dry-run `action` against a clone of `state` using the stateless
-/// `ExpectedValue` dice source, returning the events the real `step`
-/// would emit — WITHOUT mutating `state` or advancing any RNG.
-///
-/// Because `ExpectedValue` rolls the analytical mean, the `1d20` crit-fail
-/// roll never triggers: the returned events describe the expected
-/// (non-crit-fail) resolution.  Crit-fail probability is surfaced elsewhere.
+/// Dry-run `action` against a clone of `state` (see module docs). Returns the
+/// expected, non-crit-fail events without mutating `state` or advancing RNG.
 pub fn preview_action(
     state: &CombatState,
     action: Action,

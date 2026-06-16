@@ -1,18 +1,13 @@
 //! Scenario-based AI regression tests.
 //!
-//! Layout: `tests/ai_scenarios/snapshots/<group>/log.jsonl` plus one or
-//! more `<case>.expected.toml` overlays in the same directory. Each
-//! overlay is an independent test case against the group's log; the
-//! overlay's `[scope] plan_id` selects which entry. Case filenames
-//! typically start with `p<plan_id>_<short_desc>` so the target entry is
-//! obvious at a glance.
+//! Layout: `tests/ai_scenarios/snapshots/<group>/log.jsonl` plus one or more
+//! `<case>.expected.toml` overlays alongside it. Each overlay is an independent
+//! case against the group's log; its `[scope] plan_id` selects the entry.
 //!
-//! Harness walks `snapshots/` and requires every subdirectory to contain
-//! exactly one `*.jsonl` (the group source) plus at least one
-//! `*.expected.toml`. Unlike [`tests/replay_assert.rs`] (which spawns the
-//! `replay_ai_log` binary), this harness calls [`assert_v28_log_file`]
-//! directly — one process, one content load — so 10–15 scenarios finish
-//! in well under a second.
+//! The harness requires every subdir to have exactly one `*.jsonl` + at least
+//! one `*.expected.toml`. Unlike [`tests/replay_assert.rs`] (spawns the
+//! `replay_ai_log` binary), it calls [`assert_v28_log_file`] directly — one
+//! process, one content load.
 //!
 //! See `tests/ai_scenarios/README.md` for adding scenarios.
 
@@ -177,18 +172,15 @@ fn all_ai_scenarios_pass() {
 // Fixture enrichment (run once, before U5/D-final drops legacy fields)
 // ---------------------------------------------------------------------------
 
-/// Round-trip each JSONL line's `snapshot` field through `BattleSnapshot`
-/// serde, writing back the enriched JSON (adds `state` + `cache` that
-/// `rebuild_index` back-fills from `units`).
+/// Round-trip each JSONL line's `snapshot` through `BattleSnapshot` serde,
+/// writing back enriched JSON (`rebuild_index` back-fills `state` + `cache`
+/// from `units`). After this every line carries all four fields, so U5/D-final
+/// can drop `units`/`round`.
 ///
 /// Run once with:
 /// ```
 /// cargo test --test combat enrich_ai_scenarios -- --ignored --exact
 /// ```
-/// After this, every fixture line's `snapshot` object will carry all four
-/// fields (`units`, `round`, `state`, `cache`).  U5/D-final can then safely
-/// drop `units`/`round` from `BattleSnapshot`; serde's default behaviour
-/// ignores the now-unknown keys in old raw captures.
 #[test]
 #[ignore]
 fn enrich_ai_scenarios() {

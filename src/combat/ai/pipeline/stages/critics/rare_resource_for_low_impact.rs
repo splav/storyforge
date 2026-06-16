@@ -1,24 +1,14 @@
-//! RareResourceForLowImpact critic — step 10.3.
+//! RareResourceForLowImpact critic: penalises a high-mana **damaging** cast
+//! that deals little actual damage relative to its expected output.
 //!
-//! Fires when a plan contains a Cast step with a **damaging** ability that has
-//! a high mana cost but low actual enemy damage relative to its expected
-//! output. Spending a scarce resource for poor damage returns is a strategic
-//! waste.
+//! **Damage-abilities only.** Status-only casts (CC/buff/debuff) are skipped —
+//! their value is in the status, so a low damage ratio there is structural.
+//! Wasted buffs are `BuffIntoVoid`'s job.
 //!
-//! **Scope: damage-abilities only.** Status-only casts (CC, buffs, debuffs)
-//! are skipped — their value is in the status, not in damage, and a low-damage
-//! ratio for a stun/silence is structurally normal. Wasted-buff cases are
-//! handled by `BuffIntoVoid` in this same wave; dedicated status-value critics
-//! belong in a future wave (master plan backlog).
-//!
-//! Fire condition:
-//!   `def.effect.calc(actor.caster_ctx).expected() > 0` (ability deals damage)
-//!   AND `mana_cost >= 30` AND `impact_ratio < 0.5`
-//!   where `impact_ratio = outcome.enemy_damage / expected_damage`.
-//!
-//! Multiplier: monotone in `(0.5 - impact_ratio)`, floored at 0.5.
-//!   `multiplier = (1.0 - 0.4 * (0.5 - ratio) / 0.5).max(0.5)`
-//!   → 1.0 at ratio=0.5 (boundary, doesn't fire), 0.6 at ratio=0.0, floored at 0.5.
+//! Fires on `expected > 0 AND mana_cost >= 30 AND impact_ratio < 0.5`, where
+//! `impact_ratio = outcome.enemy_damage / expected_damage`.
+//! `multiplier = (1.0 - 0.4 * (0.5 - ratio) / 0.5).max(0.5)` — 1.0 at the
+//! boundary, 0.6 at ratio=0, floored at 0.5.
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;

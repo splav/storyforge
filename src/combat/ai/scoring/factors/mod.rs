@@ -60,16 +60,12 @@ use combat_engine::AbilityId;
 // ── Scored step ─────────────────────────────────────────────────────────────
 
 /// A single plan step as seen by the scoring layer — a lightweight ref-based
-/// view over `PlanStep` plus the caster position that step happens *at*.
+/// view over `PlanStep` (zero per-step allocation) plus the caster tile the
+/// step happens *at*.
 ///
-/// Replaces the owned `ActionCandidate` that used to pivot between planning
-/// and scoring. Scoring now pays zero allocations per step; debug walks
-/// `TurnPlan` directly.
-///
-/// For `Cast`: `caster_tile` is the actor's tile when the spell fires (the
-/// actor doesn't move during a pure cast). For `Move`: `caster_tile` is the
-/// *destination* — position/risk factors are keyed off the tile the actor
-/// ends up on, not the one it's leaving.
+/// `caster_tile` for `Cast` is where the actor stands when the spell fires (a
+/// pure cast doesn't move); for `Move` it's the *destination* — position/risk
+/// factors key off the tile the actor ends up on, not the one it leaves.
 pub enum ScoredStep<'a> {
     Cast {
         ability: &'a AbilityId,

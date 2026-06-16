@@ -1,11 +1,9 @@
-/// Step 6.1 — goal extraction: `StoredGoalContext` + `extract_goal_context`.
-///
-/// A `StoredGoalContext` captures the *semantic intent* of a chosen plan at
-/// the moment of a Move decision: what the actor was trying to accomplish,
-/// where, and how confident the scorer was.  Unlike `StoredPlan` (which stores
-/// the literal step sequence for exact-continuation), `StoredGoalContext` is
-/// used by the repair-affinity system (6.2+) to award scoring bonuses to fresh
-/// plans that preserve the same goal.
+//! Goal extraction: `StoredGoalContext` + `extract_goal_context`.
+//!
+//! A `StoredGoalContext` captures the *semantic intent* of a chosen plan at a
+//! Move decision (what/where/confidence). Unlike `StoredPlan` (literal step
+//! sequence for exact-continuation), it feeds the repair-affinity system, which
+//! bonuses fresh plans that preserve the same goal.
 use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
 
@@ -26,13 +24,9 @@ use combat_engine::AbilityId;
 
 /// Semantic category of the goal that was stored.
 ///
-/// Variants are tagged in JSONL as `"kind": "<snake_case>"` for future log
-/// analysis (6.5). Entity fields use the project's bit-pack serde adapter so
-/// they survive round-trips through JSONL without loss.
-///
-/// Step 6.1 first wave — 7 kinds matching the 6 `TacticalIntent` variants
-/// (FocusTarget splits into Finish vs Pressure). Corridor / zone variants
-/// deferred to step 17 (geometry awareness).
+/// Tagged in JSONL as `"kind": "<snake_case>"`. Entity fields use the bit-pack
+/// serde adapter to survive JSONL round-trips. 7 kinds map to the 6
+/// `TacticalIntent` variants (FocusTarget splits into Finish vs Pressure).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GoalKind {
@@ -78,11 +72,9 @@ pub enum GoalKind {
 
 /// Persistent goal extracted from a chosen plan at Move-decision time.
 ///
-/// Stored in `AiMemory.last_goal`; consumed by repair affinity (6.2) to bonus
-/// fresh plans that preserve the same goal on the actor's next tick.
-///
-/// Step 6.6: extended with severity-check fields (previously in `PlanSnapshot`),
-/// so continuation severity can be computed without `AiMemory.last_plan`.
+/// Stored in `AiMemory.last_goal`; consumed by repair affinity to bonus fresh
+/// plans that preserve the same goal next tick. Carries severity-check fields
+/// (formerly in `PlanSnapshot`) so continuation severity needs no `last_plan`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredGoalContext {
     /// Semantic goal kind and its primary entity / position anchor.
@@ -109,9 +101,7 @@ pub struct StoredGoalContext {
     pub confidence: f32,
     /// Combat round when the goal was created — used for TTL decay and telemetry.
     pub created_round: u32,
-    // ── Severity-check fields (step 6.6) ────────────────────────────────────
-    // These replicate the fields from `PlanSnapshot` so that `check_continuation`
-    // can be called on `StoredGoalContext` after `AiMemory.last_plan` is removed.
+    // ── Severity-check fields (replicate `PlanSnapshot` for check_continuation) ──
     /// Where the actor should be on the next tick (destination of the Move).
     #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
     pub expected_actor_pos: Hex,
@@ -165,13 +155,8 @@ impl StoredGoalContext {
     }
 
     /// Severity check — mirrors `PlanSnapshot::mismatch` + `classify_mismatch`
-    /// but operates on `StoredGoalContext`'s own snapshot fields.
-    ///
-    /// Returns `None` when the world state still matches (no mismatch), or
-    /// `Some(check)` with a classified severity and reason code.
-    ///
-    /// This replaces the old path that read severity from `AiMemory.last_plan`
-    /// (removed in step 6.6).
+    /// but operates on this context's own snapshot fields. Returns `None` when
+    /// world state still matches, else `Some(check)` with severity + reason code.
     pub fn check_continuation(
         &self,
         actor: UnitView<'_>,
@@ -314,9 +299,8 @@ pub fn extract_goal_context(
 
     let confidence = (chosen_score / pool_max_score.max(1e-6)).clamp(0.0, 1.0);
 
-    // Capture severity-check fields from the actor view (step 6.6).
-    // target_snap is looked up from the goal kind so the same entity used for
-    // region_anchor is also captured for the target severity checks.
+    // Severity-check fields from the actor view. target_snap reuses the goal's
+    // entity so region_anchor and target checks see the same unit.
     let target_entity = kind.target_entity();
     let target_snap = target_entity.and_then(|e| snap.unit(e));
     let actor_rage_at_store = actor.pools[combat_engine::PoolKind::Rage]

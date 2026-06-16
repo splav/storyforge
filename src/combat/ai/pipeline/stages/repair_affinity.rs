@@ -1,11 +1,6 @@
-//! RepairAffinityStage — step 7.3.
-//!
-//! Moves the inline repair-affinity loop from `pick_action` body into a typed
-//! `PlanStage`. Populates `pool.annotations[i].repair_affinity` for every plan
-//! when a stored goal exists; no-op otherwise.
-//!
-//! The bonus application itself (`finalize_scores`) is unchanged — this stage
-//! only populates the annotation field that `finalize_scores` already reads.
+//! RepairAffinityStage — populates `pool.annotations[i].repair_affinity` for
+//! every plan when a stored goal exists; no-op otherwise. The bonus is applied
+//! later by `finalize_scores`, which reads this annotation field.
 
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::repair::compute_repair_affinity;

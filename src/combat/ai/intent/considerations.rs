@@ -3,10 +3,9 @@
 //! `IntentConsiderations` is a 6-axis struct that scores each `AgendaItem`
 //! along orthogonal tactical dimensions.  All axes are `f32` in `[0.0, 1.0]`.
 //!
-//! **11.3 contract**: considerations are computed and stored on every `AgendaItem`
-//! but are **not** used for routing — that lands in 11.4.  The plan-aware axes
-//! (`feasibility`, `leverage`, `safety`) default to their "no-data" values when
-//! called without a `PlanAnnotation` (which is the case in 11.3).
+//! **11.3 contract**: considerations are stored on every `AgendaItem` but not
+//! used for routing (that lands in 11.4). Plan-aware axes (`feasibility`,
+//! `leverage`, `safety`) default to "no-data" values absent a `PlanAnnotation`.
 //!
 //! Axes and their sources:
 //! - `urgency`            — `NeedSignals` mapped from `IntentKind`.
@@ -47,15 +46,11 @@ pub struct IntentConsiderations {
 }
 
 impl IntentConsiderations {
-    /// Normalised weighted dot product of these considerations against `w`.
+    /// Normalised weighted dot product against `w` (raw dot / weight sum).
     ///
-    /// Raw dot is divided by the sum of weights so that, for uniform
-    /// considerations `(1,1,1,1,1,1)` and any band weights, the result
-    /// equals the arithmetic mean of the considerations (which is 1.0 when
-    /// all axes are 1.0).  This ensures composition collapses to the base
-    /// score when considerations are all-1.
-    ///
-    /// Returns 1.0 when `weight_sum ≈ 0` to avoid div-by-zero.
+    /// The normalisation makes all-1 considerations collapse to 1.0 under any
+    /// weights, so composition reduces to the base score. Returns 1.0 when
+    /// `weight_sum ≈ 0` (div-by-zero guard).
     pub fn weighted_dot(&self, w: &BandWeights) -> f32 {
         let raw = self.urgency * w.urgency
             + self.feasibility * w.feasibility
@@ -81,15 +76,8 @@ impl IntentConsiderations {
 
 /// Compute all six `IntentConsiderations` axes for one `AgendaItem`.
 ///
-/// `repair` should be `None` in 11.3 (no plan-level affinity yet).
-/// Plan-aware axes (`feasibility`, `leverage`, `safety`) receive safe defaults
-/// when no plan data is provided.
-///
-/// # Arguments
-/// - `item`   — the agenda item being scored.
-/// - `needs`  — pre-computed `NeedSignals` for this actor's turn.
-/// - `role`   — actor's `AxisProfile` for role-affinity lookup.
-/// - `repair` — optional `RepairAffinity` from last-goal tracking; `None` in 11.3.
+/// `repair` is `None` in 11.3 (no plan-level affinity yet); plan-aware axes
+/// then receive safe defaults.
 pub fn compute_considerations(
     item: &AgendaItem,
     needs: &NeedSignals,

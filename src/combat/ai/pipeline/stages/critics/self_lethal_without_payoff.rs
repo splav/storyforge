@@ -1,17 +1,9 @@
-//! SelfLethalWithoutPayoff critic — step 10.1.
+//! SelfLethalWithoutPayoff critic: penalises significant self-damage (AoE
+//! self-hit) without proportionate payoff in enemy damage or ally rescues.
 //!
-//! Fires when a plan accumulates significant self-damage (AoE self-hit, AoO
-//! bleed proxy) without a proportionate payoff in enemy damage or ally rescues.
-//! Generalises `SanityRule::SelfAoe`: that rule was a binary 0.5× for any
-//! friendly-fire AoE touching the caster; this critic scales continuously
-//! with the magnitude of the self-damage ratio relative to payoff.
-//!
-//! Fire condition:
-//!   `self_damage_total > 0.3 × actor.max_hp`  AND
-//!   `payoff < 0.5 × self_damage_total`
-//!
-//! Multiplier: monotone in `self_dmg_ratio = self_damage_total / actor.max_hp`,
-//! floored at 0.3 to preserve the plan's relative rank when all options are bad.
+//! Fires on `self_damage_total > 0.3 × max_hp AND payoff < 0.5 × self_damage_total`.
+//! Multiplier is monotone in `self_dmg_ratio = self_damage_total / max_hp`,
+//! floored at 0.3 so a doomed plan keeps its relative rank when all options are bad.
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -53,23 +45,15 @@ impl PlanCritic for SelfLethalWithoutPayoff {
         let active = ctx.active;
         let max_hp = active.max_hp().max(1) as f32;
 
-        // ── Accumulate self-damage from step outcomes ─────────────────────────
-        // `outcome.self_damage` captures AoE self-hits recorded during the
-        // outcome simulation walk. Sum across all plan steps.
-        //
-        // Outcomes live on `TurnPlan.annotation` (populated by generator); the
-        // `outcomes` field on pipeline annotation is dead during pipeline.
+        // Self-damage from the outcome walk. Outcomes live on
+        // `TurnPlan.annotation` (generator-populated); the pipeline annotation's
+        // `outcomes` is dead here.
         let mut self_damage_total: f32 =
             plan.annotation.outcomes.iter().map(|o| o.self_damage).sum();
 
-        // ── Self-AoE bonus: plan_has_self_aoe detects a friendly-fire cast
-        // that covers the caster. When the outcome estimator didn't already
-        // include the caster in the AoE radius (e.g. for hypothetical plans),
-        // add a conservative estimate (10% of max_hp) to ensure the critic
-        // fires even on plans without populated outcomes.
+        // Fallback for synthetic/partial plans (mainly tests): a friendly-fire
+        // AoE covering the caster with no populated outcome still fires the critic.
         if self_damage_total == 0.0 && plan_has_self_aoe(plan, ctx) {
-            // Outcome walk should have populated self_damage for real plans;
-            // fallback guards synthetic / partially-populated plans in tests.
             self_damage_total = 0.1 * max_hp;
         }
 

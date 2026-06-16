@@ -1,49 +1,24 @@
-//! ItemScoringStage — step 11.4.
+//! ItemScoringStage — per-agenda-item intent factors for every plan, computed
+//! **before** `ModeSelectionStage` modifies intent columns. Results stored in
+//! `ann.per_item[i]` for `PickBestStage`.
 //!
-//! Computes per-agenda-item intent-dependent factors for every plan in the pool
-//! **before** `ModeSelectionStage` modifies intent columns.  Results are stored
-//! in `ann.per_item[i]` for later use by `PickBestStage`.
+//! Per plan × agenda-item it computes `intent_factor`, `tempo_factor`, and
+//! `eligible`:
+//! - `ProtectSelf` → plan must be defensive (SelfSurvival ≥ ε).
+//! - `FocusTarget` → `plan_is_offensive_vs(target)`, else ApproachTarget
+//!   fallback (see below).
+//! - other kinds → always eligible.
 //!
-//! # Pipeline position (step 11.4)
+//! # ApproachTarget eligibility
 //!
-//! ```text
-//! Viability → ItemScoring → ModeSelection → Finalize → Sanity → Critics
-//!           → ProtectSelfMask → KillableGate → RepairAffinity
-//!           → OverlayConsiderations → PlanModifiers → PickBest
-//! ```
+//! For `FocusTarget` in `ForcedTargeting`/`NormalTactical` bands, a plan is also
+//! eligible if it has a `Move` step ending strictly closer to the target than
+//! `actor_start_pos` (geometric hex distance, v1) — but ONLY when no plan in the
+//! pool attacks that target offensively. The guard `pool_offensive_targets` is
+//! computed once post-Viability, so an unviable offensive plan can't block a
+//! viable approach-only one.
 //!
-//! # What it does
-//!
-//! For each plan × agenda-item pair:
-//!
-//! 1. `intent_factor` — `compute_plan_intent_sum(plan, item.intent_for_scoring(), ctx)`.
-//! 2. `tempo_factor`  — `compute_plan_tempo_gain(plan, item.intent_for_scoring(), ctx)`.
-//! 3. `eligible`      — `true` if the plan is eligible under the item's intent.
-//!    - `ProtectSelf` → `plan_is_defensive(ann.factors.get_plan(SelfSurvival), ε)`.
-//!    - `FocusTarget` → `plan_is_offensive_vs(plan, target)` (primary path)
-//!      OR ApproachTarget fallback (ForcedTargeting + NormalTactical bands — see
-//!      step 11.8 Section A for full semantics and pool-level pre-pass guard).
-//!    - All other kinds → `true` (no mask).
-//!
-//! # ApproachTarget eligibility (step 11.8 Section A — extended in fix #1 post step 11)
-//!
-//! For `FocusTarget` items in the `ForcedTargeting` or `NormalTactical` band, an
-//! additional eligibility path activates **only** when no plan in the entire pool
-//! satisfies `plan_is_offensive_vs(plan, target)` for that specific target.  In
-//! that case, a plan is eligible if it contains at least one `Move` step and its
-//! `final_pos` is strictly closer to the target than `actor_start_pos` (hex
-//! distance, v1 geometric approximation).
-//!
-//! Pool-level pre-pass: `pool_offensive_targets: HashSet<Entity>` is computed once
-//! at the start of `apply()`, before the per-plan loop.  The stage runs
-//! post-Viability per pipeline order, so the pool reflects the post-Viability
-//! state: an unviable offensive plan cannot block ApproachTarget eligibility for
-//! viable approach-only plans.
-//!
-//! # Edge cases
-//!
-//! - **Empty agenda**: stage is a no-op; `per_item` stays empty.
-//! - **Empty pool**: early return.
+//! Empty agenda or empty pool → no-op.
 
 use std::collections::HashSet;
 
@@ -62,16 +37,11 @@ use crate::game::hex::Hex;
 
 pub struct ItemScoringStage;
 
-/// Returns `true` if `plan` approaches `target_pos` from `actor_start_pos`.
+/// `true` if `plan` has a `Move` step and `final_pos` is strictly closer (hex
+/// distance) to `target_pos` than `actor_start_pos`.
 ///
-/// Conditions (both must hold):
-/// 1. The plan contains at least one `Move` step.
-/// 2. `plan.final_pos` is strictly closer (hex distance) to `target_pos` than
-///    `actor_start_pos` is.
-///
-/// Known v1 limitation: uses geometric hex distance, not path distance — a plan
-/// that ends geometrically closer but on the other side of an obstacle still
-/// counts as approach.  Path-distance refinement is deferred to backlog.
+/// v1 limitation: geometric distance, not path — a plan ending closer but behind
+/// an obstacle still counts. Path-distance refinement is backlogged.
 fn approaches_target(plan: &TurnPlan, actor_start_pos: Hex, target_pos: Hex) -> bool {
     let has_move = plan
         .steps
@@ -106,16 +76,10 @@ impl PlanStage for ItemScoringStage {
             ann.per_item = vec![PerItemEval::default(); n_items];
         }
 
-        // ── Pool-level pre-pass for ApproachTarget eligibility (step 11.8 §A) ──
-        //
-        // Runs AFTER ViabilityStage (pipeline order guarantees this).  We scan
-        // the post-Viability pool once and collect every Entity that at least one
-        // viable plan attacks offensively.  When an item's target IS in this set,
-        // ApproachTarget fallback stays inactive for that target (pool-level guard,
-        // not per-plan).
-        //
-        // Applicable for ForcedTargeting and NormalTactical bands; computed
-        // unconditionally so the same set serves both band arms below.
+        // Pool-level guard for ApproachTarget eligibility: every Entity attacked
+        // offensively by a viable plan. When an item's target is here, the
+        // ApproachTarget fallback stays inactive. Runs post-Viability (pipeline
+        // order), so unviable plans don't count.
         let pool_offensive_targets: HashSet<_> = pool
             .iter_with_annotation()
             .filter(|(_, ann, _)| ann.viability.passed)
@@ -130,9 +94,8 @@ impl PlanStage for ItemScoringStage {
             })
             .collect();
 
-        // Actor's start-of-turn position: approach baseline.
-        // `ctx.scoring.active.pos` is the snapshot taken at turn start (P4-verified
-        // invariant: immutable during planning). See design doc Section A.
+        // Approach baseline: actor's start-of-turn position (immutable during
+        // planning).
         let actor_start_pos = ctx.scoring.active.pos;
 
         for plan_idx in 0..n_plans {
@@ -151,11 +114,9 @@ impl PlanStage for ItemScoringStage {
                 .iter()
                 .map(|item| {
                     let intent = item.intent_for_scoring();
-                    // Determine per-item evaluation mode.
-                    // Forced mode (e.g. Flee from a phase transition) takes
-                    // highest precedence — overrides item kind routing.
-                    // P7: LastStand items use EvaluationMode::LastStand so that
-                    // compute_plan_intent_sum routes to evaluate_last_stand_step.
+                    // Per-item evaluation mode. Forced mode (e.g. Flee) takes
+                    // precedence over item-kind routing; LastStand items route to
+                    // evaluate_last_stand_step.
                     let item_mode = if let Some(m) = ctx.scoring.active.forced_mode() {
                         m
                     } else if item.kind == IntentKind::LastStand {
@@ -192,20 +153,15 @@ impl PlanStage for ItemScoringStage {
                                 ) && !pool_offensive_targets.contains(&target)
                                     && viability_passed
                                 {
-                                    // ApproachTarget fallback (step 11.8 §A):
-                                    //   - ForcedTargeting or NormalTactical band.
-                                    //   - Pool has no viable offensive plan vs this specific target.
-                                    //   - Plan itself must be viable.
-                                    //   - Plan must geometrically approach the target.
-                                    // Target position from start-of-turn snapshot.
+                                    // ApproachTarget fallback: viable plan that
+                                    // geometrically approaches the target. Failure
+                                    // here is "did not approach" (dedicated reject
+                                    // reason for mining attribution), not "not offensive".
                                     let target_pos = ctx
                                         .scoring
                                         .snap
                                         .unit(target)
                                         .map(|u| u.pos);
-                                    // Plan is in the ApproachTarget gate window; failure here
-                                    // is specifically "did not approach", not "not offensive".
-                                    // Use the dedicated reason for cleaner mining attribution.
                                     if let Some(tpos) = target_pos {
                                         if approaches_target(plan, actor_start_pos, tpos) {
                                             (true, None)

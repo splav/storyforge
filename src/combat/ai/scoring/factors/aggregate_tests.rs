@@ -1,12 +1,6 @@
-//! Tests for `aggregate.rs` — split from the source file via `#[path]` in
-//! `aggregate.rs` (see end of that file). Production code stays in
-//! `aggregate.rs`; this file holds the test module body.
-//!
-//! Split per [docs/testing.md §2](../../../../../docs/testing.md):
-//! `aggregate.rs` grew to 2230 LOC with tests dominating the lower half.
-//!
-//! `super::*` here resolves to `aggregate.rs` (since this file is included
-//! as `mod tests` inside aggregate.rs).
+//! Tests for `aggregate.rs` — included via `#[path]` as `mod tests` inside
+//! `aggregate.rs`, so `super::*` resolves there. Split per
+//! [docs/testing.md §2](../../../../../docs/testing.md).
 
 use super::*;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
@@ -142,22 +136,15 @@ fn make_stored_goal() -> crate::combat::ai::repair::StoredGoalContext {
 /// Pins the `intent` factor aggregation across single- and multi-cast plans
 /// under `FocusTarget`.
 ///
-/// **Step-1c semantics**: the post-first-Cast tail shortcut applies when
-/// intent is `FocusTarget`/`ApplyCC`. For a multi-cast plan
-/// `[Cast@focus, Cast@focus]`, only the first Cast contributes per-step
-/// intent; the second Cast is treated as the post-Cast tail and replaced by
-/// a single `pursuit_move_score(cast_pos, final_pos, focus.pos, reach)`
-/// call multiplied by `base_discount^1`. This is intentional — the second
-/// Cast is never physically executed (committed_decision is the first
-/// Cast prefix), so scoring it per-step inflates intent linearly with
-/// phantom tail length.
+/// **Step-1c semantics**: under `FocusTarget`/`ApplyCC`, only the first Cast
+/// contributes per-step intent; the rest collapse to one terminal
+/// `pursuit_move_score(...)`. Avoids inflating intent linearly with the phantom
+/// (never-executed) tail.
 ///
-/// Concrete formula for a `[Cast, Cast]` plan with `final_pos = actor.pos`:
+/// For `[Cast, Cast]` with `final_pos = actor.pos`:
 ///   intent = s1 + pursuit_move_score(cast_pos, final_pos, focus.pos, reach) × 0.85
-/// where `s1` is the per-step intent of the first Cast.
 ///
-/// Pure Move-preceded chains under FocusTarget are not pinned here —
-/// those are covered by `pure_move_chain_intent_equals_single_pursuit`.
+/// Pure-move chains are pinned in `pure_move_chain_intent_equals_single_pursuit`.
 #[test]
 fn sum_factors_scale_by_step_weight() {
     use crate::combat::ai::test_helpers::snapshot_from;

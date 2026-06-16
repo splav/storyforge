@@ -1,9 +1,6 @@
-//! Step 6 unit tests: `step()` driver.
+//! `step()` driver unit tests.
 //!
-//! Decision 6.3 (per-target ordering) — pinned by `step_move_with_aoo_chain`.
-//! Decision 6.5 (strict failure + rollback for non-actor targets) — the branch
-//! is reserved for Phase 2+ Cast/AoE actions; no dedicated test yet since those
-//! Action variants do not exist in Phase 0/1.
+//! Per-target AoO ordering — pinned by `step_move_with_aoo_chain`.
 //! Actor-liveness truncation — pinned by `step_actor_death_mid_path_truncates_remaining_aoos`
 //! and `step_two_flankers_only_first_fires_when_lethal`.
 
@@ -20,12 +17,9 @@ use storyforge::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Stub `ContentView` for step-level integration tests. After Phase 5c.1 the
-/// engine reads AoO dice directly from `Unit.aoo_dice` rather than from
-/// content; the `DiceExpr` passed to `with_weapon` is currently unused
-/// (callers wanting AoO must set the field on their `Unit` directly).
-/// The `with_weapon` / `no_weapon` distinction is preserved as a semantic
-/// marker at callsites.
+/// Stub `ContentView` for step-level integration tests. The engine reads AoO
+/// dice from `Unit.aoo_dice`, so the `DiceExpr` passed to `with_weapon` is unused
+/// — `with_weapon`/`no_weapon` is kept only as a semantic marker at callsites.
 struct StubContent;
 
 impl StubContent {
@@ -188,10 +182,7 @@ fn step_returns_unknown_actor_error() {
 /// resolve before the next move step.
 #[test]
 fn step_move_with_aoo_chain() {
-    // Layout (even-r hex offset coords):
-    //   mover at (0,0), moving → (1,0) → (2,0)
-    //   enemy A at (0,1) — adjacent to (0,0) but not (1,0)? Let's verify later.
-    // We use a simpler setup: mover at col=1, enemy at col=0 (adjacent), dest col=3.
+    // Layout (even-r): mover at col=1, enemy at col=0 (adjacent), dest col=3.
     let mut mover = make_unit(1, Team::Player, 1, 0);
     mover.pools[combat_engine::PoolKind::Mp] = Some((4, 6));
 
@@ -720,22 +711,13 @@ fn endturn_rejects_when_actor_not_current() {
     assert_eq!(err, ActionError::Illegal(IllegalReason::NotCurrent));
 }
 
-/// B5: When the **current** actor dies mid-Move (killed by an AoO), the engine
-/// must automatically advance the turn queue and emit the full turn-lifecycle
-/// sequence: `TurnEnded` for the dead actor, then `TurnStarted` for the next
-/// alive actor.  The queue cursor must not remain on the corpse.
+/// When the **current** actor dies mid-Move (killed by an AoO), the engine must
+/// advance the turn queue off the corpse and emit the full turn-lifecycle
+/// sequence: `UnitDied`, then `TurnEnded` for the dead actor, then `TurnStarted`
+/// for the next alive actor (in that order), settling `current()` on heroA.
 ///
-/// Setup (mirrors `aoo_triggers_on_disengage` geometry):
-/// - heroA (uid 1) at offset (1,0) — Player, has `aoo_dice` set (lethal hit).
-/// - enemyB (uid 2) at offset (0,0) — Enemy, current actor, 1 hp.
-/// - enemyB moves to offset (0,2) — leaves heroA adjacency → AoO fires → lethal.
-///
-/// Queue: [A=1, B=2], current = B (index 1).
-///
-/// Expected after `step(Move { actor: 2, … })`:
-/// - events contain `UnitDied { unit: 2 }`, `TurnEnded { actor: 2 }`,
-///   `TurnStarted { actor: 1 }` (in that relative order).
-/// - `state.turn_queue.current() == Some(UnitId(1))`.
+/// Setup: heroA (uid 1, has lethal `aoo_dice`) adjacent to enemyB (uid 2,
+/// current actor, 1 hp); enemyB moves out of adjacency → AoO fires → lethal.
 #[test]
 fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     let enemy_b_start = hex_from_offset(0, 0); // enemyB starts adjacent to heroA

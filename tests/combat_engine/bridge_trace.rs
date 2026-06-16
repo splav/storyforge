@@ -271,15 +271,9 @@ fn engine_trace_full_combat_record_replay() {
 
 // ── Gate #15: engine_step_range populated by deferred flush ──────────────────
 
-/// Verifies Phase 6c: `engine_step_range` in AI log entries is populated with
-/// the correct step-counter window `[start, end)` by `flush_pending_ai_log_system`.
-///
-/// Flow:
-///   1. Open AiLogger + EngineTraceWriter to temp files.
-///   2. Push one pending entry with start_step = 0 (trace counter before dispatch).
-///   3. Drive a Move action through the bridge (step counter → 1).
-///   4. flush_pending_ai_log_system runs (in the same chain as process_action_system).
-///   5. Read the produced ai.jsonl line; assert engine_step_range == [0, 1].
+/// Verifies Phase 6c: `flush_pending_ai_log_system` populates `engine_step_range`
+/// with the correct step-counter window `[start, end)`. A pending entry with
+/// start_step=0, then one Move (step → 1), must flush to `engine_step_range == [0, 1]`.
 #[test]
 fn ai_log_engine_step_range_populated() {
     use std::io::BufRead;

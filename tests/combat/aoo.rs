@@ -155,11 +155,8 @@ fn stunned_enemy_no_opportunity() {
     let mut app = movement_app();
     insert_stun_status(&mut app);
 
-    // Wave 3: engine rolls initiative in bootstrap_combat_state.
-    // If goblin wins initiative and is first in turn order, settle_round_start
-    // will skip-and-tick the stun (rounds_remaining 1→0) before the hero moves.
-    // Use presets to ensure hero goes first so goblin's stun remains intact
-    // when the AoO check fires.
+    // Preset initiative so the hero acts first: if the goblin went first,
+    // skip-and-tick would expire its stun (1→0) before the hero's AoO check.
     {
         use storyforge::game::resources::PresetInitiative;
         app.world_mut()
@@ -187,10 +184,8 @@ fn stunned_enemy_no_opportunity() {
         .push(ActiveStatus {
             id: "stun".into(),
             rounds_remaining: 1,
-            // applier: None (environment/ability-applied, not hero-applied).
-            // If applier=Some(hero), start_actor_turn(hero) calls tick_actor_statuses(hero)
-            // which ticks and expires goblin's stun before the hero even moves — the stun
-            // would be gone by the AoO check. Use applier=None to avoid that.
+            // applier=None: with Some(hero), start_actor_turn would tick+expire
+            // the goblin's stun before the AoO check fires.
             applier: None,
             dot_per_tick: 0,
         });
@@ -364,13 +359,10 @@ fn enemy_mover_hero_provokes() {
     assert!(app.world().get::<Vital>(goblin).unwrap().hp < hp_before);
 }
 
-// (Deleted in Phase 6 cleanup #4) `reactions_refill_on_round_start` tested
-// the now-removed ECS-side `r.remaining = r.max` write in `build_turn_order`.
-// The new contract: engine `CombatState::start_round` refills `reactions_left`
-// via the `BumpRound` effect at end of EndTurn cascade, and projection writes
-// the result back to ECS. Coverage of that path lives in:
-//   - `crates/combat_engine/tests/turn_queue.rs::start_round_resets_reactions_for_alive_units_only`
-//   - the bridge_* suites (end-to-end through EndTurn → projection)
+// Reaction refill on round start is now an engine concern (`start_round` via
+// the `BumpRound` effect, projected back to ECS). Covered by
+// turn_queue.rs::start_round_resets_reactions_for_alive_units_only and the
+// bridge_* suites (end-to-end through EndTurn → projection).
 
 #[test]
 fn move_within_adjacency_no_trigger() {
@@ -403,20 +395,10 @@ fn move_within_adjacency_no_trigger() {
     assert_eq!(r.remaining, r.max);
 }
 
-/// Reproduction test for the original panic: AoO kills mover C on a hex already
-/// occupied by ally A.
-///
-/// Setup:
-///   C (hero, hp=1) at start_pos (3,3) — the mover; adjacent to B.
-///   B (goblin)     at goblin_pos (4,3) — AoO source.
-///   A (hero)       at away_pos   (2,3) — ally at C's first path step.
-///
-/// Path: C moves [away_pos, hex(1,3)]. The engine allows passthrough of ally
-/// hex for non-final steps. AoO fires as C moves from start_pos (adjacent to B)
-/// to away_pos (NOT adjacent to B). C dies; corpse lands at away_pos alongside A.
-///
-/// Before the `HexPositions`→`HexCorpses` split, the projector called
-/// `HexPositions::insert(C_corpse, away_pos)` while A was already there → panic.
+/// Regression: AoO kills mover C onto a hex already occupied by ally A.
+/// C(hp=1)@start_pos moves through A@away_pos (passthrough on non-final step);
+/// the AoO from B fires as C leaves B's adjacency, killing C onto away_pos.
+/// Before the `HexPositions`→`HexCorpses` split this insert panicked (A there).
 #[test]
 fn aoo_kills_into_ally_hex_creates_corpse_at_shared_hex() {
     let mut app = movement_app();

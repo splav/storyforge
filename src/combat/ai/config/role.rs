@@ -73,12 +73,7 @@ impl AxisProfile {
     ///
     /// Per-axis rows live in `tuning.tables.axis_factor_weights`. Columns:
     /// [damage, kill_now, kill_promised, cc, heal, intent, scarcity,
-    /// tempo_gain, saturation, self_survival]. `kill_promised` = kill_now × 0.5
-    /// for all roles except Control (0.8 — DoT is strategically valuable for
-    /// controllers). `saturation` = 1.0 for all roles (signed axis, sign drives
-    /// the direction). `self_survival`: Support 1.2 (healer cares most), Tank
-    /// 1.0, others 0.8. Phase 6 removed position/risk/focus columns — their
-    /// signals are now covered by tempo_gain and self_survival.
+    /// tempo_gain, saturation, self_survival].
     pub fn factor_weights(&self, tuning: &AiTuning) -> [f32; 10] {
         let mix = self.biased_normalized();
         let table = &tuning.tables.axis_factor_weights;

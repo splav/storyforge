@@ -12,10 +12,8 @@ pub struct StartCombat {
 
 /// Action input for the engine-backed combat pipeline.
 ///
-/// `process_action_system` in `bridge` reads this message and routes it
-/// to `combat_engine::step()`.  The engine is the sole authority for both
-/// `Action::Move` (since Phase 1) and `Action::Cast` (since Phase 2 step 9d).
-/// `Action::EndTurn` routes here since Phase 4 step 4e.
+/// `process_action_system` in `bridge` reads this and routes it to
+/// `combat_engine::step()` — the sole authority for Move, Cast, and EndTurn.
 #[derive(Message, Debug)]
 pub enum ActionInput {
     Move {

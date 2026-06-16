@@ -104,12 +104,9 @@ pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit
             base_speed: input.base_speed,
         },
         runtime_bonus,
-        // Bootstrap-initial: a unit always enters combat with a full reaction
-        // budget. We intentionally ignore `Reactions.remaining` here — the ECS
-        // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
-        // mid-combat summons), so reading it would yield 0 and break round-1
-        // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
-        // reactions_left = reactions_max on every subsequent round.
+        // Full reaction budget at bootstrap. We ignore `Reactions.remaining`
+        // (ECS default 0, matching mid-combat summons) — reading it would break
+        // round-1 AoO. Engine's `start_round` refills on every subsequent round.
         input.reactions_max,
         input.reactions_max,
         input.statuses,
@@ -128,24 +125,12 @@ pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit
 
 /// Populate a `CombatState` from the current ECS world; also rebuilds `id_map`.
 ///
-/// Components read:
-/// - `Vital` — hp/max_hp
-/// - `RuntimeStatsMirror` — armor/magic_resist/base_speed
-/// - `ActionPoints` — ap/movement_points
-/// - `Reactions` — reactions_left
-/// - `Faction` — team
-/// - `StatusEffects` (optional) — active statuses
-/// - `Rage` / `Mana` (optional) — resource pools
-/// - `HexPositions` resource — alive unit positions (occupancy layer)
-/// - `HexCorpses` resource — dead unit positions (corpse layer)
+/// Reads the [`CombatantRow`] components plus `HexPositions` (alive) /
+/// `HexCorpses` (dead) for positions. Dead units are kept as tombstones (hp=0),
+/// matching the `BattleSnapshot` convention so callers can filter by `is_alive()`.
 ///
-/// Dead units (`Has<Dead>`) are kept as tombstones (hp=0), matching the
-/// `BattleSnapshot` convention so downstream code can filter by `is_alive()`.
-///
-/// `content` is used to recompute per-unit aggregates (`armor_bonus`,
-/// `speed`, `damage_taken_bonus`) from active statuses and auras, mirroring
-/// the `Effect::RefreshAggregates` logic so the engine starts with correct
-/// derived values.  Pass `&active_content` from `Res<ActiveContent>`.
+/// `content` recomputes per-unit status/aura aggregates (mirrors
+/// `Effect::RefreshAggregates`) so the engine starts with correct derived values.
 pub fn from_ecs(
     combatants: &Query<CombatantRow, With<Combatant>>,
     positions: &HexPositions,
@@ -592,12 +577,9 @@ pub fn bootstrap_combat_state(
     init_params.preset.0.clear();
 
     // ── Settle round start (skip dead/stunned, prime first valid actor) ────
-    // settle_round_start emits: RoundStarted, TurnSkipped* (for each skip),
-    // TurnStarted, start_actor_turn events for the settled actor.
-    // translate_one(TurnStarted) → insert_active → ActiveCombatant set on
-    // the correct actor after apply_bridge_queues_pre_projection drains it.
-    // Only run when the order is non-empty (tests that call bootstrap directly
-    // without any combatants skip this block and set ActiveCombatant manually).
+    // Emits RoundStarted, TurnSkipped*, TurnStarted + start_actor_turn for the
+    // settled actor. Skipped when order is empty (tests that bootstrap directly
+    // without combatants set ActiveCombatant manually).
     if !state.turn_queue.order.is_empty() {
         let content = build_ecs_content_view(active_content);
         let events = state.settle_round_start(&content);
@@ -621,14 +603,10 @@ pub fn bootstrap_combat_state(
             }
         }
 
-        // settle_round_start emitted RoundStarted (→ round_started=true) and
-        // TurnStarted (→ insert_active.push(settled actor)). We are ALREADY in
-        // StartRound, so clear round_started to stop apply_bridge_queues_pre_projection
-        // (in AwaitCommand's Execute chain) from scheduling a spurious second
-        // StartRound transition. Leave insert_active intact: that same system drains
-        // it on the first AwaitCommand/Execute frame, setting ActiveCombatant on the
-        // settled actor (Command no-ops that one frame, then acts). Tests that call
-        // bootstrap directly (init_engine_state) invoke that drain explicitly.
+        // We are ALREADY in StartRound, so clear round_started to stop
+        // apply_bridge_queues_pre_projection from scheduling a spurious second
+        // StartRound transition. insert_active is left intact: the same system
+        // drains it next frame, setting ActiveCombatant on the settled actor.
         queues.turn_lifecycle.round_started = false;
     }
 

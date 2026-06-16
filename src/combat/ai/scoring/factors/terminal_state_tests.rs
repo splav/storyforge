@@ -91,11 +91,7 @@ fn exposure_at_end_high_in_dangerous_tile() {
     );
 }
 
-/// `exposure_at_end` is non-zero when the plan's final position has danger > 0.
-/// Simulates: actor ends in an enemy-threat zone (danger map has value at that tile).
-///
-/// Source verification: `compute_exposure_at_end` reads `ctx.maps.danger.get(plan.final_pos)`.
-/// When danger map is zero everywhere, result is 0.0. When danger > 0 at final_pos, result > 0.
+/// `exposure_at_end` > 0 when the plan's final tile carries danger.
 #[test]
 fn exposure_at_end_non_zero_when_actor_in_enemy_threat_zone() {
     let actor_pos = hex_from_offset(0, 0);

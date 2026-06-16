@@ -1,8 +1,6 @@
 //! Cross-layer fixtures: stats, equipment, hero/enemy bundle helpers, and a
 //! few Bevy message conveniences. Used by both engine-layer and bridge-layer
 //! integration tests.
-//!
-//! Split from `common/mod.rs` in Phase H3 of `docs/refactor/helpers-normalization-plan.md`.
 
 #![allow(dead_code)]
 

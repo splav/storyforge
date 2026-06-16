@@ -193,10 +193,8 @@ pub fn update_phase_hint(
         return;
     }
 
-    // Round-based phase deadline (e.g. "kill the fleeing boss in N rounds"):
-    // append the remaining-rounds counter so the player can see the timer.
-    // `PHASE_HINT` is re-dirtied on every active-combatant change (see
-    // `hex_grid::visuals`), so this ticks down each round automatically.
+    // Round-based deadline suffix (e.g. "kill the boss in N rounds"). PHASE_HINT
+    // re-dirties on every active-combatant change, so this ticks down per round.
     let deadline_suffix = deadline.0.as_ref().map(|dl| {
         let elapsed = combat_ctx.round.saturating_sub(dl.phase_started_round);
         let left = dl.limit.saturating_sub(elapsed);

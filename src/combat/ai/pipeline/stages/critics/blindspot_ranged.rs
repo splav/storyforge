@@ -1,14 +1,7 @@
-//! BlindspotRanged critic — step 10.2.
+//! BlindspotRanged critic.
 //!
-//! Fires when a ranged actor ends its turn in a position with no line-of-sight
-//! to any living enemy. Porting `SanityRule::LosBlindspot` 1:1 from
-//! `sanity_adjust_plans`; that branch is disabled in 10.2 and removed in 10.4.
-//!
-//! Fire condition:
-//!   `actor.tags.contains(RANGED)` AND enemies list is non-empty AND
-//!   no living enemy is visible from `plan.final_pos`.
-//!
-//! Multiplier: **0.3** (identical to the original sanity rule).
+//! Fires when a RANGED actor with at least one living enemy ends its turn at a
+//! position with no line-of-sight to any of them (and no 1-step kite-out either).
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -85,13 +78,10 @@ impl PlanCritic for BlindspotRanged {
             return None;
         }
 
-        // 2. 1-step lookahead — hide-then-shoot tactic. If any walkable
-        //    neighbour has LOS to an enemy, the actor can step out next
-        //    turn and fire, then step back. A neighbour is walkable iff
-        //    in-bounds, not an obstacle, and not currently occupied by a
-        //    living unit (so the actor could move into it). The actor's
-        //    own final_pos is treated as transparent for the probe — he
-        //    won't be standing there when he kites out.
+        // 2. 1-step lookahead (hide-then-shoot): if a walkable neighbour has LOS
+        //    to an enemy, the actor can kite out, fire, and step back. Walkable =
+        //    in-bounds, not an obstacle, not occupied. final_pos is transparent
+        //    for the probe since the actor won't be standing there when it kites.
         let neighbour_has_los = final_pos.all_neighbors().iter().any(|&n| {
             in_bounds(n)
                 && !obstacles.contains(&n)

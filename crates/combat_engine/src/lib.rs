@@ -75,13 +75,9 @@ pub enum ResourceKind {
 
 /// Six spendable / regenerable resource pools per unit.
 ///
-/// **Iteration order is load-bearing.** Determinism contract: replay-trace
-/// hashing depends on `enum_map::Iter` order, which follows variant
-/// declaration order. Adding a variant in the middle is a SCHEMA bump.
-///
-/// `Hp` is the first variant (HP-as-pool migration, completed Stage 3c).
-/// `pools[Hp]` is the **canonical source of truth** for HP — legacy
-/// `Unit.hp` / `Unit.max_hp` fields were removed in Stage 3c (v44).
+/// **Iteration order is load-bearing.** Replay-trace hashing depends on
+/// `enum_map::Iter` order (= variant declaration order), so inserting a variant
+/// mid-enum is a SCHEMA bump. `pools[Hp]` is the canonical HP source of truth.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, enum_map::Enum, serde::Serialize, serde::Deserialize,
 )]
@@ -130,11 +126,9 @@ pub fn modifier(stat: i32) -> i32 {
     stat >> 1 // арифметический сдвиг = floor для степеней двойки
 }
 
-/// Sentinel value for status durations that never expire.
-///
-/// Used for `initial_statuses` applied at bootstrap (e.g. permanent stun on
-/// non-acting party NPCs). `ExpireStatus` guards against this value and skips
-/// the decrement, so the status persists for the entire combat.
+/// Sentinel for status durations that never expire (e.g. permanent stun on
+/// non-acting NPCs). `ExpireStatus` skips the decrement for this value, so the
+/// status persists for the entire combat.
 pub const PERMANENT_DURATION: u32 = u32::MAX;
 
 /// Re-exported so crates that depend on `combat_engine` can use the `enum_map!`

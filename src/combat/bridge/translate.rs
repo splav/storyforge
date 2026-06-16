@@ -14,17 +14,10 @@ use combat_engine::{event::Event, reaction::ReactionKind, state::UnitId};
 
 // ── translate_events: unified bridge translator ───────────────────────────────
 
-/// Cast-flow context — marker that the current translate_events call is
-/// processing an `Action::Cast` event stream.
-///
-/// Cast-specific events (`UnitHealed`, `StatusApplied`, `CritFailed`,
-/// `SpawnBlocked`) use `ctx.cast.is_some()` as a discriminant.
-/// `Event::UnitSpawned` is handled in a separate post-pass at the callsite
-/// because it requires `&mut Commands` which cannot be stored in `TranslateCtx`
-/// without propagating Bevy's system-scoped `Commands` lifetime.
+/// Marker that the current `translate_events` call is processing an
+/// `Action::Cast` stream; cast-specific arms gate on `ctx.cast.is_some()`.
+/// (`Event::UnitSpawned` is handled in a callsite post-pass — see `translate_one`.)
 pub(crate) struct CastCtx {
-    // Marker struct — no fields needed; cast-specific behavior is gated on
-    // ctx.cast.is_some() inside translate_one.
     pub(crate) _phantom: (),
 }
 
@@ -46,15 +39,9 @@ pub(crate) struct MoveCtx<'a> {
     pub(crate) pending_aoo_target: Option<UnitId>,
 }
 
-/// Bundle of all mutable state shared across `translate_events`.
-///
-/// The four formerly-separate translator functions each closed over a different
-/// subset of this state; now one exhaustive `match` in `translate_one` branches
-/// on `ctx.cast` / `ctx.move_` presence to recover the same context-dependent
-/// behaviour.
-///
-/// Lifetime `'a` is the lifetime of the Bevy system parameter borrows passed in
-/// from `process_action_system` / `bootstrap_combat_state`.
+/// Bundle of all mutable state shared across `translate_events`. Lifetime `'a`
+/// is that of the Bevy system-parameter borrows from `process_action_system` /
+/// `bootstrap_combat_state`.
 pub(crate) struct TranslateCtx<'a> {
     /// Shared by every translator.  Held as `&mut` so the `UnitSpawned` arm
     /// can pass it to `spawn_ecs_entity_from_engine_unit` (which registers the
@@ -71,29 +58,13 @@ pub(crate) struct TranslateCtx<'a> {
     pub(crate) move_: Option<MoveCtx<'a>>,
 }
 
-/// Unified bridge event translator — one exhaustive `match` over every
-/// `Event` variant.
+/// Unified bridge event translator — one exhaustive `match` over every `Event`
+/// variant. Context-dependent behaviour is driven by the presence of `ctx.cast` /
+/// `ctx.move_` sub-structs (the per-arm comments below note which context each
+/// event is meaningful in). Turn/round/aura events fire in any flow.
 ///
-/// Replaces four formerly-separate translator functions:
-/// - `translate_tick_events`     (dot-damage, death, rage, mana-regen)
-/// - `translate_end_turn_events` (turn/round lifecycle, aura status changes)
-/// - `translate_cast_events`     (ability log entry, heal, status, crit-fail, spawn)
-/// - `translate_move_events`     (waypoint aggregation, AoO pairing, movement anim)
-///
-/// Context-dependent behaviour (cast vs move vs tick) is driven by the
-/// presence of `ctx.cast` / `ctx.move_` sub-structs:
-///
-/// - `UnitDamaged` in tick context: pierce-aware `armor_reduced` formula.
-///   In cast context: passes `mitigation` as-is (engine zeroes it for piercing
-///   casts). In move context: only handled when paired with a preceding
-///   `ReactionFired` (AoO state machine).
-/// - `UnitMoved`, `ReactionFired`: only meaningful in move context.
-/// - `CritFailed`, `UnitSpawned`, `SpawnBlocked`, `UnitHealed`, `StatusApplied`:
-///   only meaningful in cast context.
-/// - Turn/round/aura events: always meaningful (B5 can emit them in any flow).
-///
-/// After the loop, callers in move context must call `finalize_move` to emit
-/// the aggregated `UnitMoved` log entry and enqueue the movement animation.
+/// After the loop, move-context callers must call `finalize_move` to emit the
+/// aggregated `UnitMoved` log entry and enqueue the movement animation.
 pub(crate) fn translate_events(events: &[Event], ctx: &mut TranslateCtx<'_>) {
     for ev in events {
         translate_one(ev, ctx);
@@ -372,11 +343,8 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
 
         // ── Spawn / despawn (cast only) ───────────────────────────────────────
         Event::UnitSpawned { .. } => {
-            // no-op in translate_one: UnitSpawned requires &mut Commands which
-            // cannot be stored in TranslateCtx without propagating Bevy's system-
-            // scoped Commands lifetime through the borrow graph.  Instead, callers
-            // in cast context handle UnitSpawned in a separate post-pass after
-            // translate_events returns (same pattern as PhaseEntered).
+            // no-op here: needs &mut Commands (un-storable in TranslateCtx), so
+            // cast-context callers handle it in a post-pass, like PhaseEntered.
         }
         Event::SpawnBlocked {
             summoner: summoner_uid,
@@ -421,10 +389,8 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         Event::TurnStarted { actor } => {
             if let Some(ent) = ctx.id_map.get_entity(*actor) {
                 // Always queue insert_active — the engine is the sole authority
-                // for whose turn it is. Works uniformly for:
-                //   round 1: settle_round_start (bootstrap)
-                //   round 2+: BumpRound cascade
-                //   mid-round: normal EndTurn handoff
+                // for whose turn it is. Uniform across round-1 bootstrap,
+                // round-2+ BumpRound cascade, and mid-round EndTurn handoff.
                 ctx.queues.turn_lifecycle.insert_active.push(*actor);
                 ctx.log.push(CombatEvent::TurnStarted { actor: ent });
             }

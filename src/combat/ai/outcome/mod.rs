@@ -24,23 +24,11 @@
 //!    are 0 for Cast, vice versa.
 //! 4. New mechanics extend outcome by adding fact fields. Do not add policy fields.
 //!
-//! ## Consumers (authoritative list, finalised in step 4.13)
+//! ## Consumers
 //!
-//! ### Active fact readers
-//! - `factors::offensive::compute_offensive` — primary scoring consumer; applies all
-//!   damage / heal / cc policies to outcome facts.
-//! - `planning::terminal::compute_secure_kill` — reads `p_kill_now` / `p_kill_soon`.
-//! - `repair::goal::extract_goal_context` — reads `p_kill_now` for Finish/Pressure classification.
-//! - `planning::future_value::λ_attack` (`attack_component_intent`) — reads outcome from
-//!   hypothetical path; applies `policy::damage::value` for intent score.
-//! - `planning::picker::record_committed_reservations` — reads `outcome.enemy_damage`
-//!   directly (raw fact for reservation bookkeeping).
-//!
-//! ### Non-consumers (NOT applicable, not a bug)
-//! - `trade::*` — actor valuation, not action outcome.
-//! - `terminal::compute_*` (except `secure_kill`) — end-state metrics from snapshot/maps.
-//! - `intent_score` non-Cast branches (Reposition / ProtectAlly / SetupAOE / LastStand) —
-//!   position/ability-type logic, outcome not applicable.
+//! Active fact readers: `factors::offensive::compute_offensive` (primary),
+//! `planning::terminal::compute_secure_kill`, `repair::goal::extract_goal_context`,
+//! `planning::future_value::λ_attack`, `planning::picker::record_committed_reservations`.
 
 pub mod builder;
 
@@ -211,26 +199,14 @@ impl Default for ViabilityResult {
 /// Per-plan annotation bundle. Grows as pipeline stages accrue data
 /// (outcome in wave 1; critics / band / agenda in later waves).
 ///
-/// # Score-effect observability invariant (Phase 2 / Phase 3)
+/// # Score-effect observability invariant
 ///
-/// Score-effect fields (`score`, `score_trace`, `modifiers`, `sanity`,
-/// `critics`, `contract`) are written **exclusively** by the drive-loop in
-/// `pipeline::effects::apply_score_effect_stage` via [`Self::apply_effect`]
-/// and [`Self::recompute_score_from_trace`]. Stages do not mutate these
-/// fields directly; they emit `EmittedEffect` values that the drive-loop
-/// applies atomically.
-///
-/// As a consequence, the `modifiers` / `sanity` / `critics` / `contract`
-/// legacy fields are **derived mirrors** of `score_trace`, not independent
-/// observability sources. They carry a slightly richer per-effect detail
-/// (e.g. `SanityRule`, `CriticReason`) which is why they are retained for
-/// mining and replay diagnostics; once `score_trace_log` is enriched to
-/// subsume that detail (see tech-debt § TLE / Phase 4), they become
-/// removable in a schema bump.
-///
-/// The pairing rules in [`Self::apply_effect`] enforce that every legacy
-/// observation is paired with the corresponding `ScoreHit` push, so the
-/// channels cannot drift.
+/// Score-effect fields (`score`, `score_trace`) are written **exclusively** by
+/// the drive-loop in `pipeline::effects::apply_score_effect_stage` via
+/// [`Self::apply_effect`] and [`Self::recompute_score_from_trace`]. Stages emit
+/// `EmittedEffect` values rather than mutating these fields directly. The
+/// pairing rules in [`Self::apply_effect`] keep every legacy observation paired
+/// with its `ScoreHit` push so the channels cannot drift.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PlanAnnotation {
     /// One ActionOutcomeEstimate per plan step, same length as TurnPlan.steps
@@ -257,20 +233,9 @@ pub struct PlanAnnotation {
     /// `None` when no adaptation trigger fired for this plan.
     #[serde(default)]
     pub adaptation: Option<AdaptationData>,
-    /// Step 7.4: final aggregated score for this plan after all pipeline stages.
-    /// Default 0.0.
-    ///
-    /// Written by:
-    ///   - `recompute_score_from_trace` — drive-loop engine writer for all score-effect stages
-    ///   - `FinalizeStage` — rescore write (non-effect path)
-    ///   - `PickBestStage` — agenda composition write
-    ///   - `ViabilityStage` — rescore write
-    ///   - `pick_action` — initial score write from `score_plans_with_raw`
-    ///
-    /// All writers are intra-crate. External consumers use the `score()` getter.
-    ///
-    /// Phase 3: score is always finite after pipeline (SelectionKey carries
-    /// masked/gated state). Standard serde serialization applies.
+    /// Final aggregated score for this plan after all pipeline stages.
+    /// Always finite after the pipeline (SelectionKey carries masked/gated
+    /// state). Intra-crate writers only; external consumers use `score()`.
     #[serde(default)]
     pub(crate) score: f32,
     /// Step 7.4: factor decomposition for this plan (v29 named map).
@@ -413,16 +378,8 @@ impl PlanAnnotation {
         use crate::combat::ai::pipeline::effects::{EffectObservation, ScoreHit};
 
         // Pairing validation — invalid pairs are programmer error, panic.
-        //
-        // Legal pairs:
-        //   Multiplier ↔ Sanity | Critic | None
-        //   Addend     ↔ Modifier | None
-        //   Mask       ↔ Contract | None
-        //   Gate       ↔ Contract | None
-        //
-        // Gate ↔ Contract: KillableGate (Phase 3 Step 4+) emits a single Gate
-        // hit with Contract observation — Contract carries the ContractMaskHit
-        // for legacy JSONL/observability until Phase 4 schema cleanup.
+        // Gate ↔ Contract: KillableGate emits a single Gate hit whose Contract
+        // observation carries the ContractMaskHit for legacy JSONL.
         match (&effect.hit, &effect.observability) {
             (
                 ScoreHit::Multiplier(_),

@@ -1,13 +1,11 @@
 //! Golden baseline guard for the AI scoring pipeline.
 //!
-//! Runs `replay_ai_log --compare-golden tests/baselines/baseline_v46.jsonl <fixtures>` and
-//! fails on any divergence. Behaviour-preserving refactors should keep this at
-//! `0 / N diverged`; intentional behaviour changes require recapturing the
-//! baseline (see `docs/ai/extension-checklist.md` § SCHEMA_VERSION bump).
+//! Runs `replay_ai_log --compare-golden` against the baseline and fails on any
+//! divergence. Intentional behaviour changes require recapturing the baseline
+//! (see `docs/ai/extension-checklist.md` § SCHEMA_VERSION bump).
 //!
-//! Skips with a recapture instruction when `tests/baselines/baseline_v46.jsonl` is absent
-//! — clones come without a baseline, and we don't want a missing artifact to
-//! mask other test failures.
+//! Skips with a recapture instruction when the baseline is absent — clones come
+//! without one, and a missing artifact shouldn't mask other failures.
 
 #[path = "common/mod.rs"]
 mod common;
@@ -23,11 +21,9 @@ fn baseline_abs() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(BASELINE_REL)
 }
 
-/// Paths are relative to `CARGO_MANIFEST_DIR` and the replay binary is
-/// spawned with `current_dir = CARGO_MANIFEST_DIR`, because golden records
-/// embed the source `log_path` verbatim — capture/compare must use the
-/// same string form (we use the relative form to keep baseline files
-/// portable across checkouts).
+/// Paths relative to `CARGO_MANIFEST_DIR` (the replay binary runs with that as
+/// `current_dir`): golden records embed `log_path` verbatim, so capture/compare
+/// must use the same relative form to keep baselines portable across checkouts.
 fn snapshot_logs() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ai_scenarios/snapshots");
     let mut out = Vec::new();

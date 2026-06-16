@@ -1,41 +1,23 @@
 //! AI decision log miner — v33 schema (P3b).
 //!
-//! Reads all `*.jsonl` from a directory and prints aggregated metrics.
-//! `actor_tick` events with `schema_version` >= 32 are processed.
-//! v32 is schema-additive with v33: `score_trace_log` is absent → None.
+//! Reads all `*.jsonl` from a directory, prints aggregated metrics. Processes
+//! `actor_tick` events with `schema_version` >= 32 (v32 is additive with v33:
+//! `score_trace_log` absent → None).
 //!
-//! Class A (direct aggregation):
-//!   A1. Adaptation reason frequency per plan (from annotation.adaptation).
-//!       Also: rescore_mode from score_trace_log.rescore_mode (v33+).
-//!   A2. Intent selection_kind frequency (from decision kind + Skip path).
-//!   A3. Plan depth utilisation of the chosen plan (steps.len histogram).
-//!   A4. (removed — was plan_divergence-specific, no longer applicable)
-//!
-//! Class B (sequence reconstruction):
+//! Metric classes (column semantics):
+//!   A1. Adaptation reason freq per plan; rescore_mode (v33+).
+//!   A2. Intent selection_kind freq (decision kind + Skip path).
+//!   A3. Chosen-plan depth histogram (steps.len).
 //!   B5. Intent transition stability matrix per actor per combat.
-//!
-//! Class C (continuation analysis):
-//!   C6. Continuation outcomes derived via `classify_continuation_outcome`.
-//!       Skip events with stored_goal = new signal (actor passed with goal).
-//!
-//! Class E (modifier + jitter breakdown):
-//!   E1. Per-modifier contribution distributions (summon_bonus, trade_bonus,
-//!       repair_bonus). Non-zero entries only; trade_bonus is sign-aware
-//!       (can be negative). Denominator: plans with at least one modifier emitted.
-//!       Also: trace-sourced E1 from score_trace_log.addends (v33+).
-//!   E2. Picking jitter (noise_applied) for chosen plans. Sign-aware reporter
-//!       (mean / min / max / abs_max). Denominator: chosen plans.
-//!
-//! Class G (critics coverage — v33+ trace source):
-//!   G2. trace-sourced per-multiplier-kind stats from score_trace_log.multipliers
-//!       for chosen plans (v33+). Parallel to legacy G1 from annotation.critics.
-//!
-//! Class H (bands & agenda — schema v32+):
-//!   H1. Band coverage: per-band tick count, winner-intent distribution,
-//!       per-axis consideration histograms (urgency/feasibility/leverage/
-//!       safety/role_affinity/continuation_value).
-//!   H2. Agenda-item win-rate per band: which item index (0/1/2) wins most
-//!       often. Sanity check: NormalTactical should not degenerate to item 0.
+//!   C6. Continuation outcomes via `classify_continuation_outcome`.
+//!   E1. Per-modifier contribution dists (summon/trade/repair_bonus); non-zero
+//!       only, trade_bonus sign-aware. Denom: plans with ≥1 modifier. Trace E1
+//!       from score_trace_log.addends (v33+).
+//!   E2. Picking jitter (noise_applied) for chosen plans, sign-aware.
+//!   G2. Trace per-multiplier-kind stats (v33+); parallel to legacy G1.
+//!   H1. Band coverage: tick count, winner-intent dist, per-axis consideration
+//!       histograms (urgency/feasibility/leverage/safety/role_affinity/continuation_value).
+//!   H2. Agenda-item win-rate per band. Sanity: NormalTactical shouldn't degenerate to item 0.
 //!
 //! Usage: `cargo run --release --bin mine_ai_logs -- --dir logs/`
 
@@ -95,10 +77,9 @@ impl IntentSource {
 /// Precedence: ApMpBlocked → NoTargetInAgenda → TargetUnreachable →
 /// OnlyMovePlans → NoPlanAttemptsTarget → Unclassified.
 ///
-/// Note: OnlyMovePlans (bucket 3) is checked before NoPlanAttemptsTarget (bucket 4)
-/// because "no Cast steps in pool at all" is a more specific diagnosis than
-/// "Cast steps exist but none target the agenda entity". When all plans are
-/// Move-only, bucket 4 would also fire (trivially true), so we prefer bucket 3.
+/// OnlyMovePlans precedes NoPlanAttemptsTarget: "no Cast steps at all" is more
+/// specific than "Cast steps exist but none target the agenda entity" (which
+/// fires trivially when all plans are Move-only).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum H3cBucket {
     ApMpBlocked = 0,
@@ -717,11 +698,10 @@ impl Aggregate {
                 self.h1_continuation_value.push(c.continuation_value);
             }
 
-            // H1c.bis (step 11.8): per-IntentKind leverage histograms from chosen plan,
-            // split into winners (attributed agenda_item) and losers (all others).
-            // Uses considerations_per_item (plan-aware overlay values), matched to agenda
-            // items by index. Separate from the item-level h1_leverage above (which uses
-            // agenda item baseline considerations, not plan-specific overlays).
+            // H1c.bis: per-IntentKind leverage histograms from the chosen plan,
+            // split winners (attributed agenda_item) vs losers. Uses plan-aware
+            // overlay values (considerations_per_item) — unlike h1_leverage above,
+            // which uses agenda item baseline considerations.
             if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
                 let winner_idx = chosen.annotation.agenda_item;
                 // Collect (kind, leverage, is_winner) to avoid multiple &mut self borrows.
@@ -1133,24 +1113,11 @@ impl Aggregate {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Hardcoded StatusTag mapping derived from `assets/data/statuses.toml` and
-/// `derive_status_tags` rules. Returns *distinct* tag labels for statuses active
-/// on the actor at this tick.
+/// Distinct StatusTag labels for the actor's active statuses at this tick.
 ///
-/// ContentDb is not available in the mining tool (pure-JSONL), so we pin the
-/// 10 known status ids from statuses.toml directly. Unknown ids are labelled
-/// "unknown". Rules mirror `classify.rs::derive_status_tags`.
-///
-/// Mapping (statuses.toml × classify rules):
-///   stunned, paralyzed     → HardCC    (skips_turn)
-///   taunted, pact_control  → Compulsion (forces_targeting / ai_controlled→Cosmetic)
-///   poisoned, burning,
-///   exhaustion             → Dot       (dot_dice / hp_percent_dot)
-///   defending              → Buff      (armor_bonus)
-///   disoriented            → SoftCC    (causes_disadvantage)
-///   broken_faith           → Cosmetic  (blocks_mana — no classify rule)
-///
-/// Note: pact_control has ai_controlled=true only; no classify rule → Cosmetic.
+/// ContentDb is unavailable in the mining tool (pure-JSONL), so the status-id →
+/// tag mapping (mirroring `classify.rs::derive_status_tags`) is pinned inline
+/// below. Unknown ids → "unknown".
 fn statuses_to_tag_labels(event: &ActorTickEvent) -> Vec<&'static str> {
     // Find the actor's own engine Unit in the snapshot.
     let actor_statuses: &[combat_engine::state::ActiveStatus] = event
@@ -1198,21 +1165,16 @@ fn fresh_decision_kind(d: &LoggedDecision) -> FreshDecisionKind {
     }
 }
 
-/// Approximate the fresh `TacticalIntent` from the logged decision + stored goal.
+/// Approximate the fresh `TacticalIntent` from the logged decision + stored goal
+/// (v27 logs don't persist intent directly):
 ///
-/// `classify_continuation_outcome` requires the fresh decision's `TacticalIntent`.
-/// The v27 log does not persist intent directly; we reconstruct it approximately:
+/// - Cast/MoveAndCast at the stored-goal entity → stored goal's intent kind.
+/// - Cast/MoveAndCast at a *different* entity → `FocusTarget` on it.
+/// - Move / EndTurn / Skip → `Reposition`.
 ///
-/// - Cast/MoveAndCast targeting the same entity as the stored goal → use the stored
-///   goal's intent kind (the actor continued toward the same target).
-/// - Cast/MoveAndCast targeting a *different* entity → `FocusTarget` at that new entity.
-/// - Move → `Reposition` (best approximation; could be FocusTarget-walk, but we can't know).
-/// - EndTurn/Skip → `Reposition` (pass, no meaningful intent to infer).
-///
-/// This heuristic is sufficient for the miner's `preserved` vs `abandoned` split.
-/// Reactive-vs-voluntary classification reads `event.intent_reason` directly
-/// (full structured `IntentReason`), so the miner correctly distinguishes
-/// `GoalAbandonedReactive { source: ... }` from `GoalAbandonedVoluntary`.
+/// Sufficient for the `preserved` vs `abandoned` split; reactive-vs-voluntary
+/// reads `event.intent_reason` directly.
+
 /// Build a `TacticalIntent` from an `AgendaItemLog` using `kind` + `target`.
 ///
 /// `Entity::try_from_bits` converts `target` bits; falls back to a

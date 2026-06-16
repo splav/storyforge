@@ -1,8 +1,6 @@
-//! `AiTags` — per-unit bitflags computed from snapshot state.
-//!
-//! Formerly defined in `world/snapshot.rs`; moved to `world/tags/` (R7)
-//! so that all tag semantics live in one place alongside `AbilityTag` and
-//! `StatusTag`.
+//! `AiTags` — per-unit bitflags computed from snapshot state. Lives in
+//! `world/tags/` alongside `AbilityTag` and `StatusTag` so all tag semantics
+//! share one place.
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

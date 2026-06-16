@@ -1,5 +1,4 @@
 //! AiTuning — central tuning data for AI scoring.
-//! Populated incrementally across steps 2.2–2.6 (see docs/ai_rework_plan.md).
 
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
@@ -110,23 +109,17 @@ pub struct AiTuning {
     pub intent: IntentTuning,
 }
 
-/// Tuning constants for the intent composition layer (step 11.8).
-///
-/// Added in 11.8: a single new constant `feasibility_margin` controlling the
-/// continuous feasibility formula in `OverlayConsiderationsStage`.  All fields
-/// have data-driven defaults so existing TOML files that omit `[intent]` are
-/// backward-compatible.
+/// Tuning constants for the intent composition layer. Data-driven defaults
+/// keep TOML files that omit `[intent]` backward-compatible.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct IntentTuning {
-    /// Margin used to normalise `viability.adjusted_score` into the `[0, 1]`
-    /// feasibility axis.  Data-driven from P1 distribution sampling (11.8):
-    /// `adjusted_score` domain is `[-2.11, +3.99]`; margin=2.0 yields 63%
-    /// middle-mass (values strictly inside the `(0.05, 0.95)` band).
-    ///
-    /// Formula: `(adjusted_score - VIABILITY_THRESHOLD) / feasibility_margin`.
-    /// Increase to compress the scale (more middle-mass at the cost of less
-    /// separation at the top); decrease to spread the scale.
+    /// Margin normalising `viability.adjusted_score` into the `[0, 1]`
+    /// feasibility axis:
+    /// `(adjusted_score - VIABILITY_THRESHOLD) / feasibility_margin`.
+    /// Increase to compress the scale (more middle-mass, less top separation);
+    /// decrease to spread it. margin=2.0 yields 63% middle-mass for the sampled
+    /// `[-2.11, +3.99]` domain.
     pub feasibility_margin: f32,
 }
 
@@ -164,12 +157,10 @@ pub struct Thresholds {
     /// Below this `hp_pct` an actor is considered "in low-HP zone" for memory
     /// tracking (see `AiMemory.turns_in_low_hp`). Used by the 3.1 producer.
     pub low_hp_zone_threshold: f32,
-    /// Threshold for the panic override gate. When `need_signals.self_preserve`
-    /// reaches this AND danger is above `awareness_danger_threshold`, the AI
-    /// bypasses scoring and forces `ProtectSelf`. Migrated from the old
-    /// `hp_pct < survival_hp_threshold` gate; calibrated so the old condition
-    /// (hp ≈ 0.20, danger ≈ 0.6) maps to the same trigger point on the new
-    /// logistic curve. Step 3.2 consumer.
+    /// Panic override gate: when `need_signals.self_preserve` reaches this AND
+    /// danger is above `awareness_danger_threshold`, the AI bypasses scoring and
+    /// forces `ProtectSelf`. Calibrated so the old `hp ≈ 0.20, danger ≈ 0.6`
+    /// condition maps to the same trigger point on the logistic curve.
     pub panic_self_preserve_threshold: f32,
     /// Soft floor for the ProtectSelf intent. Below this `self_preserve`
     /// magnitude the soft branch doesn't even consider ProtectSelf.
@@ -257,35 +248,21 @@ pub struct Tables {
     /// Columns: [danger, ally_support, opportunity].
     pub axis_position_weights: [[f32; 3]; 5],
     /// Per-axis weights for the 8 terminal-state axes.
-    /// Rows: [Tank, Melee, Ranged, Control, Support].
     /// Cols: [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
     ///        board_control_gain, line_actionability, density_value,
     ///        pressure_spacing_zone].
-    /// Step 5.4: calibrated best-guess values. Tank tolerates exposure;
-    /// Ranged punishes it most (-0.8). Support ally_rescue weight = 0.8.
     pub axis_terminal_weights: [[f32; 8]; 5],
-    /// Per-axis weights for the 3 repair-affinity axes.
-    /// Rows: [Tank, Melee, Ranged, Control, Support].
+    /// Per-axis weights for the 3 repair-affinity axes, used by
+    /// `AxisProfile::repair_weights` for `RepairAffinity::aggregate`.
     /// Cols: [goal_w, region_w, method_w].
-    /// Step 6.2: used by `AxisProfile::repair_weights` to produce
-    /// role-mixed `RepairWeights` for `RepairAffinity::aggregate` (6.3).
     pub axis_repair_weights: [[f32; 3]; 5],
-    /// Per-axis weights for the 10 utility factors — continuation evaluator.
-    /// Applied when `AiMemory.last_goal` is `Some` (actor has a stored goal).
-    /// Cols: [damage, kill_now, kill_promised, cc, heal, intent,
-    ///        scarcity, tempo_gain, saturation, self_survival].
-    /// Sдвиги от discovery: kill_now ×1.2, kill_promised ×1.2, tempo_gain ×1.15,
-    /// self_survival ×0.7; остальные ×1.0.
-    /// Step 6.4: continuation evaluator — tighter kill commitment, looser self-preserve.
+    /// Continuation-evaluator factor weights — applied when `AiMemory.last_goal`
+    /// is `Some`. Tighter kill commitment, looser self-preserve (shift factors
+    /// documented at the default-table literal below).
     pub axis_factor_weights_continuation: [[f32; 10]; 5],
-    /// Per-axis weights for the 8 terminal-state axes — continuation evaluator.
-    /// Applied when `AiMemory.last_goal` is `Some`.
-    /// Cols: [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
-    ///        board_control_gain, line_actionability, density_value,
-    ///        pressure_spacing_zone].
-    /// Сдвиги от discovery: exposure_at_end ×0.8, next_turn_lethality ×0.6,
-    /// secure_kill ×1.3, board_control_gain ×1.3; остальные ×1.0.
-    /// Step 6.4: continuation evaluator — committed kill ценнее, self-expose меньше пугает.
+    /// Continuation-evaluator terminal weights — applied when `last_goal` is
+    /// `Some`. Committed kill valued higher, self-exposure feared less (shift
+    /// factors at the literal below).
     pub axis_terminal_weights_continuation: [[f32; 8]; 5],
 }
 
@@ -417,17 +394,13 @@ impl Default for Difficulty {
 
 // ── Per-unit override scaffolding (step 2.7) ─────────────────────────────────
 
-/// Per-unit partial override of AiTuning. Populated from `unit_templates.toml`
-/// (field `ai_tuning_override`). All sub-sections are Option'd so individual
-/// quirks can specify just the fields they tweak (Berserker: only `aoo_risk_floor`
-/// raised; Coward: only `self_survival_epsilon` lowered, etc.).
+/// Per-unit partial override of AiTuning, from `unit_templates.toml`
+/// (`ai_tuning_override`). Sub-sections are Option'd so a quirk tweaks only
+/// the fields it cares about. Consumed via `AiTuning::apply_override` at
+/// `pick_action` time.
 ///
-/// Consumed via `AiTuning::apply_override` at `pick_action` time.
-///
-/// Scaffolding note (step 2.7): only `thresholds` is override-able in this
-/// iteration. `difficulty` (LerpCurve) and `tables` (role-axis matrices)
-/// intentionally omitted — add `Option<...Override>` fields here when a concrete
-/// quirk needs them.
+/// Only `thresholds` is override-able so far; `difficulty` and `tables` are
+/// intentionally omitted — add `Option<...Override>` fields when a quirk needs them.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct AiTuningOverride {
     #[serde(default)]

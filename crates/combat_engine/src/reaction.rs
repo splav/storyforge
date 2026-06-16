@@ -99,17 +99,10 @@ pub fn scan_reactions(
     reactions
 }
 
-/// Expand a `Reaction` into the effects it produces.
-///
-/// For `OpportunityAttack`:
-/// 1. `DecrementReactions { actor: from }` — spend the reaction.
-/// 2. `Damage { target: victim, raw: dice.expected(), source: from, pierces: false }`
-///    — the AoO hit.
-///
-/// Derived effects (`GainRage`, `Death`) come from `apply_effect(Damage)`.
-///
-/// Returns an empty vec if the attacker has no weapon dice (safety guard —
-/// `scan_reactions` already filters these out under normal operation).
+/// Expand a `Reaction` into effects. For `OpportunityAttack`:
+/// `DecrementReactions` then `Damage` (derived `GainRage`/`Death` come from
+/// `apply_effect`). Empty vec if the attacker has no weapon dice (safety guard —
+/// `scan_reactions` already filters these out).
 pub fn expand_reaction(
     reaction: &Reaction,
     state: &CombatState,

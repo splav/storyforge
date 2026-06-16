@@ -37,9 +37,8 @@ impl StatusTagLookup for HashMap<StatusId, StatusTagSet> {
 /// - SoftCC:     `causes_disadvantage || speed_bonus < 0`
 /// - Dot:        `dot_dice.is_some() || hp_percent_dot > 0`
 /// - Buff:       `buff_class.is_some() || armor_bonus > 0`
-/// - Compulsion: `forces_targeting` — overrides targeting (taunt-like).
-///   Set in parallel with other tags; suppresses the Cosmetic fallback.
-/// - Cosmetic:   fallback when none of the above apply (including Compulsion)
+/// - Compulsion: `forces_targeting` (taunt-like); set alongside other tags.
+/// - Cosmetic:   fallback when no other tag (incl. Compulsion) applies.
 pub fn derive_status_tags(def: &StatusDef) -> StatusTagSet {
     let mut s = StatusTagSet::empty();
     if def.skips_turn {
@@ -142,9 +141,8 @@ pub fn derive_ability_tags<L: StatusTagLookup>(
         s.insert_tag(AbilityTag::ApplyCC);
     }
 
-    // Peel: applies a `forces_targeting = true` status (taunt-redirect) to self or ally.
-    // Checked via raw `forces_targeting` flag in status_defs (not via StatusTagSet —
-    // forces_targeting is intentionally not a StatusTag).
+    // Peel: applies a `forces_targeting` (taunt-redirect) status to self/ally.
+    // Read from the raw flag in status_defs — forces_targeting is not a StatusTag.
     let applies_taunt = def.statuses.iter().any(|sa| {
         let to_ally_or_self = sa.on == StatusOn::MySelf
             || (sa.on == StatusOn::Target && def.target_type == TargetType::SingleAlly)

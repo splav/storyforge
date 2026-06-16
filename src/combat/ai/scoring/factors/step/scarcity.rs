@@ -113,14 +113,11 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
         swing += 0.2 * (aoe_enemies.len() - 1) as f32;
     }
 
-    // CC on unstunned target. Non-AoE only — AoE CC is already folded into
-    // the cc factor per-enemy. Reads `stun_denial_value` — the same helper
-    // `status_cc_value` uses for its skips_turn contribution, so the scarcity
-    // swing and cc factor value the stun on the same denominator and can
-    // never drift. The duplication across two factors is intentional: `cc`
-    // ranks plan utility, `scarcity` justifies the resource spend — two
-    // orthogonal axes with different role weights, parallel to how `kill` is
-    // mirrored below.
+    // CC on unstunned target (non-AoE; AoE CC folds into the cc factor
+    // per-enemy). Reads `stun_denial_value` — the same helper `status_cc_value`
+    // uses — so scarcity and cc value the stun on the same denominator and can't
+    // drift. Duplication is intentional: `cc` ranks utility, `scarcity` justifies
+    // the spend.
     if let Some(tv) = target_unit {
         if !tv.is_stunned(world.status_tags) {
             let stun_value = stun_denial_value(def, tv, world.content);

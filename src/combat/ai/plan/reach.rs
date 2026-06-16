@@ -28,17 +28,12 @@ use std::collections::HashSet;
 /// Single source of truth is `snap.state.units()` now that corpses live there
 /// instead of in a parallel `blocked_tiles` channel.
 pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
-    // Blocker sets are derived DIRECTLY from the authoritative engine state,
-    // keyed by UnitId / team — never routed through `uid_to_entity` (nor the
-    // `all_enemies_of` / `entity_for_uid` accessors, which do the same lookup).
-    // A unit can be present in `state.units()` yet missing from that map — a
-    // summon with a synthetic UnitId, or a unit not yet in the ECS spatial layer
-    // (`build_snapshot` drops such units from the AI cache, and the map is built
-    // from the cache). Routing through the map would silently drop that unit, so
-    // the BFS would offer its occupied hex as a legal stopping destination and the
-    // resulting path would collide at execution — tripping the one-unit-per-hex
-    // invariant in `HexPositions`. Keying off state keeps the sets complete by
-    // construction, so generated paths are always valid.
+    // Blocker sets are derived DIRECTLY from authoritative engine state, keyed
+    // by UnitId/team — never through `uid_to_entity`. A unit can be in
+    // `state.units()` yet missing from that map (synthetic-UnitId summon, or not
+    // yet in the ECS spatial layer); routing through the map would drop it, so
+    // the BFS would offer its hex as a stop destination and the path would
+    // collide at execution (one-unit-per-hex invariant in `HexPositions`).
     let actor_uid = actor.state.id;
     let actor_team = actor.team;
 
@@ -59,11 +54,9 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
         .map(|u| u.pos)
         .collect();
 
-    // Build hazard_costs from the AI-team-visible environment (already filtered by T3
-    // in build_snapshot — every entry here is visible to the actor's team).
-    // Uses the unit-independent severity scores precomputed once in AiCache.env_severity.
-    // Both inputs are serialised inside BattleSnapshot → AI-sim and prod agree by
-    // construction (parity guarantee).
+    // hazard_costs from the AI-team-visible environment (already T3-filtered in
+    // build_snapshot), using unit-independent severities from AiCache.env_severity.
+    // Both inputs live inside BattleSnapshot → AI-sim and prod agree by construction.
     let hazard_costs: std::collections::HashMap<Hex, f32> = snap
         .state
         .environment
@@ -280,17 +273,10 @@ mod tests {
         );
     }
 
-    /// Regression: a unit present in the authoritative engine `state` but ABSENT
-    /// from the snapshot's `uid_to_entity` map must STILL block stopping.
-    ///
-    /// In production this happens for a summon (synthetic UnitId) or a unit not
-    /// yet in the ECS spatial layer — `build_snapshot` drops it from the AI cache,
-    /// and `uid_to_entity` is built from that cache, so `entity_for_uid(u.id)`
-    /// returns `None`. The old `reach_from` resolved blockers through that map and
-    /// silently dropped such units, so the BFS offered their occupied hex as a
-    /// stop destination → the executed path collided (HexPositions one-per-hex
-    /// panic in `project_state_to_ecs`). Building the blocker set from
-    /// `state.units()` keyed by UnitId fixes it by construction.
+    /// Regression: a unit in engine `state` but absent from `uid_to_entity`
+    /// (synthetic-UnitId summon / not-yet-projected) must still block stopping.
+    /// The old map-routed `reach_from` dropped such units, so the BFS offered
+    /// their hex as a stop destination and the path collided at execution.
     #[test]
     fn state_unit_missing_from_entity_map_still_blocks_stopping() {
         use crate::combat::ai::world::cache::AiCache;

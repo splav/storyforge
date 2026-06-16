@@ -120,11 +120,8 @@ fn choice_button_sets_flag_and_advances() {
     );
     assert!(!flags.contains("ignored"), "'ignored' must NOT be set");
 
-    // AdvanceScenario message written (drain the reader to confirm).
     app.update();
-    // After update the message is consumed; to verify it was written we check
-    // via a reader system run before the update.
-    // Re-run to confirm idempotence: a second run with no Pressed buttons is a no-op.
+    // Idempotence: a second run with no Pressed buttons is a no-op.
     app.world_mut()
         .run_system_once(choice_input_system)
         .expect("second run failed");

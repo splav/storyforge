@@ -1,28 +1,19 @@
 //! OverlayConsiderationsStage — step 11.4 / 11.8.
 //!
-//! Updates `ann.per_item[i].considerations` with plan-aware data for each
-//! plan × agenda-item pair.  Must run **after** `RepairAffinityStage` so that
-//! `ann.repair_affinity` is populated and the `continuation_value` axis is
-//! accurate; before `PlanModifiersStage` so the composition in `PickBestStage`
-//! uses the most accurate data.
+//! Overlays plan-aware axis data onto `ann.per_item[i].considerations` for each
+//! plan × agenda-item pair. Ordering: **after** `RepairAffinityStage` (needs
+//! `ann.repair_affinity` for an accurate `continuation_value`), **before**
+//! `PlanModifiersStage`.
 //!
-//! # What it overlays
-//!
+//! Overlaid axes:
 //! - **feasibility** — `ann.viability.adjusted_score.clamp(0,1)` (continuous).
-//! - **leverage**    — intent-kind-aware formula (6-branch match per item.kind).
-//!   See Section C of the 11.8 design doc for per-branch formulas and rationale.
-//! - **safety**      — `1.0 - max(self_damage_ratio, exposure_at_end)`.
-//!   Expected to stay near 1.0 in safe corpora (OvercommitIntoDanger critic +
-//!   safe scenario design). See 11.7b finding and Section D of design doc.
-//! - **continuation_value** — recomputes using `ann.repair_affinity` (plan-level).
+//! - **leverage** — intent-kind-aware 6-branch formula (design doc Section C).
+//! - **safety** — `1.0 - max(self_damage_ratio, exposure_at_end)`; expected
+//!   ≈1.0 in safe corpora (11.7b finding, Section D).
+//! - **continuation_value** — recomputed from `ann.repair_affinity`.
 //!
-//! Other axes (`urgency`, `role_affinity`) are taken verbatim from the
-//! item-level `AgendaItem::considerations` populated by `build_agenda` in 11.3.
-//!
-//! # Edge cases
-//!
-//! - Empty agenda → no-op.
-//! - Empty `ann.per_item` (no `ItemScoringStage` ran) → no-op.
+//! `urgency`/`role_affinity` pass through verbatim from `build_agenda` (11.3).
+//! Empty agenda or empty `ann.per_item` → no-op.
 
 use bevy::prelude::Entity;
 
@@ -83,17 +74,13 @@ impl PlanStage for OverlayConsiderationsStage {
 
             // Compute plan-aware axis values once per plan.
 
-            // feasibility: continuous formula via margin above viability threshold.
+            // feasibility: continuous margin above viability threshold.
             //
-            // The `!passed` guard is the critical branch: `adjusted_score` for
-            // failed plans is not specified (may be a raw pre-viability score that
-            // is high even though the plan is unviable). Without this guard a
-            // failed plan with high `adjusted_score` would compute feasibility=1.0,
-            // which is semantically wrong. See Section B of ai_rework_step11_8_design.md.
-            //
-            // VIABILITY_THRESHOLD = 0.0 (P2-verified — viability_min field absent
-            // in AiTuning). feasibility_margin = 2.0 (data-driven from P1 sampling:
-            // adjusted_score domain [-2.11, +3.99]; margin 2.0 → 63% middle-mass).
+            // The `!passed` guard is critical: `adjusted_score` for failed plans
+            // is unspecified (may be high despite being unviable), so without the
+            // guard a failed plan could score feasibility=1.0 (Section B of
+            // ai_rework_step11_8_design.md). feasibility_margin = 2.0 sized from
+            // P1 sampling (adjusted_score domain [-2.11, +3.99] → 63% middle-mass).
             let feasibility = if !ann.viability.passed {
                 0.0
             } else {
@@ -101,14 +88,12 @@ impl PlanStage for OverlayConsiderationsStage {
                 ((ann.viability.adjusted_score - VIABILITY_THRESHOLD) / margin).clamp(0.0, 1.0)
             };
 
-            // safety: 1.0 - max(self_damage_ratio, exposure_at_end).
-            // self_damage_ratio: cumulative self-damage normalised by actor's max HP.
-            // ExposureAtEnd: danger at the plan's final position (terminal factor).
-            // Expected flat (≈1.0) in safe corpora — see 11.7b finding and Section D.
+            // safety: 1.0 - max(self_damage_ratio, exposure_at_end), where
+            // self_damage_ratio is cumulative self-damage / max HP and
+            // exposure_at_end is danger at the plan's final tile.
             //
-            // Outcomes live on `TurnPlan.annotation` (populated by generator); the
-            // `outcomes` field on pipeline annotation is dead during pipeline.
-            // See `ScoredPool::plan_outcomes` for the canonical accessor.
+            // Outcomes live on `TurnPlan.annotation` (the pipeline annotation's
+            // `outcomes` field is dead here) — use `ScoredPool::plan_outcomes`.
             let total_self_damage: f32 = pool
                 .plan_outcomes(plan_idx)
                 .iter()
@@ -255,16 +240,14 @@ fn compute_leverage(
         }
         IntentKind::ProtectSelf => {
             // Survival swing: SelfSurvival factor + danger reduction.
-            // CRITICAL: `danger_now` MUST read from actor's start-of-turn position
-            // (snapshot active.pos), NOT from any post-plan or sim-mutated position —
-            // otherwise reduction comparison is meaningless.
+            // CRITICAL: `danger_now` MUST read the actor's start-of-turn position
+            // (snapshot active.pos), not a post-plan/sim-mutated one, else the
+            // reduction comparison is meaningless.
             //
-            // Intentional cap: stationary defensive plans (Cast self-shield without
-            // movement) have `reduction = 0` → leverage maxes at SELF_SURVIVAL_WEIGHT
-            // (0.7), never 1.0. Reaching full leverage requires both buff effect AND
-            // active escape from danger. This rewards mobile defense over passive
-            // defense — by design. Do not "fix" by rebalancing weights to (1.0, 0.0);
-            // that erases the escape signal.
+            // Intentional cap: stationary defensive plans have `reduction = 0` →
+            // leverage maxes at SELF_SURVIVAL_WEIGHT (0.7); full leverage needs
+            // both buff AND active escape. Rewards mobile over passive defense by
+            // design — do NOT rebalance to (1.0, 0.0), that erases the escape signal.
             let self_survival = factors.get_plan(PlanFactor::SelfSurvival).clamp(0.0, 1.0);
             let danger_now = maps.danger.get(actor_pos).clamp(0.0, 1.0);
             let danger_after = terminal.get(TerminalFactor::ExposureAtEnd).clamp(0.0, 1.0);

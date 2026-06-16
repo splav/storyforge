@@ -124,17 +124,9 @@ fn apply_pick_best(pool: &mut ScoredPool, ctx: &mut StageCtx) {
 
 // ── Pipeline tables ───────────────────────────────────────────────────────────
 
-/// Pre-mask half: scoring multipliers only.
-///
-/// Ends after `Critics` — the last stage that applies multiplicative score
-/// effects. `pick_action` snapshots `pool.annotations[*].score` here as
-/// `base_scored` before proceeding to the post-mask half.
-///
-/// ```text
-/// PRE_MASK:  Viability → ItemScoring → ModeSelection → Finalize → Sanity → Critics
-/// POST_MASK: ProtectSelfMask → TransitDeathMask → KillableGate → RepairAffinity
-///            → OverlayConsiderations → PlanModifiers → PickBest
-/// ```
+/// Pre-mask half: scoring multipliers only. Ends after `Critics` — the last
+/// stage that applies multiplicative score effects. `pick_action` snapshots
+/// `pool.annotations[*].score` here as `base_scored` before the post-mask half.
 pub const PRODUCTION_PIPELINE_PRE_MASK: &[StageEntry] = &[
     StageEntry {
         id: StageId::Viability,

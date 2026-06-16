@@ -5,15 +5,11 @@
 /// Formula: `raw × (0.5 + 0.5 × progress)` where
 /// `progress = (raw / target_hp).min(1.0)`.
 ///
-/// The progressive factor rewards finishing blows: half a target's HP bar
-/// dealt when they're at 5 HP is valued higher than the same raw amount
-/// dealt from full health. This makes "finish them" plans outcompete
-/// "chip them" plans when both deal the same raw damage.
-///
-/// Extracted 1:1 from `outcome::compute_score_core` damage branch.
+/// The progressive factor rewards finishing blows, so "finish them" plans
+/// outcompete "chip them" plans at equal raw damage.
 ///
 /// # Arguments
-/// - `raw` — net expected damage after armor and damage-taken-bonus (≥ 0).
+/// - `raw` — net expected damage after armor (≥ 0).
 /// - `target_hp_pct_inv` — fraction of the target's current HP that `raw`
 ///   represents: `(raw / target.hp.max(1) as f32).min(1.0)`.
 pub fn value(raw: f32, target_hp_pct_inv: f32) -> f32 {

@@ -1,18 +1,15 @@
 //! Single-source-of-truth action-legality checker.
 //!
-//! Migrated from `src/combat/actions/mod.rs` in Phase 2 step 2c.  The engine
-//! owns the rule layer; player UI (Bevy `BevyActions` adapter), AI planner
-//! (`SnapshotActions` adapter), and engine `step()` pre-validate all share
-//! this function via backend-specific `ActionState` impls.
+//! The engine owns the rule layer; player UI (`BevyActions`), AI planner
+//! (`SnapshotActions`), and engine `step()` pre-validate all share this via
+//! backend-specific `ActionState` impls.
 //!
 //! Scope:
-//! - **In**: ability existence, actor alive + knows-ability, AP / resource
-//!   affordability, range / in-bounds, target-team match
-//!   (`SingleEnemy` / `SingleAlly` / `Myself`), taunt (`forces_targeting`
-//!   status), target alive for non-AoE.
-//! - **Out**: turn ownership (global game state; caller gates that), AI-only
-//!   heuristics (overheal skip / wasted-CC / AoE friendly-fire ratio — those
-//!   live in the AI scoring layer).
+//! - **In**: ability existence, actor alive + knows-ability, AP/resource
+//!   affordability, range/in-bounds, target-team match, taunt
+//!   (`forces_targeting`), target alive for non-AoE.
+//! - **Out**: turn ownership (caller gates that) and AI-only heuristics
+//!   (overheal skip / wasted-CC / friendly-fire ratio — in the scoring layer).
 
 use hexx::Hex;
 
@@ -192,12 +189,9 @@ pub trait ActionState {
     }
 }
 
-/// Decide whether `action` is legal against `state`.  Single-pass, no side
-/// effects.  Returns `Ok(LegalAction { disadvantage })` or `Err(reason)`.
-///
-/// **Does not** check whose turn it is — callers that care gate that
-/// separately.  Rationale: "turn ownership" is global game state, not a
-/// property of the action.
+/// Decide whether `action` is legal against `state`. Single-pass, no side
+/// effects. Returns `Ok(LegalAction { disadvantage })` or `Err(reason)`.
+/// Does not check turn ownership (see module doc).
 pub fn check_legality<S: ActionState>(
     action: ProposedAction<'_, S::Id>,
     state: &S,

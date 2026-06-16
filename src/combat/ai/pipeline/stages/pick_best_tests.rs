@@ -321,10 +321,8 @@ fn run_pick_with_agenda(
     pool
 }
 
-/// Single item, uniform considerations, item intent==primary intent (both 0).
-/// intent_delta = 0, tempo_delta = 0.
-/// composed = score_initial + 0 + 0 + w_intent × cdot.
-/// Test pins this explicit form (additive, not multiplicative).
+/// Item intent == primary → intent_delta = tempo_delta = 0, so
+/// `composed = score_initial + w_intent × cdot`. Pins the additive form.
 #[test]
 fn composition_collapses_to_base_when_considerations_uniform() {
     let agenda = Agenda {
@@ -506,11 +504,7 @@ fn item_score_does_not_scale_with_unrelated_base_score() {
         vec![vec![same_per_item], vec![same_per_item]],
         &agenda,
     );
-    // intent_delta = tempo_delta = 0 (same intent primary as item factor).
-    // cdot is the same for both (same considerations + same band weights).
-    // composed_A = 0.2 + w_intent*cdot
-    // composed_B = 2.0 + w_intent*cdot
-    // diff = 2.0 - 0.2 = 1.8 exactly.
+    // Identical deltas + cdot cancel → diff = initial diff = 1.8.
     let score_a = pool.annotations[0].score;
     let score_b = pool.annotations[1].score;
     assert!(
@@ -734,11 +728,8 @@ fn intent_delta_is_identical_for_different_base_scores() {
             uniform_considerations(),
         )],
     };
-    // Both plans: item intent_factor = 1.0 (different from primary which is 0.0).
-    // Batch stats: both plans have intent_factor=1.0 → stats_intent from per_item.
-    // But plan A initial=0.2, plan B initial=2.0.
-    // intent_delta = factor_contrib(1.0, stats, signed, w) - factor_contrib(0.0, stats, signed, w).
-    // Same for both since factors are identical.
+    // Both plans share intent_factor=1.0 (≠ primary 0.0) but differ in initial,
+    // so intent_delta is identical and cancels in the diff.
     let same_per_item = PerItemEval {
         intent_factor: 1.0,
         tempo_factor: 0.0,

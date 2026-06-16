@@ -1,29 +1,19 @@
 //! Plan scoring: registry-driven aggregation of 10 factors over `StepFactor`
 //! and `PlanFactor` enums, then batch-normalised and weighted per role axis.
 //!
-//! ## Factor aggregation (post-8.A)
+//! Step factors (7 variants): discounted sum across Cast steps; step[k] weighted
+//! by `base_discount^k` (0.75 easy / 0.85 normal / 0.90 hard).
+//! Plan factors (3 variants): plan-terminal, computed once per plan (`Intent`,
+//! `TempoGain`, `SelfSurvival`).
+//! Terminal factors (8 variants): separate `terminal_state_score` pass, weighted
+//! by `axis_terminal_weights` × `NeedSignals` modulation.
 //!
-//! Step factors (`StepFactor` enum, 7 variants): discounted sum across Cast steps.
-//! Each `StepFactor::f.compute(ctx, step, outcome, needs)` returns the raw value;
-//! step[k] is weighted by `base_discount^k` (0.75 easy / 0.85 normal / 0.90 hard).
+//! **Post-goal**: once a step kills the current `FocusTarget`/`ApplyCC` target,
+//! subsequent steps skip intent aggregation; other factors keep geometric decay.
 //!
-//! Plan factors (`PlanFactor` enum, 3 variants): plan-terminal, computed once per plan.
-//! - `Intent`: discounted sum of `intent_score` across all steps (see post-goal note).
-//! - `TempoGain`: `compute_plan_tempo_gain(plan, intent, ctx)`.
-//! - `SelfSurvival`: `compute_plan_self_survival(plan, ctx)`.
-//!
-//! Terminal factors (`TerminalFactor` enum, 8 variants): separate `terminal_state_score`
-//! pass, weighted by `axis_terminal_weights` × `NeedSignals` modulation.
-//!
-//! **Post-goal behavior**: once a step kills the current `FocusTarget`/`ApplyCC`
-//! target, subsequent steps skip the intent aggregation. All other factors continue
-//! at normal geometric decay.
-//!
-//! Signed factors (can be negative): `Scarcity`, `Saturation` (step), `Intent`,
-//! `TempoGain` (plan). These use symmetric normalisation ÷ max(|min|, |max|).
-//! Non-signed factors use max normalisation → [0, 1].
-//!
-//! Picking jitter (deterministic noise) is applied in `PickBestStage`, not here.
+//! Signed factors (`Scarcity`, `Saturation`, `Intent`, `TempoGain`) use symmetric
+//! normalisation ÷ max(|min|, |max|); the rest use max-norm → [0, 1].
+//! Picking jitter is applied in `PickBestStage`, not here.
 
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::intent::{
@@ -55,22 +45,14 @@ pub fn factor_contribution(raw_value: f32, stats: &BatchStats, signed: bool, wei
     default_norm(raw_value, stats, signed) * weight
 }
 
-/// Worst danger value across the plan's path tiles + its final tile.
-/// Excludes the actor's starting tile — callers that care about it (the
-/// scorer's risk factor) fold it in on top. Sanity uses this directly
-/// because it tracks `current_danger` (the start) through a separate
-/// signal. Single source of truth for "how exposed does this plan get
-/// while traversing".
+/// `max(danger[all_path_tiles ∪ final_pos])` — worst exposure along the route.
+/// Excludes the actor's starting tile; the scorer's risk factor folds that in
+/// separately (it tracks `current_danger` via its own signal).
 ///
-/// # Overlap note (5.5)
-/// `worst_path_danger` ≠ `terminal::exposure_at_end`: this function returns
-/// `max(danger[all_path_tiles ∪ final_pos])` — the worst exposure *along the
-/// entire route*. `exposure_at_end` returns only `danger[final_pos]`. A plan
-/// can cross a dangerous tile and land safely; `worst_path_danger` catches
-/// the transit risk while `exposure_at_end` ignores it. Both are used: sanity
-/// uses `worst_path_danger` to penalise risky traversal for low-HP actors;
-/// the terminal aggregator uses `exposure_at_end` to penalise unsafe resting
-/// positions. Keep both — they answer different questions.
+/// Distinct from `terminal::exposure_at_end`, which returns only
+/// `danger[final_pos]`: a plan can cross a dangerous tile and land safely. Sanity
+/// uses this to penalise risky traversal for low-HP actors; the terminal
+/// aggregator uses `exposure_at_end` for unsafe resting positions.
 pub fn worst_path_danger(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
     let mut max_d = maps.danger.get(plan.final_pos);
     for step in &plan.steps {
@@ -326,10 +308,8 @@ pub fn build_summon_dpr_cache(
 }
 
 /// Compute the 10 raw utility factors for a single plan. Thin combinator over
-/// `compute_plan_factors_sans_intent` + intent/tempo/self_survival columns —
-/// kept so scorer tests and any single-shot caller that does want both halves
-/// in one call have a stable entry point. See module docs for per-factor
-/// aggregation rules.
+/// `compute_plan_factors_sans_intent` + the intent/tempo columns — a stable
+/// single-shot entry point for scorer tests. See module docs for aggregation rules.
 pub fn compute_plan_factors(
     plan: &TurnPlan,
     intent: &TacticalIntent,
@@ -412,52 +392,32 @@ pub fn compute_plan_factors_sans_intent(plan: &TurnPlan, ctx: &ScoringCtx) -> Pl
 
 /// Intent-column aggregation for a plan.
 ///
-/// ## Pure-move plans under FocusTarget / ApplyCC (step-1b, Variant A)
+/// ## Pure-move plans under FocusTarget / ApplyCC
 ///
-/// When the plan contains **no Cast steps** and the intent is `FocusTarget` or
-/// `ApplyCC`, path length must not generate intent credit — a 3-step round-trip
-/// ending at the same tile as a 2-step plan should score identically. The fix:
-/// replace `Σ intent_score(step) × discount^k` with a single
-/// `pursuit_move_score(actor_start, plan.final_pos, target.pos, reach)` call
-/// that scores the plan by where it actually ends up, not how many steps it took.
+/// With no Cast steps, path length must not generate intent credit (a 3-step
+/// round-trip and a 2-step plan ending on the same tile must tie). So instead of
+/// `Σ intent_score(step) × discount^k` we score by final position only via one
+/// `pursuit_move_score(actor_start, plan.final_pos, target.pos, reach)`.
 ///
-/// ## Cast plans under FocusTarget / ApplyCC: post-first-Cast tail (step-1c)
+/// ## Cast plans under FocusTarget / ApplyCC: post-first-Cast tail
 ///
-/// For plans of the shape `steps[0..cast_idx] · Cast · steps[cast_idx+1..]`
-/// under `FocusTarget`/`ApplyCC` (excluding `ProtectSelf`):
+/// For `steps[0..cast_idx] · Cast · tail` (excluding `ProtectSelf`):
+/// pre-Cast steps and the Cast use the per-step discounted sum unchanged; the
+/// tail collapses into one `pursuit_move_score(cast_pos, plan.final_pos, …)`
+/// scaled by `base_discount^(cast_idx + 1)`.
 ///
-/// - **Pre-Cast steps** (Move setup): per-step discounted sum, unchanged.
-/// - **Cast step**: per-step intent_score with discount, unchanged.
-/// - **Post-Cast tail**: collapsed into a single terminal-pursuit call
-///   `pursuit_move_score(cast_pos, plan.final_pos, target.pos, reach)`
-///   multiplied by `base_discount^(cast_idx + 1)`.
+/// Rationale: the tail is never executed (commit is only the prefix up to the
+/// Cast). Per-step Σ over it inflated intent credit linearly with tail length —
+/// a round-trip tail still earned ~+0.58 INT/step, letting phantom-tail plans
+/// outscore shorter equivalents. The terminal shortcut scores net displacement
+/// from cast_pos (zero for a round-trip). Applies after the **first** Cast (the
+/// commit boundary); all later steps fold into the single call.
 ///
-/// Rationale: the post-Cast tail is never physically executed (committed_decision
-/// is only the prefix up to and including the Cast). Per-step Σ over the tail
-/// inflates intent credit linearly with tail length — a round-trip tail (Cast
-/// then retreat to cast_pos) still earned ~+0.58 INT per extra step, causing
-/// phantom-tail plans to outscore shorter equivalents. The terminal shortcut
-/// scores the tail by net displacement from cast_pos, which is zero for a
-/// round-trip and positive only for genuine approach.
+/// `ProtectSelf` and other intents keep the per-step sum: their tile-safety /
+/// Cast values are position-specific and don't exhibit path-length inflation.
 ///
-/// Multiple Casts: the shortcut applies after the **first** Cast. All subsequent
-/// steps (Cast or Move) are collapsed into the single terminal-pursuit call.
-/// The first Cast is the action commit boundary; beam search replans after it.
-///
-/// ProtectSelf is excluded: its per-step tile-safety semantics differ for each
-/// intermediate position and cannot be reduced to a single terminal value.
-///
-/// ## Other intents / ProtectSelf
-///
-/// Per-step discounted sum is preserved for all non-pursuit intents and for
-/// ProtectSelf. Cast-step intent values are semantically richer and do not
-/// exhibit path-length inflation.
-///
-/// ## goal_achieved latch
-///
-/// Once a `FocusTarget`/`ApplyCC` target is killed by a Cast step, the latch
-/// fires and the post-Cast tail contribution is set to zero — pursuit is
-/// irrelevant when the goal is already solved.
+/// **goal_achieved latch**: once a `FocusTarget`/`ApplyCC` target is killed, the
+/// tail contribution is zeroed — pursuit is moot when the goal is solved.
 pub fn compute_plan_intent_sum(
     plan: &TurnPlan,
     intent: &TacticalIntent,

@@ -1,12 +1,8 @@
 //! Shared engine-level test fixtures.
 //!
-//! Provides:
 //! - [`EngineUnitBuilder`] — fluent builder for `combat_engine::state::Unit`,
-//!   mirroring the AI-side `UnitBuilder` style. Eliminates the ~10 copies of
-//!   inline `Unit::new(…19 args…)` scattered across engine test files.
+//!   replacing inline `Unit::new(…19 args…)` across engine test files.
 //! - [`StubContent`] — configurable `ContentView` stub backed by hash-maps.
-//!   Replaces the handful of one-off all-`None` stubs that differ only in which
-//!   ability/status ids they recognise.
 //!
 //! `#![allow(dead_code)]`: not every test file uses every setter.
 #![allow(dead_code)]
@@ -305,12 +301,7 @@ impl EngineUnitBuilder {
 
 /// Configurable `ContentView` stub backed by `HashMap`s.
 ///
-/// Returns `None` for any key not explicitly registered.  Use the `with_*`
-/// builders to register ability/status definitions.
-///
-/// Replaces the many one-off `struct NoContent` / `struct DeterminismContent`
-/// definitions scattered across engine test files that only differ in which ids
-/// they recognise.
+/// Returns `None` for any key not registered via the `with_*` builders.
 pub struct StubContent {
     abilities: HashMap<AbilityId, AbilityDef>,
     statuses: HashMap<StatusId, StatusDef>,

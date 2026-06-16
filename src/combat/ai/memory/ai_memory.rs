@@ -95,15 +95,9 @@ impl PlanSnapshot {
         None
     }
 
-    /// Structured alternative to `mismatch()` — returns a `PlanContinuationCheck`
-    /// with semantic severity instead of a raw reason code.
-    ///
-    /// Returns `None` when the snapshot still matches current world state (no
-    /// mismatch), or `Some(check)` with a classified severity and the original
-    /// reason code for telemetry.
-    ///
-    /// The original `mismatch()` is preserved unchanged for backward compatibility
-    /// with replay fixtures and tests.
+    /// Structured alternative to [`Self::mismatch`]: `Some(check)` with a
+    /// classified severity + reason code, or `None` when state still matches.
+    /// `mismatch()` is kept unchanged for replay-fixture/test compatibility.
     pub fn check_continuation(
         &self,
         actor: UnitView<'_>,
@@ -132,11 +126,8 @@ impl PlanSnapshot {
         })
     }
 
-    /// Returns `Some((code, Some(delta)))` when the mismatch is `actor_status_changed`,
-    /// or `Some((code, None))` for other codes. Returns `None` when no mismatch.
-    ///
-    /// The delta is computed using the shared `compute_status_delta_engine` helper,
-    /// ensuring identical diff logic as `StoredGoalContext::check_continuation`.
+    /// Like [`Self::mismatch`] but attaches a `StatusDelta` (via the shared
+    /// `compute_status_delta_engine`) when the code is `actor_status_changed`.
     pub fn mismatch_with_delta(
         &self,
         actor: UnitView<'_>,
@@ -182,12 +173,9 @@ pub struct AiMemory {
     pub last_intent: Option<IntentKind>,
     pub last_target: Option<Entity>,
     pub turns_committed: u8,
-    /// Step 6.1/6.6: goal context extracted from the last chosen plan.
-    /// Set after a Move decision; cleared on Cast / EndTurn.
-    /// Used by repair affinity (6.2+) to bonus fresh plans that preserve
-    /// the same goal on the next tick.
-    ///
-    /// Replaces the removed `last_plan: Option<StoredPlan>` (step 6.6).
+    /// Goal context from the last chosen plan: set after a Move, cleared on
+    /// Cast/EndTurn. Read by repair affinity to bonus next-tick plans that
+    /// preserve the same goal.
     pub last_goal: Option<crate::combat::ai::repair::StoredGoalContext>,
     /// HP ratio of the actor at the time of the previous decision. `None` until
     /// the actor takes its first turn — then read in step 3.1 producer to compute

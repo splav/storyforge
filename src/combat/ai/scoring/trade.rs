@@ -41,10 +41,8 @@ pub const UNIT_VALUE_FLOOR: f32 = 1.0;
 /// Amplitude of the plan-level trade modifier. Output of [`trade_score`]
 /// lives in `[-TRADE_WEIGHT, +TRADE_WEIGHT]` after the tanh squash.
 ///
-/// Conservative 0.5 launch default per MVP2 review: the modifier is
-/// already outside role-composition and applied globally, which makes
-/// it a "loud" signal. Raise only after replay evidence shows
-/// self-trade-for-support still doesn't pull through.
+/// Conservative 0.5: the modifier is outside role-composition and applied
+/// globally — a "loud" signal. Raise only on replay evidence.
 pub const TRADE_WEIGHT: f32 = 0.5;
 
 /// HP-equivalent actor-agnostic value of `u`. See module docs for the
@@ -98,13 +96,9 @@ fn offense_projection(u: UnitView<'_>) -> f32 {
 /// HP/round healing output. **Best single legal heal**, no `× max_ap`
 /// scaling.
 ///
-/// Scans `u.abilities` for `SingleAlly + Heal`, evaluates each against
-/// `u.caster_ctx` (spell power / int mod), picks the maximum `expected`.
-/// Multi-cast-per-round scaling is intentionally omitted — resource
-/// costs, overheal, and realistic cadence are all easier to under-count
-/// than to model honestly; over-counting made heavy casters dominate
-/// trades beyond their actual in-game leverage. Returns `0.0` when the
-/// unit has no heal kit.
+/// Max `expected` over `SingleAlly + Heal` abilities, evaluated against
+/// `u.caster_ctx`. Multi-cast scaling is omitted deliberately: over-counting
+/// made heavy casters dominate trades beyond their real in-game leverage.
 fn heal_projection(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
     u.cache
         .abilities
@@ -124,17 +118,11 @@ fn heal_projection(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
 /// HP/round CC-denial output. **Best single legal CC**, no `× max_ap`
 /// scaling.
 ///
-/// For each ability applying at least one `skips_turn` status on the
-/// target, the denial value is `Σ duration_rounds × peer_dpr` over its
-/// target-side statuses — the HP the stun would deny if it landed on a
-/// peer. `peer_dpr = u.threat` is the actor-agnostic proxy for "how hard
-/// is the average enemy hit the stun prevents"; `MySelf`-only
-/// applications are self-buffs, not denial.
-///
-/// Multi-cast-per-round scaling is intentionally omitted: the same
-/// skips-turn status on the same target doesn't stack, and modelling
-/// "how many unstunned targets are there this round" would require a
-/// snapshot (breaking actor-agnostic).
+/// Per ability with a `skips_turn` target status: `Σ duration_rounds ×
+/// peer_dpr`. `peer_dpr = u.threat` is the actor-agnostic proxy for the
+/// average hit the stun prevents; `MySelf` applications are self-buffs, not
+/// denial. Multi-cast omitted — same status doesn't stack, and counting
+/// unstunned targets would need a snapshot (breaks actor-agnostic).
 fn cc_projection(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
     let peer_dpr = u.cache.threat.max(0.0);
     if peer_dpr <= 0.0 {
@@ -164,12 +152,8 @@ fn cc_projection(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
 
 /// Decomposition of a plan's trade-economy outcome. Every field is in the
 /// HP-equivalent scale produced by [`unit_value`], so they sum / subtract
-/// directly.
-///
-/// `delta = killed_value − lost_value − self_lost` is the headline
-/// scalar consumed by Phase 3; the other fields are carried separately
-/// so the log writer can explain *why* a plan scored what it did
-/// without re-running the computation.
+/// directly. `delta` is the headline scalar consumed by Phase 3; the other
+/// fields are carried so the log writer can explain a score without recomputing.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TradeBreakdown {
     /// Sum of pre-death `unit_value` for enemies the plan kills.
@@ -215,10 +199,9 @@ pub fn trade_delta(
     let mut lost_value = 0.0f32;
     let mut self_in_killed = false;
 
-    // Only the committed prefix contributes — tail steps are lookahead.
-    // `plan.outcomes.len()` may be shorter than `steps.len()` for
-    // deserialized plans (outcomes serialize, sim_snapshots don't), so
-    // clamp at both ends.
+    // Only the committed prefix contributes (tail steps are lookahead);
+    // `outcomes.len()` can be shorter than `steps.len()` for deserialized
+    // plans, so clamp at both ends.
     let scan_len = prefix_len.min(plan.outcomes.len());
     for (k, outcome) in plan.outcomes.iter().take(scan_len).enumerate() {
         if outcome.killed.is_empty() {
@@ -239,11 +222,9 @@ pub fn trade_delta(
         }
     }
 
-    // Self-lethal via AoO on movement. `expected_aoo_damage` walks the
-    // whole plan's path, but in a valid commit prefix the only Move that
-    // fires this tick is step 0 (bundled prefix is `[Move]` or
-    // `[Move, Cast]`). For full-plan prefixes (no Move in prefix) this
-    // returns 0 because there's no path-transition to scan. Safe.
+    // Self-lethal via AoO on movement. In a valid commit prefix the only Move
+    // firing this tick is step 0; prefixes without a Move scan no transition
+    // and return 0 — gated by `prefix_is_move_shaped`.
     let enemies: Vec<UnitView<'_>> = initial_snap.enemies_of(active.team).collect();
     let aoo_dmg = if prefix_is_move_shaped(plan, prefix_len) {
         expected_aoo_damage(active, plan, &enemies)
@@ -289,10 +270,8 @@ fn prefix_is_move_shaped(plan: &TurnPlan, prefix_len: usize) -> bool {
 /// tanh(delta / max(actor_value, UNIT_VALUE_FLOOR)) × TRADE_WEIGHT
 /// ```
 ///
-/// Single source of truth consumed by `modifiers::trade_bonus`
-/// and the log writer so the "what did trade contribute to the score"
-/// column in the JSONL always reconciles with what the ranking
-/// actually used.
+/// Single source of truth for `modifiers::trade_bonus` and the log writer,
+/// so the JSONL trade column reconciles with what ranking used.
 pub fn trade_score(br: &TradeBreakdown, actor_value: f32) -> f32 {
     let denom = actor_value.max(UNIT_VALUE_FLOOR);
     (br.delta / denom).tanh() * TRADE_WEIGHT
@@ -315,9 +294,8 @@ mod tests {
 
     // ── Fixtures ────────────────────────────────────────────────────────────
     //
-    // Tests build a minimal `ActiveContentData` with exactly the abilities / statuses
-    // the case exercises. Keeps assertions readable — a regression pins a
-    // specific formula branch rather than entangling global test content.
+    // Minimal `ActiveContentData` with only the abilities/statuses each case
+    // exercises, so a regression pins one formula branch, not global content.
     fn content() -> ActiveContentData {
         ActiveContentData {
             abilities: HashMap::new(),
@@ -591,9 +569,8 @@ mod tests {
 
     // ── trade_delta ─────────────────────────────────────────────────────────
     //
-    // Plans are constructed with `sim_snapshots` left empty — `pre_step_snapshot`
-    // falls back to `initial_snap` across all steps, which is the same safe
-    // fallback deserialized plans use. Direct, no sim wiring needed.
+    // Plans leave `sim_snapshots` empty — `pre_step_snapshot` then falls back to
+    // `initial_snap`, the same path deserialized plans use. No sim wiring needed.
 
     use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::test_helpers::ent;

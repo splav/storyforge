@@ -1,7 +1,4 @@
-//! Additive post-normalisation bonus for Summon plans (step 8.B).
-//!
-//! Lifted from `scorer.rs::plan_summon_bonus` (lines 370–411).
-//! Logic is byte-for-byte identical; no formula changes.
+//! Additive post-normalisation bonus for Summon plans.
 
 use super::{ModifierCtx, PlanModifier};
 use crate::combat::ai::outcome::PlanAnnotation;
@@ -42,7 +39,6 @@ impl PlanModifier for SummonBonus {
             .iter()
             .filter(|u| u.team == active.team && (active_uid != Some(u.id)) && u.hp() > 0)
             .count() as f32;
-        // Saturation_mult computed once before the loop (legacy line :392).
         let saturation_mult = 0.65_f32.powf(total_allies);
 
         let mut total = 0.0f32;

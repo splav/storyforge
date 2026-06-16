@@ -20,20 +20,13 @@ use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
 
-/// Mask non-defensive plans to `-∞` under `ProtectSelf` intent — contract
-/// enforcement. A plan opt-out from the ProtectSelf contract is expressed
-/// via `EvaluationMode != Default` (set upstream in `apply_adaptation`
-/// when the contract is globally unsatisfiable → `ProtectSelfNoDefensive`
-/// switches every plan's mode to `LastStand`). Plans in non-Default mode
-/// are left alone by this mask.
+/// Mask non-defensive plans to `-∞` under `ProtectSelf` intent. Plans that
+/// adaptation moved to a non-Default `EvaluationMode` (e.g. `LastStand` when the
+/// contract is globally unsatisfiable) have opted out and are left alone.
 ///
-/// Returns true if at least one plan was observed to be defensive. The
-/// "no defensive plan at all" case is now handled by ADAPTATION one step
-/// upstream — by the time this function runs, that case has already
-/// switched all plans to `LastStand` mode, so every plan will skip the
-/// mask. The return value is retained for callers that want to observe
-/// contract satisfiability, but no longer triggers a LastStand rescore
-/// inside this function.
+/// Returns true if at least one plan was defensive — retained so callers can
+/// observe contract satisfiability; the "no defensive plan" case is now handled
+/// upstream by adaptation, so this no longer triggers a rescore.
 pub(super) fn apply_protect_self_mask(
     scores: &mut [f32],
     raw: &[PlanFactorValues],

@@ -1,15 +1,9 @@
-//! Tests for `snapshot.rs` — split from the source file via `#[path]` in
-//! `snapshot.rs` (see end of that file). Production code stays in
-//! `snapshot.rs`; this file holds the 3 test modules.
+//! Tests for `snapshot.rs` — split out via `#[path]` (see end of that file) to
+//! keep the production module browsable. Rationale:
+//! [docs/testing.md §2](../../../../docs/testing.md).
 //!
-//! Split per [docs/testing.md §2](../../../../docs/testing.md): `snapshot.rs`
-//! grew to 1703 LOC with ~60% in tests after Phase 4b coverage work.
-//! Splitting keeps the production module under 825 LOC and immediately
-//! browsable.
-//!
-//! `super::*` here resolves to `snapshot.rs` (since this file is included
-//! as `mod tests` inside snapshot.rs). The inner test modules pick up
-//! snapshot's pub items through the file-level `use super::*;` below.
+//! `super::*` resolves to `snapshot.rs` (this file is its `mod tests`); inner
+//! test modules pick up its pub items via the file-level `use super::*;`.
 
 use super::*;
 
@@ -214,11 +208,10 @@ mod computation_tests {
         d
     }
 
-    // ── UnitView (lines 239-274) ──────────────────────────────────────────
-    // UnitView wraps the engine Unit (via Deref); its arithmetic is identical
-    // to UnitSnapshot's.  We use snapshot_from + snap.unit(entity) to get a
-    // real UnitView, then exercise the same edge-case table.
-    // Targets lines 240:23/42, 245:28/47, 255:9, 256:20, 257:13, 273:9/34, 274:74.
+    // ── UnitView ──────────────────────────────────────────────────────────
+    // UnitView wraps the engine Unit (via Deref); its arithmetic is identical to
+    // UnitSnapshot's. Build a real UnitView via snapshot_from + snap.unit(entity)
+    // and exercise the same edge-case table.
 
     fn snap_view_with(
         entity_raw: u32,
@@ -427,10 +420,8 @@ mod computation_tests {
         assert_eq!(snap.uid_for_entity(entity), Some(uid));
     }
 
-    // ── BattleSnapshot::enemies_of / all_enemies_of / dead_enemies_of ────
-    // Targets the filtering predicates at lines 692-731.
-    // The basic happy-path is covered in `dead_units_stay_in_snapshot_and_are_filtered_by_default`;
-    // these tests add targeted cases for filter combinations.
+    // ── enemies_of / all_enemies_of / dead_enemies_of filter combinations ──
+    // (happy-path lives in dead_units_stay_in_snapshot_and_are_filtered_by_default)
 
     #[test]
     fn enemies_of_excludes_dead_and_same_team() {
@@ -566,12 +557,9 @@ mod env_severity_snapshot_tests {
         }
     }
 
-    /// A visible trap's `EnvId` is present in `env_severity` with the expected
-    /// value; a non-visible (neutral, unrevealed) trap is absent because the T3
-    /// visibility filter (`retain`) removes it before the precompute loop sees it.
-    ///
-    /// This mirrors the `build_snapshot` wiring: iterate the already-filtered
-    /// `combat_state.environment` (after `retain(|e| e.visible_to(ai_team))`).
+    /// Visible trap appears in `env_severity` with the expected value; a neutral
+    /// unrevealed trap is absent — the T3 visibility `retain` filter removes it
+    /// before the precompute loop, mirroring `build_snapshot` wiring.
     #[test]
     fn snapshot_populates_env_severity_for_visible_traps() {
         let content = ActiveContentData::load_global_for_tests();

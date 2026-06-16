@@ -1,13 +1,9 @@
-//! Property tests for `combat::ai::policy` — verify that policy functions
-//! satisfy key invariants (monotonicity, non-negativity, range bounds).
-//!
-//! After step 4.12 `compute_score_core` is gone; these tests shift from
-//! bit-identical parity tests to **invariant** tests:
+//! Property tests for `combat::ai::policy` — verify policy functions satisfy
+//! key invariants:
 //! 1. **Monotonicity**: higher raw damage → higher value (for same target HP).
 //! 2. **Non-negativity**: value ≥ 0 for any non-negative inputs.
 //! 3. **Range**: damage value ≤ raw (policy never amplifies beyond raw).
-//! 4. **Formula round-trips**: verify known-good formula derivations for
-//!    `damage::value`, `friendly_fire::penalty`.
+//! 4. **Formula round-trips** for `damage::value`, `friendly_fire::penalty`.
 
 use crate::combat::ai::scoring::policy;
 use crate::combat::ai::test_helpers::{fixture_to_pair, UnitFixture};

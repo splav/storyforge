@@ -7,10 +7,6 @@ use crate::AbilityId;
 
 /// A high-level combat intent.  The engine validates and expands each variant
 /// into a stream of `Effect`s.
-///
-/// Phase 0 implements only `Move`; `Cast` is added in Phase 2 step 6b.
-/// `EndTurn` is a Phase 3 placeholder — Phase 4 will extend it with queue
-/// advance and RoundPhase transitions.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
@@ -24,8 +20,8 @@ pub enum Action {
         target: UnitId,
         target_pos: Hex,
     },
-    /// Signal that the actor is done with their turn.  Phase 3 arm is a no-op;
-    /// Phase 4 will add queue advance + RoundPhase transitions.
+    /// Signal that the actor is done with their turn (advances the queue and
+    /// drives RoundPhase transitions).
     EndTurn {
         actor: UnitId,
     },

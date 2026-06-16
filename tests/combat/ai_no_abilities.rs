@@ -1,11 +1,8 @@
 //! Regression: an alive enemy with no abilities must end its turn, not hang.
 //!
-//! Pre-fix: `enemy_ai_system` returned early without writing `ActionInput::EndTurn`
-//! when the active `Team::Enemy` combatant had an absent/empty `Abilities`
-//! component, leaving the active turn permanently stuck (combat hung).
-//!
-//! Post-fix: the system detects the empty-abilities case and writes
-//! `ActionInput::EndTurn { actor }` explicitly before returning.
+//! The bug: `enemy_ai_system` returned early without writing
+//! `ActionInput::EndTurn` when the active `Team::Enemy` combatant had an
+//! absent/empty `Abilities` component, hanging the turn.
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;

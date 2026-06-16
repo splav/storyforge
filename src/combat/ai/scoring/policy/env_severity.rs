@@ -30,14 +30,10 @@ use combat_engine::EffectDef;
 /// `policy::status::value`; directional ordering of traps is robust to ±5 HP.
 pub(crate) const NEUTRAL_REF_MAX_HP: i32 = 20;
 
-/// Neutral per-turn threat used when `damage_horizon` is empty.
-///
-/// `policy::status::value` falls back to `threat × duration` for stun/silence
-/// cost when `damage_horizon` is empty (see `horizon::horizon_window_sum`).
-/// 5.0 matches the canonical `UnitBuilder` bruiser default and represents a
-/// "deal ~5 HP per round on average" attacker — a reasonable midpoint between
-/// low-damage supports (2–3) and burst mages (8–12).  We intentionally leave
-/// `damage_horizon` empty to keep severity deterministic and unit-independent.
+/// Neutral per-turn threat (~5 HP/round attacker) used for stun/silence cost
+/// when `damage_horizon` is empty — `policy::status::value` falls back to
+/// `threat × duration`. We keep `damage_horizon` empty so severity stays
+/// deterministic and unit-independent.
 pub(crate) const NEUTRAL_REF_THREAT: f32 = 5.0;
 
 /// Construct the canonical "neutral reference" pair used by `build_snapshot`

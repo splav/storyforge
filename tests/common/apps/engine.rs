@@ -3,8 +3,6 @@
 //! `movement_app` constructs a Bevy `App` with state machine (`AppState`,
 //! `CombatPhase`), bridge schedule, and content view loaded — sufficient for
 //! engine-bridge integration tests that need the full per-turn pipeline.
-//!
-//! Split from `common/mod.rs` in Phase H3 of `docs/refactor/helpers-normalization-plan.md`.
 
 #![allow(dead_code)]
 

@@ -1,10 +1,5 @@
-//! Tests for `builder.rs` — split from the source file via `#[path]` in
-//! `builder.rs` (see end of that file). Production code stays in
-//! `builder.rs`; this file holds the inline test module.
-//!
-//! `super::*` here resolves to `builder.rs` (since this file is included
-//! as `mod tests` inside builder.rs). All helpers and tests pick up
-//! builder's pub(crate) items through the file-level `use super::*;` below.
+//! Tests for `builder.rs` — included as `mod tests` via `#[path]` at the end of
+//! that file, so `use super::*` below pulls in builder's `pub(crate)` items.
 
 use super::*;
 use crate::combat::ai::test_helpers::{fixture_to_pair, snapshot_from, UnitBuilder};
@@ -190,16 +185,13 @@ fn step_path_danger_returns_max_along_path() {
 
 // --- hypothetical ---
 
-/// `hypothetical(...).enemy_damage` obeys three structural invariants
-/// that a real formula bug would break.  We deliberately do NOT
-/// re-derive the production formula — that would be a formula-echo test
-/// that cannot catch bugs in the formula itself.
+/// `hypothetical(...).enemy_damage` obeys three structural invariants a real
+/// formula bug would break. Deliberately avoids re-deriving the production
+/// formula (a formula-echo test can't catch bugs in the formula itself).
 ///
-/// Knobs:
-/// - `melee_attack` uses `EffectDef::WeaponAttack`; with default
-///   `weapon_dice = None`, `calc.expected() = 0.0 + str_mod`.
-///   So varying `str_mod` directly drives `enemy_damage`.
-/// - `UnitBuilder::armor(n)` sets the target's physical armor.
+/// Knobs: `melee_attack` uses `WeaponAttack` with default `weapon_dice = None`,
+/// so `expected() = str_mod` — varying `str_mod` directly drives `enemy_damage`;
+/// `UnitBuilder::armor(n)` sets the target's physical armor.
 #[test]
 fn hypothetical_enemy_damage_obeys_power_armor_floor_invariants() {
     let content = db();
@@ -628,15 +620,10 @@ fn hp_restored_clamped_to_missing_hp() {
 
 // ── mp_spent equals path length ──────────────────────────────────────
 
-/// mp_spent from split_resource_costs: Move step fills path_max_danger + mp_spent.
-/// (Tested indirectly via step_path_danger; mp_spent is populated in the generator.
-///  Here we test the helper directly.)
+/// `mp_spent` for a Move step is `path.len()`. (Computed in `from_sim_step`;
+/// path-danger is covered by the `step_path_danger` tests above.)
 #[test]
 fn mp_spent_equals_path_length_via_outcome() {
-    // Test the Move branch in the outcome shape directly.
-    // path_max_danger and mp_spent are calculated in from_sim_step;
-    // here we verify the step_path_danger helper, which is already covered.
-    // We verify mp_spent computation logic is correct: path.len() as i32.
     let path = [
         hex_from_offset(0, 0),
         hex_from_offset(1, 0),

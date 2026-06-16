@@ -1,25 +1,12 @@
-//! CC composite value policy — combined value of crowd-control effects.
-//!
-//! This module provides a single composite entry point that combines the three
-//! orthogonal CC dimensions: turn denial, vulnerability, and armor reduction.
-//! It has no consumers in step 4.7 — consumer migration happens in step 4.10.
-//!
-//! Weights are 1.0 for the initial scaffold. They will be validated for
-//! bit-identity with the legacy `deny_value` path via property tests in 4.10.
+//! CC composite value policy — combines turn denial, vulnerability, and armor
+//! reduction. No consumers yet (migration + legacy-`deny_value` bit-identity
+//! property tests land in step 4.10). Weights are 1.0 placeholders.
 
 /// Combined HP-equivalent value of crowd-control effects applied in one action.
 ///
-/// Formula: `cc_turns × WEIGHT_CC + armor_shred × WEIGHT_SHRED`.
-///
-/// # Arguments
-/// - `cc_turns` — total CC-denial value: projected damage denied via stun-class
-///   status effects (Σ `horizon_window_sum` over stun applications). This is the
-///   `stun_denial_value` contribution.
-/// - `armor_shred` — HP-equivalent value of armor reduction statuses applied
-///   (Σ `armor_bonus.abs() × duration`).
-///
-/// Consumer migration: step 4.10. Bit-identity with legacy `deny_value`
-/// property-tested in 4.10.
+/// Formula: `cc_turns × WEIGHT_CC + armor_shred × WEIGHT_SHRED`, where
+/// `cc_turns` is projected stun-denial damage (Σ `horizon_window_sum`) and
+/// `armor_shred` is Σ `armor_bonus.abs() × duration`.
 pub fn value(cc_turns: f32, armor_shred: f32) -> f32 {
     const WEIGHT_CC: f32 = 1.0;
     const WEIGHT_SHRED: f32 = 1.0;

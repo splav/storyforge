@@ -126,47 +126,33 @@ pub struct ReachableMap {
 }
 
 /// Movement environment for `reach_from` — the tile-sets that shape the BFS.
-/// Both AI (snapshot-backed) and UI (Bevy-backed) call the same pathfinding
-/// core with this struct; only env construction differs.
+/// Both AI (snapshot-backed) and UI (Bevy-backed) share the pathfinding core;
+/// only env construction differs.
 ///
-/// - `enemy_positions` — cells the actor cannot **pass through** (alive enemy
-///   occupants). Allies are absent here: allies block stopping but allow
-///   pass-through.
-/// - `stop_blockers` — cells the actor cannot **stop on**. Every non-actor
-///   occupant (enemy or ally) plus environmental blockers (corpses, reserved
-///   tiles for the AI side, etc.).
-/// - `blocked_hexes` — static obstacles. Blocks **both** pass-through and
-///   stopping. Populated from `CombatState.blocked_hexes` (walls, crates, …).
-///   Empty by default (no obstacles in ch1 scenarios).
-/// - `hazard_costs` — per-tile soft movement penalties (e.g. known traps).
-///   When empty (the default) `reach_from` is byte-identical to the plain BFS
-///   — reachability, `destinations`, and every `path_to` result are unchanged.
-///   When non-empty the reachable *set* is still governed by unweighted
-///   hop-count (hazards never add/remove tiles), but `path_to` returns the
-///   min-penalty path among all equal-length shortest paths.  Tie-break between
-///   equal-penalty predecessors: lexicographic `(hex.x, hex.y)` — never
-///   HashMap-iteration order — so `path_to` is deterministic across runs and
-///   replay-stable. Populated by T9; UI always leaves it empty.
+/// Pass-through vs stop is the key distinction: `enemy_positions` block both
+/// (tiles behind an enemy stay unreachable), `stop_blockers` block only stopping
+/// (allies allow walk-through). `blocked_hexes` (static obstacles) block both.
+/// See `hazard_costs` for soft-penalty semantics.
 pub struct MovementEnv {
+    /// Cells the actor cannot **pass through** (alive enemy occupants).
     pub enemy_positions: HashSet<Hex>,
+    /// Cells the actor cannot **stop on** (any non-actor occupant + env blockers
+    /// like corpses / AI-side reserved tiles).
     pub stop_blockers: HashSet<Hex>,
-    /// Static obstacles — blocks both pass-through and stopping.
+    /// Static obstacles (walls, crates) — block both pass-through and stopping.
     pub blocked_hexes: HashSet<Hex>,
-    /// Soft per-tile hazard penalties. Empty = today's plain BFS behaviour.
+    /// Soft per-tile penalties (e.g. known traps). Empty ⇒ plain BFS, byte-for-byte.
+    /// Non-empty never adds/removes reachable tiles (hop-count still governs the
+    /// set); it only makes `path_to` return the min-penalty shortest path.
+    /// Tie-break: lexicographic `(x, y)`, never HashMap order — replay-stable.
     pub hazard_costs: HashMap<Hex, f32>,
 }
 
-/// BFS reach from `start` using a prepared `MovementEnv`. Thin wrapper over
+/// BFS reach from `start` using a prepared [`MovementEnv`]. Thin wrapper over
 /// `reachable_with_paths` that wires the env's sets into `is_passable` /
-/// `can_stop_on`. Keeps the BFS closures in one place so a future change to
-/// movement rules (e.g. difficult terrain) lands once.
-///
-/// `blocked_hexes` blocks both pass-through and stopping (static obstacles).
-///
-/// When `env.hazard_costs` is empty this function is byte-identical to the
-/// plain BFS (replay-stable). When non-empty the reachable set is unchanged but
-/// the `came_from` predecessor map is recomputed to minimise accumulated hazard
-/// penalty along equal-length shortest paths (see [`reweight_came_from`]).
+/// `can_stop_on`, keeping the BFS closures in one place. With non-empty
+/// `hazard_costs`, the `came_from` map is recomputed to minimise accumulated
+/// hazard penalty along equal-length shortest paths (see [`reweight_came_from`]).
 pub fn reach_from(start: Hex, max_steps: i32, env: &MovementEnv) -> ReachableMap {
     let mut map = reachable_with_paths(
         start,

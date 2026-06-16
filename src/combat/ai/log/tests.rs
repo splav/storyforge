@@ -1,12 +1,5 @@
-//! Tests for `mod.rs` (log) — split from the source file via `#[path]` in
-//! `mod.rs` (see end of that file). Production code stays in `mod.rs`; this
-//! file holds the test module body.
-//!
-//! Split per [docs/testing.md §2](../../../../docs/testing.md):
-//! `log/mod.rs` grew to 2161 LOC with tests dominating the lower half.
-//!
-//! `super::*` here resolves to `log/mod.rs` (since this file is included
-//! as `mod tests` inside mod.rs).
+//! Tests for `log/mod.rs`, included via `#[path]` as `mod tests` inside it —
+//! so `super::*` here resolves to `log/mod.rs`.
 
 use super::*;
 

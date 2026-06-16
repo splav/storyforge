@@ -2,10 +2,8 @@
 //! campaign + scenario layers with scenario winning on id clash, then campaign,
 //! then global.
 //!
-//! This is the single source of rule lookups for combat systems. The previous
-//! `GameDb` fields for abilities/statuses/weapons/armor/classes/races/etc. are
-//! gone; they now live here and are exposed as the `ActiveContent` resource
-//! populated on scenario entry.
+//! The single source of rule lookups for combat systems, exposed as the
+//! `ActiveContent` resource populated on scenario entry.
 
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::abilities::{parse_abilities, AbilityDef, ABILITIES_FILE};
@@ -78,10 +76,8 @@ impl ActiveContentData {
         total
     }
 
-    /// Total magic_resist from all equipment pieces (armor items + weapons like shields).
-    ///
-    /// Mirrors `equipment_armor` — iterates main/off-hand weapons and
-    /// chest/legs/feet armor slots, summing `stats.magic_resist`.
+    /// Total magic_resist from all equipment pieces (armor + weapons like shields).
+    /// Mirrors `equipment_armor`.
     pub fn equipment_magic_resist(&self, equipment: &Equipment) -> i32 {
         let mut total = 0;
         for weapon_id in [&equipment.main_hand, &equipment.off_hand]
@@ -170,10 +166,8 @@ impl ActiveContentData {
             merge_races(base, &mut v.races, &mut v.factions, &mut v.paths);
         }
 
-        // AiTuning: singleton config, loaded with last-layer-wins override.
-        // Currently only the global layer carries content (all three layers produce
-        // default() because the TOML is empty). Layered field-level merging will be
-        // added alongside step 2.2+ when fields are actually populated.
+        // AiTuning: singleton config, last-layer-wins (whole-file override, not
+        // field-level merge — only the global layer carries content today).
         for base in layers {
             let path = base.join("ai_tuning.toml");
             if path.is_file() {
@@ -257,14 +251,12 @@ fn merge_races(
 }
 
 impl ActiveContentData {
-    /// Test-only: loads the fully-merged view from the global layer ONLY
-    /// (`assets/data/*.toml`), without any campaign/scenario overrides.
-    /// Useful for unit tests that don't care about scenario-specific overrides.
+    /// Test-only: loads the merged view from the global layer ONLY
+    /// (`assets/data/*.toml`), with no campaign/scenario overrides.
     #[cfg(any(test, debug_assertions))]
     pub fn load_global_for_tests() -> Self {
         let global = std::path::Path::new("assets/data");
-        // Walk every layered merge function with the global path twice (no overrides).
-        // We reuse load_layered by treating "no campaign/scenario" as same path.
+        // Reuse load_layered with the global path for both override slots.
         Self::load_layered(global, global)
     }
 }

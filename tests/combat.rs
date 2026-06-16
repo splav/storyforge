@@ -1,14 +1,11 @@
 //! Test binary for `src/combat/` (legacy Bevy pipeline) + AI sim + replay.
 //!
-//! All combat-pipeline integration tests compile into this single binary so a
-//! lib-level change triggers one relink instead of twelve.  Module files live
-//! under `tests/combat/`.
-//!
+//! All combat-pipeline integration tests share this binary so a lib change
+//! relinks once, not twelve times. Module files live under `tests/combat/`.
 //! Subset filter: `cargo test --test combat aoo::` for one module.
 //!
-//! This binary's surface shrinks across Phase 1-6 as `movement_system`,
-//! `apply_effects_system`, `status_apply_system` etc. get deleted in favor of
-//! the engine.  Surviving tests migrate to `tests/combat_engine.rs`.
+//! Surface shrinks as legacy systems migrate to the engine; surviving tests
+//! move to `tests/combat_engine.rs`.
 
 #[path = "common/mod.rs"]
 mod common;

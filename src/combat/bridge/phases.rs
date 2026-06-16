@@ -19,27 +19,16 @@ use combat_engine::state::UnitId;
 
 // ── apply_phase_ecs_writes ────────────────────────────────────────────────────
 
-/// Apply ECS-only deltas for a boss phase transition.
+/// Apply ECS-only deltas for a boss phase transition, once per
+/// `Event::PhaseEntered`. Reads `EnemyPhases.pending[phase_idx]`, mutates the
+/// ECS components (Name/Abilities/CombatStats/Vital/RuntimeStatsMirror,
+/// re-infers `AxisProfile`, revives on `heal_to_full`), pops the phase (spec
+/// §8: one pop per event), logs `PhaseEntered`, and queues a
+/// `PhaseOverrideIntent` if the phase carries `victory_override`/`turn_limit`.
 ///
-/// Called for each `Event::PhaseEntered` seen in a translator event stream.
-/// Reproduces the logic of the deleted `phase_transition_system` (4d/4e):
-///   1. Reads `EnemyPhases.pending[phase_idx]` for the new Name, Abilities,
-///      CombatStats, and flavor text.
-///   2. Mutates ECS components: `Name`, `Abilities`, `CombatStats`, `Vital`,
-///      `RuntimeStatsMirror` (re-infers `AxisProfile`; removes `Dead` if `heal_to_full` revived).
-///   3. Mirrors `engine_unit.runtime` → `RuntimeStatsMirror` as a single POD assignment
-///      so non-engine consumers (UI, legality, AxisProfile) see the new values.
-///      The engine already applied `EnterPhase` before this runs; reading
-///      `unit.runtime` here is the single derivation (no recompute).
-///   4. Pops `pending[phase_idx]` (spec §8: exactly one pop per event).
-///   5. Pushes `CombatEvent::PhaseEntered` with `prev_name`/`next_name`/`flavor`.
-///   6. If the phase carries `victory_override` or `turn_limit`, pushes a
-///      `PhaseOverrideIntent` into `overrides` for deferred application.
-///
-/// Called from `apply_bridge_queues_post_projection` which runs AFTER `project_state_to_ecs`
-/// to avoid a query conflict over `&mut Vital` between the two systems.
-/// `process_action_system` and `bootstrap_combat_state` record `(unit, phase_idx)`
-/// pairs into `PendingPhaseTransitions`; this helper drains them.
+/// Runs from `apply_bridge_queues_post_projection`, AFTER `project_state_to_ecs`
+/// (avoids a `&mut Vital` query conflict). Engine `EnterPhase` already ran, so
+/// `unit.runtime` is the single source of truth — no recompute.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn apply_phase_ecs_writes(
     unit: UnitId,
@@ -89,9 +78,8 @@ pub(crate) fn apply_phase_ecs_writes(
     if let Some(new_stats) = &phase.stats {
         *stats = new_stats.clone();
         vital.max_hp = new_stats.max_hp;
-        // Clamp current HP to new max; heal_to_full overrides below.
-        // project_state_to_ecs writes vital.hp from engine state (which already
-        // committed the phase transition), but does NOT write vital.max_hp.
+        // Clamp HP to new max (heal_to_full overrides below). project_state_to_ecs
+        // writes vital.hp from engine state but not vital.max_hp.
         vital.hp = vital.hp.min(vital.max_hp);
     }
     if phase.heal_to_full {
@@ -104,9 +92,8 @@ pub(crate) fn apply_phase_ecs_writes(
         abilities.0 = new_ability_ids.clone();
     }
 
-    // Mirror engine Unit.runtime → RuntimeStatsMirror as a single POD assignment.
-    // EnterPhase already ran in the engine before this system; reading runtime
-    // here is the single source of truth (no second derivation).
+    // Mirror engine Unit.runtime → RuntimeStatsMirror (engine EnterPhase already
+    // ran, so this read is the single source of truth).
     if let Some(engine_unit) = engine_state.unit(unit) {
         runtime.0 = engine_unit.runtime;
     }
@@ -179,14 +166,11 @@ pub fn apply_phase_overrides_system(
                 marker_color, ..
             } = &ov
             {
-                // The override always targets the phasing unit itself; load-time
-                // validation (`validate_scenario`) guarantees the KillTarget enemy_name
-                // equals the phasing enemy's config name. KillTarget victory is
-                // marker-based (see `check_combat_end`), so attach the VictoryTarget
-                // marker to the phasing entity unconditionally — its `target_alive` bool
-                // and the UI ring then track the new objective. (Matching by display
-                // `Name` would be wrong: combat names carry a race prefix, e.g.
-                // "Зверокров Страж" vs the bare config name "Страж".)
+                // KillTarget victory is marker-based (see `check_combat_end`), and
+                // the override always targets the phasing unit (guaranteed by
+                // `validate_scenario`), so attach VictoryTarget to it directly.
+                // Matching by display `Name` would be wrong — combat names carry a
+                // race prefix, e.g. "Зверокров Страж" vs config "Страж".
                 commands.entity(intent.entity).insert(VictoryTarget {
                     marker_color: *marker_color,
                 });

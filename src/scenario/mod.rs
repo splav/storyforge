@@ -55,12 +55,9 @@ pub fn enter_scenario_at(
     let empty = std::collections::BTreeSet::new();
     let flags = flags.unwrap_or(&empty);
 
-    // Resolve the first non-skipped scene from `scene_index` onward.
-    // If all remaining scenes are gated/invisible (e.g. a save that lands on an
-    // all-gated tail, or a non-campaign scenario with flag-gated scenes and no
-    // active flags), finish gracefully — transition to MainMenu — rather than
-    // panicking. The caller is responsible for having already inserted
-    // CampaignState if needed; we do not advance the campaign index here.
+    // Resolve the first non-skipped scene from `scene_index` onward. An all-gated
+    // tail (e.g. a save landing past the last reachable scene) finishes gracefully
+    // to MainMenu rather than panicking. The campaign index is not advanced here.
     let resolved = skip_skipped(scen, scene_index, flags);
     let Some(scene_index) = resolved else {
         next_state.set(AppState::MainMenu);

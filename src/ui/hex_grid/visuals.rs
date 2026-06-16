@@ -560,14 +560,8 @@ impl StatusTint {
     }
 }
 
-/// Classify a status definition as buff, debuff, or neutral.
-///
-/// Rule (simple, documented so the inspection panel can reuse it):
-/// - **Debuff** if `dot_dice.is_some()` OR `skips_turn` OR `causes_disadvantage`.
-/// - **Buff** if `buff_class.is_some()` OR `armor_bonus > 0`.
-/// - **Neutral** otherwise.
-///
-/// Debuff check takes priority over buff to handle mixed-stats statuses correctly.
+/// Classify a status as buff, debuff, or neutral (reused by the inspection panel).
+/// Debuff check runs first, so mixed-stat statuses (e.g. DoT + armor) read as debuff.
 pub fn classify_status(def: &StatusDef) -> StatusTint {
     if def.dot_dice.is_some() || def.skips_turn || def.causes_disadvantage {
         StatusTint::Debuff

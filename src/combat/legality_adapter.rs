@@ -1,14 +1,10 @@
 //! Bevy-side `ActionState` adapter for `combat_engine::check_legality`.
 //!
 //! `BevyActions` wires the engine's legality layer against live ECS queries.
-//! UI tooltip code calls `combat_engine::check_legality` against an instance
-//! of this struct to determine whether a proposed action is legal (and why not,
-//! for display purposes).
-//!
-//! The former `validate_action_system` (which translated `UseAbility` →
-//! `ValidatedAction`) has been deleted in Phase 2 step 9d; the engine bridge's
-//! `process_action_system` now handles legality via `Action::Cast` in
-//! `combat_engine::step()`.
+//! UI tooltip code calls `check_legality` against an instance of this struct to
+//! determine whether a proposed action is legal (and why not, for display).
+//! Action-time legality is handled separately by the bridge's `process_action_system`
+//! via `Action::Cast` in `step()`.
 
 use bevy::prelude::*;
 use std::collections::HashSet;
@@ -21,13 +17,9 @@ use crate::game::components::{Team, ValidationActorQ, ValidationTargetQ};
 use crate::game::hex::{in_bounds, Hex};
 use crate::game::resources::HexPositions;
 
-/// `ActionState` impl over live ECS queries.  Holds references with a single
-/// named lifetime `'a` — every borrow taken from the system's parameters
-/// lives at least as long as the adapter, which is built and consumed
-/// inside one system iteration.
-///
-/// No borrows leak through the trait: `actor_view` returns an owned
-/// `ActorView` copy, `actor_knows_ability` answers a direct bool.
+/// `ActionState` impl over live ECS queries, built and consumed inside one
+/// system iteration. No borrows leak through the trait — `actor_view` returns an
+/// owned `ActorView`, the other methods return plain values.
 pub struct BevyActions<'w, 's, 'a> {
     pub content: &'a ActiveContent,
     pub positions: &'a HexPositions,

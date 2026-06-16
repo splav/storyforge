@@ -1,29 +1,19 @@
 /// Engine purity audit (Phase 5 D12).
 ///
-/// Greps every `.rs` source file under `crates/combat_engine/src/` for imports
-/// or usages of non-deterministic OS primitives. Any match is a CI blocker
-/// because it would silently break replay determinism.
-///
-/// Forbidden patterns:
-/// - `SystemTime`  — wall-clock, non-deterministic.
-/// - `std::time::Instant` / `Instant` — monotonic clock, still non-deterministic.
-/// - `std::env`    — environment variables vary per host/run.
-/// - `std::process` — process ID / Command vary per process.
-/// - `thread_local!` — non-deterministic ordering under multi-threaded callers.
-///
-/// Comment lines (`//`) are excluded so doc-comment references to these names
-/// don't trip the guard.
+/// Greps every `.rs` under `crates/combat_engine/src/` for non-deterministic OS
+/// primitives (see `FORBIDDEN`); any match is a CI blocker since it would break
+/// replay determinism. Comment lines are skipped so doc references don't trip it.
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
 const FORBIDDEN: &[&str] = &[
-    "SystemTime",
-    "std::time::Instant",
-    "std::env",
-    "std::process",
-    "thread_local!",
+    "SystemTime",         // wall-clock
+    "std::time::Instant", // monotonic clock — still non-deterministic
+    "std::env",           // varies per host/run
+    "std::process",       // pid / Command vary per process
+    "thread_local!",      // non-deterministic order under MT callers
 ];
 
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {

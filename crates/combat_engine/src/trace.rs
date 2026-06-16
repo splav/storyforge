@@ -24,65 +24,9 @@ use crate::{
     turn_queue::TurnQueue,
 };
 
-/// Trace schema version.  v46: `EnvObject.revealed: bool` replaced by
-/// `owner: Option<Team>` + `revealed_to: TeamSet` (per-trap ownership +
-/// per-team reveal). Old v45 env-less logs remain compatible via
-/// `#[serde(default)]` on the new fields.
-/// v45: engine now owns round-1 initiative rolling
-/// (`roll_initiative_for_all` + `reconcile_turn_order` in bootstrap).
-/// Bump on any change that adds/removes RNG calls or modifies record shape.
-/// v39: `Event::ManaRegenerated` is now also emitted after `Effect::PayCost`
-/// for mana-cost casts, replacing the bridge-side mana-diff snapshot approach.
-/// Cast streams that previously had a trailing `ManaChanged` entry now carry it
-/// inline. Old v38 logs are incompatible (clean break).
-/// v40: Two engine wire-shape changes consolidated in one SCHEMA jump:
-/// (1) `Event::DotDamaged` atomic variant added (Phase A-S5 in `5db559d`):
-///     replaces the legacy `(StatusTicked, UnitDamaged)` pair for damaging
-///     DoT ticks. Buff-status ticks (zero damage) still emit `StatusTicked`.
-/// (2) `Event::TurnEnded` gains `cause: TurnEndCause` field (Phase B-γ / S6
-///     in `4b4b0e3`). Engine emits `TurnEnded{cause: ResourcesExhausted}`
-///     inline after a Cast that leaves AP=0 and MP=0, removing the bridge's
-///     separate auto-end step.
-/// Old v39 traces are incompatible (clean break).
-/// v41: Phase C-4 — `Event::PoolChanged` introduced as unified pool-change
-/// event surface, dual-emitted alongside legacy `ManaRegenerated`/
-/// `EnergyRegenerated`/`RageGained`. AP/MP refill at turn-start now emits
-/// `PoolChanged{cause: Refill}` (previously silent). Subsumes S7 from
-/// engine-migration.md — `EnergySpent` is expressed as
-/// `PoolChanged{pool: Energy, cause: Spent}` instead of a dedicated event.
-/// Old v40 traces incompatible (clean break).
-/// v42: Phase C-6 final cleanup — legacy `Unit` fields (`mana`, `rage`,
-/// `energy`, `action_points`, `max_ap`, `movement_points`) removed from engine
-/// `Unit` struct. `Event::PoolChanged` is the sole canonical pool-mutation
-/// event; legacy `ManaRegenerated`/`EnergyRegenerated`/`RageGained` aliases
-/// dropped. Old v41 traces are incompatible (clean break).
-/// v43: HP-as-pool Stage 1 — `PoolKind::Hp` variant added as first element.
-/// `pools` EnumMap shape changed (6 pools instead of 5); serialized
-/// representation and `enum_map::Iter` order both shift. Old v42 traces are
-/// incompatible — clean break.
-/// v44: HP-as-pool Stage 3c — `Unit.hp`/`Unit.max_hp` legacy fields removed.
-/// `pools[Hp]` is now the sole canonical HP representation. `UnitWire.hp`/
-/// `UnitWire.max_hp` removed from serialized output (backward-compat read via
-/// `#[serde(default)]` still populates `pools[Hp]` for pre-v44 traces).
-/// Old v43 traces are incompatible — clean break.
-/// v46 → v47: `Event::HotHealed` + `Effect::TickHeal` + `StatusDef.heal_per_tick` (heal-over-time).
-/// v47 → v48: `Unit.tags` (BTreeSet<TagId>) added; `#[serde(default)]` → empty on pre-v48 traces.
-///            (Additive; Slices B/C add `AuraDef.affects_tags` + `PhaseEntry.tags` to the same v48 wire shape.)
-///            Slice B adds `AuraDef.affects_tags` (also in `Unit.auras` wire, `#[serde(default)]`).
-///            Slice C1 adds `PhaseEntry.tags` (`Option<BTreeSet<TagId>>`, phase tag-replace,
-///            `#[serde(default)]` → `None` on pre-C1 traces); `PhaseTransition.tags` carries the
-///            same value at runtime (not serialized separately).
-/// v48 → v49: move-interrupt no-stacking fix. When a Move halts (AoO / trap /
-///            reveal) on a hex still occupied by another alive unit (a friendly
-///            pass-through cell that pre-validate allowed), the mover now slides
-///            forward to the first unoccupied hex on the remaining validated path,
-///            emitting one extra `UnitMoved`. No RNG/effect-order change; only the
-///            event stream + post-state of such halting steps differ. Behavioral
-///            change → SCHEMA bump (no wire-shape change).
-/// v49 → v50: `CasterContext.ranged_dice: Option<DiceExpr>` added (`#[serde(default)]`
-///            → `None` on pre-v50 traces). `EffectDef::WeaponAttack` becomes
-///            `WeaponAttack { ranged: bool, power: f32 }` with ranged weapon attack
-///            support (bow: ranged_dice + dex_mod, power multiplies dice only).
+/// Trace schema version. Bump on any change that adds/removes RNG calls or
+/// alters the trace record shape; most bumps are a clean break with older
+/// traces (additive ones note `#[serde(default)]` back-compat at the field).
 pub const SCHEMA_VERSION: u32 = 50;
 
 // ── Record types ─────────────────────────────────────────────────────────────

@@ -1,18 +1,11 @@
-//! ECS-free `init_fight`: builds engine `CombatState` purely from content/scenario data.
+//! ECS-free `init_fight`: builds engine `CombatState` purely from
+//! content/scenario data — the deterministic, Bevy-free counterpart to
+//! `bootstrap_combat_state` + `spawn_combatants`.
 //!
-//! This is the deterministic, Bevy-free counterpart to `bootstrap_combat_state` +
-//! `spawn_combatants`.  It receives:
-//! - A resolved `ContentView` (already merged global → campaign → scenario).
-//! - A resolved `ScenarioDef` + `scene_index` (to derive `active_party` and
-//!   `active_party_statuses`).
-//! - A resolved `EncounterDef`.
-//! - A caller-supplied UnitId assignment callback (option C) so the same ids
-//!   used by the ECS path can be fed in for the equivalence test, while the
-//!   offline simulation feeds dense `0..N` ids.
-//!
-//! **Step 2+3** contract: `init_fight` produces a `CombatState` that is
-//! byte-identical to the ECS bootstrap when fed the same UnitIds and seed.
-//! The live bootstrap is NOT modified here (Step 4 will wire them together).
+//! Contract: produces a `CombatState` byte-identical to the ECS bootstrap when
+//! fed the same UnitIds and seed. A caller-supplied UnitId callback lets the
+//! equivalence test reuse the ECS path's ids while the offline sim feeds dense
+//! `0..N` ids.
 
 use std::collections::{HashMap, HashSet};
 
@@ -75,12 +68,9 @@ impl CombatantSource<'_> {
     }
 }
 
-/// ECS/UI-only data produced alongside each engine `Unit`.
-///
-/// Contains information the engine `Unit` intentionally does NOT carry (to
-/// avoid field drift) but that the Bevy projection layer (Step 4) needs to
-/// reconstruct ECS components.  For Steps 2+3 (equivalence gate only) many
-/// fields are populated but not asserted on — the type is designed for Step 4.
+/// ECS/UI-only data produced alongside each engine `Unit`: information the
+/// engine `Unit` intentionally does NOT carry (to avoid field drift) but that
+/// the Bevy projection layer needs to reconstruct ECS components.
 #[derive(Debug, Clone)]
 pub struct ProjectionMeta {
     pub uid: UnitId,
@@ -143,11 +133,9 @@ pub struct ProjectionMeta {
 ///   reconcile + settle_round_start), byte-identical to the ECS bootstrap when
 ///   given the same UnitIds and seed.
 /// - `metas` — per-unit `ProjectionMeta` in spawn order (party first, enemies
-///   second), for Step 4 ECS reconstruction.
+///   second), for ECS reconstruction.
 ///
-/// # Determinism contract
-/// Given the same inputs the function always produces the same `CombatState`.
-/// RNG consumption order matches the ECS bootstrap exactly.
+/// Deterministic: RNG consumption order matches the ECS bootstrap exactly.
 pub fn init_fight(
     content: &ActiveContentData,
     scenario: &ScenarioDef,

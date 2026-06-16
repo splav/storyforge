@@ -4,24 +4,15 @@
 ///
 /// Formula: `delta_pct × horizon_sum × urgency` where
 /// - `delta_pct = restored_hp / target_max_hp` — fraction of HP bar restored.
-/// - `horizon_sum` — sum of target's projected damage horizon (caller provides,
+/// - `horizon_sum` — sum of target's projected damage horizon (caller-provided,
 ///   already clamped to `target.threat` minimum).
-/// - `urgency = 1.0 + hp_missing.max(incoming).min(1.0)` — multiplier ∈ [1, 2]:
-///   1.0 on a healthy target, 2.0 on a near-dead or highly threatened target.
+/// - `urgency = 1.0 + hp_missing.max(incoming).min(1.0)` — multiplier ∈ [1, 2].
 ///
-/// The urgency factor prioritises healing units in mortal danger: healing a
-/// target at 5 HP is twice as valuable as the same heal on a target at 90 HP.
+/// The urgency factor prioritises healing units in mortal danger: a heal on a
+/// 5-HP target is worth twice the same heal on a 90-HP target.
 ///
-/// Extracted 1:1 from `outcome::compute_score_core` heal branch.
-///
-/// # Arguments
-/// - `restored_hp` — effective HP restored (already clamped to missing HP by caller).
-///   When `missing <= 0` the caller should return `0.0` immediately (not call this).
-/// - `target_max_hp` — target's maximum HP.
-/// - `target_hp` — target's current HP.
-/// - `danger_at_target` — threat / incoming danger at the target's tile (from
-///   influence maps). Pass `0.0` when no maps are available.
-/// - `horizon_sum` — `target.damage_horizon.iter().sum::<f32>().max(target.threat)`.
+/// `restored_hp` is assumed already clamped to missing HP; callers must return
+/// `0.0` directly when nothing is missing rather than calling this.
 pub fn value(
     restored_hp: f32,
     target_max_hp: i32,

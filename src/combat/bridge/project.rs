@@ -25,42 +25,22 @@ type ProjectionRow<'a> = (
 );
 
 /// `Update` system — writes engine `CombatState` back to ECS components.
+/// Engine is authoritative; ECS is a read-only projection.
 ///
 /// Projects:
 /// - `pos`              → `HexPositions` (alive) / `HexCorpses` (dead)
 /// - `hp`               → `Vital.hp`
 /// - `pools[Ap]`        → `ActionPoints.action_points` + `ActionPoints.max_ap`
 /// - `pools[Mp]`        → `ActionPoints.movement_points`
-/// - `reactions_left`   → `Reactions.remaining`
-/// - `reactions_max`    → `Reactions.max`
-/// - `pools[Rage]`      → `Rage.current`
-/// - `pools[Mana]`      → `Mana.current`
-/// - `pools[Energy]`    → `Energy.current`
-///
-/// Initialise engine `CombatState` from the current ECS snapshot.
-///
-/// Called on `OnEnter(CombatPhase::AwaitCommand)` once per round (after
-/// `build_turn_order` refills AP + reactions into ECS) so the engine has
-/// a fresh, authoritative copy of all unit state.
-///
-/// **5c.1 addition:** also populates the three new per-combat `Unit` fields:
-/// - `caster_context` — from `CombatStats` + `Equipment` + optional `CombatPath`
-/// - `auras`          — from `AuraSource` ECS component (alive sources only)
-/// - `enemy_phases`   — from `EnemyPhases.pending` ECS component
-///
-/// MP+reactions refill happens in `StartRound` (symmetric with `start_actor_turn`).
-///
-/// Engine is authoritative for state; ECS is a read-only projection.
+/// - `reactions_left/max` → `Reactions.remaining` / `Reactions.max`
+/// - `pools[Rage/Mana/Energy]` → `Rage`/`Mana`/`Energy.current`
 ///
 /// **Layer model:** alive units live in [`HexPositions`] (one-per-hex invariant);
 /// dead units live in [`HexCorpses`] (multi-occupant). The two branches below
-/// are order-insensitive: whichever entity is iterated first, `remove` on the
-/// wrong layer is a no-op, so there is no cross-contamination.
+/// are order-insensitive: `remove` on the wrong layer is a no-op, so there is no
+/// cross-contamination regardless of iteration order.
 ///
-/// **C5:** resource values sourced from `Unit.pools[PoolKind::*]` (unified pool
-/// table). Legacy fields `unit.mana`, `unit.rage`, `unit.energy`,
-/// `unit.action_points`, `unit.movement_points` are no longer read here;
-/// they remain write-only (mirrored by C3 mutators) until C6 removes them.
+/// Resource values come from `Unit.pools[PoolKind::*]` (unified pool table).
 pub fn project_state_to_ecs(
     mut commands: Commands,
     combat_state: Res<CombatStateRes>,
@@ -149,12 +129,10 @@ pub fn project_state_to_ecs(
                     combat_engine::state::EffectSource,
                 )> = unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
 
-                // Env-applied engine statuses project to ECS with `applier: None`,
-                // losing their `Env(id)` identity. Track their status *ids* so the
-                // preserve filter can recognise the engine's own env statuses on the
-                // ECS side. Without this, an env status (e.g. a spike-trap
-                // `disoriented`) is both preserved AND re-appended from the engine
-                // every frame → the list grows by one per frame and the status never
+                // Env-applied statuses project with `applier: None`, losing their
+                // `Env(id)` identity. Track their ids so the preserve filter below
+                // recognises them; otherwise an env status is both preserved AND
+                // re-appended every frame → the list grows unbounded and never
                 // expires. The engine dedupes by id, so id-only matching is exact.
                 let engine_env_ids: std::collections::HashSet<&combat_engine::StatusId> = unit
                     .statuses
@@ -163,26 +141,18 @@ pub fn project_state_to_ecs(
                     .map(|s| &s.id)
                     .collect();
 
-                // Preserve ECS statuses that are NOT in the engine's status list.
-                // For ECS statuses with a unit applier we key on
-                // `EffectSource::Unit(entity_to_uid(applier_entity))`.
+                // Preserve ECS statuses absent from the engine's list: unit-applied
+                // keyed on `Unit(entity_to_uid(applier))`, env-applied (None) keyed
+                // on id via engine_env_ids.
                 let preserved: Vec<crate::game::components::ActiveStatus> = status_effects
                     .0
                     .iter()
-                    .filter(|ecs_s| {
-                        match ecs_s.applier {
-                            Some(applier_ent) => !engine_known.contains(&(
-                                &ecs_s.id,
-                                combat_engine::state::EffectSource::Unit(entity_to_uid(
-                                    applier_ent,
-                                )),
-                            )),
-                            // applier: None means env-applied. Preserve it ONLY if the
-                            // engine has no matching env status — otherwise the engine
-                            // re-projects it below (single source of truth), and keeping
-                            // the ECS copy too would double it every frame.
-                            None => !engine_env_ids.contains(&ecs_s.id),
-                        }
+                    .filter(|ecs_s| match ecs_s.applier {
+                        Some(applier_ent) => !engine_known.contains(&(
+                            &ecs_s.id,
+                            combat_engine::state::EffectSource::Unit(entity_to_uid(applier_ent)),
+                        )),
+                        None => !engine_env_ids.contains(&ecs_s.id),
                     })
                     .cloned()
                     .collect();

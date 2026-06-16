@@ -18,13 +18,11 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct BattleSnapshot {
-    /// AI-derived per-unit metrics. Populated at `build_snapshot` time;
-    /// read by scoring/intent (Phase C+). Source of truth for AI cache data.
-    /// Schema: absent in pre-Phase-B logs → `Default` (empty cache).
+    /// AI-derived per-unit metrics, read by scoring/intent. Source of truth
+    /// for AI cache data.
     #[serde(default)]
     pub cache: AiCache,
     /// Authoritative engine state for this snapshot round.
-    /// Added in Phase D-step-2; populated from `CombatStateRes` at build time.
     /// Use `unit(e)` to get a `UnitView` combining both halves.
     #[serde(default)]
     pub state: combat_engine::state::CombatState,
@@ -72,13 +70,8 @@ impl<'de> serde::Deserialize<'de> for BattleSnapshot {
 
 /// Borrowed view of one unit: engine gameplay state + AI-derived metrics.
 ///
-/// Created on demand by `BattleSnapshot::view(e)` (available after D-step-2
-/// when `BattleSnapshot` carries `state: CombatState`).
-///
-/// `Deref` to `&combat_engine::state::Unit` so gameplay-state reads (`u.hp`,
-/// `u.pos`, `u.statuses`, etc.) keep working unchanged; AI-derived reads go
-/// through `u.cache` (e.g. `u.cache.threat`, `u.cache.tags`).
-///
+/// `Deref`s to `&combat_engine::state::Unit` so gameplay-state reads (`u.hp`,
+/// `u.pos`, …) work unchanged; AI-derived reads go through `u.cache`.
 /// Pass by value — it's two references (16 bytes).
 #[derive(Clone, Copy)]
 pub struct UnitView<'a> {
@@ -94,10 +87,9 @@ impl<'a> std::ops::Deref for UnitView<'a> {
 }
 
 impl<'a> UnitView<'a> {
-    /// Bevy `Entity` for this unit. Read directly from `UnitAiCache.entity`,
-    /// which carries the real ECS entity registered at `build_snapshot` time.
-    /// Avoids the `Entity::from_bits(self.state.id.0)` shortcut that panics on
-    /// summons with synthetic UnitIds (see B-prime).
+    /// Bevy `Entity` for this unit, from `UnitAiCache.entity`. Avoids the
+    /// `Entity::from_bits(state.id.0)` shortcut that panics on summons whose
+    /// synthetic UnitIds are not valid Entity bits (B-prime).
     pub fn entity(&self) -> bevy::prelude::Entity {
         self.cache.entity
     }
@@ -193,10 +185,8 @@ impl<'a> UnitView<'a> {
     }
 }
 
-/// Low-level resource-pool lookup. The one place that knows the
-/// `ResourceKind` match arms; everybody else — `UnitView` methods,
-/// `compute_tags` during snapshot construction, scarcity scoring — funnels
-/// through this so the four-arm match doesn't replicate across the crate.
+/// Single home for the `ResourceKind` → amount match; callers across the crate
+/// funnel through this so the four arms aren't replicated.
 pub(crate) fn pool_amount(kind: ResourceKind, hp: i32, mana: i32, rage: i32, energy: i32) -> i32 {
     match kind {
         ResourceKind::Hp => hp,
@@ -388,23 +378,17 @@ impl BattleSnapshot {
     /// holds AI-derived metrics.
     pub fn new(state: combat_engine::state::CombatState, cache: AiCache) -> Self {
         use combat_engine::state::UnitId;
-        // Derive uid_to_entity: using the non-summon shortcut
-        // (UnitId == entity.to_bits()) that is valid for regular units and for
-        // test/replay paths where summons are absent. Build it from cache so
-        // we can cross-reference state.
+        // Non-summon shortcut (UnitId == entity.to_bits()), valid for test/
+        // replay/legacy paths without summons. Production paths with summons go
+        // through `build_snapshot`, which derives both maps from `id_map`.
         let uid_to_entity: HashMap<UnitId, Entity> = cache
             .units
             .iter()
             .filter_map(|c| {
                 let uid = UnitId(c.entity.to_bits());
-                // Only include if the engine state actually has this unit.
                 state.unit(uid).map(|_| (uid, c.entity))
             })
             .collect();
-        // Inverse map: entity → UnitId (shortcut valid for non-summon callers).
-        // SHORTCUT: valid for test/replay/legacy paths where summons are absent.
-        // For production paths with summons, `build_snapshot` derives this from
-        // `id_map` (the authoritative source).
         let entity_to_uid: HashMap<Entity, UnitId> = uid_to_entity
             .iter()
             .map(|(&uid, &entity)| (entity, uid))
@@ -417,17 +401,11 @@ impl BattleSnapshot {
         }
     }
 
-    /// Rebuild derived caches from `state` + `cache` after deserialization.
-    ///
-    /// Rebuilds:
-    /// - `uid_to_entity`: UnitId→Entity map from cache cross-referenced with state
-    /// - `entity_to_uid`: inverse of `uid_to_entity`
-    ///
-    /// Call after deserialization. No-op when state is empty (nothing to index).
+    /// Rebuild `uid_to_entity` + its inverse `entity_to_uid` after
+    /// deserialization. No-op when state is empty (nothing to index).
     pub fn rebuild_index(&mut self) {
-        // Rebuild uid_to_entity from state cross-referenced with cache.
-        // Uses the non-summon shortcut (UnitId == entity.to_bits()) which is
-        // valid for deserialized logs (replay/tests) where summons are absent.
+        // Non-summon shortcut (UnitId == entity.to_bits()) — valid for
+        // deserialized logs (replay/tests) where summons are absent.
         if self.uid_to_entity.is_empty() && !self.state.units().is_empty() {
             use combat_engine::state::UnitId;
             self.uid_to_entity = self
@@ -451,12 +429,9 @@ impl BattleSnapshot {
         }
     }
 
-    /// Lookup by entity — returns a `UnitView` combining engine state + AI cache.
-    /// O(1) when the entity_to_uid map is populated; returns `None` if entity
-    /// is unknown to either the engine state or the AI cache.
-    ///
-    /// Correctly handles summoned units whose synthetic UnitId is not equal to
-    /// `entity.to_bits()` — uses `entity_to_uid` for the namespace crossing.
+    /// Lookup by entity — `UnitView` combining engine state + AI cache, or
+    /// `None` if the entity is unknown to either. Crosses the namespace via
+    /// `entity_to_uid` so summons (synthetic UnitId ≠ `entity.to_bits()`) resolve.
     pub fn unit(&self, entity: Entity) -> Option<UnitView<'_>> {
         let uid = *self.entity_to_uid.get(&entity)?;
         let state = self.state.unit(uid)?;
@@ -465,28 +440,21 @@ impl BattleSnapshot {
     }
 
     /// Translate engine `UnitId` to Bevy `Entity` via the explicit map.
-    /// Use this instead of `Entity::from_bits(uid.0)` — the shortcut panics
-    /// for summons whose synthetic UnitIds are not valid Entity bits (B-prime).
+    /// Use instead of `Entity::from_bits(uid.0)`, which panics on summons whose
+    /// synthetic UnitIds are not valid Entity bits (B-prime).
     pub fn entity_for_uid(&self, uid: combat_engine::state::UnitId) -> Option<Entity> {
         self.uid_to_entity.get(&uid).copied()
     }
 
-    /// Translate Bevy `Entity` to engine `UnitId` via the explicit map.
-    /// Symmetric inverse of `entity_for_uid`. Correctly handles summons whose
-    /// synthetic UnitId is not equal to `entity.to_bits()` (B-prime).
+    /// Symmetric inverse of [`Self::entity_for_uid`].
     pub fn uid_for_entity(&self, entity: Entity) -> Option<combat_engine::state::UnitId> {
         self.entity_to_uid.get(&entity).copied()
     }
 
-    /// Build a `BattleSnapshot` with an explicit `entity ↔ uid` mapping for use
-    /// in tests that need to verify summon handling without a full ECS world.
-    ///
-    /// Accepts a `(entity, uid)` slice that is used to seed both `uid_to_entity`
-    /// and `entity_to_uid`, bypassing the `entity.to_bits()` shortcut used by
-    /// `BattleSnapshot::new`. All other maps are derived as usual.
-    ///
-    /// Not intended for production use — exists so integration tests (in `tests/`)
-    /// can exercise the summon lookup path without a full ECS world + `build_snapshot`.
+    /// Build a `BattleSnapshot` seeding both id maps from an explicit
+    /// `(entity, uid)` slice, bypassing the `entity.to_bits()` shortcut used by
+    /// `new`. Test-only: lets integration tests (in `tests/`) exercise the
+    /// summon lookup path without a full ECS world + `build_snapshot`.
     #[doc(hidden)]
     pub fn new_with_id_map(
         state: combat_engine::state::CombatState,

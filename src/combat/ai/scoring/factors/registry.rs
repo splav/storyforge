@@ -1,11 +1,9 @@
 //! Generic factor registry: shared types and the minimal `factor_kind!` macro.
 //!
-//! `factor_kind!` generates only the enum definition and the `COUNT` constant.
-//! All methods (`name`, `signed`, `compute`, `iter`, `from_name`,
-//! `need_modulation`, `normalize`) are written as explicit `impl` blocks in
-//! each `{step,plan,terminal}/mod.rs`. This is intentional: the methods need
-//! different signatures per factor kind, and `macro_rules!` cannot dispatch
-//! over meta-variables at mixed repetition depths.
+//! `factor_kind!` generates only the enum and `COUNT`. All methods are
+//! hand-written in each `{step,plan,terminal}/mod.rs` impl block: signatures
+//! differ per factor kind, and `macro_rules!` can't dispatch over meta-variables
+//! at mixed repetition depths.
 
 use crate::combat::ai::appraisal::NeedSignals;
 
@@ -63,9 +61,6 @@ pub fn default_norm(raw: f32, batch: &BatchStats, signed: bool) -> f32 {
 }
 
 // ── factor_kind! macro ────────────────────────────────────────────────────────
-//
-// Minimal macro: generates the enum and a `COUNT` const.
-// Everything else is written by hand in the calling module's `impl` block.
 
 /// Generate a factor enum and its variant count.
 ///

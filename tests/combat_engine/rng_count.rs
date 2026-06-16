@@ -1,5 +1,5 @@
 use hexx::Hex;
-/// RNG call-count canary tests (Phase 5 D2).
+/// RNG call-count canary tests.
 ///
 /// Verifies that `ApplyCtx::rng_calls` accurately reflects the number of
 /// `DiceSource::roll_d` invocations consumed by each `step()` call, and that

@@ -9,17 +9,10 @@ use crate::content::content_view::ActiveContentData;
 ///
 /// Quantifies the projected damage denied to the team by locking `target` out
 /// of their turns. Uses `damage_horizon` (DPR-correct); falls back to
-/// `target.cache.threat × duration` on empty horizon (legacy logs / uninitialised
-/// fixtures).
+/// `target.cache.threat × duration` on empty horizon.
 ///
-/// Caller is responsible for ensuring the status is a stun-class (`skips_turn`);
-/// this function computes the denial value unconditionally from target + duration.
-///
-/// Extracted 1:1 from `scoring::stun_denial_value` inner per-status formula.
-///
-/// # Arguments
-/// - `target` — the unit being stunned.
-/// - `duration` — rounds the stun lasts.
+/// Caller must ensure the status is stun-class (`skips_turn`); this computes the
+/// denial value unconditionally from `target` + `duration`.
 pub fn stun_denial_value(
     target: crate::combat::ai::world::snapshot::UnitView<'_>,
     duration: f32,
@@ -30,23 +23,16 @@ pub fn stun_denial_value(
 /// HP-equivalent value of an armor-shred (or armor-buff) status applied for
 /// `duration` rounds.
 ///
-/// Formula: `armor_bonus.abs() × duration`.
-///
-/// Negative `armor_bonus` = shred on enemy; positive = buff on ally. Both valued
-/// identically by `.abs()`.
-///
-/// Extracted 1:1 from `scoring::status_score` `armor_bonus` branch.
+/// `armor_bonus.abs() × duration`. Negative = shred on enemy, positive = buff on
+/// ally — both valued identically via `.abs()`.
 pub fn armor_shred_value(armor_bonus: i32, duration: f32) -> f32 {
     armor_bonus.abs() as f32 * duration
 }
 
 /// HP-equivalent value of all status effects applied by `def` on `target`.
 ///
-/// Composite: sums stun denial + armor shred + DoT + %HP DoT +
+/// Composite: sums stun denial + armor/magic-resist shred + DoT + %HP DoT +
 /// silence (partial stun) + speed penalty across all status applications of `def`.
-/// HP-equivalent scoring counts both signs of `armor_bonus` via `.abs()`.
-///
-/// Extracted 1:1 from `scoring::status_score`.
 pub fn value(
     def: &AbilityDef,
     target: crate::combat::ai::world::snapshot::UnitView<'_>,

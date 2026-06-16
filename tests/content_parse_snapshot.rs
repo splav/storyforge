@@ -1,25 +1,16 @@
-//! Regression snapshot of the app content parser across ALL shipped content
-//! under `assets/data/`.
+//! Regression snapshot of the content parser across ALL shipped content under
+//! `assets/data/`. Pins the parsed defs' `Debug` form, catching any parse-path
+//! change to an ability/status/weapon/armor — including content no golden AI
+//! scenario exercises.
 //!
-//! This is the forward-looking guard that replaces the per-id cross-check
-//! `toml_content_view_parity.rs` once gave: with the duplicate engine parser
-//! (`TomlContentView::load_from_dir`) deleted, there is no second parser to
-//! diff against, so instead we pin the parsed defs themselves (their `Debug`
-//! form). A future change to the parse path that alters any ability, status,
-//! weapon, or armor is caught here — including content that no golden AI
-//! scenario ever exercises (golden only covers used content).
+//! Scope = the global content layer only. `unit_templates` are
+//! campaign/scenario-layered (none global), so they're excluded.
 //!
-//! Scope = the global content layer (`assets/data`), matching the old parity
-//! test's source. `unit_templates` are campaign/scenario-layered (the global
-//! layer has none), so they aren't part of this fingerprint.
+//! `Debug` (not serde) because engine `AbilityDef`/`EffectDef` don't implement
+//! `Serialize`/`PartialEq`; `Debug` is deterministic here (fixed field order,
+//! entries sorted by id, Vec fields preserve parse order).
 //!
-//! `Debug` (not serde) because engine `AbilityDef`/`EffectDef` deliberately do
-//! not implement `Serialize`/`PartialEq`; `Debug` is derived on every parsed
-//! type and is deterministic (struct field order is fixed; we sort entries by
-//! id, and Vec fields preserve parse order).
-//!
-//! Recapture after an intentional content or parser change, then review the
-//! diff before committing:
+//! Recapture, then review the diff before committing:
 //!   UPDATE_CONTENT_SNAPSHOT=1 cargo test --features dev --test content_parse_snapshot
 
 use std::fmt::Write as _;

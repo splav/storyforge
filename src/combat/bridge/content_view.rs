@@ -39,13 +39,9 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 
 /// Build a fully-populated engine `UnitTemplate` from a bridge `UnitTemplateDef`.
 ///
-/// Mirrors the caster_context and aoo_dice logic in `bootstrap_combat_state` but
-/// works from content data alone (no live ECS queries).  Used by
-/// `EcsContentView::unit_template` so that summon `Effect::Spawn` receives a
-/// complete template with correct combat stats.
-///
-/// `auras` and `enemy_phases` are left empty: `UnitTemplateDef` has no aura/phase
-/// fields (MVP — those are encounter-level data, not template-level).
+/// Mirrors `bootstrap_combat_state`'s caster_context/aoo_dice logic but from
+/// content alone (no ECS queries), so summon `Effect::Spawn` gets correct stats.
+/// `auras`/`enemy_phases` stay empty — those are encounter-level, not template.
 fn build_engine_template_from_def(
     tpl: &crate::content::unit_templates::UnitTemplateDef,
     active_content: &ActiveContent,
@@ -60,9 +56,8 @@ fn build_engine_template_from_def(
     let effective = active_content.effective_stats(&tpl.stats, &equipment);
     let armor = active_content.equipment_armor(&equipment);
 
-    // Build CasterContext from stats + main-hand weapon, mirroring CasterContext::new.
     let bevy_ctx = CasterContext::new(&tpl.stats, Some(&equipment), &active_content.weapons);
-    // crit_fail_outcome: look up the unit's combat path, default to Miss.
+    // crit_fail_outcome: from the unit's combat path, default Miss.
     let crit_fail_effect = tpl
         .path
         .as_deref()
@@ -141,17 +136,12 @@ fn build_engine_template_from_def(
     }
 }
 
-/// Build `EcsContentView` from the current ECS state.
+/// Build `EcsContentView` (wraps `ActiveContent` only; per-combat state lives on
+/// engine `Unit` fields, populated at init by `from_ecs`).
 ///
-/// After 5c.1, `EcsContentView` only wraps `ActiveContent` — all per-combat
-/// state (caster contexts, auras, phase triggers) now lives on engine `Unit`
-/// fields and is populated once at init by `from_ecs`.
-///
-/// Called from `bootstrap_combat_state`, `process_action_system`, and
-/// `advance_turn_system` (for dead-actor sirota-DoT ticks).
-///
-/// Also used by `replay_engine_trace` to build a content view from layered
-/// campaign content without going through the full Bevy ECS.
+/// Called from `bootstrap_combat_state`, `process_action_system`,
+/// `advance_turn_system` (dead-actor DoT ticks), and `replay_engine_trace`
+/// (content view from layered content without the full ECS).
 pub fn build_ecs_content_view<'a>(content: &'a ActiveContent) -> EcsContentView<'a> {
     EcsContentView {
         active_content: content,
@@ -165,17 +155,11 @@ mod tests {
     use combat_engine::content::ContentView as EngineContentView;
     use combat_engine::StatusId;
 
-    /// Regression test for the playtest bug "провокация не даёт прирост брони":
-    /// `EcsContentView::status_bonuses` used to be a stub returning
-    /// `StatusBonuses::default()` (always 0). Effect::RefreshAggregates
-    /// reads bonuses through this method, so any status with
-    /// `armor_bonus > 0` (`defending`, etc.) was silently dropped while
-    /// `forces_targeting` continued to work — the latter is read via
-    /// `status_def` which was never stubbed.
-    ///
-    /// Asserts that for the real `defending` status loaded from
-    /// `assets/data/statuses.toml` (armor_bonus = 4), the bridge content
-    /// view now reports the correct bonus.
+    /// Regression for "провокация не даёт прирост брони": `status_bonuses` was a
+    /// stub returning `StatusBonuses::default()` (always 0), so RefreshAggregates
+    /// silently dropped armor bonuses while `forces_targeting` (read via
+    /// `status_def`) still worked. Asserts the real `defending` (armor_bonus=4)
+    /// now reports correctly.
     #[test]
     fn ecs_content_view_status_bonuses_reads_real_armor_bonus() {
         let active = ActiveContent(ActiveContentData::load_global_for_tests());

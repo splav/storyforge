@@ -1,11 +1,6 @@
-/// Step 6.2 — repair affinity computation (read-only).
-///
-/// `RepairAffinity` is a compositional breakdown of how well a fresh plan
-/// aligns with a stored `StoredGoalContext`. Each axis lives in `[0, 1]`
-/// and is aggregated into a single bonus via `RepairWeights` in 6.3.
-///
-/// All-zero input (no stored goal, or `Default::default()`) → `aggregate` = 0,
-/// so the scorer is unaffected when no goal is stored.
+//! Repair affinity computation (read-only): how well a fresh plan aligns with a
+//! stored `StoredGoalContext`. Each axis is `[0, 1]`, aggregated into one bonus
+//! via `RepairWeights`. All-zero input → `aggregate` = 0 (no stored goal).
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::intent::TacticalIntent;
@@ -16,10 +11,8 @@ use crate::game::hex::Hex;
 
 // ── RepairAffinity ────────────────────────────────────────────────────────────
 
-/// Compositional affinity components — each axis is `0..1`.
-///
-/// All-zeros means no stored goal exists or the goal was abandoned.
-/// Aggregated into a single repair bonus via [`RepairAffinity::aggregate`].
+/// Compositional affinity components — each axis is `0..1`. Aggregated into a
+/// single repair bonus via [`RepairAffinity::aggregate`].
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct RepairAffinity {
     /// How well the fresh intent matches the stored goal kind and target.

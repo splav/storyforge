@@ -1,9 +1,6 @@
-//! Bridge smoke tests: cast routing, log emission, crit-fail, and summon.
-//!
-//! Covers `ActionInput::Cast` routing through `process_action_system`, CombatLog
-//! emission for damage, status-applied, mana-changed, and critical-miss events,
-//! crit-fail positive/negative cases, and synchronous ECS entity creation on
-//! summon cast.
+//! Bridge smoke tests: `ActionInput::Cast` routing through
+//! `process_action_system`, CombatLog emission (damage/status/mana/crit-miss),
+//! crit-fail cases, and synchronous ECS entity creation on summon cast.
 
 use bevy::prelude::*;
 
@@ -565,10 +562,9 @@ fn cast_no_crit_fail_no_crit_fail_log_when_d20_non_one() {
     run_crit_fail_log_test(11, false);
 }
 
-// TODO(unisim phase2 step 7-followup or step 9): once EcsContentView populates
-// crit_fail_outcome from race content (currently defaults to Miss), add bridge_cast
-// tests for CritFailSideEffect variants (DoubleCost, SelfDamage, ApplyStatus).
-// Engine cast.rs tests already pin the per-outcome logic on the engine side.
+// TODO: once EcsContentView populates crit_fail_outcome from race content (now
+// defaults to Miss), add bridge tests for CritFailSideEffect variants
+// (DoubleCost/SelfDamage/ApplyStatus). Engine cast.rs already pins per-outcome logic.
 
 // ── Phase 3.5c: Cast(Summon) creates ECS entity via bridge ───────────────────
 
@@ -727,13 +723,10 @@ fn cast_summon_creates_ecs_entity_synchronously() {
     );
 }
 
-/// After a summon cast, the combat log must contain an `InitiativeRolled` entry
-/// whose `actor` is the newly-spawned entity.
-///
-/// Regression guard: the engine emits `InitiativeRolled` for the summon before
-/// `UnitSpawned`, so the normal `translate_events` pass has no entity to attach it
-/// to and silently drops it. The post-pass in `process_action_system` must
-/// re-scan the event list and push the entry after the entity exists in `id_map`.
+/// After a summon cast, the log must contain `InitiativeRolled` for the new
+/// entity. Regression guard: the engine emits it before `UnitSpawned`, so
+/// `translate_events` has no entity to attach it to; the post-pass in
+/// `process_action_system` must re-scan once the entity is in `id_map`.
 #[test]
 fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
     use storyforge::content::abilities::TargetType;

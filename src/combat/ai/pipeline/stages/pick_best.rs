@@ -1,51 +1,32 @@
-//! PickBestStage — step 7.4 / 11.4.
+//! PickBestStage — picks the winning plan, plus the picker API formerly in
+//! `planning/picker.rs` (`PickMechanics`, `commit_plan`, `pick_best_plan`,
+//! `record_committed_reservations`).
 //!
-//! Also contains the picker API (formerly `planning/picker.rs`):
-//! `PickMechanics`, `commit_plan`, `pick_best_plan`, `record_committed_reservations`.
+//! Selection uses the same mercy + top-K window logic as `pick_best_plan`, then
+//! writes `annotation.chosen` / `annotation.pick` on the winner.
 //!
-//! Selects the winning plan from the scored pool using the same mercy + top-K
-//! window logic that `PlanRanking::pick` used (via `pick_best_plan`). Writes
-//! `annotation.chosen = true` and `annotation.pick = Some(PickInfo { .. })`
-//! on the winning plan.
+//! ## Per-agenda-item composition
 //!
-//! ## Per-agenda-item composition (step 11.4)
-//!
-//! When `ctx.agenda` is `Some` and plans have `per_item` data populated by
-//! `ItemScoringStage`, the stage performs **additive composition**:
+//! When `ctx.agenda` is `Some` and `ItemScoringStage` populated `per_item`, the
+//! stage swaps the primary intent+tempo columns for each item's variant and
+//! takes the best — the delta lives in the same additive space as
+//! `finalize_scores`:
 //!
 //! ```text
-//! For each eligible per_item[i]:
-//!   composed_i = ann.score_initial
-//!              + factor_contribution(per_item.intent_factor, stats_intent, signed, w_intent)
-//!              - factor_contribution(intent_primary,          stats_intent, signed, w_intent)
-//!              + factor_contribution(per_item.tempo_factor,  stats_tempo,  signed, w_tempo)
-//!              - factor_contribution(tempo_primary,           stats_tempo,  signed, w_tempo)
-//!              + w_intent × cdot_i
-//!
-//! ann.score       = max_i(composed_i)  over eligible items
-//! ann.agenda_item = argmax_i
+//! composed_i = ann.score_initial
+//!            + intent_contribution(per_item[i]) - intent_contribution(primary)
+//!            + tempo_contribution(per_item[i])  - tempo_contribution(primary)
+//!            + W × cdot_i                       // W = weight[PlanFactor::Intent]
+//! ann.score = max_i(composed_i);  ann.agenda_item = argmax_i  // over eligible i
 //! ```
 //!
-//! The formula replaces the primary-intent and tempo columns with per-item
-//! variants, computing the *delta* in the same additive space as `finalize_scores`.
-//! The `cdot` bonus uses `w_intent` as a scale cap so it cannot override
-//! Sanity / Critics multipliers.
+//! Scaling `cdot` by `W` caps the bonus at one factor-swing so it can't override
+//! Sanity/Critics multipliers and adds no new tuning surface. The asymmetry
+//! (fallback plans with no eligible item keep the raw pipeline score) is
+//! intentional: having a band-eligible item is itself a quality signal.
 //!
-//! # Asymmetry: attributed vs fallback plans
-//!
-//! Per-item composition (step 11.4):
-//!   attributed plan: composed = initial + intent_delta + tempo_delta + W × cdot
-//!   fallback plan:   composed = pipeline ann.score (no eligible items)
-//!
-//! W = weight[PlanFactor::Intent] from finalize_scores — keeps cdot bonus
-//! in scale of one factor swing, no new tuning surface.
-//!
-//! Asymmetry is intentional: having a band-eligible item IS a quality signal.
-//! Bounded by W so it cannot override Sanity/Critics multipliers.
-//!
-//! **Edge cases:**
-//! - Empty agenda or `per_item` empty → legacy single-score path.
-//! - All items `!eligible` → `ann.score` stays as-is (pipeline value), `ann.agenda_item = None`.
+//! Edge cases: empty agenda / `per_item` → legacy single-score path; all items
+//! `!eligible` → `ann.score` unchanged, `ann.agenda_item = None`.
 
 use crate::combat::ai::orchestration::{AiDecision, AiWorld, MoveOrigin};
 use crate::combat::ai::outcome::PickInfo;
@@ -94,9 +75,6 @@ pub struct PickMechanics {
 /// - `[Move, ..]` → `Move { origin: BestPlan }` (or `EndTurn` when the path is
 ///   a no-op), 1 step.
 pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
-    // Structural decomposition lives on TurnPlan; we only decide how each
-    // prefix shape maps to an `AiDecision` (with a few no-op short-circuits
-    // for empty-path degenerate cases).
     let prefix = plan.committed_prefix();
     let consumed = prefix.step_count();
     let decision = match prefix {
@@ -149,24 +127,19 @@ pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
 }
 
 /// Mercy cruelty for a plan: how harsh does it feel? Kill dominates; CC caps
-/// at 0.5 regardless of magnitude. Reads the **precomputed** raw factor row
-/// for `plan` — previously we re-ran `compute_plan_factors` per plan in the
-/// mercy window, which was a full plan-walk + per-step factor recomputation
-/// just to grab two numbers we already had.
+/// at 0.5 regardless of magnitude. Reads the precomputed raw factor row.
 fn mercy_cruelty(raw: &PlanFactorValues) -> f32 {
     raw.get(StepFactor::KillNow)
         + raw.get(StepFactor::KillPromised) * 0.5
         + (raw.get(StepFactor::Cc) * 0.1).min(0.5)
 }
 
-/// Pick the winning plan. Mirrors `pick_best_candidate` — window-bounded top-K
-/// sampling with a mercy tie-breaker applied only inside the near-best window.
+/// Pick the winning plan: window-bounded top-K sampling with a mercy tie-breaker
+/// applied only inside the near-best window.
 ///
-/// Always returns the `PickMechanics` breakdown (top_k, window, mercy
-/// bookkeeping, ranked pool). The pool is ≤ `top_k` elements (1-3 in practice),
-/// so the allocation is ~24 bytes on the stack / small-Vec region — too cheap
-/// to justify a dual streaming-vs-materialize path. Prod callers ignore the
-/// mechanics; debug overlay reads it.
+/// Always returns the `PickMechanics` breakdown — prod callers ignore it, the
+/// debug overlay reads it. The pool is ≤ `top_k` (1-3 in practice), too cheap to
+/// justify a dual streaming-vs-materialize path.
 pub fn pick_best_plan(
     keys: &[SelectionKey],
     raw_factors: &[PlanFactorValues],
@@ -254,17 +227,11 @@ pub fn pick_best_plan(
     )
 }
 
-/// Record reservations for the **committed** prefix of the winning plan so
-/// subsequent AI units this round coordinate (avoid overkill, duplicate CC,
-/// tile collisions). Only the first `consumed` steps — the ones this tick
-/// actually emits as an `AiDecision` — are recorded. Future plan steps stay
-/// invisible to the reservation layer until they themselves commit on a later
-/// tick; this trades a slightly weaker coordination signal for freedom from
-/// ghost reservations when plans get invalidated mid-flight.
-///
-/// `consumed` comes from `steps_consumed_by_decision` and matches the match
-/// arm in `decision_from_steps` (1 for a solo cast/move, 2 for a Move→Cast
-/// bundle).
+/// Record reservations for the **committed** prefix (first `consumed` steps,
+/// the ones this tick emits as an `AiDecision`) so subsequent AI units this
+/// round coordinate (avoid overkill, duplicate CC, tile collisions). Later plan
+/// steps stay invisible until they commit on a future tick — trades a weaker
+/// signal for no ghost reservations when plans are invalidated mid-flight.
 pub fn record_committed_reservations(
     plan: &TurnPlan,
     consumed: usize,
@@ -366,9 +333,8 @@ impl PlanStage for PickBestStage {
                     let band_weights = agenda.band.weights();
                     let scoring = ctx.scoring;
 
-                    // ── Reconstruct BatchStats for Intent and TempoGain (O(N)) ──
-                    // This mirrors finalize_scores Pass 0 but only for the two
-                    // plan factors needed for additive deltas. O(N) over pool.
+                    // Reconstruct BatchStats for Intent + TempoGain only (the
+                    // two plan factors the additive deltas need). O(N) over pool.
                     let mut stats_intent = BatchStats { min: 0.0, max: 0.0 };
                     let mut stats_tempo = BatchStats { min: 0.0, max: 0.0 };
 
@@ -409,8 +375,8 @@ impl PlanStage for PickBestStage {
                         }
                     }
 
-                    // ── Reconstruct weights for Intent and TempoGain ──
-                    // Mirrors finalize_scores lines 183-201 exactly.
+                    // Reconstruct Intent/TempoGain weights — must match the
+                    // weighting in aggregate_factors_to_score.
                     let world = scoring.world;
                     let active = scoring.active;
                     let mut weights = if scoring.last_goal.is_some() {
@@ -477,15 +443,10 @@ impl PlanStage for PickBestStage {
                             );
                             let tempo_delta = contrib_tempo_item - contrib_tempo_primary;
 
-                            // per_item.considerations is the composite:
-                            //   urgency / role_affinity        — from item-level (plan-agnostic,
-                            //                                     set in build_agenda 11.3)
-                            //   feasibility / leverage / safety /
-                            //   continuation_value             — from OverlayConsiderationsStage
-                            //                                     (plan-aware, 11.4)
-                            // PickBest reads the composite only; item-level baseline lives in
-                            // agenda.items[i].considerations for separate observability and is
-                            // pulled into per_item by the overlay stage.
+                            // per_item.considerations is the composite of item-level
+                            // (urgency/role_affinity, plan-agnostic) and overlay
+                            // (feasibility/leverage/safety/continuation_value, plan-aware)
+                            // signals. PickBest reads the composite only.
                             let cdot = per_item.considerations.weighted_dot(&band_weights);
 
                             // composed = initial + intent_delta + tempo_delta + W × cdot
@@ -537,15 +498,10 @@ impl PlanStage for PickBestStage {
 
 // ── Picking jitter ────────────────────────────────────────────────────────────
 
-/// Apply deterministic, batch-scaled noise to every finite-score plan in the
-/// pool before argmax. Replaces Pass 2 noise from `scorer.rs::finalize_scores`.
-///
-/// Returns a `Vec<f32>` (length `pool.len()`) with the accumulated noise
-/// per plan (0.0 for skipped / masked plans). Mutates `pool.annotations[i].score`
-/// in-place for finite scores.
-///
-/// If `s_min` or `s_max` is not finite (all plans masked), returns a zero vec
-/// immediately — no fallback to a constant spread.
+/// Apply deterministic, batch-scaled noise to every selectable plan before
+/// argmax, mutating `ann.score` in place. Returns per-plan noise (0.0 for
+/// skipped / masked plans). All plans masked (non-finite spread) → zero vec, no
+/// constant-spread fallback.
 fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
     let noise_amp = ctx.scoring.world.difficulty.score_noise();
     let n = pool.len();

@@ -1,19 +1,11 @@
-//! Critics layer — pipeline stage 10 (step 10.0 / 10.1 / 10.2 / 10.3).
-//!
-//! This module contains both the `PlanCritic` trait + associated types and the
+//! Critics layer — holds the `PlanCritic` trait + associated types and the
 //! `CriticsStage` dispatcher that runs them.
 //!
-//! `PlanCritic` trait + associated types: each critic evaluates a single plan
-//! after scoring and returns an `Option<CriticHit>`:
+//! Each critic evaluates a single plan after scoring and returns an
+//! `Option<CriticHit>`:
 //! - `None` = plan passes this critic (no action).
 //! - `Some(hit)` = plan violates a heuristic; `hit.multiplier` is applied
 //!   multiplicatively to `ann.score` by `CriticsStage`.
-//!
-//! `CriticsStage::first_wave()` registers all critics from steps 10.1–10.3:
-//! - Step 10.1: defensive cluster — OvercommitIntoDanger + SelfLethalWithoutPayoff.
-//! - Step 10.2: positioning cluster — BlindspotRanged.
-//! - Step 10.3: resource/value cluster — BuffIntoVoid + RareResourceForLowImpact
-//!   + HealWithoutRescueValue.
 
 pub mod blindspot_ranged;
 pub mod buff_into_void;
@@ -163,12 +155,8 @@ pub struct CriticsStage {
 }
 
 impl CriticsStage {
-    /// Build the first-wave critic set.
-    ///
-    /// Step 10.1: defensive cluster — OvercommitIntoDanger + SelfLethalWithoutPayoff.
-    /// Step 10.2: positioning cluster — BlindspotRanged.
-    /// Step 10.3: resource/value cluster — BuffIntoVoid + RareResourceForLowImpact
-    ///            + HealWithoutRescueValue.
+    /// Build the first-wave critic set: defensive (overcommit, self-lethal),
+    /// positioning (blindspot), and resource/value clusters.
     pub fn first_wave() -> Self {
         Self {
             critics: vec![
@@ -369,17 +357,11 @@ mod tests {
         }
     }
 
-    // ── critics_survive_through_adaptation_path (B3 regression) ──────────
-    //
-    // Regression test for B3 fix (step 11.0): in the old pipeline order
-    // Critics ran before FinalizeStage, which would rescore ann.score from
-    // raw factors — wiping the Critics multiplier. In the new order:
-    //   ModeSelection → Finalize → Sanity → Critics → ...
-    // Critics run AFTER Finalize, so their multipliers survive.
-    //
-    // This test runs a partial pipeline:
-    //   ModeSelectionStage → FinalizeStage → AlwaysHitCritic(0.5)
-    // and verifies that the final score = finalized_score × 0.5.
+    // Regression: Critics run AFTER Finalize in the pipeline order
+    // (ModeSelection → Finalize → Sanity → Critics → …), so a critic multiplier
+    // is not wiped by Finalize rescoring from raw factors. Runs a partial
+    // pipeline (Finalize → AlwaysHitCritic(0.5)) and asserts
+    // final score == finalized_score × 0.5.
 
     #[allow(clippy::too_many_arguments)]
     fn run_partial_pipeline_with_critic(

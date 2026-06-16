@@ -104,18 +104,9 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
 
 /// AoO integration test: real `EcsContentView` feeds weapon dice to the engine.
 ///
-/// Setup:
-/// - Player at hex A; Enemy at adjacent hex B.
-/// - Enemy has `Reactions { remaining: 1 }`, a melee WeaponAttack ability, and
-///   an equipped weapon (1d6, str=5 → str_mod=2 → dice bonus=+2).
-/// - A synthetic `ActiveContent` is injected with the ability and weapon.
-/// - Player moves to a hex not adjacent to the enemy (disengagement).
-///
-/// Assertion: player's `Vital.hp()` is less than `max_hp` after two updates,
-/// proving the engine fired AoO using real dice from `EcsContentView`.
-///
-/// With `ExpectedValue` (the dice source used by `process_action_system`),
-/// AoO damage = round(1d6 + 2) = round(5.5) = 6; armor = 0 → hp drops from 20 to 14.
+/// Enemy (1d6 weapon, str=5 → +2) is adjacent; player disengages, proving the
+/// engine fires AoO with real dice from `EcsContentView`. Under `ExpectedValue`,
+/// AoO damage = round(1d6 + 2) = 6, armor 0 → player hp drops 20 → 14.
 #[test]
 fn aoo_dice_flows_from_equipment_through_process_action_system() {
     let player_start = hex_from_offset(0, 0);

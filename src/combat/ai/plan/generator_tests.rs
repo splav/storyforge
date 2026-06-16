@@ -1,12 +1,5 @@
-//! Tests for `generator.rs` — split from the source file via `#[path]` in
-//! `generator.rs` (see end of that file). Production code stays in
-//! `generator.rs`; this file holds the test module body.
-//!
-//! Split per [docs/testing.md §2](../../../../docs/testing.md):
-//! `generator.rs` grew to 2089 LOC with tests dominating the lower half.
-//!
-//! `super::*` here resolves to `generator.rs` (since this file is included
-//! as `mod tests` inside generator.rs).
+//! Tests for `generator.rs` — included as `mod tests` via `#[path]` at the end
+//! of that file, so `super::*` resolves to `generator.rs`.
 
 use super::*;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
@@ -899,14 +892,10 @@ fn generate_plans_excludes_taunt_violating_casts() {
     }
 }
 
-/// F6: AI plan generator must not propose a Cast through a static obstacle
-/// when the ability has `requires_los = true`. Previously verified only at
-/// `check_legality` unit level; this exercises the full pipeline.
-///
-/// Two-phase: a negative control (no obstacle → Cast IS proposed) sandwich
-/// confirms the planner *is* willing to cast at this target absent LOS
-/// blockage, ensuring the positive assertion isn't a false-positive caused
-/// by some other gate excluding the cast unconditionally.
+/// F6: plan generator must not propose a Cast through a static obstacle when
+/// `requires_los = true` (full-pipeline check, not just `check_legality`).
+/// A negative control (no obstacle → Cast IS proposed) guards against a
+/// false-positive where some other gate drops the cast unconditionally.
 #[test]
 fn generate_plans_excludes_los_blocked_cast() {
     use crate::combat::ai::world::tags::cache::build_caches;
@@ -978,10 +967,8 @@ fn generate_plans_excludes_los_blocked_cast() {
 }
 
 /// Regression: AI must respect `blocks_mana_abilities` at planning time.
-/// Pre-arch-D the planner only checked `can_afford` (AP + resource amount),
-/// missing the status flag — so a unit under `broken_faith` would plan
-/// mana-cost casts, lose the round to validation's reject, and `EndTurn`.
-/// Now `check_legality` gates every Cast candidate and filters them out.
+/// Pre-arch-D the planner only checked `can_afford`, so a `broken_faith` unit
+/// planned mana casts that validation later rejected, wasting the round.
 #[test]
 fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
     use crate::combat::ai::test_helpers::status_view;
@@ -1154,15 +1141,10 @@ fn ground_generator_emits_enemy_centered_cells() {
     );
 }
 
-/// Regression for arch-debt-A: when the top-K-by-rank enemies are all
-/// illegal (out-of-range / taunt-blocked), the planner must still
-/// surface a legal lower-ranked target. Pre-fix, `rank_targets` picked
-/// top-K first then `check_legality` dropped them all → 0 candidates
-/// even though a legal target existed in the pool.
-///
-/// Setup: 3 high-threat enemies (top-K candidates) all out of strike
-/// range, plus 1 low-threat enemy in range. Expectation: planner
-/// generates a Cast at the in-range enemy.
+/// Regression (arch-debt-A): when the top-K-by-rank enemies are all illegal
+/// (out-of-range / taunt-blocked), the planner must still surface a legal
+/// lower-ranked target. Pre-fix, `rank_targets` picked top-K then
+/// `check_legality` dropped them all → 0 candidates despite a legal target.
 #[test]
 fn rank_targets_picks_legal_when_top_k_by_rank_all_illegal() {
     // Strike range = 1, melee. High-threat enemies parked out of reach.
@@ -1683,12 +1665,9 @@ fn apply_endturn_ticks_status_exactly_once_per_branch() {
     };
     content.statuses.insert(poison_id.clone(), poison_def);
 
-    // ── Snapshot: actor poisoned by themselves (applier == actor) ────────
-    // tick_actor_statuses filters by applier == actor_uid, and
-    // snapshot_to_combat_state sets applier = entity_to_uid(unit.entity)
-    // for every status, so this actor's own status will be ticked.
+    // Actor poisoned by themselves: tick_actor_statuses filters by
+    // applier == actor_uid, so the applier below must be the actor's own uid.
     let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 30, 2);
-    // applier must match actor_uid (entity.to_bits()) so tick_actor_statuses picks it up.
     actor.statuses = vec![combat_engine::state::ActiveStatus {
         id: poison_id.clone(),
         rounds_remaining: 3,

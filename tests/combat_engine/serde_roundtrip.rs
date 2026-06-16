@@ -1,10 +1,8 @@
-//! Serde round-trip tests for all engine-public serializable types (Phase 5 gate §7 item 1).
+//! Serde round-trip tests for all engine-public serializable types.
 //!
-//! Each test asserts:
-//! 1. `value` serializes to JSON without error.
-//! 2. The JSON deserializes back to a value `== value`.
-//! 3. A second serialization of the decoded value is **byte-equal** to the first
-//!    (stable field order — §8 gotcha "Vec<Unit> final-state equality").
+//! Each test asserts: `value` serializes; the JSON deserializes back to `==
+//! value`; and a re-serialization is **byte-equal** to the first (stable field
+//! order — needed for `Vec<Unit>` final-state equality).
 
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;

@@ -2,16 +2,9 @@
 //! real engine `step()` with expected-value dice).
 //!
 //! **Layer 1** — focused invariant per outcome kind (damage, heal, resource
-//! grant, …). Each test constructs an explicit fixture, calls
-//! `SimState::apply_step`, and asserts the exact state-delta formula.
-//!
-//! **Layer 1b** — drift-dimension parity: status-reflow speed, armor-buff
-//! mitigation, AoO damage/reactions, rage gain — asserted against the engine
-//! damage formulas (`final_damage_f32`).
-//!
-//! Historical note: a Layer-2 property sweep compared `SimState` against the
-//! hand-rolled `ai/sim` resolution core. Post-unisim the sim *is* the engine,
-//! so the sweep became a tautology and was deleted along with `ai/sim/`.
+//! grant, …): explicit fixture → `apply_step` → assert exact state-delta.
+//! **Layer 1b** — drift-dimension parity (status-reflow speed, armor-buff
+//! mitigation, AoO damage/reactions, rage gain) vs `final_damage_f32`.
 
 #[cfg(test)]
 mod tests {
@@ -608,18 +601,13 @@ mod tests {
         }
     }
 
-    // ── Layer 1b: drift-dimension parity (relocated from tests/combat/sim_parity.rs) ──
+    // ── Layer 1b: drift-dimension parity ──
     //
-    // Sim-side-only invariants for status-reflow speed, armor-buff mitigation, AoO
-    // damage / reaction-decrement, and rage gain. These were misfiled in the full-app
-    // integration binary (tests/combat/sim_parity.rs) — they never drove the real
-    // combat pipeline (only TODO comments described it). Relocated 2026-05-30 (Phase 3).
+    // Sim-side-only invariants for status-reflow speed, armor-buff mitigation,
+    // AoO damage / reaction-decrement, and rage gain.
 
-    /// Parity check: after a haste status (speed_bonus=+2) is applied, the sim's
-    /// `unit.speed` equals `base_speed + 2`.
-    ///
-    /// Verifies that `SimState::apply_step` on a Cast(haste) correctly reflows the
-    /// speed bonus from the status tag cache into the sim unit's `speed` field while
+    /// Parity check: after a haste status (speed_bonus=+2) is applied via
+    /// Cast(haste), the sim reflows it into `effective_speed` (base+2) while
     /// leaving `base_speed` unchanged.
     #[test]
     fn parity_haste_speed_real_vs_sim() {
@@ -1342,12 +1330,8 @@ mod tests {
     }
 
     /// SpellDamage vs a defender with magic_resist > 0: the sim HP delta must
-    /// equal `final_damage_f32(raw, magic_resist, false)`.
-    ///
-    /// With magic_resist=0 this is identical to the old pierces_armor=true path
-    /// (because `final_damage_f32(raw, 0, 0, false) == final_damage_f32(raw, X, 0, true)`
-    /// when mitigation is 0). With magic_resist=3 the delta shrinks by 3 — verifying
-    /// the AI sim respects magic_resist via the engine's apply_effect path.
+    /// equal `final_damage_f32(raw, magic_resist, false)` — verifying the AI sim
+    /// applies magic_resist (delta shrinks by 3) via the engine's apply_effect path.
     #[test]
     fn parity_spell_damage_respects_magic_resist() {
         use crate::combat::ai::plan::sim::SimState;

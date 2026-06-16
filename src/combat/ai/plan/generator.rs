@@ -6,8 +6,8 @@
 //! produced at any depth (including early terminations) accumulate into the
 //! returned pool; Phase 3 scoring picks the winner.
 //!
-//! No persistent state: every tick starts fresh. Revalidation of a committed
-//! plan lives in Phase 4.
+//! No persistent state: every tick starts fresh. Committed-plan revalidation
+//! lives in Phase 4.
 
 use crate::combat::ai::action_state::SnapshotActionState;
 use crate::combat::ai::adapt::EvaluationMode;
@@ -30,13 +30,10 @@ use combat_engine::legality::{check_legality, ProposedAction};
 use combat_engine::AbilityId;
 use std::collections::{HashMap, HashSet};
 
-// Per-step target + move-tile budgets. Composition matters more than the
-// gross count: target enumeration combines a threat-ranked list (focus the
-// scariest enemies) with a killability-ranked list (finish wounded ones). Move
-// tile enumeration mixes escape (retreat), opportunity (attacking), and
-// priority-adjacent (engage the current focus target) so the planner sees
-// qualitatively different positioning options instead of five flavours of
-// "retreat to safest tile".
+// Per-step target + move-tile budgets. Composition matters more than gross
+// count: targets mix threat-ranked (scariest) with killability-ranked
+// (finish wounded); move tiles mix escape / opportunity / priority-adjacent so
+// the planner sees qualitatively different options, not five "safest retreat"s.
 const TARGETS_BY_THREAT: usize = 3;
 const TARGETS_BY_KILLABILITY: usize = 2;
 const MOVE_TILES_ESCAPE: usize = 2;
@@ -120,12 +117,10 @@ pub fn generate_plans(
 
             let steps = enumerate_next_steps(&base_sim, ctx, maps);
             for step in steps {
-                // Prune Summon casts that would be blocked by `max_active`.
-                // `sim.apply_step` doesn't materialise summoned units (see
-                // sim.rs Summon branch), so cap pressure from *earlier*
-                // Cast-Summon steps in this plan isn't visible in
-                // `base_sim.snapshot` — count them from `plan.steps` and add
-                // to the live count from the snapshot.
+                // Prune Summon casts blocked by `max_active`. sim.apply_step
+                // doesn't materialise summons (see sim.rs Summon branch), so
+                // earlier Cast-Summon steps aren't in `base_sim.snapshot` —
+                // count them from `plan.steps` and add to the live count.
                 if let PlanStep::Cast { ability, .. } = &step {
                     if let Some(def) = ctx.content.abilities.get(ability) {
                         if let EffectDef::Summon { max_active, .. } = &def.effect {
@@ -179,19 +174,16 @@ pub fn generate_plans(
                 };
                 let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.content, disadvantage);
 
-                // Phase 4 (4f): tick statuses at end of this plan branch so
-                // scoring sees post-handoff state (DoT damage, expiry).
-                // Called once per branch expansion — the next depth starts from
-                // the already-ticked snapshot, guaranteeing no double-tick.
+                // Tick statuses at end of this branch so scoring sees
+                // post-handoff state (DoT damage, expiry). Once per expansion —
+                // next depth starts from the ticked snapshot, no double-tick.
                 let actor_uid = entity_to_uid(actor);
                 ext_sim.apply_endturn(actor_uid);
 
-                // Mid-plan death truncation (step 12.2): if the actor died on
-                // this step (AoO lethal hit, self-AoE, etc.) record the plan
-                // with this step included but do not extend it further. The
-                // existing depth-loop guard (`actor_unit()` returns None for
-                // dead actors) ensures the plan won't be extended in subsequent
-                // depth iterations either.
+                // Mid-plan death truncation: if the actor died this step (AoO
+                // lethal, self-AoE), record the plan including this step but
+                // don't extend it. The depth-loop guard (`actor_unit()` → None
+                // for dead actors) also prevents extension next iteration.
                 let actor_is_dead = ext_sim.actor_unit().map(|a| a.hp() <= 0).unwrap_or(true);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
@@ -261,17 +253,13 @@ pub fn generate_plans(
     dedup_by_logical_key(all_plans, actor_u.pos)
 }
 
-/// Collapse plans that differ only in movement path to the same hex. Two plans
-/// with the same logical sequence (Move destinations, Cast (ability, target,
-/// caster_pos) at each step) produce identical outcomes; keeping all of them
-/// wastes scoring budget and eats top-K window slots with noise-only
-/// differentiation — the canonical symptom: five `melee_attack Lyra at (2,4)`
-/// entries taking up the top of the ranking because each uses a slightly
-/// different BFS route.
+/// Collapse plans differing only in movement path to the same hex. Same logical
+/// sequence (Move destinations + Cast (ability, target, caster_pos)) → identical
+/// outcomes; keeping all wastes scoring budget and floods top-K with noise (five
+/// `melee_attack Lyra at (2,4)` via slightly different BFS routes).
 ///
-/// When duplicates exist, keep the variant with the lowest total MP cost
-/// (shorter path = more residual MP for subsequent steps). Ties keep the
-/// earliest-discovered plan.
+/// Keeps the lowest total-MP-cost variant (more residual MP downstream); ties
+/// keep the earliest-discovered plan.
 fn dedup_by_logical_key(plans: Vec<TurnPlan>, actor_start: Hex) -> Vec<TurnPlan> {
     let mut best: HashMap<Vec<StepKey>, usize> = HashMap::new();
     let mut costs: Vec<i32> = Vec::with_capacity(plans.len());
@@ -344,17 +332,13 @@ fn total_mp_cost(plan: &TurnPlan) -> i32 {
 // ── Step enumeration ───────────────────────────────────────────────────────
 
 /// All legal next steps from the current sim state: castable abilities (each
-/// with a top-K target set) + top-M move tiles. Bounded by MAX_* constants so
-/// branching stays low even with many abilities.
+/// with a top-K target set) + top-M move tiles. Bounded by MAX_* constants.
 ///
-/// Two layers of filtering:
+/// Two filtering layers:
 /// 1. **Game-rule legality** — `check_legality` (shared with player-side
-///    validation) handles AP/resources/range/team/taunt/blocks-mana-status
-///    uniformly. Anything it rejects is simply not a legal action; we never
-///    waste a beam slot on it.
-/// 2. **AI policy** — `ai_policy_ok` is the heuristic layer that rejects
-///    legal-but-suboptimal casts (overheal, wasted CC, bad AoE FF ratio).
-///    Player is free to do any of these; AI doesn't plan through them.
+///    validation): AP/resources/range/team/taunt/blocks-mana.
+/// 2. **AI policy** — `ai_policy_ok` rejects legal-but-suboptimal casts
+///    (overheal, wasted CC, bad AoE FF ratio) the player could still do.
 fn enumerate_next_steps(sim: &SimState, ctx: &AiWorld, maps: &InfluenceMaps) -> Vec<PlanStep> {
     let Some(actor) = sim.actor_unit() else {
         return Vec::new();
@@ -367,20 +351,16 @@ fn enumerate_next_steps(sim: &SimState, ctx: &AiWorld, maps: &InfluenceMaps) -> 
         snap: &sim.snapshot,
     };
 
-    // Flee regime: offensive abilities are suppressed entirely — the fleeing
-    // unit will not attack (spec §9: "mask на все offensive abilities —
-    // Cast-кандидаты выкидываются"). Dropping the candidates here (rather than
-    // only penalising them in `evaluate_flee_step`) is necessary because the
-    // offensive damage/tempo step-factors are scored independently of the
-    // intent column and would otherwise let an attack win on raw damage.
-    // Self-heal / self-buff (SingleAlly / Myself) casts and moves still pass.
+    // Flee regime: offensive abilities suppressed entirely (spec §9). Must drop
+    // candidates here, not just penalise in `evaluate_flee_step` — offensive
+    // step-factors score independently of the intent column and would otherwise
+    // let an attack win on raw damage. Self-heal/buff + moves still pass.
     let fleeing = matches!(actor.forced_mode(), Some(EvaluationMode::Flee));
 
-    // Cast steps from the actor's current sim position. Read abilities
-    // from the snapshot — same source `check_legality::actor_knows_ability`
-    // will consult, so no dual-list drift. `rank_targets` already filters
-    // candidates through `check_legality`, so this loop only needs the
-    // AI-policy gate on top.
+    // Cast steps from the actor's current sim position. Abilities read from the
+    // snapshot — same source `check_legality::actor_knows_ability` uses, so no
+    // dual-list drift. `rank_targets` already runs `check_legality`, so this
+    // loop only adds the AI-policy gate.
     for ability_id in &actor.cache.abilities {
         let Some(def) = ctx.content.abilities.get(ability_id) else {
             continue;
@@ -430,18 +410,8 @@ fn enumerate_next_steps(sim: &SimState, ctx: &AiWorld, maps: &InfluenceMaps) -> 
 /// player can legally do any of these; they're rejected purely because AI
 /// plans through them waste AP / splash allies / redundantly stun.
 ///
-/// Runs *after* `check_legality` accepted the candidate (so actor/target
-/// existence, team, range, AP, resources, taunt are already guaranteed).
-///
-/// Heuristics:
-/// - **Overheal**: SingleAlly on target above 90% HP — almost no healing
-///   to be done.
-/// - **Wasted CC**: single-target CC on an already-stunned target. AoE CC
-///   keeps its candidate — dropping the whole AoE because one enemy in
-///   the blast zone is stunned is wrong.
-/// - **AoE friendly-fire ratio**: reject friendly-fire AoE when
-///   `allies_hit > 0 && enemies_hit < allies_hit * 2` (splash damages
-///   more friends than enemies justify).
+/// Runs *after* `check_legality` accepted the candidate (target existence,
+/// team, range, AP, resources, taunt already guaranteed). Heuristics inline.
 fn ai_policy_ok(
     def: &AbilityDef,
     actor: UnitView<'_>,
@@ -482,25 +452,15 @@ fn ai_policy_ok(
     true
 }
 
-/// Rank candidate (entity, target_pos) pairs by AI heuristic, **filtered to
-/// legal candidates first**. Closes the old top-K-then-filter trap where
-/// every top-ranked target could be illegal (out-of-range / taunt-blocked /
-/// dead) and the ability silently produced 0 candidates even with a legal
-/// lower-ranked option in the pool.
+/// Rank candidate (entity, target_pos) pairs by AI heuristic, **legal candidates
+/// first** (scan → keep legal → rank → top-K). Avoids the top-K-then-filter trap
+/// where every top-ranked target is illegal and the ability silently yields 0
+/// candidates despite a legal lower-ranked option.
 ///
-/// Order is: scan candidates → keep legal → rank → top-K. Legality is
-/// queried via the same `check_legality` / `SnapshotActionState` pair
-/// `enumerate_next_steps` would have called downstream, so the upstream
-/// check is now redundant and the caller drops it.
-///
-/// - `SingleEnemy`: union of top-N by threat and top-M by killability,
-///   deduped. Two signals catch qualitatively different targets — high-
-///   threat scaries you want to interrupt, and nearly-dead you want to
-///   finish. Union avoids missing "obvious kill opportunity" when threat
-///   alone would push it off the list.
-/// - `SingleAlly`: allies ranked by missing HP desc (most wounded first).
-///   No separate "threat" dimension for allies.
-/// - `Myself`: one pair — the actor itself.
+/// - `SingleEnemy`: union of top-N by threat and top-M by killability, deduped.
+///   Threat catches scaries-to-interrupt; killability catches kills-to-finish.
+/// - `SingleAlly`: allies by missing HP desc (most wounded first).
+/// - `Myself`: the actor itself.
 fn rank_targets(
     def: &AbilityDef,
     actor: UnitView<'_>,
@@ -564,20 +524,11 @@ fn rank_targets(
             picks.truncate(TARGETS_BY_THREAT + TARGETS_BY_KILLABILITY);
             picks.into_iter().map(|(e, p, _)| (e, p)).collect()
         }
-        // Ground: no entity target. Enumerate candidate landing *cells*.
-        // Simplest working heuristic: enemy-centered — one candidate cell
-        // per reachable enemy, ranked by the same threat ∪ killability
-        // union as SingleEnemy. Matches how pre-conversion thunderstrike
-        // was targeted (targetted an enemy, AoE fell on their tile); after
-        // thunderstrike → Ground the AI keeps the same tactical shape
-        // without needing a globally optimal cluster-picker.
-        //
-        // A richer scorer (centroid of enemy clusters, cover avoidance,
-        // friendly-fire minimisation) is a future refinement. The scoring
-        // pipeline downstream already penalises bad AoE footprints via
-        // `ai_policy_ok` (friendly-fire ratio) and `offensive` factors,
-        // so a suboptimal landing cell still loses to a better one in the
-        // beam-search ranking — we don't need to bake that into enumeration.
+        // Ground: no entity target. Enumerate landing *cells* — one per
+        // reachable enemy, ranked by the same threat ∪ killability union as
+        // SingleEnemy. A richer cluster/cover/FF-aware picker is future work;
+        // downstream scoring (`ai_policy_ok` FF ratio, offensive factors)
+        // already lets a suboptimal cell lose in the beam ranking.
         TargetType::Ground => {
             let pool: Vec<UnitView<'_>> = sim
                 .snapshot
@@ -612,16 +563,10 @@ fn rank_targets(
     }
 }
 
-/// Diverse move-tile picker. Returns up to
-/// `ESCAPE + OPPORTUNITY + PRIORITY_ADJACENT` distinct tiles, each chosen to
-/// express a **different** positioning intent:
-/// - top-N by escape (retreat toward support, away from danger)
-/// - top-M by opportunity (approach favourable attacking lanes)
-/// - one tile adjacent to the actor's current priority target (commit to
-///   melee/close range on the scariest enemy)
-///
-/// Without this mix, the pool tends to be five flavours of "safest retreat"
-/// and the planner never considers Move→Cast setups that aren't defensive.
+/// Diverse move-tile picker: up to `ESCAPE + OPPORTUNITY + PRIORITY_ADJACENT`
+/// distinct tiles, each expressing a **different** positioning intent (retreat /
+/// approach lanes / engage the priority target). Without the mix the pool
+/// degenerates to five "safest retreat"s and Move→Cast setups never appear.
 fn pick_top_move_tiles(
     reach: &ReachableMap,
     sim: &SimState,
@@ -634,9 +579,9 @@ fn pick_top_move_tiles(
         .copied()
         .filter(|&t| t != from)
         .collect();
-    // Deterministic order: HashSet iteration is randomized per-process; without
-    // sorting, downstream stable sort_by(score) preserves random tie order
-    // → different chosen tile per process → non-deterministic decisions.
+    // Deterministic order: HashSet iteration is per-process random; without
+    // sorting, the stable sort_by(score) below keeps random tie order →
+    // non-deterministic chosen tile.
     destinations.sort_by(|a, b| (a.x, a.y).cmp(&(b.x, b.y)));
     if destinations.is_empty() {
         return Vec::new();
@@ -702,17 +647,11 @@ fn seed_partial_score(actor: UnitView<'_>, maps: &InfluenceMaps) -> f32 {
     1.0 - maps.danger.get(actor.pos)
 }
 
-/// Proxy score used for beam pruning. Deliberately cheap and lossy — the real
-/// multi-factor score runs in Phase 3 against the pruned pool.
+/// Proxy score for beam pruning — cheap and lossy; the real multi-factor score
+/// runs in Phase 3. Weights keep good-damage plans alive through pruning rather
+/// than favouring safe retreat (Phase 3 can still reject over-aggressive plans).
 ///
-/// Aggregates cumulative damage/heal/kills/stuns plus a final-position safety
-/// bonus. Weights prioritize *keeping good-damage plans alive* through pruning
-/// over "maximally safe retreat" — we'd rather let the Phase 3 scorer reject
-/// a too-aggressive plan than prune a strong-damage line at depth 1 because
-/// its final tile danger shaved the score.
-///
-/// Calibration: 1 kill ≈ 10 HP damage ≈ 2× the pos_value spread. Heal weighted
-/// like damage (symmetric support/offensive potential).
+/// Calibration: 1 kill ≈ 10 HP damage ≈ 2× the pos_value spread; heal == damage.
 fn partial_score(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
     let (damage, heal, kills, stuns) =
         plan.outcomes

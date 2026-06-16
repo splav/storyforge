@@ -208,19 +208,14 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
 
 // ── Phase B-α: lock-in tests (pre-S6 bridge contract) ─────────────────────────
 
-/// Locks in the observable bridge contract for Cast-that-exhausts-AP/MP.
+/// Locks in the observable bridge contract for Cast-that-exhausts-AP/MP: the
+/// synchronous auto-end block fires step(EndTurn) when AP+MP hit 0 post-cast.
+/// After B-γ (S6) the engine self-ends, but UI-observable output must be
+/// identical — this test pins that.
 ///
-/// Today the bridge has a synchronous auto-end block that fires step(EndTurn)
-/// when the caster's AP+MP hit 0 after a cast.  After B-γ (S6) the engine will
-/// self-end its turn, but the bridge output observable to the UI must be
-/// identical in both cases.  This test pins that contract.
-///
-/// Setup: hero casts an ability with cost_ap=1.  Hero starts with AP=1, MP=0
-/// so after the cast AP=0, MP=0 → auto-end fires.
-///
-/// Assertions (must pass pre- AND post-S6):
-///  - CombatLog contains, in order: AbilityUsed(hero), TurnEnded(hero), TurnStarted(enemy).
-///  - ActiveCombatant migrated from hero to enemy.
+/// Setup: hero starts AP=1/MP=0, casts cost_ap=1 → AP=0,MP=0 → auto-end.
+/// Asserts (pre- AND post-S6): CombatLog order AbilityUsed → TurnEnded(hero) →
+/// TurnStarted(enemy); ActiveCombatant migrated hero → enemy.
 #[test]
 fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
     use storyforge::content::abilities::TargetType;
@@ -278,10 +273,9 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
 
     common::apps::bridge::bootstrap(&mut app);
 
-    // Set engine turn queue: hero is index=0 (current), enemy is index=1.
-    // bootstrap() doesn't set the engine turn queue when the ECS TurnQueue is
-    // empty (bridge tests don't run build_turn_order). Without this, step(EndTurn)
-    // inside the auto-end block fails with NotCurrent and is silently swallowed.
+    // Set engine turn queue (hero index 0, enemy 1): bootstrap() skips it when the
+    // ECS TurnQueue is empty, and without it step(EndTurn) fails NotCurrent and is
+    // silently swallowed.
     let hero_uid = entity_to_uid(hero);
     let enemy_uid = entity_to_uid(enemy);
     {
@@ -726,14 +720,11 @@ fn phase_transition_updates_ecs_tags_component() {
 }
 
 /// After a phase transition the bridge mirrors `engine Unit.runtime` → ECS
-/// `RuntimeStatsMirror` as a single POD assignment.
+/// `RuntimeStatsMirror` (POD assignment), the single-source-of-truth invariant
+/// guarded by `apply_phase_ecs_writes`.
 ///
-///   `RuntimeStatsMirror.0` == `engine_unit.runtime`
-///
-/// This is the single-source-of-truth invariant guarded by `apply_phase_ecs_writes`.
-/// The `PhaseEntry.runtime` is injected directly into the engine state after bootstrap
-/// (bypassing the PhaseDef→PhaseEntry equipment-derivation path) so the test stays
-/// content-free while still exercising the full bridge mirror path.
+/// `PhaseEntry.runtime` is injected directly into engine state post-bootstrap
+/// (bypassing equipment-derivation) so the test stays content-free.
 #[test]
 fn phase_transition_mirrors_runtime_stats_into_ecs() {
     use combat_engine::RuntimeStats;

@@ -49,10 +49,8 @@ pub mod entity_vec {
 }
 
 pub mod hex {
-    //! Re-export hex/hex_vec adapters матчинг текущий
-    //! `src/combat/ai/log/serde_helpers::hex`. Hex переедет вместе с
-    //! AI-типами в Phase 2-3, но адаптер нужен здесь сразу — на него
-    //! ссылаются типы AI после миграции.
+    //! Hex adapter mirroring `src/combat/ai/log/serde_helpers::hex` — needed here
+    //! ahead of the Phase 2-3 AI-type migration that will reference it.
     use super::*;
     use hexx::Hex;
 

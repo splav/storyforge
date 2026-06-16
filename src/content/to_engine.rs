@@ -29,12 +29,9 @@ pub fn crit_fail_outcome(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
 
 /// Translate a Bevy `AbilityDef` into a `combat_engine::AbilityDef`.
 ///
-/// The gameplay fields already live in `def.engine`, so this is a clone with a
-/// single deliberate transform: the AI plan-sim does **not** model summons
-/// (`combat/ai/plan/sim.rs` returns `None` from `unit_template`), so a `Summon`
-/// effect is collapsed to `None` here to keep the planner from scoring spawn
-/// outcomes it cannot simulate. The ECS/bridge path uses `def.engine` directly
-/// and keeps the real `Summon`.
+/// Clone of `def.engine` with one transform: `Summon` → `None`, because the AI
+/// plan-sim can't model summons (`sim.rs::unit_template` returns `None`) and
+/// shouldn't score spawn outcomes. The ECS/bridge path keeps the real `Summon`.
 pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
     let mut engine = def.engine.clone();
     if let EngineEffectDef::Summon { .. } = engine.effect {

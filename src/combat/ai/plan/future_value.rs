@@ -40,26 +40,12 @@ pub const PHASE7_MAX_MOBILITY: f32 = 30.0;
 
 // ── plan_prefix_only ──────────────────────────────────────────────────────────
 
-/// Truncate `plan` to its committed prefix — the steps that would actually fire
-/// if this plan were picked this tick.
+/// Truncate `plan` to its committed prefix — the steps that fire this tick.
 ///
-/// Handles both runtime plans (with `sim_snapshots`) and deserialized plans
-/// (empty `sim_snapshots`):
-/// - Runtime: `prefix.sim_snapshots` is truncated to `prefix_len` elements.
-/// - Deserialized: `prefix.sim_snapshots` stays empty (shape invariant preserved).
-///
-/// `final_pos` on the prefix:
-/// - `EndTurn` (0 prefix steps) → actor's current `plan.final_pos` is meaningless
-///   for the prefix; we use the first Move path's start — but since EndTurn has
-///   no steps, the `final_pos` on the whole plan is the only anchor we have.
-///   We keep it (it equals the actor's current pos when EndTurn arises).
-/// - `MoveOnly` / `MoveThenCast` → last tile of the move path.
-/// - `Cast` (solo, in-place) → `plan.final_pos` from the full plan (actor didn't
-///   move before casting; the original final_pos is the actor's tile).
-///
-/// `residual_ap` / `residual_mp`: taken from `sim_snapshots[prefix_len-1]`
-/// when available (runtime), or from the full plan (conservative fallback for
-/// deserialized plans where sim_snapshots is empty).
+/// `sim_snapshots` truncates to `prefix_len` (runtime) or stays empty
+/// (deserialized). `final_pos` is `committed_prefix_end_pos`. `residual_ap/mp`
+/// come from the full plan (conservative; sim residuals aren't extractable here
+/// without the actor entity).
 pub fn plan_prefix_only(plan: &TurnPlan) -> TurnPlan {
     let prefix_len = plan.committed_step_count();
     let steps: Vec<PlanStep> = plan.steps[..prefix_len].to_vec();
@@ -68,18 +54,10 @@ pub fn plan_prefix_only(plan: &TurnPlan) -> TurnPlan {
     // Position after the committed prefix, not after the phantom tail.
     let final_pos = committed_prefix_end_pos(plan);
 
-    // Resource residuals: use sim snapshot if available, else full-plan values.
-    let (residual_ap, residual_mp) = if !plan.sim_snapshots.is_empty() && prefix_len > 0 {
-        let snap = &plan.sim_snapshots[prefix_len - 1];
-        // We don't have direct access to the actor's entity here; use plan residuals
-        // as fallback. The sim snapshot contains world state, not per-unit residuals
-        // in a form we can extract without the actor entity. Conservative path:
-        // keep plan residuals (slightly optimistic but safe for prototype scoring).
-        let _ = snap; // snapshot available but actor entity unknown at this level
-        (plan.residual_ap, plan.residual_mp)
-    } else {
-        (plan.residual_ap, plan.residual_mp)
-    };
+    // Per-unit residuals aren't extractable from the sim snapshot without the
+    // actor entity, which we lack here — fall back to plan residuals
+    // (slightly optimistic but safe for prototype scoring).
+    let (residual_ap, residual_mp) = (plan.residual_ap, plan.residual_mp);
 
     // Shape invariant: sim_snapshots must be empty OR match steps.len().
     let sim_snapshots = if plan.sim_snapshots.is_empty() {
@@ -117,20 +95,13 @@ pub fn committed_prefix_end_pos(plan: &TurnPlan) -> Hex {
 
 /// Estimate the strategic value of the actor's state after committing the prefix.
 ///
-/// Decomposes into three components:
-/// - `λ_pos = evaluate_position(committed_pos, role, maps)` — tile quality.
-/// - `λ_attack = 0.5 × best estimate_hypothetical().expected_damage among top-3 reachable enemies` — offensive
-///   potential from the committed position.
-/// - `λ_mob = 0.1 × reachable_tile_count / PHASE7_MAX_MOBILITY` — freedom of
-///   movement (proxied by distance-based reachability from `committed_pos`).
+/// `λ_pos + λ_attack + λ_mob` (additive; only outer `γ` scales the whole).
+/// Components: tile quality, offensive potential, movement freedom — see the
+/// three `*_component` helpers below.
 ///
-/// P1: λ-weights are intent-aware. `ProtectSelf` zeroes attack and doubles pos;
-/// `FocusTarget`/`ApplyCC` filter candidates to the intent target; `SetupAOE`
-/// uses only AoE abilities against max-hits tile. Intents not listed here use
-/// default weights.
-///
-/// All three are additive, unweighted relative to each other (only `γ` scales
-/// the whole FutureValue against PrefixScore in the outer formula).
+/// Intent-aware weights: `ProtectSelf` zeroes attack and doubles pos;
+/// `FocusTarget`/`ApplyCC` filter to the intent target; `SetupAOE` uses AoE
+/// abilities only. Other intents use defaults.
 pub fn future_value_from_committed_state(
     active: UnitView<'_>,
     committed_pos: Hex,
@@ -164,15 +135,12 @@ fn position_component(
     evaluate_position(committed_pos, &active.cache.role, tuning, maps)
 }
 
-/// λ_attack = 0.5 × best `estimate_hypothetical(...).expected_damage` for the intent-filtered candidate set.
+/// λ_attack = 0.5 × best `estimate_hypothetical().expected_damage` over the
+/// intent-filtered candidate set.
 ///
-/// Per-intent filtering (P1):
-/// - `FocusTarget{T}`: only T is considered (0 if T dead / unreachable).
-/// - `ApplyCC{T}`: only T considered, only CC-capable abilities.
-/// - `SetupAOE`: only AoE abilities; target is the enemy position that maximises hit count.
-/// - All other intents: top-3 enemies by priority (original Phase 7 logic).
-///
-/// Reachability filter: `distance(committed_pos, target.pos) <= speed + max_attack_range`.
+/// Per-intent filter: `FocusTarget{T}`/`ApplyCC{T}` → only T (CC-capable for
+/// ApplyCC); `SetupAOE` → AoE abilities at the max-hits tile; else top-3
+/// enemies by priority. Reachability: `distance <= speed + max_attack_range`.
 fn attack_component_intent(
     active: UnitView<'_>,
     committed_pos: Hex,
@@ -305,20 +273,17 @@ fn attack_component_intent(
     }
 }
 
-/// λ_mob = 0.1 × (reachable tile count) / PHASE7_MAX_MOBILITY.
+/// λ_mob = 0.1 × reachable_tile_count / PHASE7_MAX_MOBILITY.
 ///
-/// Reachable tiles: all empty (or ally-occupied) tiles within `speed` steps
-/// from `committed_pos`. Proxied via a simple ring count: tiles within
-/// Manhattan `speed` radius minus those occupied by enemies or corpses.
+/// Reachable count proxied by hex-ring area within `speed` radius minus tiles
+/// blocked by enemies/corpses — avoids a full BFS.
 fn mobility_component(committed_pos: Hex, speed: i32, snap: &BattleSnapshot) -> f32 {
     let budget = speed.max(0);
     if budget == 0 {
         return 0.0;
     }
 
-    // Count tiles in the speed radius. For the prototype we approximate
-    // reachable count using hex ring area (3r²+3r+1 for radius r) minus blocked.
-    // This avoids a full BFS while still scaling correctly with movement range.
+    // Hex ring area = 3r²+3r+1; subtract blocked tiles below.
     let radius = budget as u32;
     let ring_area = (3 * radius * radius + 3 * radius + 1) as f32;
 

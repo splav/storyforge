@@ -2,8 +2,6 @@
 //!
 //! Each function registers a `StatusDef` in `ActiveContent` so subsequent
 //! ability resolutions can apply it.
-//!
-//! Split from `common/mod.rs` in Phase H3 of `docs/refactor/helpers-normalization-plan.md`.
 
 #![allow(dead_code)]
 

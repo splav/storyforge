@@ -202,9 +202,8 @@ fn run_ai_turn(
     if c.ap
         .is_none_or(|ap| ap.action_points <= 0 && !ap.can_move())
     {
-        // Step 7.5 / Phase 6c: push actor_tick for skip path (no AP/MP) to
-        // pending queue. start_step == end_step — no engine steps advance for
-        // this actor (zero-length range is correct semantics).
+        // Skip path (no AP/MP): start_step == end_step, since no engine steps
+        // advance for this actor (zero-length range is correct).
         if logger.is_enabled() {
             let actor_name = names
                 .get(actor)
@@ -288,9 +287,8 @@ fn run_ai_turn(
     // flush_pending_ai_log_system will use this to compute [start, end) range.
     let start_step = trace_writer.step_counter();
 
-    // Step 7.4: pick_action is now a pure function (does not mutate memory).
-    // update_memory runs AFTER pick_action so that select_intent inside
-    // pick_action reads the pre-tick memory state (matching original semantics).
+    // pick_action is pure (does not mutate memory); update_memory runs after it
+    // so select_intent inside reads the pre-tick memory state.
     let result = pick_action(
         actor,
         actor_pos,
@@ -304,8 +302,6 @@ fn run_ai_turn(
         &debug_names,
     );
 
-    // Update memory with the intent chosen this tick. Must run after pick_action
-    // so select_intent inside it saw the pre-tick memory state.
     update_memory(memory_ref, actor_view, &result.intent, &content.ai_tuning);
 
     let decision = result.decision.clone();

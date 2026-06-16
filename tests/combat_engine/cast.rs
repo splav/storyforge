@@ -767,12 +767,8 @@ fn cast_aoe_damages_targets_in_per_target_order() {
     assert_eq!(state.unit(UnitId(11)).unwrap().hp(), 3, "EB hp = 5-2 = 3");
     assert_eq!(state.unit(UnitId(12)).unwrap().hp(), 3, "EC hp = 5-2 = 3");
 
-    // Per-target ordering: collect UnitDamaged positions and verify no
-    // interleaving (each target's hit lands as a contiguous block relative
-    // to the next target's hit — no UnitDamaged(B) before UnitDamaged(A)'s
-    // derived effects).  With no rage on enemies, derived effects are just
-    // Death (none here), so the stream must contain exactly 3 UnitDamaged
-    // events and they must not repeat the same target_id.
+    // Per-target ordering: exactly 3 UnitDamaged events, no target repeated
+    // (no rage/Death derived effects here to interleave).
     let damaged_ids: Vec<u64> = events
         .iter()
         .filter_map(|e| {

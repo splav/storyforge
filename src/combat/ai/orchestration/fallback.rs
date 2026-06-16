@@ -57,10 +57,9 @@ pub(super) fn fallback_move(
         return AiDecision::EndTurn;
     }
 
-    // Normal: find reachable tile closest to any enemy.
-    // Sort destinations first — HashSet iteration is randomized per-process,
-    // and `dist < bd` (strict less-than) keeps the FIRST seen tile on ties,
-    // so randomized order would pick different tile per process.
+    // Normal: reachable tile closest to any enemy. Sort first — `dist < bd`
+    // keeps the first seen tile on ties, so per-process HashSet order would
+    // otherwise pick a different tile.
     let mut sorted_dests: Vec<Hex> = reach.destinations.iter().copied().collect();
     sorted_dests.sort_by(|a, b| (a.x, a.y).cmp(&(b.x, b.y)));
     let mut best: Option<(Hex, u32)> = None;

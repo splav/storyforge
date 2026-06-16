@@ -336,26 +336,12 @@ fn phase_entry_tags_none_leaves_tags_unchanged() {
 // Predicate: effect_changes_aura_membership
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `effect_changes_aura_membership` must return true for effects that can
-/// change aura membership and false for those that cannot.
-///
-/// Tests the public behaviour indirectly via the guard in `step.rs`.  Since
-/// the function is private we drive it through the observable outcome:
-/// only `MovePosition`, `Death`, and `EnterPhase` must trigger the before/after
-/// aura snapshot; other effects must not produce `AuraStatusGained/Lost`.
-///
-/// Direct unit-test of the predicate:
+/// `effect_changes_aura_membership` (private in `step.rs`): only
+/// `MovePosition`/`Death`/`EnterPhase` change membership; other effects must
+/// not produce `AuraStatusGained/Lost`. Verified two ways — non-triggering
+/// effects leave membership intact, then a local mirror pins each variant.
 #[test]
 fn effect_changes_aura_membership_predicate() {
-    // We test the internal predicate by importing it via a re-export.
-    // Since it's module-private, we test it indirectly via the Effect variants.
-    // The effect.rs module uses the predicate for MovePosition/Death/EnterPhase.
-    //
-    // Verify through build-level: if this compiles and the aura-cutoff headline
-    // test passes, the predicate correctly includes EnterPhase.  Here we add
-    // a structural assertion that the non-triggering effects do NOT produce
-    // AuraStatusLost even when the state has an aura source + tagged member.
-
     let src = uid(1);
     let target_unit = uid(2);
     let aura_status = "aura_pred";
@@ -414,14 +400,7 @@ fn effect_changes_aura_membership_predicate() {
         }];
     }
 
-    // We test effect_changes_aura_membership indirectly by checking that
-    // EnterPhase → AuraStatusLost fires via apply_effect alone (no step).
-    // Actually, the aura diff only runs inside step.rs pump loop, not in
-    // apply_effect itself.  The predicate test is best expressed as: "EnterPhase
-    // is classified the same as MovePosition/Death" — i.e. it's in the match arm.
-    // We verify this via the headline test above (aura_cutoff_on_phase_tag_replace).
-    //
-    // Direct variant classification test: the three true cases, three false cases.
+    // Direct variant classification via the local mirror: three true, three false.
     let true_cases: &[(&str, bool)] = &[
         ("MovePosition", true),
         ("Death", true),

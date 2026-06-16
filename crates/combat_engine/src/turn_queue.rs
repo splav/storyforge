@@ -32,13 +32,11 @@ impl TurnQueue {
         self.order.is_empty()
     }
 
-    /// Returns `true` if the cursor has wrapped around past `prev_idx`.
+    /// Returns `true` if the cursor wrapped past `prev_idx` (`self.index < prev_idx`,
+    /// matching ECS modulo behaviour).
     ///
-    /// Wrap signal: `self.index < prev_idx` (matches the ECS modulo behaviour).
-    /// Special case: a length-1 queue always "wraps to itself" on every advance
-    /// (`index` stays at 0).  The convention adopted here is that this counts as
-    /// a wrap so that `BumpRound` fires every turn for a singleton queue —
-    /// otherwise a single actor could loop forever without incrementing the round.
+    /// A length-1 queue counts every advance as a wrap, so `BumpRound` fires each
+    /// turn instead of a lone actor looping forever without a round increment.
     pub fn wrapped_after(&self, prev_idx: usize) -> bool {
         if self.order.len() == 1 {
             // Single-actor queue: every advance is a wrap-to-self; treat as wrap.

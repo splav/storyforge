@@ -1,13 +1,7 @@
-//! Bands — step 11.1.
+//! Bands.
 //!
-//! `PriorityBand` is the top-level routing token that governs which agenda
-//! items the AI should build (11.2) and how many (11.4).  In 11.1 the band
-//! is **computed but not used**: `assign_band` is called in `pick_action`
-//! and the result is immediately discarded with an explicit `let _ = ...` so
-//! future reviewers can see the intent.
-//!
-//! Routing / agenda / per-item scoring land in 11.2–11.4.
-//! Log schema bump (PlanAnnotation.band) lands in 11.6.
+//! `PriorityBand` is the top-level routing token governing which agenda items
+//! the AI builds and how many.
 
 use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
@@ -129,13 +123,9 @@ pub enum BandReason {
 ///    actor has `CAN_HEAL`.
 /// 3. `NormalTactical` — fallback.
 ///
-/// **Taunt semantics (Fix A)**: `ForcedTargeting` band is no longer emitted.
-/// Taunt constrains which enemy the actor may *attack* (engine legality,
-/// `taunters_for`) but does NOT compel the actor to move toward or intent on
-/// the taunter.  A panicking/fleeing taunted unit is free to flee; attacks
-/// remain bound to the taunter by the engine regardless of band.
-///
-/// **11.1 contract**: result is discarded in `pick_action` — no routing change.
+/// **Taunt semantics**: `ForcedTargeting` is no longer emitted. Taunt constrains
+/// which enemy the actor may *attack* (engine legality, `taunters_for`) but does
+/// NOT compel movement toward the taunter — a panicking taunted unit is free to flee.
 pub fn assign_band(
     active: UnitView<'_>,
     _snap: &BattleSnapshot,

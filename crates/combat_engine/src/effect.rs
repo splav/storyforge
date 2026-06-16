@@ -6,13 +6,8 @@
 //! - `ApplyCtx` — side-channel context for event generation.
 //!
 //! **Per-target ordering (decision 6.3):** `Damage` derives, in order:
-//!   1. `GainRage { target: source }`
-//!   2. `GainRage { target }` (the hit unit)
-//!   3. `Death { unit: target }` — only if hp ≤ 0 after mitigation
-//!
-//! This differs from the current ECS pipeline (all-damages-then-all-rage).
-//!
-//! **Phase 0 set (7 variants — gate criterion 1 requires < 15).**
+//! `GainRage{source}`, `GainRage{target}`, then `Death{target}` (only if hp ≤ 0).
+//! This differs from the ECS pipeline (all-damages-then-all-rage).
 
 use hexx::Hex;
 
@@ -65,36 +60,31 @@ pub enum Effect {
     DecrementAP { actor: UnitId, by: i32 },
     /// Deal raw (pre-mitigation) damage from `source` to `target`.
     ///
-    /// `magic = true` → mitigation uses the target's `magic_resist` instead of
-    /// `armor + armor_bonus`.  `pierces = true` bypasses ALL mitigation.
-    /// For magic damage, `pierces` is set to `false` (magic_resist is the gate).
+    /// `magic = true` → mitigation uses `magic_resist` not `armor + armor_bonus`.
+    /// `pierces = true` bypasses ALL mitigation (always `false` for magic).
     Damage {
         target: UnitId,
         raw: f32,
         source: crate::state::EffectSource,
         pierces: bool,
-        /// Whether this is magic damage (mitigated by magic_resist, not armor).
-        /// `#[serde(default)]` + `skip_serializing_if = "is_false"` keeps
-        /// existing fixtures byte-identical (all old Damage effects had magic=false).
+        /// Magic damage (mitigated by magic_resist). serde attrs keep existing
+        /// fixtures byte-identical (old Damage effects had magic=false).
         #[serde(default, skip_serializing_if = "is_false")]
         magic: bool,
     },
-    /// Restore HP on `target`, after first neutralizing active DoT
-    /// statuses (Bevy parity — see `apply_effects.rs:73-114`).
-    /// `amount` is the raw heal pool; final HP gain may be less if DoTs
-    /// consume some of it.
+    /// Restore HP on `target`, after first neutralizing active DoT statuses
+    /// (Bevy parity — see `apply_effects.rs:73-114`). Final HP gain may be less
+    /// than `amount` if DoTs consume some of the pool.
     Heal { target: UnitId, amount: i32 },
-    /// Deduct a resource pool (mana / rage / energy / hp) from `actor`.
-    /// Mirrors `effects_outcome::pay_costs`.
+    /// Deduct a resource pool from `actor`. Mirrors `effects_outcome::pay_costs`.
     PayCost {
         actor: UnitId,
         kind: ResourceKind,
         amount: i32,
     },
-    /// Add or refresh a status on `target`.  Re-apply replaces an existing
-    /// entry with the same `id` (matches `apply_effects_system`'s reapply
-    /// semantics).  Derives `RefreshAggregates` so derived stats catch any
-    /// armor / speed bonus the new status carries.
+    /// Add or refresh a status on `target`. Re-apply replaces an existing entry
+    /// with the same `id` (matches `apply_effects_system`). Derives
+    /// `RefreshAggregates` so derived stats catch the status's armor/speed bonus.
     ApplyStatus {
         target: UnitId,
         status: StatusId,
@@ -113,16 +103,14 @@ pub enum Effect {
     Death { unit: UnitId },
     /// Recompute derived stats (speed, armor_bonus) from current statuses.
     RefreshAggregates { unit: UnitId },
-    /// Apply one DoT tick for `status` on `target`. Reads `dot_per_tick` from
-    /// the active status entry and `hp_percent_dot` from content to derive
-    /// zero, one, or two `Damage` effects. DoT bypasses armor (`pierces=true`)
-    /// to match ECS parity (`tick_statuses_on_entity` calls `apply_damage`
-    /// directly, skipping the armor formula).
+    /// Apply one DoT tick for `status` on `target`. Combines `dot_per_tick`
+    /// (status entry) and `hp_percent_dot` (content). DoT bypasses armor
+    /// (`pierces=true`) for ECS parity — `tick_statuses_on_entity` skips the
+    /// armor formula.
     TickDot { target: UnitId, status: StatusId },
-    /// Apply one HoT tick for `status` on `target`. Reads `heal_per_tick` from
-    /// content (content-driven, analogous to `hp_percent_dot` for DoT).
-    /// Restores HP clamped to `max_hp`. Never derives Death, EnterPhase, or
-    /// rage — healing cannot kill, phase-trigger, or grant rage.
+    /// Apply one HoT tick for `status` on `target` (`heal_per_tick` from
+    /// content). Restores HP clamped to `max_hp`. Never derives Death,
+    /// EnterPhase, or rage — healing can't kill, phase-trigger, or grant rage.
     TickHeal { target: UnitId, status: StatusId },
     /// Decrement `rounds_remaining` by 1 for `status` on `target`.
     /// If it reaches 0: remove and derive `RefreshAggregates { unit: target }`.
@@ -138,33 +126,23 @@ pub enum Effect {
     },
     /// Advance the turn-queue cursor by one slot.
     ///
-    /// If the next slot is dead or stunned (via direct statuses), derives another
-    /// `Effect::AdvanceTurn` (skip recursion, bounded by queue length).
-    /// If the cursor wraps, derives `Effect::BumpRound` instead (which then
-    /// re-advances to index 0 via `start_round`).
-    ///
-    /// `Event::TurnSkipped` is pushed directly onto the provided accumulator
-    /// during `apply_effect` for skip cases — the caller threads `skip_events`
-    /// through the ctx.
+    /// Dead/stunned next slot → derives another `AdvanceTurn` (bounded by queue
+    /// length). Cursor wrap → derives `BumpRound` instead. Skip cases push
+    /// `Event::TurnSkipped` onto the ctx accumulator threaded by the caller.
     AdvanceTurn,
     /// Increment `state.round`, call `start_round(content)` (resets reactions,
-    /// queue index, phase), and derive `RefreshAggregates` for every alive unit.
-    /// Emits `Event::RoundStarted`.
+    /// queue index, phase), derive `RefreshAggregates` per alive unit.
     BumpRound,
 
-    // ── Phase-transition atomics (Phase 4 step 4d) ────────────────────────
-    /// Boss enters phase `phase_idx`.  Cascades into `SetMaxHp`, optionally
-    /// `Heal`, and `RefreshAggregates`.  Runtime stats (`armor`, `magic_resist`,
-    /// `base_speed`) are applied directly in-arm from `PhaseTransition.runtime`.
+    /// Boss enters phase `phase_idx`. Cascades into `SetMaxHp`, optionally
+    /// `Heal`, and `RefreshAggregates`. Runtime stats applied in-arm from
+    /// `PhaseTransition.runtime`.
     ///
-    /// Derived by `apply_effect(Damage)` / DoT ticks via `phase_or_death` when
-    /// `check_phase_trigger(target, new_hp, max_hp)` returns `Some`. Interaction
-    /// with `Effect::Death` on a lethal hit:
-    /// - `heal_to_full` → only `EnterPhase` (the `Heal` revives before any death
-    ///   check sees the unit);
-    /// - non-healing phase → `EnterPhase` *then* `Death` in the same step (the
-    ///   phase's override/deadline apply, then the boss dies against the new
-    ///   win-condition).
+    /// Derived by `phase_or_death` when `check_phase_trigger` returns `Some`.
+    /// Interaction with `Effect::Death` on a lethal hit:
+    /// - `heal_to_full` → only `EnterPhase` (the `Heal` revives first);
+    /// - non-healing phase → `EnterPhase` *then* `Death` same step (phase's
+    ///   override/deadline apply, then boss dies against the new win-condition).
     EnterPhase { unit: UnitId, phase_idx: usize },
 
     /// Set `unit.max_hp` to `max_hp`.  No derived effects.
@@ -245,9 +223,8 @@ pub enum SpawnBlockedReason {
 pub struct ApplyCtx {
     /// Set by `Damage`: structured breakdown of raw/mitigation/final.
     pub damage: Option<DamageCtx>,
-    /// Set by `Heal`: actual HP restored (after DoT-neutralization consumes
-    /// some of the heal pool).  May be < `Heal.amount` if DoTs consumed
-    /// part or all of the pool.
+    /// Set by `Heal`: actual HP restored, after DoT-neutralization. May be
+    /// < `Heal.amount` if DoTs consumed part or all of the pool.
     pub heal_amount: Option<i32>,
     /// Set by `Spawn` on success: the newly generated `UnitId`.
     pub spawn_uid: Option<UnitId>,
@@ -262,36 +239,25 @@ pub struct ApplyCtx {
     /// Set by `EnterPhase`: carries (prev_max_hp, new_max_hp) so the event
     /// translator can populate `Event::PhaseEntered` correctly.
     pub phase_entered: Option<(i32, i32)>,
-    /// Number of RNG calls consumed by this `step()` invocation (Phase 5 D2).
-    ///
-    /// Populated by `step()` as `rng.call_count()` after − before the effect
-    /// cascade. Used by the trace writer to record a per-step canary; replay
-    /// re-seeds the same `DiceRng` and asserts the delta matches.
+    /// RNG calls consumed by this `step()` (`rng.call_count()` after − before
+    /// the cascade). Trace writer records a per-step canary; replay re-seeds the
+    /// same `DiceRng` and asserts the delta matches.
     pub rng_calls: u64,
-    /// Set by `TickDot` when the tick deals damage (dot_per_tick > 0 or
-    /// hp_percent_dot > 0).  Carries the fused breakdown so `effect_to_event`
-    /// can emit `Event::DotDamaged` instead of the now-separate StatusTicked +
-    /// UnitDamaged pair.
+    /// Set by `TickDot` when the tick deals damage. Fused breakdown so
+    /// `effect_to_event` emits `DotDamaged` instead of separate
+    /// StatusTicked + UnitDamaged.
     pub dot_damage: Option<DotDamageCtx>,
-    /// Set by `TickHeal` when the tick restores HP (`heal_per_tick > 0`).
-    /// Carries source + amount so `effect_to_event` can emit
-    /// `Event::HotHealed`.  `None` when `heal_per_tick == 0` or the unit is
-    /// already at max HP (no-op tick).
+    /// Set by `TickHeal` when the tick restores HP. `None` when
+    /// `heal_per_tick == 0` or already at max HP (no-op tick).
     pub hot_heal: Option<HotHealCtx>,
-    /// Additional `Event::PoolChanged` events produced by pool-mutation effects
-    /// (`PayCost`, `DecrementAP`, `DecrementMP`, `GainRage`). Drained by the
-    /// pump loop in `step()` immediately after the main event from
-    /// `effect_to_event`.  Dual-emitted alongside legacy per-pool events in C4;
-    /// legacy events will be removed in a follow-up cleanup.
+    /// `Event::PoolChanged` events from pool-mutation effects (`PayCost`,
+    /// `DecrementAP/MP`, `GainRage`). Drained by `step()` after the main event.
     pub pool_events: Vec<crate::event::Event>,
-    /// Set by `RevealEnv` when the env object was newly revealed (was hidden
-    /// before this effect).  `false` when the object was already revealed
-    /// (idempotent no-op) — `effect_to_event` emits `EnvRevealed` only when
-    /// this is `true`.
+    /// Set by `RevealEnv` when newly revealed; `false` on idempotent no-op.
+    /// `effect_to_event` emits `EnvRevealed` only when `true`.
     pub env_revealed: bool,
-    /// Set by `step()` when a `Move` action was interrupted mid-path because
-    /// a non-benign event occurred during a `MovePosition` step (e.g. AoO,
-    /// trap trigger).  `false` for clean moves and all non-Move actions.
+    /// Set by `step()` when a `Move` was interrupted mid-path by a non-benign
+    /// event (AoO, trap). `false` for clean moves and non-Move actions.
     pub interrupted: bool,
 }
 
@@ -323,9 +289,9 @@ pub(crate) fn skip_or_settle_current(
     });
     let is_stunned_by_aura = state.aura_effects_on(actor, content).skips_turn;
     if is_stunned_by_status || is_stunned_by_aura {
-        // Tick the stunned actor's statuses (sirota-DoT + status expiry for
-        // statuses applied BY this actor) so that 1-turn stuns expire properly
-        // and DoTs on victims tick each round even when their source is stunned.
+        // Tick the stunned actor's statuses (sirota-DoT + expiry for statuses
+        // applied BY this actor) so 1-turn stuns expire and victims' DoTs tick
+        // each round even when their source is stunned.
         let tick_events = state.tick_actor_statuses(actor, content);
         let mut ctx = ApplyCtx::default();
         ctx.turn_skip_events.extend(tick_events);
@@ -364,34 +330,18 @@ pub(crate) fn scan_revealable_in_range(
         .collect()
 }
 
-/// Apply one atomic effect to `state`.
+/// Phase-or-death cascade for a unit whose HP just changed to `hp_after`.
+/// Shared by the `Damage` and DoT-tick arms so the two paths can't drift.
 ///
-/// Returns `(derived_effects, ctx)`:
-/// - `derived_effects`: additional effects to enqueue (in the order listed).
-/// - `ctx`: side-channel data needed for event generation.
-///
-/// The caller is responsible for enqueueing derived effects in order.
-///
-/// **Decision 6.5:** liveness of the target is checked by `step()` before
-/// calling `apply_effect`.  Here we only mutate and derive.
-///
-/// Decide the phase-or-death cascade for a unit whose HP just changed to
-/// `hp_after`.  Shared by the `Damage` and DoT-tick arms so the two paths
-/// can't drift.  Returns the effects to enqueue, in apply order.
-///
-/// Three cases:
-/// - **Healing phase** (`heal_to_full`): preempts death — the cascade's `Heal`
-///   reverses an otherwise-lethal hit before any Death check sees the unit
-///   (spec §8 "Phase preempts Death"). Emits `EnterPhase` only.
-/// - **Non-healing phase + lethal hit**: emits `EnterPhase` *then* `Death`. The
-///   unit enters the phase first (so its `victory_override` / deadline / AI
-///   regime apply) and then dies in the same step, so the phase's new
-///   win-condition is evaluated against the dead boss. Emitting only
-///   `EnterPhase` here would strand the boss at 0 HP — `kill_target` could
-///   never fire and the fight would stall (Kolm one-shot bug); emitting only
-///   `Death` would skip the phase's override entirely.
-/// - **Non-healing phase + survivable hit**: emits `EnterPhase` only.
-/// - **No phase + lethal hit**: emits `Death`.
+/// - **Healing phase** (`heal_to_full`): emits `EnterPhase` only — the
+///   cascade's `Heal` reverses an otherwise-lethal hit before any Death check
+///   (spec §8 "Phase preempts Death").
+/// - **Non-healing phase + lethal hit**: `EnterPhase` *then* `Death`. The unit
+///   enters the phase first (so `victory_override`/deadline/AI regime apply)
+///   then dies same step. Emitting only `EnterPhase` strands the boss at 0 HP
+///   (Kolm one-shot bug); only `Death` skips the phase override.
+/// - **Non-healing phase + survivable hit**: `EnterPhase` only.
+/// - **No phase + lethal hit**: `Death`.
 fn phase_or_death(state: &CombatState, target: UnitId, hp_after: i32, max_hp: i32) -> Vec<Effect> {
     match state
         .unit(target)
@@ -418,6 +368,9 @@ fn phase_or_death(state: &CombatState, target: UnitId, hp_after: i32, max_hp: i3
     }
 }
 
+/// Apply one atomic effect to `state`, returning `(derived_effects, ctx)`. The
+/// caller enqueues derived effects in the order listed. Target liveness is
+/// checked by `step()` beforehand (decision 6.5) — here we only mutate/derive.
 pub fn apply_effect(
     state: &mut CombatState,
     effect: &Effect,
@@ -492,13 +445,9 @@ pub fn apply_effect(
                 0
             };
 
-            // Derive: GainRage{source}, GainRage{target}, then phase-or-death.
-            //
-            // Phase check MUST come before Death: if a phase trigger fires with
-            // `heal_to_full=true`, the cascade restores HP above 0 before any
-            // Death check sees the unit — the boss never enters `Dead` state.
-            // See spec §8 "Phase preempts Death — derived-effect ordering".
-            // Env sources don't accumulate rage — only unit sources do.
+            // Phase check MUST precede Death (handled in phase_or_death): a
+            // `heal_to_full` trigger restores HP > 0 before any Death check sees
+            // the unit (spec §8). Env sources don't accumulate rage.
             let mut derived: Vec<Effect> = Vec::new();
             if let crate::state::EffectSource::Unit(u) = source {
                 derived.push(Effect::GainRage { target: *u });
@@ -525,14 +474,10 @@ pub fn apply_effect(
 
         Effect::Heal { target, amount } => {
             // Two-phase heal mirrors `src/combat/apply_effects.rs:73-114`:
-            //   1. Walk active DoT statuses (`dot_per_tick > 0`).  Each
-            //      consumes heal in order: if `remaining >= dot`, fully
-            //      neutralize that DoT (set its rounds=0 for removal,
-            //      dot=0).  Otherwise, partially weaken it and exhaust
-            //      the heal pool.
+            //   1. DoT statuses consume heal in order — full neutralize if
+            //      `remaining >= dot`, else partial-weaken and exhaust the pool.
             //   2. Remaining heal restores HP, clamped at max_hp.
-            // Returns ApplyCtx.heal_amount = actual HP restored (may be 0
-            // if all heal went into DoT neutralization).
+            // heal_amount = actual HP restored (0 if all went into DoT neutralize).
             let mut remaining = *amount;
             let mut any_status_removed = false;
             if let Some(u) = state.unit_mut(*target) {
@@ -734,11 +679,9 @@ pub fn apply_effect(
 
             let mut ctx = ApplyCtx::default();
 
-            // If the dying actor held the current turn, force-end their turn.
-            // Emitting TurnEnded here (via turn_skip_events) and deriving
-            // AdvanceTurn causes the cascade to settle on the next alive actor.
-            // step_inner's "current changed" check will then emit TurnStarted +
-            // start_actor_turn for the new actor.
+            // If the dying actor held the current turn, force-end it: emit
+            // TurnEnded + derive AdvanceTurn so the cascade settles on the next
+            // alive actor (step_inner then emits TurnStarted for it).
             if state.turn_queue.current() == Some(*unit) {
                 ctx.turn_skip_events.push(crate::event::Event::TurnEnded {
                     actor: *unit,
@@ -940,12 +883,10 @@ pub fn apply_effect(
             // Re-read the current max_hp before any mutation for the event.
             let prev_max_hp = state.unit(*unit).map(|u| u.max_hp()).unwrap_or(0);
 
-            // Re-call check_phase_trigger with current hp/max_hp to recover the
-            // transition data.  Bridge's `EnemyPhases.pending` pop happens later
-            // (in `apply_phase_ecs_writes`), but the engine state's own
-            // `enemy_phases` must be popped HERE — otherwise `check_phase_trigger`
-            // keeps returning the same first entry on every subsequent damage,
-            // causing the same phase (with heal_to_full) to re-fire indefinitely.
+            // Re-call check_phase_trigger to recover the transition data. The
+            // engine's `enemy_phases` must be popped HERE (not later, unlike the
+            // bridge's pending pop) — else check_phase_trigger keeps returning the
+            // same entry and a heal_to_full phase re-fires indefinitely.
             let transition = state
                 .unit(*unit)
                 .and_then(|u| u.check_phase_trigger(u.hp(), prev_max_hp))
@@ -972,10 +913,8 @@ pub fn apply_effect(
                 }
             }
 
-            // Apply runtime-stat REPLACE if the phase carries a new stat group.
-            // Done in-arm (mirrors the tags pattern) so it is atomic with the
-            // tag swap.  RefreshAggregates (derived below) recomputes effective
-            // armor/speed on top of the new base values.
+            // Runtime-stat REPLACE, in-arm (mirrors tags) so it's atomic with the
+            // tag swap. RefreshAggregates (below) recomputes effective stats.
             if let Some(rs) = new_runtime {
                 if let Some(u) = state.unit_mut(*unit) {
                     u.runtime = rs;
@@ -1059,16 +998,12 @@ pub fn apply_effect(
             // reactions_left=reactions_max for alive units.
             state.start_round(content);
 
-            // Insert mid-combat summons into the turn order at their rolled
-            // initiative position. Must run AFTER start_round (which resets
-            // index=0) and BEFORE skip_or_settle_current (which settles the
-            // index-0 actor against the final order).
+            // Insert mid-combat summons at their rolled initiative. Must run
+            // AFTER start_round (resets index=0) and BEFORE skip_or_settle_current.
             state.reconcile_turn_order();
 
-            // Derive RefreshAggregates for every alive unit first.
-            // RefreshAggregates doesn't affect skips_turn (status-driven),
-            // so it's safe to run skip_or_settle_current before they fire —
-            // ordering in derived ensures RefreshAggregates come first in queue.
+            // RefreshAggregates for every alive unit. It doesn't affect skips_turn,
+            // so settling before it fires is safe; derived order keeps it first.
             let alive_ids: Vec<UnitId> = state.alive_units().map(|u| u.id).collect();
             let mut derived: Vec<Effect> = alive_ids
                 .into_iter()
@@ -1131,9 +1066,8 @@ pub fn apply_effect(
             }
 
             // Include dead tombstones: ECS keeps their `HexPositions` entry until
-            // the entity is despawned, so a spawn landing on a corpse would
-            // collide downstream. Treating tombstones as occupied matches the
-            // ECS view and avoids a bridge-side `positions.insert` panic.
+            // despawn, so a spawn on a corpse would collide downstream. Treating
+            // them as occupied matches the ECS view (avoids a bridge insert panic).
             let occupied: std::collections::HashSet<hexx::Hex> =
                 state.units().iter().map(|u| u.pos).collect();
 

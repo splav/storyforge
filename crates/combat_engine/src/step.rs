@@ -54,13 +54,8 @@ fn effect_changes_aura_membership(e: &crate::effect::Effect) -> bool {
 
 /// `ActionState` adapter for engine-side legality checks during `step()`.
 ///
-/// Bundles the engine's authoritative state (`CombatState`) with a
-/// `ContentView` reference so `check_legality` can answer questions about
-/// abilities, statuses, and units uniformly.
-///
-/// Exposed as `pub` so that integration tests can construct the engine-side
-/// `ActionState` directly and compare it against the Bevy `BevyActions`
-/// adapter for legality-parity assertions.
+/// `pub` so legality-parity tests can build it directly and compare against the
+/// Bevy `BevyActions` adapter.
 pub struct EngineCheckState<'a> {
     pub state: &'a CombatState,
     pub content: &'a dyn ContentView,
@@ -116,16 +111,10 @@ impl<'a> ActionState for EngineCheckState<'a> {
     }
 
     fn actor_knows_ability(&self, _actor: crate::state::UnitId, _ability: &AbilityId) -> bool {
-        // Phase 2 step 6b limitation: engine doesn't yet track per-unit
-        // ability lists.  Bevy + snapshot backends still enforce this via
-        // their own `actor_knows_ability` impls before step() runs (player
-        // path: `validate_action_system`; AI path: `generate_plans` already
-        // pre-screens via `check_legality` against `SnapshotActionState`).
-        // Returning `true` here means the engine pre-validate cannot
-        // produce `IllegalReason::AbilityNotInList` — that branch fires
-        // only at the Bevy / sim boundary today.  Adding ability lists to
-        // engine `Unit` is deferred until per-unit ability tracking
-        // becomes engine-authoritative.
+        // Engine doesn't track per-unit ability lists, so `AbilityNotInList`
+        // can't fire from engine pre-validate — Bevy/snapshot backends enforce
+        // it upstream (`validate_action_system` / `generate_plans`). Returning
+        // `true` defers the check to that boundary.
         true
     }
 
@@ -156,11 +145,8 @@ impl<'a> ActionState for EngineCheckState<'a> {
     }
 
     fn is_in_bounds(&self, _pos: hexx::Hex) -> bool {
-        // Phase 2 step 6b limitation: engine is grid-topology-agnostic.
-        // Bevy backend (`BevyActions::is_in_bounds`) calls
-        // `crate::game::hex::in_bounds`; engine assumes all hexes are
-        // in-bounds.  `IllegalReason::TargetOutOfBounds` cannot fire from
-        // engine pre-validate — Bevy gate catches it client-side.
+        // Engine is grid-topology-agnostic; `TargetOutOfBounds` can't fire from
+        // engine pre-validate — the Bevy gate catches it client-side.
         true
     }
 
@@ -271,10 +257,8 @@ fn effect_for_target(
                 target,
                 raw,
                 source,
-                // SpellDamage is magic: mitigated by magic_resist (not armor).
-                // pierces=false so magic_resist applies; old armor-bypass behavior
-                // is superseded — physical armor still doesn't reduce magic damage
-                // because we use magic_resist branch, not armor branch.
+                // magic=true → mitigated by magic_resist branch (not armor);
+                // pierces=false so magic_resist applies.
                 pierces: false,
                 magic: true,
             })
@@ -304,9 +288,7 @@ fn effect_for_target(
             let amount = (roll!(*dice) + caster.int_mod + sp_scaled).max(0);
             Some(Effect::Heal { target, amount })
         }
-        // Per-actor effects — not dispatched through this fn.
-        // None: status-only ability (statuses handled below).
-        // RevealEnvInRange: passive-only, never cast actively.
+        // Per-actor / non-damage effects — handled elsewhere, not here.
         EffectDef::None
         | EffectDef::GrantMovement { .. }
         | EffectDef::RestoreResources
@@ -319,12 +301,9 @@ fn effect_for_target(
 /// a unit's own movement.  Any non-benign event during a move step interrupts
 /// the remaining movement.
 ///
-/// **Exhaustive match — no wildcard.**  NEW `Event` variants that can occur
-/// during a Move must be explicitly classified here (default: non-benign /
-/// halts movement).
-///
-/// Note: `UnitMoved` for a different actor (shouldn't occur during a Move
-/// action) is non-benign by this rule — that's intentional.
+/// **Exhaustive match — no wildcard.** New `Event` variants must be classified
+/// here explicitly; default to non-benign (halts movement). `UnitMoved` for a
+/// different actor is non-benign intentionally.
 fn is_benign_move_event(ev: &crate::event::Event, mover: crate::state::UnitId) -> bool {
     use crate::event::Event;
     match ev {
@@ -413,18 +392,12 @@ fn step_inner(
     let mut effect_queue: VecDeque<Effect> = VecDeque::new();
     let mut reaction_depth: usize = 0;
     // Guard against all-stunned / all-dead infinite loops in the AdvanceTurn
-    // recursion (e.g. all remaining actors stunned → wrap → BumpRound →
-    // skip all again → wrap → …). Budget is generous to allow full-queue
-    // traversal + one round boundary.
+    // recursion. Budget allows full-queue traversal + one round boundary.
     let mut turn_advance_budget: usize = state.turn_queue.order.len() * 3 + 8;
 
-    // Capture (current actor, round) before any effects are applied.
-    // After the pump loop we compare against the final values to detect turn
-    // advances — including cases beyond Action::EndTurn such as the current
-    // actor dying mid-Move from an AoO.
-    // We compare (current, round) rather than just current so that a round-wrap
-    // scenario where the same actor acts again in round N+1 is still detected
-    // as a turn change (initial.round != final.round).
+    // (current actor, round) before any effects. Compared against final values
+    // after the pump loop to detect turn advances — including a round-wrap where
+    // the same actor acts again in round N+1 (caught by round inequality).
     let initial_current = (state.turn_queue.current(), state.round);
 
     // ── Pre-validate ──────────────────────────────────────────────────────────
@@ -481,9 +454,8 @@ fn step_inner(
             target,
             target_pos,
         } => {
-            // Engine-side legality check.  Translates IllegalReason to
-            // ActionError::Illegal so callers (bridge, sim) see the same
-            // rejection vocabulary as Bevy `validate_action_system`.
+            // Engine-side legality check; maps IllegalReason → ActionError::Illegal
+            // so callers share Bevy `validate_action_system`'s rejection vocabulary.
             let check = EngineCheckState { state, content };
             let proposal = ProposedAction {
                 actor: *actor,
@@ -539,9 +511,8 @@ fn step_inner(
             target,
             target_pos,
         } => {
-            // Legality pre-validate (step 6b) already ran and confirmed the
-            // actor can afford every cost.  We rebuild AbilityDef here from
-            // ContentView; cheap and avoids carrying the def around.
+            // Pre-validate already confirmed the actor can afford every cost.
+            // Rebuild AbilityDef from ContentView (cheap; avoids carrying it).
             let def = content.ability_def(ability).expect(
                 "cast: ability_def returns Some — already verified by legality pre-validate",
             );
@@ -550,9 +521,8 @@ fn step_inner(
                 .map(|u| u.caster_context.clone())
                 .unwrap_or_default();
 
-            // Re-run check_legality to capture the disadvantage flag.  The
-            // pre-validate arm above already confirmed Ok, so this cannot fail;
-            // unwrap is safe.  Duplicate legality run is cheap (pure read).
+            // Re-run check_legality only to capture the disadvantage flag; the
+            // pre-validate arm confirmed Ok so this can't fail (cheap pure read).
             let legal = {
                 let check = EngineCheckState { state, content };
                 let proposal = ProposedAction {
@@ -565,13 +535,12 @@ fn step_inner(
                     .expect("legality already confirmed in pre-validate arm")
             };
 
-            // Step 6f: crit-fail roll.  Engine hard-codes d20 (matches Bevy
-            // settings.crit_fail_die default).  On a 1, branch based on
-            // caster's CritFailOutcome; skip normal damage/heal/status fanout.
+            // Crit-fail roll: hard-coded d20 (matches Bevy crit_fail_die default).
+            // On a 1, branch on CritFailOutcome and skip normal fanout.
             let crit_fail = rng.roll(DiceExpr::new(1, 20, 0)) == 1;
 
-            // Emit CritFailed before cost payment so the event stream reads:
-            // ActionStarted → CritFailed → [cost events] → ActionFinished.
+            // Emit CritFailed before cost payment: ActionStarted → CritFailed →
+            // [cost events] → ActionFinished.
             if crit_fail {
                 events.push(Event::CritFailed {
                     actor: *actor,
@@ -676,17 +645,12 @@ fn step_inner(
                     }
                 }
 
-                // Step 6e: status fanout.
+                // Status fanout: StatusOn::Target → affected units; MySelf → actor.
+                // Applied after damage/heal so RefreshAggregates sees post-damage state.
                 //
-                // StatusOn::Target → applied to every affected unit.
-                // StatusOn::MySelf → applied to the actor only.
-                //
-                // Applied after damage/heal so RefreshAggregates from ApplyStatus
-                // sees the post-damage state.
-                //
-                // DoT roll: a dice-DoT status rolls its dice ONCE here (at cast) and
-                // bakes `roll + int_mod + round(power × spell_power)` into the applied
-                // instance's `dot_per_tick`. Non-DoT statuses (`dot_dice = None`) consume no RNG.
+                // A dice-DoT status rolls ONCE here, baking
+                // `roll + int_mod + round(power × spell_power)` into `dot_per_tick`.
+                // Non-DoT statuses (`dot_dice = None`) consume no RNG.
                 let dot_power = def.power();
                 for status_app in &def.statuses {
                     let dot_dice = content
@@ -743,9 +707,8 @@ fn step_inner(
     let mut prev_pos = state.unit(actor_id).map(|u| u.pos).unwrap_or_default();
 
     // ── Move-interrupt tracking ───────────────────────────────────────────────
-    // `halt` becomes true when a non-benign event fires during a MovePosition
-    // step.  Remaining move effects (MovePosition + DecrementMP pairs) are
-    // skipped, preserving the unused MP.
+    // `halt` → a non-benign event fired during a MovePosition; remaining
+    // MovePosition+DecrementMP pairs are skipped, preserving unused MP.
     // `interrupted` is surfaced in the returned ApplyCtx.
     let mut halt = false;
     let mut interrupted = false;
@@ -782,11 +745,8 @@ fn step_inner(
         }
 
         // ── Strict failure check (decision 6.5) ──────────────────────────────
-        // Rollback for non-actor Damage targets; silently skip for the actor
-        // (mid-action actor death is handled by actor-liveness truncation).
-        // NOTE: in Phase 0/1 (Action::Move only) the sole Damage targets are
-        // AoO victims which are always the mover (= actor_id), so the Err
-        // branch below is reserved for Phase 2+ Cast/AoE actions.
+        // Rollback for a dead non-actor Damage target; silently skip for the
+        // actor (mid-action death handled by actor-liveness truncation).
         if let Effect::Damage { target, .. } = &effect {
             if !state.unit(*target).is_some_and(|u| u.is_alive()) {
                 if *target == actor_id {
@@ -831,11 +791,10 @@ fn step_inner(
         // Drain skip events from AdvanceTurn/BumpRound cascades.
         events.append(&mut ctx.turn_skip_events);
 
-        // Summon initiative roll: when Effect::Spawn succeeds, roll a d20 for
-        // the new unit and record it in its initiative field. The summon is NOT
-        // inserted into turn_queue.order here — reconcile_turn_order() in the
-        // next BumpRound (Effect::BumpRound arm in effect.rs) does that, so the
-        // summon correctly skips its spawn round and acts starting the next round.
+        // Summon initiative roll: on Effect::Spawn, roll a d20 into the new
+        // unit's initiative. Insertion into turn_queue.order is deferred to the
+        // next BumpRound's reconcile_turn_order(), so the summon skips its spawn
+        // round and first acts next round.
         if let Some(uid) = ctx.spawn_uid {
             let roll = rng.roll(DiceExpr::new(1, 20, 0));
             let dex = state
@@ -943,24 +902,17 @@ fn step_inner(
             }
 
             // ── Trap trigger (arrival) ────────────────────────────────────────
-            //
-            // AoO fires on the leaving edge (before arrival), traps fire on
-            // arrival — so AoO always precedes the trap for the same step.
-            // Symmetric across teams: any unit entering a hazard hex triggers it.
-            //
-            // Reuse the same sub-queue + liveness discipline as the AoO path
-            // above so that a lethal trap correctly derives Death/AdvanceTurn and
-            // the existing "skip remaining MovePositions when mover died" guard
-            // truncates the rest of the path without special-casing here.
+            // Traps fire on arrival, AoO on the leaving edge → AoO precedes the
+            // trap for the same step. Any unit entering a hazard hex triggers it.
+            // Reuses the AoO sub-queue + liveness discipline so a lethal trap
+            // derives Death/AdvanceTurn and the dead-mover guard truncates the path.
             if state.unit(mover_id).is_some_and(|u| u.is_alive()) {
                 if let Some(trap_idx) = state.environment.iter().position(|e| {
                     e.hex == new_pos && matches!(e.kind, crate::state::EnvKind::Hazard)
                 }) {
-                    // One-shot: remove the trap from the board BEFORE resolving
-                    // effects. It deals its damage/status once and disappears —
-                    // no lingering marker, and a re-entrant scan can't fire it
-                    // again. (`EnvRevealed` is reserved for the future reveal
-                    // mechanic — Kael spotting an *armed* trap — not firing.)
+                    // One-shot: remove the trap BEFORE resolving effects so a
+                    // re-entrant scan can't re-fire it. (`EnvRevealed` is reserved
+                    // for the future reveal mechanic, not firing.)
                     let trap = state.environment.remove(trap_idx);
                     let trap_id = trap.id;
                     let trap_ability = trap.ability;
@@ -1006,10 +958,8 @@ fn step_inner(
                             }
                         }
 
-                        // Drain the trap sub-queue with the same discipline as
-                        // the AoO sub-queue: strict target-liveness check (skip
-                        // silently for the mover, error for others), depth cap
-                        // shared with AoO reactions.
+                        // Same discipline as the AoO sub-queue: strict liveness
+                        // check (skip mover, error others), shared depth cap.
                         while let Some(sub_eff) = trap_sub.pop_front() {
                             if let Effect::Damage { target, .. } = &sub_eff {
                                 if !state.unit(*target).is_some_and(|u| u.is_alive()) {
@@ -1045,14 +995,9 @@ fn step_inner(
             }
 
             // ── On-move interrupt detection ───────────────────────────────────
-            // WAVE 3: Run on-move passives (e.g. scout_traps reveal) AFTER the
-            // position is updated (so the scan centers on new_pos) and BEFORE
-            // the eventful check so a newly-revealed hazard counts as a
-            // non-benign event and triggers halt/interrupt.
-            //
-            // Borrow-checker note: `resolve_on_move_passives` takes `&mut state`.
-            // We call it first (completing the &mut borrow), then extend `events`
-            // — no simultaneous mutable borrows.
+            // Run on-move passives (e.g. scout_traps reveal) AFTER the position
+            // update (scan centers on new_pos) and BEFORE the eventful check, so
+            // a newly-revealed hazard counts as a non-benign event → halt.
             let reveal_events = state.resolve_on_move_passives(mover_id, content);
             events.extend(reveal_events);
 
@@ -1065,14 +1010,11 @@ fn step_inner(
                 interrupted = true;
             }
 
-            // No-stacking on interrupt: pre-validate lets a path pass *through* a
-            // friendly-occupied hex, but an interrupt (AoO/trap/reveal) halts the
-            // mover on whatever hex it just landed on — possibly one of those,
-            // stacking two alive units (trips the bridge's one-unit-per-hex index).
-            // Slide forward along the already-validated path to the first free hex;
-            // the validated final hex is guaranteed free (only the mover moves,
-            // deaths only free cells), so a landing always exists. No RNG, no extra
-            // reaction scan for the slide.
+            // No-stacking on interrupt: a path may pass *through* a friendly-
+            // occupied hex, but an interrupt halts the mover on its current hex —
+            // possibly one of those, stacking two units. Slide forward along the
+            // validated path to the first free hex; the validated final hex is
+            // always free, so a landing always exists. No RNG, no extra scan.
             if halt && state.unit(mover_id).is_some_and(|u| u.is_alive()) {
                 let resting_occupied = state
                     .units()
@@ -1117,34 +1059,23 @@ fn step_inner(
     }
 
     // ── Emit TurnStarted whenever the current actor changed during this step ──
-    //
-    // Covers two paths:
-    //   1. Action::EndTurn — AdvanceTurn cascade always changes current.
-    //   2. Death-mid-action — Effect::Death of the current actor derives
-    //      AdvanceTurn (and pushes TurnEnded via turn_skip_events), which
-    //      advances the queue so final_current != initial_current.
-    //
-    // Emitted after the full pump loop has settled so TurnStarted always
-    // refers to the actor who will actually act next.
+    // Covers Action::EndTurn (AdvanceTurn cascade) and death-mid-action (Death
+    // of the current actor derives AdvanceTurn). Emitted after the pump loop
+    // settles so TurnStarted refers to the actor who actually acts next.
     let final_current = (state.turn_queue.current(), state.round);
     if initial_current != final_current {
         if let Some(next_actor) = final_current.0 {
             events.push(Event::TurnStarted { actor: next_actor });
-            // Refill AP/MP, regen mana/energy, tick statuses for the incoming actor.
-            // Was previously done by bridge's engine_turn_start_system; absorbed here
-            // so the full turn-lifecycle flows through one event stream.
+            // Refill AP/MP, regen mana/energy, tick statuses for the incoming
+            // actor — absorbed here so the turn lifecycle flows through one stream.
             events.extend(state.start_actor_turn(next_actor, content));
         }
     }
 
     // ── S6: voluntary auto-end after Cast exhausts AP+MP ─────────────────────
-    //
-    // If the action was a Cast and (a) the turn did NOT already advance via
-    // death-cascade or an explicit AdvanceTurn, AND (b) the actor now has
-    // AP ≤ 0 AND MP ≤ 0, emit TurnEnded{cause: ResourcesExhausted} and queue
-    // AdvanceTurn exactly as Action::EndTurn would — but without a second
-    // step() call.  The bridge's separate auto-end block is removed; this path
-    // is the single authoritative source.
+    // If a Cast didn't already advance the turn and the actor now has AP ≤ 0 and
+    // MP ≤ 0, emit TurnEnded{ResourcesExhausted} and queue AdvanceTurn as
+    // Action::EndTurn would — the single authoritative auto-end path.
     if matches!(&action, Action::Cast { .. }) && initial_current == final_current {
         if let Some(actor_unit) = state.unit(actor_id) {
             let ap_left = actor_unit.pools[crate::PoolKind::Ap]

@@ -14,14 +14,10 @@
 //! When neither holds, the heal lands on a healthy non-threatened ally and the
 //! critic fires.
 //!
-//! Multiplier: continuous in `(FIRE_THRESHOLD - rescue_need)`. At
-//! `rescue_need = 0` (target fully safe, no threat) the multiplier is the
-//! legacy floor `1 - MAX_PENALTY = 0.4`; at the fire threshold boundary it
-//! approaches `1.0` so the penalty doesn't snap.
-//!
-//! Replaces the legacy hard-pair `hp_pct > 0.7 && danger < 0.3` thresholds —
-//! continuous gradation is consistent with how `appraisal::rescue_ally` already
-//! grades ally need.
+//! Multiplier: continuous in `(FIRE_THRESHOLD - rescue_need)` — floor
+//! `1 - MAX_PENALTY = 0.4` at `rescue_need = 0`, approaching `1.0` at the fire
+//! threshold so the penalty doesn't snap. Replaces a legacy hard-pair
+//! threshold; gradation matches how `appraisal::rescue_ally` grades ally need.
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::appraisal::ally_threat_proxy;
@@ -75,12 +71,9 @@ impl PlanCritic for HealWithoutRescueValue {
                 continue;
             };
 
-            // Determine whether this is a heal cast:
-            // - effect is EffectDef::Heal, OR
-            // - outcome records hp_restored > 0 (covers RestoreResources etc.)
-            //
-            // Outcomes live on `TurnPlan.annotation` (populated by generator);
-            // pipeline annotation outcomes are dead during pipeline.
+            // Heal cast = EffectDef::Heal OR outcome hp_restored > 0 (covers
+            // RestoreResources etc.). Outcomes live on `TurnPlan.annotation`
+            // (generator-populated); pipeline annotation outcomes are dead here.
             let is_heal_by_effect = matches!(def.effect, EffectDef::Heal { .. });
             let is_heal_by_outcome = plan
                 .annotation
@@ -427,18 +420,10 @@ mod tests {
 
     // ── Heal detection: outcome-only path (&&/! mutations on line 86) ─────────
 
-    /// A non-Heal-effect ability whose outcome has hp_restored > 0 must fire.
-    /// Tests the `is_heal_by_outcome` branch (lines 80-84).
-    /// - If `&&` → `||`: both conditions form an OR — `!false && !true` = false
-    ///   under &&; `!false || !true` = true under ||, so step would be skipped. Wait,
-    ///   let me reconsider: if is_heal_by_effect=false, is_heal_by_outcome=true:
-    ///   original: `!false && !true` = `true && false` = false → don't continue (fires).
-    ///   with ||:  `!false || !true` = `true || false` = true → continue (passes).
-    ///   So this test catches `&&` → `||`.
-    /// - If `delete !` at position 86:16 (first !): `false && !true` = false → fires.
-    ///   No difference for this path. Use heal-by-effect test for that.
-    /// - If `delete !` at position 86:38 (second !): `!false && true` = true → continue (passes).
-    ///   This test catches that too.
+    /// Non-Heal-effect ability with outcome hp_restored > 0 must fire — covers
+    /// the `is_heal_by_outcome` branch. With is_heal_by_effect=false,
+    /// is_heal_by_outcome=true the `!a && !b` guard catches both `&&`→`||` and
+    /// `delete !` (second !) mutations.
     fn non_heal_effect_with_outcome_fires() -> (
         crate::combat::ai::plan::types::TurnPlan,
         crate::combat::ai::outcome::PlanAnnotation,

@@ -1,7 +1,6 @@
-/// Internal runtime representation for items in the stash and loadouts.
-///
-/// NOTE: Authored `rewards` in TOML use bare ids (resolved by slot type at load time).
-/// `ItemRef` is the internal tagged form used at runtime in `CampaignProgress`/`CampaignState`.
+//! Internal tagged representation for stash/loadout items used at runtime in
+//! `CampaignProgress`/`CampaignState`. Authored `rewards` in TOML use bare ids
+//! resolved by slot type at load time.
 use combat_engine::{ArmorId, WeaponId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -11,13 +10,10 @@ pub enum ItemRef {
     Armor(ArmorId),
 }
 
-/// Full snapshot of a hero's equipped gear (mirrors `Equipment` in components.rs).
-///
-/// Used in `CampaignProgress.loadouts` / `CampaignState.loadouts` to persist the
-/// mutable per-character overlay over the class default.
-///
-/// All armor slots are mandatory (no `Default` derive — an empty `ArmorId` is
-/// never a valid persisted state).
+/// Full snapshot of a hero's equipped gear (mirrors `Equipment` in
+/// components.rs). Persisted in `*.loadouts` as the per-character overlay over
+/// the class default. Armor slots are mandatory (no `Default` — empty `ArmorId`
+/// is never valid persisted state).
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EquipmentSave {
     pub main_hand: Option<WeaponId>,

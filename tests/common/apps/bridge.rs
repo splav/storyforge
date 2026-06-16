@@ -182,10 +182,8 @@ pub fn bridge_stats() -> CombatStats {
     }
 }
 
-/// Default equipment with a short_sword + cloth armor. Mirrors the legacy
-/// test_equipment() used by some bridge tests (notably the engine_trace
-/// record/replay smoke test and the projector_writes_engine_mutation_to_ecs
-/// Phase B-D transplant flow).
+/// Default equipment: short_sword + cloth armor. Mirrors the legacy
+/// `test_equipment()` used by the engine_trace and projector-mutation tests.
 pub fn default_equipment() -> Equipment {
     Equipment {
         main_hand: Some("short_sword".into()),

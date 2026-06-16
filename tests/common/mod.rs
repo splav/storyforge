@@ -1,9 +1,6 @@
 //! Shared scaffolding for integration tests (`tests/combat/` and
 //! `tests/combat_engine/`).
 //!
-//! Restructured in Phase H3 of `docs/refactor/helpers-normalization-plan.md`.
-//! Layout:
-//!
 //! ```text
 //! tests/common/
 //!   mod.rs              — declarations + flat-path re-exports (this file)
@@ -14,11 +11,6 @@
 //!   scenarios/
 //!     statuses.rs       — insert_stun_status (and future insert_*_status helpers)
 //! ```
-//!
-//! ## Compatibility re-exports
-//!
-//! Existing tests use `common::base_stats()`, `common::bridge::bridge_app()`,
-//! `common::movement_app()` — these paths are preserved via the re-exports below.
 
 #![allow(dead_code)]
 

@@ -1,13 +1,9 @@
-//! Shared test helpers for the `ai/` tree. Lives in the binary only under
-//! `cfg(test)` — provides the common `UtilityContext` / `UnitSnapshot` /
-//! `InfluenceMaps` / `ActiveContentData` scaffolding that every scoring-adjacent
-//! test module used to hand-roll.
+//! Shared test scaffolding for the `ai/` tree (UnitFixture, InfluenceMaps,
+//! ActiveContentData, scoring/stage/critic harnesses).
 //!
-//! Module-wide `allow(dead_code)`: items here are used only from `#[cfg(test)]`
-//! mod blocks across the lib and from integration tests. The lib (non-test)
-//! build still compiles this module (it's `pub mod`, needed by integration
-//! tests like `src/combat/ai/plan/parity_tests.rs`), so every helper looks dead to
-//! the lib pass and would otherwise spam warnings.
+//! Module-wide `allow(dead_code)`: helpers are used only from `#[cfg(test)]`
+//! blocks and integration tests, but this `pub mod` is compiled by the lib
+//! (non-test) pass — where every helper looks dead.
 #![allow(dead_code)]
 
 use crate::combat::ai::config::difficulty::DifficultyProfile;
@@ -83,14 +79,9 @@ pub(crate) fn make_test_ctx<'a>(
     }
 }
 
-/// Bundle the per-test (world, snap, maps, reservations, active) refs into
-/// a `ScoringCtx`. Mirrors what `pick_action` builds in production. Callers
-/// own the `maps` / `reservations` so a single test can pre-seed specific
-/// tiles/reservations before handing them in.
-///
-/// Takes `active: &UnitFixture` — the fixture's `entity` is used to resolve
-/// the corresponding `UnitView` from the snapshot. The fixture must be
-/// present in the snapshot — panics with a clear message if not.
+/// Bundle the per-test refs into a `ScoringCtx`, mirroring `pick_action`.
+/// Callers own `maps`/`reservations` so a test can pre-seed tiles. `active`'s
+/// entity resolves its `UnitView`; panics if absent from the snapshot.
 pub(crate) fn make_scoring_ctx<'a>(
     world: &'a AiWorld<'a>,
     snap: &'a BattleSnapshot,
@@ -114,16 +105,9 @@ pub(crate) fn make_scoring_ctx<'a>(
 
 // ── Unit fixture ─────────────────────────────────────────────────────────────
 
-/// Test-only plain-data struct that mirrors `UnitSnapshot` fields.
-///
-/// **No serde derives** — this is only for test construction, not wire logging.
-/// **No aggregate-refresh methods** — tests set `speed`/`armor_bonus`
-/// explicitly; the engine refreshes aggregates via `Effect::RefreshAggregates`
-/// during `step()`.
-///
-/// The `statuses` field stores engine `combat_engine::state::ActiveStatus`
-/// directly (NOT `ActiveStatusView`). Use the [`status_view`] helper to
-/// construct status entries.
+/// Test-only plain-data mirror of `UnitSnapshot` fields. No serde, no
+/// aggregate-refresh: tests set `speed`/`armor_bonus` explicitly. The
+/// `statuses` field stores engine `ActiveStatus` directly — use [`status_view`].
 #[derive(Clone, Debug)]
 pub struct UnitFixture {
     pub entity: bevy::prelude::Entity,
@@ -552,19 +536,11 @@ pub(crate) fn bevy_status(id: &str, engine: combat_engine::StatusDef) -> BevySta
 
 /// Universal context for stage unit tests.  All fields are public — configure
 /// via direct field mutation after `new()`.  Call `.run(|ctx| ...)` to build
-/// the full `StageCtx` (incl. `ScoringCtx`, `BattleSnapshot`, `DiceRng`) in
-/// a closure scope whose lifetime stays local to the call.
-///
-/// # Design
-///
-/// The harness owns `actor`, `maps`, `reservations`, etc.  Inside `run` these
-/// are borrowed to build the `ScoringCtx` stack; `body` receives a
-/// `&mut StageCtx` whose lifetime is bound to that stack — no lifetimes leak
-/// out of the call.
+/// the full `StageCtx` in a closure scope whose lifetime stays local: the
+/// harness owns `actor`/`maps`/`reservations`, `run` borrows them to build the
+/// `ScoringCtx` stack, and `body` gets a `&mut StageCtx` bound to that stack.
 ///
 /// # Test structure (5 sections)
-///
-/// Every stage unit test follows this template:
 ///
 /// ```ignore
 /// #[test]

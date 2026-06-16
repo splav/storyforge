@@ -3,29 +3,21 @@ use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-/// Shared mutable state within a single enemy phase (one round).
-/// Tracks what previous AI units have "claimed" so subsequent units
-/// can avoid overkill, duplicate CC, and tile collisions.
+/// Shared mutable state within a single enemy phase (one round): what previous
+/// AI units have "claimed", so later units avoid overkill, duplicate CC, and
+/// tile collisions.
 ///
-/// **Lifetime invariant:** cleared at the start of each round by
-/// `advance_round_system`. Entries keyed on entities that die
-/// mid-round (or tiles that become moot) are **not** proactively
-/// pruned — they outlive their subject until the next round-start
-/// clear. This is safe by construction because every reader gates
-/// on snapshot+legality first:
+/// **Lifetime invariant:** cleared at round start by `advance_round_system`.
+/// Entries for entities that die mid-round are **not** proactively pruned —
+/// they outlive their subject until the next clear. Safe because every reader
+/// gates on snapshot+legality first:
+/// - damage/CC: `rank_targets` drops dead targets via `check_legality` before
+///   the reservation read, so orphan entries can't affect scoring.
+/// - tiles: an orphan tile is still occupied by the corpse, which the
+///   snapshot's `stop_blockers` picks up regardless of reservation state.
 ///
-/// - `apply_reservation_adjustments` receives already-legal
-///   `ScoredStep`s; `rank_targets` filters dead targets out via
-///   `check_legality` before they reach the reservation read, so
-///   orphan damage/CC entries have no observable effect on scoring.
-/// - Orphan tile reservations stay valid — the tile is still
-///   physically occupied by the corpse (snapshot-level `stop_blockers`
-///   picks it up regardless of reservation state).
-///
-/// If this invariant ever needs tightening (e.g., a new consumer
-/// queries reservations without a check_legality gate upstream), add
-/// proactive cleanup via a `drop_entity` hook on death rather than
-/// special-casing per reader.
+/// To tighten (e.g. a new consumer reads reservations without a legality gate),
+/// add a `drop_entity`-on-death hook rather than special-casing per reader.
 #[derive(Resource, Default)]
 pub struct Reservations {
     damage: HashMap<Entity, f32>,

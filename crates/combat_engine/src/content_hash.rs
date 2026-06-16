@@ -1,8 +1,8 @@
-//! BLAKE3 content fingerprint for trace `init` lines (Phase 5 D3).
+//! BLAKE3 content fingerprint for trace `init` lines.
 //!
-//! Stable across crate versions, cross-platform deterministic.
-//! Consumed by the bridge writer at combat start and by `TomlContentView`
-//! (5c) for replay-time mismatch detection.
+//! Stable across crate versions, cross-platform deterministic. Consumed by the
+//! bridge writer at combat start and by `TomlContentView` for replay-time
+//! mismatch detection.
 
 /// Compute a BLAKE3 hash over canonical-sorted-by-filename concatenation
 /// of `(filename, contents)` pairs. Returns the 32-byte digest.

@@ -1,14 +1,9 @@
 //! `ContentView` — read-only content access trait for the engine.
 //!
-//! The engine needs only a minimal slice of `ContentDb`.  This trait expresses
+//! The engine needs only a minimal slice of `ContentDb`; this trait expresses
 //! exactly that slice so the engine has zero dependency on `crate::content`.
-//!
-//! **Phase 0** exposes only what `step(Action::Move)` needs:
-//! - `aoo_dice(attacker)` — weapon dice for AoO expansion.
-//! - `status_bonuses(id)` — speed/armor bonuses for `RefreshAggregates`.
-//!
-//! Callers implement this trait for real (`ActiveContent` adapter); the engine
-//! only ever calls through the trait object.  Step 8+ agent extends as needed.
+//! Callers implement it for real (`ActiveContent` adapter); the engine only ever
+//! calls through the trait object.
 
 use crate::{dice::DiceExpr, AbilityId, ResourceKind, StatusId};
 
@@ -117,10 +112,8 @@ pub enum EffectDef {
 
 /// Per-status stat bonuses relevant to engine aggregate recomputation.
 ///
-/// Thin wrapper around `RuntimeStatsDelta` — all defensive stat deltas
+/// Thin wrapper around [`RuntimeStatsDelta`] — all defensive stat deltas
 /// (armor, magic_resist, base_speed) are unified under one newtype.
-/// `damage_taken_bonus` was removed (axis deleted 2026-06-15; burning
-/// became a DoT, no status/aura sets this field).
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StatusBonuses {
     /// Additive delta to armor, magic_resist, and base_speed from this status.
@@ -128,9 +121,9 @@ pub struct StatusBonuses {
 }
 
 /// Equipment/template-derived defensive base stats that travel together
-/// (e.g. a boss phase swap replaces all three at once). Status-derived
-/// modifiers (armor_bonus, damage_taken_bonus, effective speed) are NOT here —
-/// they are recomputed by RefreshAggregates on top of this base.
+/// (e.g. a boss phase swap replaces all three at once). Status/aura-derived
+/// modifiers are NOT here — `RefreshAggregates` recomputes them on top of this
+/// base (see [`RuntimeStatsDelta`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeStats {
     pub armor: i32,
@@ -246,13 +239,8 @@ pub struct AbilityDef {
     pub requires_tags: std::collections::BTreeSet<crate::TagId>,
     /// Tags the primary target must NOT have.  Empty ⇒ no exclusion.
     pub excludes_tags: std::collections::BTreeSet<crate::TagId>,
-    /// Per-ability power multiplier (default `None` = 1.0).
-    ///
-    /// For `WeaponAttack`: scales weapon dice (stat mod always added in full).
-    /// For `SpellDamage` / `Heal`: scales `spell_power` contribution.
-    /// For DoT roll at cast time: scales `spell_power` in the baked tick value.
-    ///
-    /// Use `None` (i.e. `..Default::default()`) in tests so you get 1.0 automatically.
+    /// Per-ability power multiplier (`None` = 1.0). See [`AbilityDef::power`]
+    /// for what it scales. Use `None` in tests to default to 1.0.
     pub power: Option<f32>,
 }
 
@@ -475,14 +463,10 @@ pub struct PhaseEntry {
 
 /// Static content lookup for the engine.
 ///
-/// After 5c.1, this trait carries ONLY static content (definitions that are
-/// the same for every combat instance). Per-combat state lives on `Unit`:
-/// - `Unit.caster_context` (was `ContentView::caster_context`)
-/// - `Unit.auras` (was `ContentView::auras_of`)
-/// - `Unit.enemy_phases` / `Unit::check_phase_trigger` (was `ContentView::check_phase_trigger`)
-/// - AoO dice: derived from `Unit.caster_context.weapon_dice` via `reaction::unit_aoo_dice`
-///
-/// Trait has exactly 4 methods: `status_bonuses`, `ability_def`, `status_def`, `unit_template`.
+/// Carries ONLY static content (same for every combat instance). Per-combat
+/// state lives on `Unit` instead: `caster_context`, `auras`, `enemy_phases` /
+/// `check_phase_trigger`, and AoO dice (derived from `caster_context.weapon_dice`
+/// via `reaction::unit_aoo_dice`).
 pub trait ContentView {
     /// Stat bonuses granted by a single status instance.
     ///

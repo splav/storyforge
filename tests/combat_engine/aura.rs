@@ -416,17 +416,14 @@ fn source_moves_out_emits_lost_for_multiple_targets() {
         vec![src, tgt1, tgt2],
     );
 
-    // src moves north along y-axis away from both targets.
+    // src moves north along y-axis away from both targets, crossing out of
+    // radius=2 of both; the step must emit ≥2 AuraStatusLost.
     let path = vec![
         Hex::new(0, 2),
         Hex::new(0, 3),
         Hex::new(0, 4),
         Hex::new(0, 5),
     ];
-    // Note: (0,2) is 2 hexes from tgt2 at (0,1) — still in range. (0,3) is 3 → out of range.
-    // So: after step to (0,2) — tgt2 still in range (dist=1); after (0,3) — out. tgt1 at (1,0)
-    // exits radius once src crosses dist>2 from (1,0). This path moves along y so
-    // dist((0,y),(1,0)) grows. hexx uses cube coords; let's verify the step emits ≥2 lost events.
 
     let mut state = state;
     let mut rng = ExpectedValue;

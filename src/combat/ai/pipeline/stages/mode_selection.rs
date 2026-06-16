@@ -1,31 +1,17 @@
-//! ModeSelectionStage — step 11.0.
+//! ModeSelectionStage — selects an `EvaluationMode` per plan via
+//! `select_evaluation_modes` and records it in `ann.adaptation`.
 //!
-//! Selects an
-//! `EvaluationMode` for each plan via `select_evaluation_modes` and records
-//! the decision in `ann.adaptation`.
-//!
-//! **Critically, this stage does NOT touch `ann.score` or `ann.factors`.**
-//! Score mutation is deferred to `FinalizeStage`, which runs immediately
-//! after this stage in the pipeline. This ordering ensures that
-//! `SanityStage` and `CriticsStage`, which apply multiplicative modifiers
-//! to `ann.score`, execute on the already-finalized base score and are
-//! never overwritten.
-//!
-//! # Pipeline position (step 11.0)
+//! **Does NOT touch `ann.score` / `ann.factors`.** Score mutation is deferred to
+//! `FinalizeStage` (runs next) so `SanityStage`/`CriticsStage` multipliers apply
+//! on the finalized base and are never overwritten.
 //!
 //! ```text
 //! Viability → ModeSelection → Finalize → Sanity → Critics → ProtectSelfMask
 //!          → KillableGate → RepairAffinity → PlanModifiers → PickBest
 //! ```
 //!
-//! # `ann.adaptation.original_score` semantics
-//!
-//! The `original_score` field is set to `ann.score` at the time this stage
-//! runs — which is the **Default-mode initial score** (post-Viability,
-//! pre-Finalize). In prior pipeline order (step 7.2) this field captured
-//! the post-Sanity/Critics score. The field is used only for debug/log
-//! purposes so the semantic change is benign; it is documented here for
-//! clarity.
+//! `ann.adaptation.original_score` captures `ann.score` at this point — the
+//! Default-mode initial score (pre-Finalize). Debug/log only.
 
 use crate::combat::ai::adapt::select_evaluation_modes;
 use crate::combat::ai::outcome::AdaptationData;
@@ -50,8 +36,7 @@ impl PlanStage for ModeSelectionStage {
             if let Some(r) = adaptation.reasons.get(i).and_then(|r| r.as_ref()) {
                 ann.adaptation = Some(AdaptationData {
                     reason: r.clone(),
-                    // original_score here is the Default-mode initial score
-                    // (post-Viability, pre-Finalize). See module doc for semantics.
+                    // Default-mode initial score (pre-Finalize); see module doc.
                     original_score: ann.score,
                     mode: adaptation.modes[i],
                 });

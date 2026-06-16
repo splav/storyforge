@@ -1,9 +1,6 @@
 //! `PlanFactor::Intent` — intent alignment score for the whole plan.
 //!
-//! Body migrated from `planning::scorer::compute_plan_intent_sum`. In commit 1
-//! the legacy function is kept; this leaf re-exports it for use via the new
-//! registry API. Callers in `scorer.rs` still call the legacy function directly
-//! until commit 2 migrates them.
+//! Thin registry-API wrapper over `compute_plan_intent_sum`.
 
 pub const NAME: &str = "intent";
 pub const SIGNED: bool = true;

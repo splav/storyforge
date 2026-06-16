@@ -116,11 +116,9 @@ pub fn spawn_combatants(
                 .copied()
                 .unwrap_or(effective.max_hp)
                 .clamp(1, effective.max_hp);
-            // Template-based party member shares the same bundle as class-based
-            // heroes — engine `from_ecs` and AI snapshot cache need Abilities,
-            // CombatStats, Equipment to fully see the unit. `from_ecs` now
-            // tolerates missing Speed/AP/Reactions with warn-and-default, but
-            // ability/stats lookup is engine-private — no defaults fit.
+            // Template members share the class-hero bundle: `from_ecs` and the
+            // AI cache need Abilities/CombatStats/Equipment. (Speed/AP/Reactions
+            // tolerate warn-and-default, but ability/stats lookup has no defaults.)
             let mut ec = commands.spawn((
                 Name::new(member.name.clone()),
                 hero_bundle(

@@ -234,16 +234,10 @@ pub fn select_intent(
     let mut consider = |intent: TacticalIntent, score: f32, reason: IntentReason| {
         let mut s = score;
         // Stickiness: bonus for continuing the same intent, modulated by
-        // need_signals.continue_commitment for target-oriented intents.
-        // When the prior target is alive, healthy, and reachable,
-        // continue_commitment is high (~0.7+) and stickiness works near full.
-        // When the target is dead/unreachable/in finisher zone (hp ≤ 0.25),
-        // commitment ≈ 0 and stickiness collapses — the AI can freely switch
-        // without the flat abandon-penalty noise (mining P1).
-        //
-        // Non-target intents (ProtectSelf, ProtectAlly, SetupAOE, LastStand)
-        // use a flat factor of 1.0 — their stickiness is unrelated to target
-        // commitment and should behave as before (step 3.3, variant c).
+        // continue_commitment for target-oriented intents. Live/reachable
+        // target → commitment high, stickiness near-full; dead/unreachable
+        // target → commitment ≈ 0, stickiness collapses so the AI can switch
+        // freely. Non-target intents use a flat 1.0 factor.
         if memory.turns_committed < t.max_committed_turns
             && memory.last_intent == Some(intent.kind())
         {
@@ -258,11 +252,9 @@ pub fn select_intent(
                 }
             }
         }
-        // Step 3.5b: conserve_resource soft bonus for cheap intents.
-        // "Cheap" = ProtectSelf and Reposition (AP-only or pure movement, no mana cost).
-        // FocusTarget/ApplyCC/SetupAOE/ProtectAlly may involve expensive casts and
-        // are not boosted here. Hard budget-aware factor scoring is deferred to step 11
-        // (priority bands + scorecard).
+        // conserve_resource soft bonus for cheap intents — "cheap" = ProtectSelf
+        // and Reposition (AP-only / pure movement, no mana). Casting intents may
+        // be expensive and aren't boosted here.
         if need_signals.conserve_resource > t.conserve_resource_threshold {
             let cheap = matches!(
                 intent.kind(),
@@ -314,12 +306,9 @@ pub fn select_intent(
         );
     }
 
-    // ProtectAlly: score based on ally urgency. Self is a valid target.
-    //
-    // Trigger threshold scales with the actor's healer identity (Support axis):
-    // pure damage dealer (support=0) keeps 50% threshold (barely triggers),
-    // pure healer (support=1.0) triggers at 70% (aggressive preventive heal).
-    // Hybrid battle-mages with heal enter healer-mode proportionally earlier.
+    // ProtectAlly: score by ally urgency; self is a valid target. Trigger
+    // threshold scales with healer identity (Support axis): pure DD (support=0)
+    // → 50% (barely triggers), pure healer (1.0) → 70% (preventive heal).
     if active.cache.tags.contains(AiTags::CAN_HEAL) {
         let heal_identity = active.cache.role.support.min(1.0);
         let threshold = 0.5 + heal_identity * 0.2;

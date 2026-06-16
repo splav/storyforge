@@ -1,7 +1,6 @@
 //! Plan-level trade bonus modifier (step 8.B).
 //!
-//! Lifted from `scorer.rs::plan_trade_bonus` (lines 419–428).
-//! Thin wrapper over `trade_delta` + `trade_score`. Logic is identical.
+//! Thin wrapper over `trade_delta` + `trade_score`.
 
 use super::{ModifierCtx, PlanModifier};
 use crate::combat::ai::outcome::PlanAnnotation;
@@ -46,8 +45,6 @@ mod tests {
     use std::collections::HashMap;
 
     /// A neutral plan (no kills, actor alive) yields zero trade bonus.
-    ///
-    /// Migrated from `scorer.rs::trade_bonus_zero_for_neutral_plan` (line 2052).
     #[test]
     fn trade_bonus_zero_for_neutral_plan() {
         // ── 1. Test data ──

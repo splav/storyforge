@@ -1,15 +1,12 @@
 //! Score Effect Engine — drive-loop infrastructure for score-effect stages.
 //!
 //! Stages (Modifiers, Sanity, Critics, ProtectSelfMask, KillableGate) emit
-//! `EmittedEffect`s via `ScoreEffectStage::compute_effects`. The drive-loop
-//! wraps each into `AppliedEffect` (adding `source: StageId`) and applies them
-//! via `PlanAnnotation::apply_effect`, which is the SOLE writer of:
+//! `EmittedEffect`s via `ScoreEffectStage::compute_effects`. The drive-loop wraps
+//! each into `AppliedEffect` (adding `source: StageId`) and applies it via
+//! `PlanAnnotation::apply_effect`, the SOLE writer of:
 //!   - `score_trace` (multipliers / addends / masks / gates)
 //!   - legacy observability (`modifiers`, `sanity`, `critics`, `contract`)
-//!   - cached `score` (recomputed from `score_trace.compute()` at end of stage)
-//!
-//! In Step 1, this infrastructure exists but no production stage uses it.
-//! Steps 2-6 migrate stages one-by-one. Step 7 finalizes privatization.
+//!   - cached `score` (recomputed from `score_trace.compute()` per stage)
 
 use crate::combat::ai::outcome::ContractMaskHit;
 use crate::combat::ai::pipeline::order::StageId;
@@ -19,17 +16,13 @@ use crate::combat::ai::pipeline::stages::modifiers::ModifierContribution;
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 
-/// Plan ranking key for PickBest. Phase 3 Step 1: pure addition; not yet
-/// used by PickBest (Step 2 migrates pick_best_plan to consume this).
+/// Plan ranking key for PickBest. Two-bucket semantics (see
+/// `docs/ai/tech-debt.md` § A2):
+///   - `selectable=true`  → normal ranking; mercy/jitter apply
+///   - `selectable=false` → masked OR gated; fallback when no selectable plans
 ///
-/// Two-bucket semantics — see `docs/ai/tech-debt.md` § A2 / Phase 3 plan:
-///   - `selectable=true`  → eligible for normal ranking; mercy/jitter apply
-///   - `selectable=false` → masked OR gated; only used as fallback when no
-///     selectable plans exist
-///
-/// Within each bucket plans are ordered by `score` descending. Phase 3 does
-/// NOT introduce priority ordering between masked and gated plans (separate
-/// 3-bucket variant is a Phase 5 policy choice).
+/// Within a bucket, ordered by `score` descending. No priority ordering between
+/// masked and gated (a 3-bucket variant is a Phase 5 choice).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelectionKey {
     pub selectable: bool,

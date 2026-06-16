@@ -3,11 +3,10 @@ use crate::content::encounters::EncounterDef;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// One operation in a story scene's ordered `status_ops` list: apply or remove a
-/// persistent status on a named party member. Operations fold in declaration order
-/// across scenes (see `active_party_statuses`), so a single ordered list fully and
-/// deterministically describes the result — `add X` then later `remove X` then
-/// `add Y` all compose unambiguously.
+/// One op in a story scene's ordered `status_ops` list: add/remove a persistent
+/// status on a named party member. Ops fold in declaration order across scenes
+/// (see `active_party_statuses`), so the ordered list deterministically describes
+/// the result.
 #[derive(Debug, Clone)]
 pub enum PartyStatusOp {
     /// Apply `status_id` to `unit_name` (`unit_name` must match a `PartyMemberDef::name`;
@@ -59,10 +58,9 @@ pub struct ScenarioDef {
 
 #[derive(Debug, Clone)]
 pub struct PartyMemberDef {
-    /// Stable slug used as the key in `CampaignState.loadouts`.
-    /// Set explicitly on class-heroes (`"aldric"`, `"lyra"`, `"kael"`).
-    /// For template-based NPCs this is a best-effort slug of `name`; the
-    /// loadout lookup is skipped for template members so the value is unused.
+    /// Stable slug, key into `CampaignState.loadouts`. Explicit on class-heroes;
+    /// a best-effort slug of `name` for template NPCs (unused there — loadout
+    /// lookup is skipped for template members).
     pub id: String,
     pub name: String,
     pub race: String,
@@ -94,10 +92,8 @@ pub enum SceneDef {
         /// `CampaignState.flags`. Composes with `is_invisible`: either reason
         /// causes the scene to be skipped.
         requires_flag: Option<String>,
-        /// Opt-out: if `true`, advancing FROM this scene to the next Story scene will
-        /// NOT route through the camp screen even if all other conditions are met.
-        /// Useful for story beats that narratively cannot be a rest point.
-        /// Defaults to `false` — most Story→Story transitions enter camp.
+        /// If `true`, advancing FROM this scene to the next Story scene skips the
+        /// camp screen even when otherwise eligible. Defaults to `false`.
         no_camp: bool,
     },
     Combat {
@@ -196,12 +192,10 @@ pub fn active_party(scen: &ScenarioDef, up_to: usize) -> Vec<PartyMemberDef> {
 
 /// Accumulated persistent statuses for the active party entering scene at `up_to`.
 ///
-/// Folds every story scene's `status_ops` in **declaration order** across scenes
-/// `0..up_to`: `Add` inserts (deduplicated per unit), `Remove` deletes. Because a
-/// single ordered list drives the result, the fold is fully deterministic and
-/// order-significant (`add X … remove X … add Y` composes exactly as written).
-/// Returns `unit_name → Vec<status_id>`; empty entries are dropped so callers can
-/// cheaply check `.contains_key`.
+/// Folds story-scene `status_ops` in declaration order over `0..up_to`: `Add`
+/// inserts (deduped per unit), `Remove` deletes — order-significant. Returns
+/// `unit_name → Vec<status_id>`; empty entries dropped so callers can check
+/// `.contains_key`.
 pub fn active_party_statuses(scen: &ScenarioDef, up_to: usize) -> HashMap<String, Vec<String>> {
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
 

@@ -1,11 +1,6 @@
 //! Minimal Bevy-free [`ContentView`] stub for engine and replay tests that need
-//! a `ContentView` without booting a Bevy app.
-//!
-//! Historically this file ALSO parsed `assets/data/*.toml` directly — a
-//! duplicate of the app-side parser in `src/content/*`. That duplication was
-//! removed: the app parser is the single source of content parsing, and
-//! `tests/content_parse_snapshot.rs` guards its output. What remains is the
-//! empty view used by engine/replay tests via [`TomlContentView::empty`].
+//! a `ContentView` without booting a Bevy app. Only the empty form is used (see
+//! [`TomlContentView::empty`]); content parsing lives solely in `src/content/*`.
 
 use std::collections::HashMap;
 

@@ -1,12 +1,8 @@
-/// Goal-preserving plan repair — scaffolding (step 6.0) + goal extraction (6.1)
-/// + repair affinity computation (6.2) + continuation outcome (6.5/6.6b).
-///
-/// This module classifies mismatch codes produced by `PlanSnapshot::mismatch()`
-/// into semantic severity levels, enabling downstream logic (6.3+) to reason
-/// about whether a stored goal is still achievable rather than treating every
-/// state change as a reason to replan from scratch.
-// goal.rs and lifecycle.rs have moved to memory/goal/.
-// Re-export for backward-compat so existing callers (`repair::GoalKind`, etc.) continue to work.
+/// Goal-preserving plan repair: classifies mismatch codes from
+/// `PlanSnapshot::mismatch()` into semantic severity levels, so downstream
+/// logic can reason about whether a stored goal is still achievable rather than
+/// replanning from scratch on every state change.
+// goal.rs/lifecycle.rs moved to memory/goal/; re-export for backward-compat.
 pub use crate::combat::ai::memory::goal::{extract_goal_context, GoalKind, StoredGoalContext};
 
 pub mod affinity;
@@ -68,14 +64,10 @@ impl MismatchContext<'_> {
 }
 
 /// Classify a raw mismatch code from `PlanSnapshot::mismatch()` into a
-/// semantic `ContinuationSeverity`.
+/// semantic `ContinuationSeverity`. Pure.
 ///
-/// Pure function — no side effects, no allocations beyond those inside
-/// `classify_status_change` when a delta is provided.
-///
-/// The mapping is intentionally exhaustive over the 8 codes currently produced
-/// by `mismatch()`. Unknown codes fall through to `Invalidating` as the safe
-/// default (better to replan unnecessarily than to continue an invalid goal).
+/// Exhaustive over the 8 codes `mismatch()` produces; unknown codes fall
+/// through to `Invalidating` (safer to replan than to continue an invalid goal).
 pub fn classify_mismatch(code: &'static str, ctx: &MismatchContext<'_>) -> ContinuationSeverity {
     match code {
         // Rage ticks are a natural side effect of AoO / round mechanics.
@@ -155,17 +147,10 @@ fn classify_status_change(delta: &StatusDelta, cache: &StatusTagCache) -> Contin
 
 /// High-level outcome of the goal-preservation check on each tick.
 ///
-/// Produced by `classify_continuation_outcome` and written into
-/// `PlanDivergenceEntry.continuation_outcome` (schema v26, step 6.6b).
-///
-/// ## Backward-compat aliases (v25 logs)
-/// - `goal_preserved_method_preserved` → `GoalPreservedMethodDelivered`
-/// - `goal_preserved_method_changed`   → `GoalPreservedInTransit`
-/// - old `goal_abandoned { reason }` (v25 write-time shape) → `LegacyV25Abandoned`
-///   explicit bucket; voluntary/reactive split was not recorded at write-time.
-///
-/// Default = `NoStoredGoal` via `#[serde(default)]` for backward compat with
-/// v23/v24 logs that lack the field.
+/// Produced by `classify_continuation_outcome`, written into
+/// `PlanDivergenceEntry.continuation_outcome` (schema v26). Per-variant
+/// `#[serde(alias)]` attrs map old v25 names; default `NoStoredGoal` covers
+/// v23/v24 logs lacking the field.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContinuationOutcome {
@@ -237,18 +222,10 @@ pub enum FreshDecisionKind {
 
 // ── Outcome classifier (step 6.5, refined in 6.6b) ────────────────────────────
 
-/// Classify the continuation outcome for a single AI tick.
+/// Classify the continuation outcome for a single AI tick. Pure.
 ///
-/// Inputs:
-/// - `stored` — the goal context from the previous tick (`None` = first tick).
-/// - `fresh_intent` — intent of the fresh plan selected this tick.
-/// - `fresh_decision_kind` — whether the fresh decision casts, moves, or passes.
-/// - `fresh_reason` — `IntentReason` of the fresh chosen plan; used to
-///   discriminate reactive vs voluntary abandons.
-/// - `severity` — mismatch severity from `check_continuation`, if any.
-/// - `age` — `current_round.saturating_sub(stored.created_round)`.
-///
-/// Pure function — no side effects.
+/// `stored` `None` = first tick. `fresh_reason` discriminates reactive vs
+/// voluntary abandons. `age` = `current_round.saturating_sub(stored.created_round)`.
 pub fn classify_continuation_outcome(
     stored: Option<&StoredGoalContext>,
     fresh_intent: TacticalIntent,

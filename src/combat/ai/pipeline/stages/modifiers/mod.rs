@@ -1,33 +1,16 @@
 //! Post-normalisation plan modifiers — pipeline stage 8.B.
 //!
-//! This module contains both the `PlanModifier` trait + associated types and the
-//! `PlanModifiersStage` dispatcher that runs them.
-//!
-//! `PlanModifier` trait: each modifier contributes a signed addendum to
-//! `ann.score` after the full factor/terminal scoring pass. Three built-in
-//! modifiers are registered in `PLAN_MODIFIERS` (apply order is fixed):
+//! `PlanModifier` trait + the `PlanModifiersStage` dispatcher. Each modifier
+//! contributes a signed addendum to `ann.score` after factor/terminal scoring.
+//! Built-ins in `PLAN_MODIFIERS` (fixed apply order):
 //!
 //! 1. `summon_bonus` — scarce-resource bonus for Summon plans.
 //! 2. `trade_bonus`  — economic gain/loss relative to actor value.
 //! 3. `repair_bonus` — goal-affinity amplifier when a stored goal is present.
 //!
-//! `PlanModifiersStage` applies all registered `PlanModifier` implementations
-//! to every non-masked plan in the pool. This stage runs after `RepairAffinityStage`
-//! (which populates `ann.repair_affinity`) and before `PickBestStage` (which reads
-//! the final `ann.score`).
-//!
-//! For each plan the stage iterates `PLAN_MODIFIERS` in fixed order
-//! `[summon_bonus, trade_bonus, repair_bonus]`, accumulates the signed
-//! additive contribution into `ann.score`, and records each contribution as
-//! an `AddendHit` in `ann.score_trace` for observability.
-//!
-//! Masked plans (`ann.score == NEG_INFINITY`) are skipped entirely so that
-//! contract masks applied by `ProtectSelfMaskStage` / `KillableGateStage`
-//! are not disturbed.
-//!
-//! Each modifier contribution is pushed as an `AddendHit` into `ann.score_trace`.
-//! The trace accumulates over the full pipeline: `FinalizeStage` sets `trace.base`,
-//! downstream stages (Sanity, Critics, Modifiers) push hits on top.
+//! Runs after `RepairAffinityStage`, before `PickBestStage`. Masked plans
+//! (`!is_selectable()`) are skipped so contract masks aren't disturbed. Each
+//! contribution is pushed as an `AddendHit` into `ann.score_trace`.
 //! Invariant after apply: `ann.score == trace.compute()`.
 
 pub mod repair_bonus;
@@ -102,11 +85,8 @@ pub struct ModifierContribution {
 
 // ── Static registry ──────────────────────────────────────────────────────────
 
-/// Ordered slice of all active plan modifiers.
-///
-/// Order is fixed: `[summon_bonus, trade_bonus, repair_bonus]`.
-/// `PlanModifiersStage` applies them left-to-right; the same order
-/// appears in `score_trace.addends` entries.
+/// Ordered slice of active plan modifiers; applied left-to-right, same order in
+/// `score_trace.addends`.
 pub static PLAN_MODIFIERS: &[&dyn PlanModifier] = &[
     &summon_bonus::MODIFIER,
     &trade_bonus::MODIFIER,
@@ -226,14 +206,11 @@ mod tests {
         }
     }
 
-    /// A masked plan (Poison mask in trace) must not receive modifier addends.
-    /// After apply(), score_trace.addends stays empty and is_selectable() stays false.
-    /// score is finite (Step 3: compute() ignores masks) — selectability is
-    /// communicated via trace flags, not score magnitude.
-    ///
-    /// This mirrors production: ProtectSelfMaskStage / KillableGateStage emit
-    /// `ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, .. })` before
-    /// PlanModifiersStage runs.
+    /// A masked plan (Poison mask in trace) gets no modifier addends:
+    /// addends stay empty, is_selectable() stays false, score stays finite
+    /// (selectability lives in trace flags, not score magnitude). Mirrors
+    /// production, where ProtectSelfMaskStage / KillableGateStage emit the mask
+    /// before this stage runs.
     #[test]
     fn p3a_modifiers_masked_plan_trace_unchanged() {
         use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};

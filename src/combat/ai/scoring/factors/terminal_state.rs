@@ -1,17 +1,12 @@
-//! Terminal state evaluation — one-shot per-plan assessment of the final sim snapshot.
-//!
-//! Independent of step-summed factors: terminal axes capture "where we ended up",
-//! not "what we did along the way". Eight axes, three clusters:
+//! Terminal state evaluation — one-shot per-plan assessment of the final sim
+//! snapshot. Captures "where we ended up", not "what we did along the way".
+//! Eight axes, three clusters:
 //! - Defensive: `exposure_at_end`, `next_turn_lethality`.
 //! - Offensive: `secure_kill`, `ally_rescue`, `board_control_gain`.
 //! - Geometric: `line_actionability`, `density_value`, `pressure_spacing_zone`.
 //!
-//! As of schema v29 (step 8.A), `terminal_state_score` returns a registry-typed
-//! `FactorTerminalScore` (`factors::TerminalScore`). The legacy `TerminalScore`
-//! named struct has been removed; use `FactorTerminalScore` everywhere.
-//!
-//! The per-axis `compute_*` free functions remain here as `pub(crate)` helpers;
-//! they are used by the `factors::terminal` leaf modules.
+//! Per-axis `compute_*` helpers are `pub(crate)`, consumed by the
+//! `factors::terminal` leaf modules.
 
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::plan::types::TurnPlan;
@@ -19,10 +14,8 @@ use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::world::tags::AiTags;
 
-/// Compute the terminal-state score for a plan from its final sim snapshot.
-///
-/// Returns a `FactorTerminalScore` (registry-typed wrapper) as of schema v29.
-/// All 8 axes populated as of step 5.3.
+/// Compute the terminal-state score (all 8 axes) for a plan from its final sim
+/// snapshot.
 pub fn terminal_state_score(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
@@ -74,22 +67,15 @@ pub(crate) fn compute_exposure_at_end(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 
 
 /// Sum of kill confidence over all plan steps, clamped to [0, 1].
 ///
-/// `p_kill_now` — confirmed kill from sim; `p_kill_soon` — DoT finishes it
-/// next round. Half-weight on `p_kill_soon` reflects lower certainty.
-/// Multiple kills can push the raw sum above 1.0, hence the `.min(1.0)`.
+/// `p_kill_now` — confirmed kill from sim; `p_kill_soon` — DoT finishes next
+/// round (half-weight reflects lower certainty).
 ///
-/// # Overlap note (5.5)
-/// The `factors::offensive` step factors also read `p_kill_now`/`p_kill_soon`
-/// and contribute `kill_now`/`kill_promised` to the per-step discounted sum
-/// in `PlanFactorValues`. This creates a logical overlap: both pathways credit the
-/// same kills. The distinction is *aggregation*: step factors apply a depth
-/// discount (`base^k`), so kills on steps 2-3 are underweighted relative to
-/// kills on step 1. `secure_kill` is a flat roll-up over the whole plan —
-/// it treats every kill equally regardless of step depth, making it sensitive
-/// to multi-step kill combos that the discounted step sum undervalues.
-/// Keep both — they measure related but different things. Double-counting risk
-/// is mitigated by the separate weight tables (`axis_factor_weights` vs
-/// `axis_terminal_weights`) which are tuned independently.
+/// # Overlap note
+/// `factors::offensive` step factors also credit these kills, but apply a depth
+/// discount (`base^k`). `secure_kill` is a flat roll-up — depth-insensitive, so
+/// it values multi-step kill combos the discounted sum undervalues. Keep both;
+/// double-counting is bounded by separately-tuned weight tables
+/// (`axis_factor_weights` vs `axis_terminal_weights`).
 pub(crate) fn compute_secure_kill(plan: &TurnPlan) -> f32 {
     plan.annotation
         .outcomes
@@ -99,19 +85,12 @@ pub(crate) fn compute_secure_kill(plan: &TurnPlan) -> f32 {
         .min(1.0)
 }
 
-/// Credit for having rescued an endangered ally during this turn.
+/// Credit for rescuing an endangered ally this turn.
 ///
-/// An ally is "endangered" if at plan start they were below 40% HP *and* their
-/// tile had danger > 0.5 (i.e. genuinely threatened, not just low HP by
-/// attrition). If by plan end the same ally is above 60% HP, we credit
-/// `1 − initial_hp_pct` — proportional to how dire the situation was.
-///
-/// The actor itself is excluded (self-preservation is captured in
-/// `exposure_at_end` / `next_turn_lethality`). Clamped to [0, 1] in case
-/// multiple rescues accumulate.
-///
-/// Thresholds (0.4, 0.5, 0.6) are hard-coded pending 5.4–5.5 `Thresholds`
-/// struct.
+/// "Endangered" = plan-start HP < 40% AND tile danger > 0.5. If by plan end the
+/// ally is above 60% HP, credit `1 − initial_hp_pct` (proportional to severity).
+/// Actor excluded (self covered by `exposure_at_end` / `next_turn_lethality`).
+/// Clamped to [0, 1]. Thresholds (0.4, 0.5, 0.6) hard-coded pending `Thresholds`.
 pub(crate) fn compute_ally_rescue(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
@@ -197,18 +176,13 @@ pub(crate) fn compute_next_turn_lethality(
 
 // ── Step 5.3: geometric cluster ───────────────────────────────────────────────
 
-/// How many enemies are within max cast range from the actor's end position,
-/// normalised to [0, 1] (≥3 enemies → 1.0).
+/// Enemies within max cast range of the actor's end position, normalised to
+/// [0, 1] (≥3 → 1.0). Measures positioning to act next turn without moving.
 ///
-/// Uses the max range across all offensive and ground-targeted abilities (the
-/// same set used by `max_attack_range` in snapshot building). Returns 0.0 if
-/// the actor is dead at end of plan or has no abilities with range > 0.
+/// Returns 0.0 if the actor is dead at end of plan or has no ranged abilities.
 ///
-/// "Actionability" measures how well the actor is positioned to act on the
-/// next turn without having to move first — a proxy for staying in the fight.
-///
-/// TODO(5.5): if abilities change during plan (e.g. summon expiry), re-derive
-/// from end_snap. For the current content set, abilities are static per turn.
+/// TODO(5.5): if abilities change mid-plan (e.g. summon expiry), re-derive from
+/// end_snap. Current content has static per-turn abilities.
 pub(crate) fn compute_line_actionability(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,

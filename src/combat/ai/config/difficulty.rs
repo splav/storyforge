@@ -121,15 +121,9 @@ impl DifficultyProfile {
     // ── Derived parameters ──────────────────────────────────────────────
     // All reads go through these methods so the mapping lives in one place.
 
-    /// Random noise added per-plan in `finalize_scores`. Derived from
-    /// `decision_quality`: noise is only present on the `easy` tier (where
-    /// `decision_quality < 0.30`), scaling down linearly to 0 by the time
-    /// `decision_quality` reaches 0.30. Normal/hard/epic have noise=0 —
-    /// reproducibility and determinism by construction, not by explicit flag.
-    ///
-    /// Amplitude values:
-    /// - easy (decision_quality=0.10) → 0.20
-    /// - normal+ (decision_quality ≥ 0.30) → 0.0
+    /// Random noise added per-plan in `finalize_scores`. Non-zero only below
+    /// `decision_quality` 0.30 (easy tier); normal/hard/epic get 0 — determinism
+    /// by construction, not by an explicit flag.
     pub fn score_noise(&self) -> f32 {
         (0.3 - self.decision_quality).max(0.0)
     }

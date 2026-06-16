@@ -150,21 +150,11 @@ pub struct GoldenRecord {
 // ── v28 assert pipeline ───────────────────────────────────────────────────────
 
 /// Load overlay, locate the targeted `ActorTickEvent`, run the production
-/// `pick_action` pipeline, and compare the result against overlay expectations.
+/// `pick_action` pipeline, and compare against overlay expectations.
 ///
-/// Reads the first non-skip `ActorTickEvent` from `jsonl_path` (or the event
-/// whose `actor_id` equals the `plan_id` in the overlay scope, when specified —
-/// see note below), runs the production `pick_action` on its snapshot, and
-/// compares the result against the overlay expectations.
-///
-/// **Note on `plan_id` in the overlay scope**: v28 logs do not have a `plan_id`
-/// field. The overlay's `[scope].plan_id` is reinterpreted as the target `actor_id`
-/// (entity bits) for v28 files. When absent the first non-skip event is used.
-/// This matches how the existing `ai_scenarios` overlays use `plan_id` to select
-/// a specific entry.
-///
-/// Returns `AssertError::EntryParse` on schema version mismatch (v27 logs
-/// give a clear `UnsupportedSchema` message).
+/// Selects the event whose `actor_id` matches the overlay's `[scope].plan_id`,
+/// or the first non-skip event when absent. (v28 logs have no `plan_id`, so the
+/// overlay's `plan_id` is reinterpreted as the target `actor_id` / entity bits.)
 pub fn assert_v28_log_file(
     jsonl_path: &Path,
     overlay_path: &Path,

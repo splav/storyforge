@@ -37,21 +37,18 @@ use bevy::prelude::Entity;
 /// - `ApplyCC`: `active.speed + cc_reach(active, content)` — same shape
 ///   but measured against the longest-range CC-capable ability.
 ///
-/// Using just `max_attack_range` (without `speed`) would miss the whole
-/// point for melee pursuers: a warrior 2 tiles from the target after a
-/// move that cuts 3 tiles of distance is semantically "about to engage",
-/// and the signal must reflect that.
+/// `max_attack_range` alone (no `speed`) would miss melee pursuers: a warrior
+/// 2 tiles away after closing 3 is "about to engage", and the signal must show
+/// that.
 ///
 /// # Score shape
 ///
-/// - `new_dist ≤ reach` → `0.8` — entered threat bubble. Strong but still
-///   below a direct Cast (`1.0`), so Cast plans always win when castable.
-/// - closing (`delta > 0`) → `0.3 × delta/reach`, capped at `0.3`. Mild
-///   positive, can't spoof the viability threshold (`0.5` for
-///   FocusTarget/ApplyCC) on its own.
-/// - retreat (`delta < 0`) → `-0.1 × |delta|/reach`, capped at `0.1`.
-///   Proportional and soft — a temporary step backward around a choke or
-///   an obstacle barely registers, position/risk factors handle the rest.
+/// - `new_dist ≤ reach` → `0.8` — entered threat bubble. Below a direct Cast
+///   (`1.0`), so Cast plans win when castable.
+/// - closing (`delta > 0`) → `0.3 × delta/reach`, capped `0.3`. Can't spoof the
+///   `0.5` viability threshold alone.
+/// - retreat (`delta < 0`) → `-0.1 × |delta|/reach`, capped `0.1`. Soft, so a
+///   step back around a choke barely registers.
 /// - no change → `0.0`.
 pub fn pursuit_move_score(from_pos: Hex, to_pos: Hex, target_pos: Hex, reach: u32) -> f32 {
     let new_dist = to_pos.unsigned_distance_to(target_pos);
@@ -189,17 +186,10 @@ pub(crate) fn intent_offensive_value_on_target(
 
 // ── Intent → utility score (factor[7]) ──────────────────────────────────────
 
-// Compute how well a scored step aligns with the current intent.
-// Positive = aligned, zero = neutral, negative = misaligned (soft penalty).
-//
-// Uses a dot-product of per-step impact factors against intent-specific weight
-// vectors (via `IntentWeights`) for `FocusTarget` and `ApplyCC`. This makes
-// alignment proportional to actual impact magnitude — a hit doing 10 damage
-// outscores a hit doing 1 damage, fixing S5 (low-value armor hits getting full
-// intent credit under the old hardcoded 1.0 return).
-//
-// `ProtectSelf`, `ProtectAlly`, `SetupAOE`, `LastStand` preserve their
-// existing formulas (ported to the new signature).
+// How well a scored step aligns with the intent (positive=aligned, neg=soft
+// penalty). FocusTarget/ApplyCC use a dot-product of per-step impact factors
+// against `IntentWeights`, so alignment scales with impact magnitude (a 10-dmg
+// hit beats a 1-dmg hit — fixes S5). Other intents keep their own formulas.
 // ── LastStand step scorer ──────────────────────────────────────────────────
 
 /// Score a single step under the **LastStand** evaluation regime.

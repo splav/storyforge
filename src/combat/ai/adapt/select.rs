@@ -20,24 +20,15 @@ use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::content_view::ActiveContentData;
 
-/// Sum of damage the actor is guaranteed to take from active status
-/// effects before their next meaningful action — i.e. the pending DoT
-/// tick that will fire while someone else is acting.
+/// Sum of damage the actor is guaranteed to take from active status effects
+/// before their next action — the pending DoT tick while others act.
 ///
-/// Components:
-/// - `dot_per_tick` (capped at `.max(0)` — defensive guardrail against
-///   hypothetical negative values; live code only writes positives).
-/// - `hp_percent_dot` from `StatusDef` in content, converted to absolute
-///   HP via `ceil(max_hp × pct / 100)` — mirrors the live tick path in
-///   `advance_turn::tick_statuses_on_entity`.
+/// `hp_percent_dot` is converted via `ceil(max_hp × pct / 100)`, mirroring the
+/// live tick path in `advance_turn::tick_statuses_on_entity`. Only
+/// `rounds_remaining > 0` statuses count (safe against zero-round mid-refresh rows).
 ///
-/// Only statuses with `rounds_remaining > 0` are counted (expired rows
-/// are usually filtered already, but the check keeps this safe if a
-/// snapshot includes zero-round entries mid-refresh).
-///
-/// Used by `select_evaluation_modes` to detect the `ProtectSelfFutile` case —
-/// "contract can be satisfied spatially, but DoT will kill the actor
-/// anyway before he acts again".
+/// Used by `select_evaluation_modes` for the `ProtectSelfFutile` case: contract
+/// satisfiable spatially, but DoT kills the actor before he acts again.
 pub fn pending_dot_before_next_action(active: UnitView<'_>, content: &ActiveContentData) -> i32 {
     let mut total = 0i32;
     for s in active.statuses() {
@@ -56,23 +47,16 @@ pub fn pending_dot_before_next_action(active: UnitView<'_>, content: &ActiveCont
     total
 }
 
-/// Would executing this plan leave the actor alive at the end of its
-/// own turn, after the next status tick that will fire before the actor
-/// acts again?
+/// Would this plan leave the actor alive at end of turn, after the next status
+/// tick that fires before they act again?
 ///
-/// Reads the post-plan snapshot (`sim_snapshots.last()`) — the correct
-/// horizon for DoT doom because external state doesn't change during a
-/// single actor's turn in this engine, and DoT from enemy-applied
-/// statuses ticks on the *applier's* turn (after this actor is done).
-/// So a plan that heals / cleanses in its tail genuinely rescues, even
-/// if the heal is outside the committed prefix — the next AI-tick
-/// continues the same plan from the same doom-state.
+/// Reads the post-plan snapshot (`sim_snapshots.last()`) — the correct DoT-doom
+/// horizon: external state is fixed during an actor's turn, and enemy-applied DoT
+/// ticks on the *applier's* turn. So a tail heal/cleanse genuinely rescues even
+/// outside the committed prefix.
 ///
-/// Deserialized plans (empty `sim_snapshots`, see shape invariant on
-/// `TurnPlan::sim_snapshots`) fall back to `initial` — safe but stale;
-/// in that case the check sees pre-plan HP/statuses, which for a doomed
-/// actor means "no rescue" and LastStand triggers. That's the
-/// conservative side of the fallback.
+/// Deserialized plans (empty `sim_snapshots`) fall back to `initial` — stale but
+/// conservative: a doomed actor reads as "no rescue" and LastStand triggers.
 fn plan_has_self_rescue(
     plan: &TurnPlan,
     active: UnitView<'_>,
@@ -89,36 +73,23 @@ fn plan_has_self_rescue(
     actor_post.hp() > pending_dot_before_next_action(actor_post, content)
 }
 
-/// Returns `true` if the actor dies in transit — cumulative self-damage
-/// from AoO hits reaches or exceeds `actor_hp` on a **Move** step that
-/// precedes any terminal action (Cast), meaning the actor never reaches
-/// any subsequent action.
+/// Returns `true` if cumulative self-damage reaches `actor_hp` on a **Move** step
+/// that precedes any Cast — the actor dies before reaching any terminal action.
 ///
-/// This is the key distinguisher between:
-/// - **Transit death**: actor dies on a Move step BEFORE any Cast has fired.
-///   The plan accomplishes nothing. Mask unconditionally; LastStand heroic-
-///   trade does NOT apply (you can't deal damage from the grave).
-/// - **Death-after-acting**: a Cast fires first (terminal action executes),
-///   then the actor dies on a later Move or Cast step. LastStand still
-///   eligible for these.
+/// Distinguishes:
+/// - **Transit death**: dies on a Move before any Cast → plan accomplishes
+///   nothing. Mask unconditionally; LastStand's heroic-trade does NOT apply.
+/// - **Death-after-acting**: a Cast fires first, then death later → LastStand
+///   still eligible.
 ///
-/// Algorithm: walk `plan.outcomes` + `plan.steps` in lockstep.
-/// - Track `cast_has_fired`: set to `true` on the first Cast step.
-/// - Track cumulative `self_damage` across all steps.
-/// - Whenever cumulative damage ≥ `actor_hp` AND the current step is a Move
-///   AND `cast_has_fired == false` → transit death.
-///
-/// Uses `plan.outcomes` (real per-step sim values) rather than
-/// `expected_aoo_damage` (EV aggregate) so the ordering information
-/// (which step is lethal, which step is terminal) is preserved.
+/// Uses `plan.outcomes` (real per-step sim values) not `expected_aoo_damage` (EV
+/// aggregate) so ordering — which step is lethal vs terminal — is preserved.
 pub(crate) fn plan_has_lethal_transit(plan: &TurnPlan, actor_hp: i32) -> bool {
     if actor_hp <= 0 {
         return false; // already dead; not a transit-death scenario.
     }
-    // Zip terminates at the shorter of steps/outcomes. If outcomes are absent
-    // (deserialized plan, synthetic test plan with empty outcomes), zip produces
-    // no iterations and we return false — conservative side of the fallback.
-    // Only plans with populated sim outcomes can be transit-death detected here.
+    // Zip terminates at the shorter of steps/outcomes. Empty outcomes
+    // (deserialized / synthetic plans) → no iterations → false (conservative).
     let mut cumulative = 0.0f32;
     let mut cast_has_fired = false;
     for (step, outcome) in plan.steps.iter().zip(plan.outcomes.iter()) {
@@ -134,24 +105,15 @@ pub(crate) fn plan_has_lethal_transit(plan: &TurnPlan, actor_hp: i32) -> bool {
     false
 }
 
-/// Pure mode-selection pass — step 11.0.
-///
-/// Evaluates snapshot facts for every plan and returns per-plan
-/// `EvaluationMode` assignments together with their reasons.
-/// Does **not** touch `ann.score`, `ann.factors`, or `raw` — scoring
-/// is entirely deferred to `FinalizeStage`.
-///
-/// This is the first half of the old `apply_adaptation` split:
-/// - **`select_evaluation_modes`** — which mode for each plan? (this fn)
-/// - **`rescore_with_per_plan_modes`** in `scorer.rs` — apply those modes.
+/// Pure mode-selection pass: per-plan `EvaluationMode` + reasons from snapshot
+/// facts. Does **not** touch `ann.score`, `ann.factors`, or `raw` — scoring is
+/// deferred to `FinalizeStage`.
 ///
 /// # Contract
 ///
-/// Pure function over snapshot facts. Inputs are read-only (except
-/// `plans` which is `&[TurnPlan]`). Callers may run Sanity/Critics
-/// multipliers *after* this returns and *before* calling
-/// `rescore_with_per_plan_modes`, because mode selection is
-/// fact-driven and does not depend on scores.
+/// Pure over snapshot facts, inputs read-only. Mode selection is fact-driven and
+/// score-independent, so callers may run Sanity/Critics multipliers between this
+/// and `rescore_with_per_plan_modes`.
 pub fn select_evaluation_modes(
     plans: &[TurnPlan],
     raw: &[PlanFactorValues],
@@ -219,11 +181,9 @@ pub fn select_evaluation_modes(
     }
 
     // ── Per-plan rule: ExpectedSelfLethal ─────────────────────────────────
-    // Fix-C gate: transit-death plans (actor dies on a Move step before
-    // any terminal action) are excluded from LastStand here. LastStand's
-    // heroic-trade premise is "execute a final useful action and then die" —
-    // but transit death means the actor never reaches the action at all.
-    // Those plans receive a hard Mask from `TransitDeathMaskStage` instead.
+    // Fix-C gate: transit-death plans are excluded from LastStand — its
+    // heroic-trade premise needs the actor to reach a final action, but transit
+    // death means it never does. Those get a hard Mask from `TransitDeathMaskStage`.
     let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
     let hp_cutoff = active.hp() as f32;
     for (i, plan) in plans.iter().enumerate() {
@@ -247,28 +207,17 @@ pub fn select_evaluation_modes(
     adaptation
 }
 
-/// Run the ADAPTATION pass over the plan pool. Returns an `Adaptation`
-/// reflecting per-plan mode decisions; mutates `raw` (intent-column for
-/// switched plans) and `scored` (full batch rescored so normalisation
-/// stays consistent).
+/// Run the adaptation pass over the plan pool. Returns per-plan mode decisions;
+/// mutates `raw` (intent-column for switched plans) and `scored` (full batch
+/// rescored to keep normalisation consistent).
 ///
-/// See the module docstring for the five invariants this pass upholds.
-/// The code structure below maps 1:1 to them:
-/// - single function body, no recursion → **ONE PASS**
-/// - triggers read `active.hp()`, `expected_aoo_damage`, `plan_is_defensive`,
-///   `intent` — all snapshot/input facts → **FACTS ONLY**
-/// - no score multiplication, no masking; only mode map + rescore →
-///   **NO PENALTIES / NO MASKS**
-/// - rescore overwrites `raw[i].intent`; calling again produces the same
-///   value → **IDEMPOTENT**
-/// - does not consult contract masks and does not prevent them from
-///   running afterwards → **CONTRACT-NEUTRAL**
+/// Invariants: facts-only triggers, mode-map + rescore (no masks/penalties),
+/// idempotent, contract-neutral.
 ///
-/// # Deprecation note (step 11.0)
+/// # Deprecation note
 ///
-/// Preserved for the existing unit-test suite in this module, which tests
-/// mode-selection + rescore in concert. New pipeline code uses
-/// `select_evaluation_modes` + `FinalizeStage` instead.
+/// Preserved for this module's unit-test suite (mode-selection + rescore in
+/// concert). New pipeline code uses `select_evaluation_modes` + `FinalizeStage`.
 pub fn apply_adaptation(
     plans: &mut [TurnPlan],
     raw: &mut [PlanFactorValues],
@@ -288,14 +237,10 @@ pub fn apply_adaptation(
     let content = ctx.world.content;
 
     // ── Global rules under ProtectSelf ────────────────────────────────────
-    // Two ways the contract can be unsatisfiable, each with its own
-    // rescue horizon (see module docstring on AdaptationReason variants):
-    //   1. SPATIAL — `ProtectSelfNoDefensive`: no plan reaches safety.
-    //   2. TEMPORAL — `ProtectSelfFutile`: safety is reachable but pending
-    //      DoT kills the actor before he acts again.
-    //
-    // Applied first because global — any per-plan ExpectedSelfLethal
-    // rule would be shadowed by a global switch anyway.
+    // Two ways the contract is unsatisfiable:
+    //   1. SPATIAL  — `ProtectSelfNoDefensive`: no plan reaches safety.
+    //   2. TEMPORAL — `ProtectSelfFutile`: safety reachable but DoT kills first.
+    // Applied first (global) — any per-plan rule would be shadowed anyway.
     if matches!(intent, TacticalIntent::ProtectSelf) {
         let any_defensive = raw.iter().any(|f| {
             plan_is_defensive(
@@ -313,16 +258,11 @@ pub fn apply_adaptation(
         }
 
         // Defensive option exists spatially — check temporal feasibility.
-        // is_doomed: pending DoT alone would kill the actor next tick.
-        // If so, require *some* plan to leave the actor alive at end of
-        // turn (via self-heal or cleanse in sim_snapshots.last()). If no
-        // such plan exists, the contract is futile — flip global LastStand.
-        //
-        // MVP gate: only under intent == ProtectSelf. A future extension
-        // might extend doom-check to non-ProtectSelf intents (actor
-        // doomed but picked FocusTarget because danger-map didn't flag
-        // panic_override), but that requires a broader rescue-audit and
-        // is deferred until replay evidence demands it.
+        // If pending DoT alone kills next tick, require *some* plan to leave the
+        // actor alive at end of turn (heal/cleanse in sim_snapshots.last());
+        // otherwise the contract is futile → flip global LastStand.
+        // Gated to ProtectSelf only — extending to other intents needs a broader
+        // rescue-audit, deferred until replay evidence demands it.
         let pending_dot = pending_dot_before_next_action(active, content);
         if pending_dot >= active.hp() {
             let any_rescue = plans
@@ -342,24 +282,17 @@ pub fn apply_adaptation(
             }
         }
 
-        // ProtectSelf with defensive options AND feasible survival:
-        // contract still holds. ExpectedSelfLethal per-plan adaptation
-        // is gated off — the actor is committed to self-preservation,
-        // self-lethal plans are contract violations and should be
-        // masked, not rescored.
+        // Defensive options + feasible survival: contract holds. Per-plan
+        // ExpectedSelfLethal is gated off — self-lethal plans are contract
+        // violations to be masked, not rescored.
         return adaptation;
     }
 
     // ── Per-plan rule: ExpectedSelfLethal ─────────────────────────────────
-    // Only under non-ProtectSelf intents. Under FocusTarget/ApplyCC/...,
-    // a plan whose EV-AoO cost exceeds the actor's HP represents a trade
-    // that the actor's current value function cannot express; LastStand's
-    // "final useful action" table evaluates it on its own terms (kill >
-    // cc > damage), so the plan competes honestly against defensive
-    // alternatives.
-    //
-    // Fix-C gate: transit-death plans (actor dies on a Move step before
-    // any terminal action) are excluded. See `plan_has_lethal_transit`.
+    // Non-ProtectSelf intents only. A plan whose EV-AoO cost exceeds HP is a
+    // trade the value function can't express; LastStand's "final useful action"
+    // table (kill > cc > damage) lets it compete honestly against defensives.
+    // Fix-C gate: transit-death plans excluded — see `plan_has_lethal_transit`.
     let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
     let hp_cutoff = active.hp() as f32;
     let mut any_switched = false;
@@ -406,12 +339,8 @@ mod tests {
 
     // ── apply_adaptation ─────────────────────────────────────────────────
     //
-    // Scaffolding: each test builds a minimal actor + adjacent melee
-    // enemy + plan(s), runs `apply_adaptation`, inspects `modes` /
-    // `reasons` / side effects on `scored`. `expected_aoo_damage`
-    // lights up when a Move step leaves adjacency (see sanity.rs tests
-    // for the full matrix) — we use the simplest topology: actor at
-    // origin, enemy at (1,0), Move to (-1,0) triggers an AoO.
+    // Topology: actor at origin, enemy at (1,0); Move to (-1,0) leaves
+    // adjacency and triggers an AoO (full matrix in sanity.rs tests).
 
     fn move_plan(path: Vec<Hex>) -> TurnPlan {
         TurnPlan {
@@ -558,12 +487,9 @@ mod tests {
 
     // ── ProtectSelfFutile: DoT doom, rescue feasibility ─────────────────
     //
-    // End-of-turn horizon: `plan_has_self_rescue` reads
-    // `sim_snapshots.last()`. In a turn-based engine external state
-    // doesn't change during an actor's turn, so the post-plan snapshot
-    // correctly answers "will this actor be alive when his turn ends".
-    // Tests construct `sim_snapshots` by hand — we're exercising
-    // adaptation logic, not the generator's sim.
+    // `plan_has_self_rescue` reads `sim_snapshots.last()` (end-of-turn horizon).
+    // Tests construct `sim_snapshots` by hand — exercising adaptation logic,
+    // not the generator's sim.
 
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
     use crate::content::statuses::StatusDef;

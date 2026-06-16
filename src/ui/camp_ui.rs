@@ -17,16 +17,12 @@
 //! - Continue button (also Space / Enter).
 //!
 //! ## Interaction
-//! Click any cell to select it (bright yellow border highlight).  Click a
-//! second cell to attempt a swap:
-//!   - `EquipCell ↔ BackpackCell`: validated via `try_equip`; on success the
-//!     backpack item moves into the equip slot and the displaced item takes the
-//!     backpack slot (true swap — no item loss or duplication).
+//! Click a cell to select it; click a second cell to attempt a swap:
+//!   - `EquipCell ↔ BackpackCell`: validated via `try_equip`; true swap (displaced
+//!     item takes the backpack slot — no loss or duplication).
 //!   - `BackpackCell ↔ BackpackCell`: swaps positions in the stash vector.
-//!   - `EquipCell ↔ EquipCell`: not supported in this pass; clicking a second
-//!     equip cell while one is selected deselects the first and selects the new
-//!     one instead.
-//!     Clicking the already-selected cell deselects it (no action taken).
+//!   - `EquipCell ↔ EquipCell`: not supported; re-selects the new cell instead.
+//!     Clicking the already-selected cell deselects it.
 
 use super::button::{spawn_standard_button, ButtonStyle};
 use crate::app_state::AppState;
@@ -133,15 +129,11 @@ pub struct EquipResult {
 /// represented by `current_save`.
 ///
 /// Validation rules:
-/// - `ItemRef::Weapon` may only go into `MainHand` or `OffHand`.
-///   - A `TwoHanded` weapon may only go into `MainHand`; equipping it clears
-///     `off_hand` (the off-hand item is returned separately by the caller).
-///   - An `OffHand` weapon may only go into `OffHand`.
-///   - A `MainHand` weapon may go into either `MainHand` or `OffHand`.
-/// - `ItemRef::Armor` may only go into its matching `ArmorSlot`.
+/// - `ItemRef::Weapon` → `MainHand`/`OffHand` only. `TwoHanded` → `MainHand` and
+///   clears `off_hand` (caller returns it). `OffHand` weapon → `OffHand` only.
+/// - `ItemRef::Armor` → its matching `ArmorSlot` only.
 ///
-/// Returns `Ok(EquipResult)` on success, `Err(EquipError)` on validation
-/// failure.  Does not mutate anything — callers apply the result.
+/// Pure: does not mutate — callers apply the result.
 pub fn try_equip(
     current_save: &EquipmentSave,
     slot: &EquipSlot,
@@ -408,12 +400,8 @@ pub struct CompareRow {
     pub incoming_val: f32,
 }
 
-/// Build comparison rows between the currently-equipped item and an incoming one.
-///
+/// Build comparison rows between the equipped item and an incoming one.
 /// Returns only rows where at least one item has a non-zero value.
-/// Delegates stat extraction to `item_stats`.
-///
-/// Pure function — no Bevy types, fully unit-testable.
 pub fn compare_items(
     equipped: &ItemRef,
     incoming: &ItemRef,
@@ -465,13 +453,10 @@ pub fn compare_items(
 
 /// Orient a worn-vs-incoming comparison by **role**, not selection order.
 ///
-/// Fixes the sign-flip bug where the delta direction depended on which cell the
-/// player clicked first. `cell_compatible` only ever offers an Equip↔Backpack
-/// pair, so the selected cell's kind fully determines roles: returns
-/// `(worn, incoming)` with the equip-slot item as `worn`. A delta computed as
-/// `incoming − worn` is then always "the change for the hero".
-///
-/// Pure function — no Bevy types, fully unit-testable.
+/// Fixes the sign-flip bug where delta direction depended on click order.
+/// `cell_compatible` only offers Equip↔Backpack pairs, so the selected cell's
+/// kind determines roles: returns `(worn, incoming)` with the equip-slot item as
+/// `worn`, making `incoming − worn` always "the change for the hero".
 fn orient_comparison<T>(selected_kind: &CellKind, selected: T, hovered: T) -> (T, T) {
     if matches!(selected_kind, CellKind::Equip { .. }) {
         (selected, hovered) // selected worn, hovered backpack
@@ -495,10 +480,8 @@ pub enum CellStyle {
 
 /// Extract stat values from an item for display in the comparison card.
 ///
-/// Returns `(label, value)` pairs for every stat that is non-zero for this item.
+/// Returns `(label, value)` pairs for every non-zero stat.
 /// Урон = average dice damage via `DiceExpr::expected()`.
-///
-/// Pure function — no Bevy types, fully unit-testable.
 pub fn item_stats(
     item: &ItemRef,
     weapons: &std::collections::HashMap<WeaponId, WeaponDef>,
@@ -585,15 +568,9 @@ pub fn item_stats(
 /// Returns `true` if `target` is a valid swap destination when `selection` is active.
 ///
 /// Compatibility rules:
-/// - `Backpack{index}` (item I) → compatible with `Equip{hero, slot}` iff
-///   `try_equip(hero's loadout, slot, I)` succeeds. All other `Backpack` cells
-///   are incompatible (only fitting equip slots are offered).
-/// - `Equip{hero, slot}` (item J) → compatible with `Backpack{index}` (item K)
-///   iff `try_equip(hero's loadout, slot, K)` succeeds. All other `Equip` cells
-///   are incompatible (equip↔equip is not supported).
-/// - The selected cell itself should be handled separately by the caller.
-///
-/// Pure function — no Bevy types, fully unit-testable.
+/// - `Backpack` ↔ `Equip{slot}` iff `try_equip(loadout, slot, item)` succeeds.
+/// - `Backpack`↔`Backpack` and `Equip`↔`Equip` are always incompatible.
+/// - The selected cell itself is handled separately by the caller.
 pub fn cell_compatible(
     selection: &CellKind,
     target: &CellKind,
@@ -1164,13 +1141,9 @@ pub fn camp_rebuild_system(
 
 /// Handles cell selection, swap attempts, and Continue.
 ///
-/// Interaction pattern (mirrors `main_menu_ui`):
-/// - Query `Changed<Interaction>`, check `*i == Interaction::Pressed`.
-/// - First press → select cell; triggers rebuild to show dimming.
-/// - Second press → attempt swap, then rebuild + clear selection.
-/// - Press already-selected cell → deselect; triggers rebuild to clear dimming.
-/// - EquipCell ↔ EquipCell → re-select the new cell (equip↔equip not supported
-///   this pass; see module doc); triggers rebuild.
+/// First press selects; second press swaps + clears; pressing the selected cell
+/// deselects; Equip↔Equip re-selects the new cell (see module doc). Every branch
+/// triggers a rebuild to refresh cell dimming.
 #[allow(clippy::too_many_arguments)]
 pub fn camp_interaction_system(
     mut commands: Commands,
@@ -1504,12 +1477,9 @@ pub fn cleanup_camp_screen(
 ///   incompatible or empty cell → single-column card showing the selected item
 ///   stats (header "Выбрано").
 ///
-/// The card is a fixed top-right panel (absolute position, never overlaps the
-/// grids), so it cannot intercept pointer events — the cell buttons always
-/// receive `Interaction::Pressed` correctly.
-///
-/// Uses a `Local` to avoid rebuilding the card children every frame.
-/// The key is `(anchor_kind, compare_hovered, has_selection)`.
+/// Absolute top-right position keeps the card off the grids so it never
+/// intercepts pointer events. A `Local` key `(anchor_kind, compare_hovered,
+/// has_selection)` avoids rebuilding the children every frame.
 #[allow(clippy::too_many_arguments)]
 pub fn camp_comparison_system(
     mut commands: Commands,
@@ -1616,11 +1586,9 @@ pub fn camp_comparison_system(
     commands.entity(card_entity).with_children(|card| {
         if let Some(hov_kind) = compare_hovered {
             // ── Two-column comparison mode ───────────────────────────────
-            // Orientation is role-based, not click-order-based: the worn item is
-            // always the left/baseline column, the backpack candidate the right
-            // column, so the delta always reads as "change for the hero".
-            // `cell_compatible` only ever pairs an Equip cell with a Backpack
-            // cell, so exactly one of {selected, hovered} is each kind.
+            // Role-based orientation: worn item left, backpack candidate right,
+            // so the delta reads as "change for the hero" regardless of click
+            // order. cell_compatible pairs exactly one Equip with one Backpack.
             let selected_kind = selection.selected.as_ref().unwrap();
             let sel_item = cell_item(selected_kind, &campaign, &db, &scenario_state, content)
                 .expect("selected item already validated above");

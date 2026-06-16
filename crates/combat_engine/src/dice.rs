@@ -39,20 +39,15 @@ impl DiceExpr {
         self.count as f32 * (self.sides as f32 + 1.0) / 2.0 + self.bonus as f32
     }
 
-    /// Expected value under disadvantage, **per-die** semantics: each die
-    /// is rolled twice, the lower of the two values kept, then summed.
-    /// Closed form: `N · (S+1)(2S+1) / (6S) + bonus`.
+    /// Expected value under disadvantage, **per-die** semantics: each die is
+    /// rolled twice, the lower kept, then summed. `N · (S+1)(2S+1) / (6S) + bonus`.
     ///
-    /// **Caveat — divergence with the live resolver.** Right now
-    /// `roll_dice_disadvantage` (live path) computes per-sum disadvantage:
-    /// the entire `NdS` is rolled twice and the lower **total** kept. For
-    /// `N > 1` per-sum is mathematically a softer discount than per-die
-    /// (e.g. 2d6: per-sum E≈5.63, per-die E=5.06). Until the live mechanic
-    /// is reconciled, AI scoring under-estimates damage on disadvantage
-    /// casts of multi-die abilities by ~10%. Single-die abilities
-    /// (the common case) match exactly. Tracked as a follow-up; for
-    /// scoring purposes the directional signal — "disadvantage hurts" —
-    /// is right either way.
+    /// **Caveat — diverges from the live resolver.** `roll_dice_disadvantage`
+    /// uses per-*sum* disadvantage (roll the whole `NdS` twice, keep the lower
+    /// total), a softer discount for `N > 1` (2d6: per-sum E≈5.63 vs per-die
+    /// E=5.06). So AI scoring under-estimates multi-die disadvantage casts by
+    /// ~10%; single-die (the common case) matches exactly. Directionally right
+    /// either way — tracked as a follow-up.
     pub fn expected_disadvantage(self) -> f32 {
         let n = self.count as f32;
         let k = self.sides as f32;

@@ -1,16 +1,10 @@
-//! Agenda — step 11.2.
-//!
-//! `Agenda` is the ordered list of tactical candidates the AI will pursue this
-//! turn.  In 11.2 the agenda is **built but not used**: `build_agenda` is
-//! called in `pick_action` and the result is immediately discarded.  Routing
-//! lands in 11.4; per-item considerations scoring in 11.3.
+//! Agenda — the ordered list of tactical candidates the AI pursues this turn.
 //!
 //! Per-band sizes (fixed, see §11 decisions §2):
 //! - `ForcedTargeting`          → N=1
 //! - `CriticalSelfPreservation` → N=2 (ProtectSelf + best Reposition)
 //! - `HardRescueOpportunity`    → N=2 (ProtectAlly + FocusTarget on threat)
-//! - `NormalTactical`           → N=1 in 11.2 (legacy `select_intent` winner).
-//!   Full N=3 expansion deferred to 11.5 when `select_intent` is decomposed.
+//! - `NormalTactical`           → N=1 (`select_intent_normal` winner)
 
 use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
@@ -97,18 +91,12 @@ pub struct Agenda {
 
 // ── build_agenda ─────────────────────────────────────────────────────────────
 
-/// Build the agenda for `active` given the current battle state.
+/// Build the agenda for `active`, dispatching to a per-band builder and sorting
+/// by `raw_score` descending.
 ///
-/// Dispatches to a per-band builder based on `band`.  The result is sorted by
-/// `raw_score` descending before being returned.
-///
-/// `memory` is forwarded to `build_normal_tactical` so that stickiness bonuses
-/// apply within the normal-tactical intent selection, matching the prior
-/// `select_intent` behaviour (step 11.5).
-///
-/// **11.3 contract**: considerations are computed for every item but are NOT used
-/// for routing — that lands in 11.4.  `repair` is `None` in 11.3; per-plan repair
-/// affinity arrives in 11.4 alongside the plan overlay.
+/// `memory` is forwarded to `build_normal_tactical` so stickiness bonuses apply
+/// in normal-tactical selection. Considerations are computed per item but not
+/// yet used for routing; `repair` affinity is `None` here.
 #[allow(clippy::too_many_arguments)]
 pub fn build_agenda(
     band: PriorityBand,
@@ -123,11 +111,9 @@ pub fn build_agenda(
     status_tags: &crate::combat::ai::world::tags::StatusTagCache,
 ) -> Agenda {
     let mut items = match band {
-        // Fix A: ForcedTargeting is no longer emitted by assign_band.
-        // Taunt constrains attack-target via engine legality (taunters_for),
-        // not by routing the actor's intent toward the taunter.
-        // Keep the arm to satisfy exhaustiveness; build_forced_targeting is
-        // preserved as dead code for log-schema compatibility.
+        // Fix A: assign_band no longer emits ForcedTargeting (taunt constrains
+        // targeting via engine legality, not intent routing). Arm kept for
+        // exhaustiveness; build_forced_targeting kept for log-schema compat.
         PriorityBand::ForcedTargeting => {
             unreachable!("taunt no longer routes via ForcedTargeting band; see Fix A / project_taunt_flee_aoo_fix")
         }
@@ -169,10 +155,9 @@ pub fn build_agenda(
 
 /// ForcedTargeting: N=1 — the taunter is the only valid target.
 ///
-/// **Dead code since Fix A** — `assign_band` no longer emits `ForcedTargeting`.
-/// Preserved for log-schema stability (serde roundtrips of old AI logs that
-/// recorded `ForcedTargeting` band entries must still deserialize correctly).
-/// Do not delete until log schema is versioned past the taunt-routing change.
+/// **Dead code since Fix A.** Kept for log-schema stability (old AI logs with
+/// `ForcedTargeting` band entries must still deserialize). Don't delete until
+/// the log schema is versioned past the taunt-routing change.
 #[allow(dead_code)]
 fn build_forced_targeting(
     band_reason: &BandReason,
@@ -312,11 +297,9 @@ fn build_hard_rescue_opportunity(
         considerations: IntentConsiderations::default(),
     };
 
-    // Item 2 (optional): FocusTarget — the biggest threat to the endangered ally.
-    // Only emit when an actual threat is identified. Step 11.7 mining showed that
-    // emitting FocusTarget with `target=None` produced 23.5% of HardRescue
-    // FocusTarget items as untargeted — semantic noise. Honest N=1 ProtectAlly
-    // is preferable to an artificial FocusTarget without a target.
+    // Item 2 (optional): FocusTarget on the biggest threat to the ally. Emitted
+    // only when a real threat exists — mining showed untargeted FocusTarget was
+    // 23.5% noise, so honest N=1 ProtectAlly is preferred.
     let threat = snap
         .enemies_of(active.team)
         .filter(|e| e.pos.unsigned_distance_to(endangered_ally.pos) <= e.cache.max_attack_range)
@@ -345,14 +328,9 @@ fn build_hard_rescue_opportunity(
     vec![protect_ally, focus_item]
 }
 
-/// NormalTactical: N=1 — winner of `select_intent_normal`.
-///
-/// Step 11.5: replaces the previous `select_intent` (full ladder) call with
-/// `select_intent_normal` (FocusTarget / ApplyCC / SetupAOE / Reposition only).
-/// Panic / taunt / rescue branches are handled by their own band builders.
-///
-/// `memory` is forwarded to preserve stickiness bonuses within normal-tactical
-/// intent selection, matching prior behaviour in `pick_action`.
+/// NormalTactical: N=1 — winner of `select_intent_normal` (FocusTarget / ApplyCC
+/// / SetupAOE / Reposition; panic/taunt/rescue are handled by other bands).
+/// `memory` is forwarded to preserve stickiness bonuses.
 #[allow(clippy::too_many_arguments)]
 fn build_normal_tactical(
     active: UnitView<'_>,
@@ -456,12 +434,8 @@ mod tests {
     }
 
     // ── 1. Taunted unit routes through NormalTactical, not ForcedTargeting ───
-    //
-    // Fix A: assign_band no longer emits ForcedTargeting for taunted actors.
-    // build_agenda's ForcedTargeting arm is unreachable! at runtime.
-    // This test verifies the new contract: a taunted-but-healthy unit gets a
-    // NormalTactical agenda with at least one item.
-
+    // Fix A: a taunted-but-healthy unit gets a NormalTactical agenda (≥1 item);
+    // the ForcedTargeting arm is unreachable! at runtime.
     #[test]
     fn agenda_taunted_healthy_unit_routes_normal_tactical() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).build();

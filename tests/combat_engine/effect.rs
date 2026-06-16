@@ -577,10 +577,8 @@ fn heal_no_dot_restores_hp() {
     );
 }
 
-/// Heal pool exceeds DoT: status removed, remaining heal restores HP.
-/// Decision 6.x parity with `apply_effects_system`: DoT-neutralize first,
-/// then HP heal. Status removal derives `RefreshAggregates` so any
-/// armor/speed bonuses from the cleansed status are cleared.
+/// Heal pool exceeds DoT: DoT-neutralize first, then HP heal. Status removal
+/// derives `RefreshAggregates` so the cleansed status's bonuses are cleared.
 #[test]
 fn heal_full_neutralizes_dot_then_restores_hp() {
     let mut u = make_unit(1, 3, 10);
@@ -1654,13 +1652,10 @@ fn spawn_blocked_when_no_free_position() {
     assert_eq!(ctx.spawn_blocked, Some(SpawnBlockedReason::NoFreePosition));
 }
 
-/// Regression: corpse tombstones must block spawn positions.
-///
-/// The engine and the Bevy `HexPositions` map must agree on what cells are
-/// occupied.  ECS keeps `HexPositions` entries for dead entities until they
-/// are despawned, so spawning a new unit on a corpse would panic in
-/// `HexPositions::insert`.  Engine occupancy uses `state.units()` (all units,
-/// including dead) to match this view.
+/// Regression: corpse tombstones must block spawn positions. ECS keeps
+/// `HexPositions` for dead-but-not-despawned entities, so spawning on a corpse
+/// would panic in `HexPositions::insert`. Engine occupancy uses `state.units()`
+/// (including dead) to match that view.
 #[test]
 fn spawn_blocked_by_corpse_tombstone() {
     let summoner = make_unit(1, 20, 20);

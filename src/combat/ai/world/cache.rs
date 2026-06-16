@@ -77,15 +77,13 @@ pub struct UnitAiCache {
     pub ai_tuning_override: Option<AiTuningOverride>,
     #[serde(default)]
     pub abilities: Vec<AbilityId>,
-    /// Caster parameters (str/int mod, spell power, weapon dice). Migrated
-    /// from `UnitSnapshot.caster_ctx` in Phase D-step-3.
+    /// Caster parameters (str/int mod, spell power, weapon dice).
     /// Schema: absent in pre-Phase-D logs → `CasterContext::default()`.
     #[serde(default)]
     pub caster_ctx: crate::content::abilities::CasterContext,
     /// When set, overrides the evaluation mode for every plan this unit
-    /// generates. Sourced from `AiBehaviorOverride` ECS component (set by a
-    /// boss phase transition). `None` for normal units.
-    /// Schema: additive field, `#[serde(default)]` → `None` on old logs.
+    /// generates. Sourced from `AiBehaviorOverride` (boss phase transition);
+    /// `None` for normal units.
     #[serde(default)]
     pub forced_mode: Option<crate::combat::ai::adapt::EvaluationMode>,
 }

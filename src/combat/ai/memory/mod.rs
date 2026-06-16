@@ -2,10 +2,9 @@
 //!
 //! Sub-modules:
 //! - `ai_memory`  — `AiMemory` (ECS Component) + `PlanSnapshot` (snapshot for
-//!   plan continuation checks). Formerly `intent/memory.rs`.
-//! - `goal/`      — `GoalKind`, `StoredGoalContext`, `extract_goal_context`
-//!   (formerly `repair/goal.rs`) + `pre_tick`/`post_tick` lifecycle helpers
-//!   (formerly `repair/lifecycle.rs`).
+//!   plan continuation checks).
+//! - `goal/`      — `GoalKind`, `StoredGoalContext`, `extract_goal_context` +
+//!   `pre_tick`/`post_tick` lifecycle helpers.
 
 pub mod ai_memory;
 pub mod goal;

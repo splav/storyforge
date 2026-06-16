@@ -2,7 +2,7 @@
 //!
 //! This module is the **only** place that imports both `bevy::` and
 //! `combat_engine::`.  The engine itself (`crates/combat_engine/`) has zero
-//! Bevy dependency (decision 6.7).
+//! Bevy dependency.
 //!
 //! # Submodule map
 //!

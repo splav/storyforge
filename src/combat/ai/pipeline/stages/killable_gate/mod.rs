@@ -4,10 +4,8 @@
 //! The gate enforces the contract "if a kill is reachable against the
 //! intent target, the winning plan must pursue that kill".
 //!
-//! `KillableGateStage` is the `PlanStage` wrapper (step 7.2).  The pure
-//! algorithm (`apply_killable_gate`, `plan_is_offensive_vs`) and supporting
-//! types (`KillLineStrength`, `GateStats`, `KILLABLE_ALPHA`) live here as
-//! well, consolidated from `planning/killable_gate.rs`.
+//! `KillableGateStage` is the `PlanStage` wrapper (step 7.2); the pure
+//! algorithm and supporting types live here too.
 //!
 //! ## Tier table
 //!
@@ -24,11 +22,10 @@
 //!    Plans already masked to `-∞` (sanity/adaptation/any future layer) do
 //!    not raise strength and are not double-pruned. See `docs/ai_rework.md §3.2`.
 //!
-//! 2. **Intent-coherent detection** — both `Pressure` and `CanFinish` require
-//!    `plan_is_offensive_vs(plan, target)` in the strength predicate AND in the
-//!    keep predicate. Without this a collateral AoE kill on some *other* enemy
-//!    (kn=1 on `step.target != intent_target`) would spuriously raise strength
-//!    to `CanFinish` and prune legit offensive-vs-target plans. See
+//! 2. **Intent-coherent detection** — `Pressure`/`CanFinish` require
+//!    `plan_is_offensive_vs(plan, target)` in both strength and keep
+//!    predicates. Else a collateral AoE kill on another enemy would
+//!    spuriously raise strength and prune legit plans. See
 //!    `docs/ai_rework.md §3.1`, §3.2a.
 
 use crate::combat::ai::adapt::EvaluationMode;
@@ -84,13 +81,11 @@ pub const KILLABLE_ALPHA: f32 = 0.3;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Returns `true` if `plan` has at least one `Cast` step whose `target`
-/// field exactly matches `target`.
+/// `true` if `plan` has a `Cast` step whose `target` exactly matches `target`.
 ///
-/// AoE casts aimed at another tile that happen to cover the target are NOT
-/// counted — this mirrors the diagnostic metric in `replay_ai_log.rs` so
-/// gate and measurement see exactly the same truth. Only explicit targeting
-/// of the intent target qualifies.
+/// AoE aimed at another tile that merely covers the target does NOT count —
+/// mirrors the diagnostic metric in `replay_ai_log.rs` so gate and
+/// measurement see the same truth.
 pub fn plan_is_offensive_vs(plan: &TurnPlan, target: Entity) -> bool {
     plan.steps
         .iter()
@@ -121,9 +116,8 @@ pub fn apply_killable_gate(
     };
     let hp_f = t.hp().max(0) as f32;
 
-    // Live pool: survivors of adaptation + any prior hard mask.
-    // Sanity soft penalties leave scores finite → plan stays in consideration.
-    // Plans at -∞ or in non-Default mode are invisible to this gate.
+    // Live pool: Default-mode, finite-score plans. Sanity soft penalties stay
+    // finite; plans at -∞ or non-Default mode are invisible to this gate.
     let live: Vec<usize> = (0..plans.len())
         .filter(|&i| matches!(modes[i], EvaluationMode::Default))
         .filter(|&i| scores[i].is_finite())
@@ -132,11 +126,9 @@ pub fn apply_killable_gate(
         return GateStats::default();
     }
 
-    // Strength detection: intent-coherent on the live pool only.
-    // A plan must be offensive_vs_target AND provide the kill signal.
-    // Without the offensive_vs_target guard, a collateral AoE kill on
-    // some other enemy (kn=1, step.target != intent_target) would spuriously
-    // raise strength to CanFinish.
+    // Intent-coherent strength detection: a plan must be offensive_vs_target
+    // AND carry the kill signal — else a collateral AoE kill on another enemy
+    // would spuriously raise strength to CanFinish.
     let can_finish = live.iter().any(|&i| {
         plan_is_offensive_vs(&plans[i], target) && raw[i].get(StepFactor::KillNow) >= 1.0
     });
@@ -219,12 +211,9 @@ impl ScoreEffectStage for KillableGateStage {
         let mut emitted = Vec::new();
         for (plan_index, new_score) in scores.into_iter().enumerate() {
             if new_score == f32::NEG_INFINITY {
-                // Phase 3 Step 4: emit only Gate (with Contract observation).
-                // Old behavior was double-emit (Gate + Mask) to preserve
-                // compute() poison; with compute() now finite (Step 3), Gate
-                // alone is the selectability signal via SelectionKey.
-                // Contract carries ContractMaskHit for legacy JSONL/
-                // observability until Phase 4 schema cleanup.
+                // Emit Gate only (Contract carries ContractMaskHit for legacy
+                // JSONL). Gate alone is the selectability signal via
+                // SelectionKey since compute() is finite.
                 emitted.push(EmittedEffect {
                     plan_index,
                     hit: ScoreHit::Gate(GateHit {
@@ -509,14 +498,9 @@ mod algorithm_tests {
 
     #[test]
     fn gate_ignores_plans_already_masked_by_prior_layer() {
-        // Plan A: Cast @ target, kn=1, but ALREADY masked to -inf by prior layer.
-        // Plan B: Cast @ target, damage ≥ α·hp, kn=0, score=0.5 (live).
-        //
-        // Without `.is_finite()` filter: A would be in the live pool →
-        // strength=CanFinish → B also pruned → all plans -inf (bad).
-        //
-        // With fix: A is NOT in live_pool (score=-inf) → strength falls to
-        // Pressure (driven by B) → B survives; heal pruned if present.
+        // A: Cast @ target, kn=1, ALREADY masked to -inf. B: Cast @ target,
+        // damage ≥ α·hp, kn=0, live. The `.is_finite()` filter keeps A out of
+        // the live pool → strength falls to Pressure (driven by B) → B survives.
         let target = ent(2);
         let plans = vec![
             cast_plan(target), // A: masked killing plan
@@ -653,10 +637,9 @@ mod stage_tests {
         f
     }
 
-    // Helper for tests that need a custom multi-unit BattleSnapshot (actor + target).
-    // These cannot use StageTestHarness directly because the harness builds a
-    // solo-actor snapshot; inject snap/actor inline.
-    // TODO: migrate to StageTestHarness in Phase 5 when harness gains snap injection.
+    // For tests needing a multi-unit snapshot (actor + target): StageTestHarness
+    // only builds a solo-actor snapshot, so inject snap/actor inline.
+    // TODO: migrate to StageTestHarness once it gains snap injection.
     fn run_stage_with_snap(
         plans: Vec<TurnPlan>,
         scores: Vec<f32>,

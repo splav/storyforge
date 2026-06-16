@@ -1,10 +1,7 @@
-//! Bridge smoke tests: projector isolation.
-//!
-//! Verifies `project_state_to_ecs` in isolation — without going through
-//! `process_action_system`. Each test uses a `projector_only_app` (no mirror
-//! system) so a direct mutation of `CombatStateRes` is not overwritten before
-//! PostUpdate. Covers position, HP/MP, mana, status-effects, and aura-applied
-//! status preservation.
+//! Bridge smoke tests: `project_state_to_ecs` in isolation. Each test uses a
+//! `projector_only_app` (no mirror) so a direct `CombatStateRes` write survives
+//! to PostUpdate. Covers position, HP/MP, mana, statuses, and aura-status
+//! preservation.
 
 use bevy::prelude::*;
 
@@ -19,13 +16,9 @@ use storyforge::game::resources::HexPositions;
 
 use super::common;
 
-/// Projector-isolation test: direct engine mutation flows to ECS without
-/// going through `process_action_system`.
-///
-/// Strategy: use a `projector_only_app` (no mirror) so a manual write to
-/// `CombatStateRes` is not wiped before PostUpdate.
-/// We seed the resource and `UnitIdMap` via `init_bridge_engine_state`,
-/// then transplant those resources into the projector-only app for the assertion.
+/// Direct engine mutation flows to ECS without `process_action_system`. Seeds
+/// `CombatStateRes` + `UnitIdMap` via the full bridge_app, then transplants the
+/// actor into a projector-only app for the assertion.
 #[test]
 fn projector_writes_engine_mutation_to_ecs() {
     // --- Phase A: seed engine state via the full bridge_app ---
@@ -256,13 +249,9 @@ fn projector_writes_statuses_from_engine_state() {
     );
 }
 
-// Projector preserves aura-applied ECS statuses that the engine doesn't know about.
-///
-/// The aura entry (written by `apply_auras_system` in TurnStart, after
-/// `init_state_from_ecs`) has a different applier entity than the
-/// ability-applied entry in engine state.  After projection:
-/// - "aura_buff" (aura_source applier, not in engine) → preserved.
-/// - "burning"   (actor_uid applier, only in engine)  → projected in.
+/// Projector preserves aura-applied ECS statuses the engine doesn't know about.
+/// After projection: "aura_buff" (aura_source applier, ECS-only) is preserved;
+/// "burning" (actor_uid applier, engine-only) is projected in.
 #[test]
 fn projector_preserves_aura_applied_status_during_cast_projection() {
     use storyforge::combat_engine::state::{

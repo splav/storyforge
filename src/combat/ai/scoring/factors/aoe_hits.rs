@@ -1,17 +1,13 @@
 //! AoE hit enumeration for the AI scoring layer.
 //!
-//! The canonical target enumeration lives in the engine
-//! (`combat_engine::targeting::compute_affected_targets`, used by `step()`);
-//! the cell set passed in here comes from engine `aoe_cells` via `aoe_area`.
-//! This helper only buckets the units standing in that area by team relative
-//! to the caster, returning snapshot `UnitView`s so scoring can read threat /
-//! role / HP without re-looking-up.
+//! Canonical target enumeration lives in the engine
+//! (`combat_engine::targeting::compute_affected_targets`); the cell set here
+//! comes from engine `aoe_cells` via `aoe_area`. This helper just buckets units
+//! in that area by team relative to the caster, as `UnitView`s.
 //!
-//! `self_hit` is reported separately from `allies` so callers don't have to
-//! remember that `BattleSnapshot::allies_of` includes the actor itself — a
-//! trap that previously let `compute_aoe_damage` subtract the caster's
-//! friendly-fire damage twice (once via `allies_of`, once via the explicit
-//! self-branch).
+//! `self_hit` is reported separately from `allies` because
+//! `BattleSnapshot::allies_of` includes the actor — a trap that once made
+//! `compute_aoe_damage` subtract the caster's FF damage twice.
 
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::game::hex::Hex;

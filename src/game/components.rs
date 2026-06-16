@@ -166,11 +166,9 @@ pub struct Reactions {
 
 impl Default for Reactions {
     fn default() -> Self {
-        // remaining starts at 0 to match engine `Unit { reactions_left: 0, reactions_max: 1 }`
-        // at spawn (crates/combat_engine/src/effect.rs Effect::Spawn). The engine refills
-        // reactions_left = reactions_max on round wrap via `start_round`, then
-        // `project_state_to_ecs` mirrors that back into ECS. A unit cannot AoO in the
-        // round it was spawned in.
+        // remaining=0 matches engine spawn (`Unit { reactions_left: 0 }`, see
+        // effect.rs Effect::Spawn): a unit cannot AoO in its spawn round.
+        // `start_round` refills to max on the next round wrap.
         Self {
             remaining: 0,
             max: 1,
@@ -383,15 +381,11 @@ pub struct ValidationActorQ {
     pub statuses: Option<&'static StatusEffects>,
 }
 
-/// Validation: combatant-level data for target inspection **and** taunter
-/// scan. Named-type query data so borrowing `&Query<..>` stays variance-
-/// friendly (unlike the bare `&Vital` form, which makes the `D` parameter
-/// invariant over its internal lifetime and breaks thin adapter structs
-/// that hold `&Query`).
-///
-/// Includes `faction` + `statuses` so the adapter can answer "is this an
-/// opposing-team taunter?" without an extra query — both team-safety and
-/// taunt-enforcement resolve against the same fetch.
+/// Validation: combatant data for target inspection **and** taunter scan.
+/// Named-type query data so borrowing `&Query<..>` stays variance-friendly
+/// (bare `&Vital` makes `D` invariant and breaks `&Query`-holding adapters).
+/// `faction` + `statuses` let the adapter answer "opposing-team taunter?" in one
+/// fetch.
 #[derive(QueryData)]
 pub struct ValidationTargetQ {
     pub entity: Entity,

@@ -75,19 +75,15 @@ impl TacticalIntent {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IntentReason {
-    /// Step 3.2: fields migrated from raw hp_pct/hp_threshold to
-    /// need_signals.self_preserve. Schema v20 → v21.
-    ///
-    /// **Step 11.5**: routing equivalent is `BandReason::PanicOverride` in
-    /// `CriticalSelfPreservation` band.  Kept for serialization compat (v31)
-    /// and as `AgendaItem.reason` in `build_critical_self_preservation`.
+    /// Routing equivalent is `BandReason::PanicOverride` in the
+    /// `CriticalSelfPreservation` band. Kept for serialization compat (v31) and
+    /// as `AgendaItem.reason` in `build_critical_self_preservation`.
     PanicOverride {
         self_preserve: f32,
         self_preserve_threshold: f32,
         danger: f32,
         danger_threshold: f32,
     },
-    /// Step 3.2: hp_pct field renamed to self_preserve. Schema v20 → v21.
     Urgency {
         self_preserve: f32,
         danger: f32,

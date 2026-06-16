@@ -83,11 +83,8 @@ fn spawn_hero(app: &mut App) -> Entity {
 
 // ── apply_phase_overrides_system ──────────────────────────────────────────────
 
-/// A `PhaseOverrideIntent` with both `victory_override` and `turn_limit`:
-/// - `CombatObjective` changes to `KillTarget`,
-/// - `PhaseDeadline` is set with `phase_started_round` == `ctx.round`,
-/// - `VictoryTarget` marker is attached to the phasing entity,
-/// - `UiDirty` has `PHASE_HINT` raised.
+/// A `PhaseOverrideIntent` with both `victory_override` and `turn_limit` sets
+/// the objective, deadline, VictoryTarget marker, and PHASE_HINT dirty flag.
 #[test]
 fn apply_phase_overrides_sets_objective_deadline_and_marker() {
     let mut app = deadline_app();

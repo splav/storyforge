@@ -1,6 +1,6 @@
 //! Goal lifecycle helpers — pre/post-tick free functions called by the
-//! orchestrator (`enemy_turn.rs`). Not wired into the plan pipeline
-//! (see §7.3 plan: lifecycle = explicit module, not a stage).
+//! orchestrator (`enemy_turn.rs`). Deliberately an explicit module, not a
+//! plan-pipeline stage.
 
 use super::context::extract_goal_context;
 use crate::combat::ai::config::tuning::AiTuning;
@@ -298,11 +298,8 @@ mod tests {
             &tuning,
             &tags,
         );
-        // extract_goal_context may return None for FocusTarget if no target in snap,
-        // but the call should at least not panic and be a no-op (None stored).
-        // To confirm the store path ran, check that the call didn't clear anything.
-        // Since snap has no matching target the goal kind may not extract, which is OK.
-        // Just verify no panic.
+        // With no matching target in the snapshot, extract_goal_context may yield
+        // None — this test only asserts the Move store-path runs without panicking.
     }
 
     #[test]

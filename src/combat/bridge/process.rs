@@ -24,11 +24,8 @@ use combat_engine::{action::Action, event::Event, step::step};
 // ── VisualAssets SystemParam newtype ──────────────────────────────────────────
 
 /// Bundles rendering-only Bevy resources used by `process_action_system`
-/// and `spawn_ecs_entity_from_engine_unit`.
-///
-/// Introduced in 4c to stay within Bevy's 16-param limit. Extended in 4f
-/// to also absorb `tag_cache` (reduces `process_action_system` to ≤ 14 params).
-/// Renamed `VisualAssets` per D6; previously `RenderResources`.
+/// and `spawn_ecs_entity_from_engine_unit`, to stay within Bevy's 16-param
+/// limit on those systems.
 #[derive(SystemParam)]
 pub struct VisualAssets<'w, 's> {
     pub grid_offset: Res<'w, HexGridOffset>,
@@ -156,16 +153,10 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
 ///
 /// Reads `ActionInput` messages, calls `step()` against the mirrored
 /// `CombatStateRes`, and translates the resulting `Event` stream into Bevy-land
-/// side effects (CombatLog entries, Dead markers, movement animations).
-/// The engine is the sole owner of both `Action::Move` (since Phase 1) and
-/// `Action::Cast` (since Phase 2 step 9d).
-///
-/// Wired with a real ECS-backed `EcsContentView` so the engine can fire AoO
-/// reactions correctly.  `project_state_to_ecs` (chained immediately after)
-/// writes the engine mutations back to ECS components.  The engine is now the
-/// sole writer for hp / rage / mana / statuses — the clobber bug documented in
-/// earlier TODO comments is resolved by the deletion of `apply_effects_system`
-/// in step 9d.
+/// side effects (CombatLog entries, Dead markers, movement animations). The
+/// engine is the sole owner of `Action::Move` and `Action::Cast`, and the sole
+/// writer for hp / rage / mana / statuses; `project_state_to_ecs` (chained
+/// immediately after) writes the engine mutations back to ECS components.
 ///
 /// Runs in `CombatStep::Execute`, gated by `CombatPhase::AwaitCommand`.
 #[allow(clippy::too_many_arguments)]
@@ -277,11 +268,10 @@ pub fn process_action_system(
                                 log.push(CombatEvent::EnvRevealed { hex });
                             }
                         }
-                        // Tail-drop: if this Move was interrupted (AoO, hazard reveal, trap
-                        // fire, etc.), drop any remaining queued ActionInputs for this turn.
-                        // A bundled Cast planned from the pre-move position must NOT fire from
-                        // the truncated landing hex — the AI self-corrects by re-planning next
-                        // frame.
+                        // If interrupted (AoO / hazard reveal / trap fire), drop the
+                        // turn's remaining queued ActionInputs: a bundled Cast planned
+                        // from the pre-move position must not fire from the truncated
+                        // landing hex. The AI re-plans next frame.
                         if move_was_interrupted {
                             break;
                         }

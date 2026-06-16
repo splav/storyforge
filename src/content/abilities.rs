@@ -56,10 +56,8 @@ impl EffectCalcExt for EffectDef {
                     dice: Some(*dice),
                     bonus: ctx.int_mod + sp_scaled,
                     power: 1.0,
-                    // SpellDamage uses magic_resist, not armor — engine matches this
-                    // via Effect::Damage { magic: true }. pierces_armor=false because
-                    // mitigation selection (armor vs magic_resist) happens via the
-                    // `magic` flag; `pierces_armor` only suppresses ALL mitigation.
+                    // magic=true routes mitigation to magic_resist (not armor);
+                    // pierces_armor only suppresses ALL mitigation, so it stays false.
                     pierces_armor: false,
                     magic: true,
                     is_heal: false,

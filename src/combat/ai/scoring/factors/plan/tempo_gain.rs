@@ -261,14 +261,8 @@ mod tests {
         );
 
         let tempo = compute_plan_tempo_gain(&plan, &intent, &scoring_ctx);
-        // Cast at start tile: delta = dist(actor_start, target) - dist(actor_start, target) = 0.
-        // Range bonus may fire if actor is in range (melee_attack max_range=1, dist=1 → yes).
-        // So tempo = 0.0 (base) + 0.3 (range) + 0.0 (exit) = 0.3 is technically expected
-        // when already in range. Check that tempo_base alone is 0 (no movement delta).
-        // The range bonus is a positive bonus for being in position — acceptable.
+        // No movement → tempo_base = 0; a range bonus may still apply (in-range).
         // Key invariant: no *movement* was rewarded.
-        // Check: no approach happened → dist_before == dist_after (both = dist from actor_start).
-        // tempo_base = 0 / speed = 0. Total ≥ 0 (could have range bonus).
         assert!(
             tempo >= 0.0,
             "cast from start should not penalise, got {tempo}"

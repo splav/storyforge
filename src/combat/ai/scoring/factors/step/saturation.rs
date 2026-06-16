@@ -41,12 +41,9 @@ pub fn compute(
     }
 }
 
-/// Returns the saturation penalty for casting `ability` targeting `target`
-/// (ability target entity; for `on = MySelf` statuses, use `caster` instead).
-///
-/// Penalty per buff_class already present on the recipient: `-0.4`.
-/// Zero if the ability applies no buff-class statuses, or no recipient has a
-/// matching buff class already.
+/// Saturation penalty for casting `ability`. The status recipient is `target`,
+/// except `on = MySelf` statuses land on `caster`; each buff_class the recipient
+/// already carries adds `BUFF_REDUNDANCY_PENALTY`.
 fn buff_saturation_penalty(
     ability: &AbilityId,
     target: Entity,

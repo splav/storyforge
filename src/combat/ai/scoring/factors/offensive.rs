@@ -1,10 +1,8 @@
 //! Offensive factors: damage / heal / kill / cc for single-target and AoE.
 //!
-//! Step 4.10: `compute_offensive` is a pure outcome-facts reader + policy
-//! applier. AoE damage is computed via per-entity policy walk
-//! (`outcome.enemy_damage_per_entity`); friendly-fire penalty uses
-//! `outcome.ally_damage_per_entity` and `outcome.self_damage` directly.
-//! `compute_aoe_damage` and the local `friendly_fire_penalty` helper are gone.
+//! `compute_offensive` is a pure outcome-facts reader + policy applier. AoE
+//! damage walks `outcome.enemy_damage_per_entity` per-entity; friendly-fire
+//! reads `ally_damage_per_entity` / `self_damage` directly.
 
 use super::{crit_fail_adjusted, OffensiveFactors};
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -16,11 +14,8 @@ use combat_engine::aoe_cells;
 use combat_engine::AbilityId;
 use std::collections::HashSet;
 
-/// Compute offensive factors for a single Cast step.
-///
-/// Pure outcome-facts reader + policy applier. All damage / heal / CC values
-/// are derived exclusively from `outcome` (the pre-annotated fact vector filled
-/// by the generator) and the policy module — no re-derivation from the snapshot.
+/// Offensive factors for a single Cast step. All damage/heal/CC values come
+/// from `outcome` + the policy module — never re-derived from the snapshot.
 pub(crate) fn compute_offensive(
     ability: &AbilityId,
     _target_pos: Hex,

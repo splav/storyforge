@@ -4,31 +4,22 @@
 //!
 //! # Identity-keyed comparison (not UnitId-keyed)
 //!
-//! The two build paths assign UnitIds by different schemes:
-//! - **Reference (ECS)** derives ids from Bevy entity allocation order.
-//! - **Candidate (`init_fight`)** uses dense `0..N` ids in spawn order.
+//! The two paths assign UnitIds by different schemes (ECS: Bevy entity-alloc
+//! order; `init_fight`: dense `0..N`). The id scheme is a separate decision;
+//! this test validates **field sourcing**, which must be id-scheme-agnostic. So
+//! we match units by a stable identity key `(team, pos)` and assert every `Unit`
+//! field equal EXCEPT the id itself (id-valued fields like a status applier are
+//! compared modulo the match-induced id remap).
 //!
-//! The UnitId *scheme* (C vs B) is a separate, later decision; this test
-//! validates **field sourcing**, which must be id-scheme-agnostic. So we match
-//! units across the two states by a **stable identity key** — `(team, pos)` —
-//! and assert every engine `Unit` field is equal EXCEPT the id itself (and any
-//! field whose value is literally an id, e.g. a status applier — those are
-//! compared modulo the id remap induced by matching).
-//!
-//! ## Identity key: `(team, pos)`
-//! Each combatant spawns on a distinct hex (`member.hex_pos` / `def.hex_pos`),
-//! so `pos` alone is unique within an encounter; `team` is included for
-//! robustness. The test panics if the key collides, so the matching is sound.
+//! `pos` is unique per combatant (each spawns on a distinct hex); `team` folds
+//! in for robustness. The test panics on key collision, so matching is sound.
 //!
 //! ## Initiative tie-break caveat
-//! `roll_initiative_for_all` consumes RNG in ascending-UnitId order, and both
-//! schemes assign ids in the same spawn order, so the Nth-spawned unit draws
-//! the Nth roll in both paths → per-identity initiative TOTALS are identical.
-//! `reconcile_turn_order` breaks initiative ties by ascending UnitId; for units
-//! with EQUAL totals a different id scheme MAY legitimately reorder the tied
-//! run. We therefore assert turn order matches by identity for all positions
-//! whose initiative total is unique, and (for tied groups) only that the SET of
-//! identities in each equal-initiative run matches.
+//! `roll_initiative_for_all` consumes RNG in ascending-UnitId order and both
+//! schemes assign ids in spawn order, so per-identity initiative TOTALS match.
+//! But `reconcile_turn_order` ties-break by UnitId, so EQUAL-total units may
+//! reorder under a different scheme. We therefore assert turn order by identity
+//! only for unique totals; for tied runs, only that the identity SET matches.
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
@@ -310,22 +301,13 @@ fn init_fight_matches_ecs_bootstrap_for_all_campaign_encounters() {
 
             // ── Candidate leg: init_fight with dense ids ──────────────────────
             //
-            // Why not naive 0..N in spawn order?  `roll_initiative_for_all`
-            // consumes RNG in ascending-UnitId order, so per-identity initiative
-            // totals only match the reference if the candidate's ascending-uid
-            // order maps to the SAME identities as the reference's.  The ECS
-            // path's entity-derived ids do NOT follow party-then-enemy spawn
-            // order (Bevy allocates enemies' entity bits below the party's), so
-            // naive party-first dense ids would roll for a different identity at
-            // each RNG draw and permute the totals.
-            //
-            // The id SCHEME is a separate later decision; this test only
-            // validates field sourcing, which must be id-scheme-agnostic.  To
-            // isolate field sourcing from the roll-order coupling we still feed
-            // dense `0..N` ids, but assign their VALUES by the reference's
-            // ascending-uid rank of each unit's identity.  This makes the RNG
-            // consumption order identical without making init_fight reproduce
-            // Bevy's actual UnitIds.
+            // Not naive 0..N: `roll_initiative_for_all` draws RNG in
+            // ascending-UnitId order, and the ECS path's entity-derived ids do
+            // NOT follow party-then-enemy spawn order, so naive party-first ids
+            // would draw for different identities and permute the totals.
+            // Instead we assign dense `0..N` values by the reference's
+            // ascending-uid rank of each identity — making RNG order identical
+            // without reproducing Bevy's actual UnitIds.
             let ident_to_dense: HashMap<Identity, u64> = {
                 let mut by_uid: Vec<_> = ref_state
                     .units()

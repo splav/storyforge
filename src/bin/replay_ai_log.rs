@@ -1,26 +1,18 @@
 //! Replay an AI decision log (JSONL) and compare current `pick_action`
 //! output against logged decisions.
 //!
-//! For every `actor_tick` event the tool:
-//! 1. Parses the event via `parse_actor_tick` (accepts schema v33+, including
-//!    the current v36; older versions are rejected with `UnsupportedSchema`).
-//! 2. Rebuilds `InfluenceMaps` from the embedded snapshot.
-//! 3. Calls the production `pick_action` with the logged snapshot.
-//! 4. Compares the re-picked decision with the logged decision.
+//! For every `actor_tick` event: parse via `parse_actor_tick` (rejects schemas
+//! below the supported floor with `UnsupportedSchema`), rebuild `InfluenceMaps`
+//! from the embedded snapshot, re-run `pick_action`, and compare the decision.
 //!
-//! `--capture-golden`: run production pipeline on all entries, write one
-//! `GoldenRecord` per non-skip entry to `<out.jsonl>`.
+//! Modes:
+//! - `--capture-golden <out.jsonl>` — write one `GoldenRecord` per non-skip entry.
+//! - `--compare-golden <baseline>` — compare line-by-line; exit 1 on any divergence.
+//! - `--assert [<overlay.expected.toml>]` — check expectations for the entry
+//!   selected by `[scope].plan_id` in the overlay.
 //!
-//! `--compare-golden`: run production pipeline, compare line-by-line against a
-//! baseline golden file. Exits 1 if any record diverges.
-//!
-//! `--assert [<overlay.expected.toml>]`: run the production pipeline on the
-//! entry selected by `[scope].plan_id` in the overlay, check expectations.
-//!
-//! Usage (Phase 5d filesystem layout — one folder per fight):
+//! Usage (one folder per fight):
 //!   `cargo run --bin replay_ai_log -- logs/<fight_id>/ai.jsonl [--verbose]`
-//!   `cargo run --bin replay_ai_log -- logs/<fight_id>/ai.jsonl --capture-golden golden.jsonl`
-//!   `cargo run --bin replay_ai_log -- logs/<fight_id>/ai.jsonl --compare-golden golden.jsonl`
 //!   Shell glob across all fights: `cargo run --bin replay_ai_log -- logs/*/ai.jsonl`
 
 use std::io::{BufRead, BufReader};

@@ -29,11 +29,10 @@ impl Plugin for CombatPipelinePlugin {
             .init_resource::<BridgeQueues>()
             .init_resource::<crate::game::resources::PhaseDeadline>();
 
-        // Engine mirror teardown — combat plugin owns its own lifecycle:
-        // - OnExit(AppState::Combat) covers normal Victory/Defeat → next combat.
-        // - RestartCombat reader covers in-combat restart (which doesn't exit
-        //   AppState::Combat). Bevy permits independent readers, so this
-        //   coexists with restart_combat_system.
+        // Engine mirror teardown, two triggers:
+        // - OnExit(AppState::Combat) — normal Victory/Defeat → next combat.
+        // - RestartCombat reader — in-combat restart (no AppState exit); an
+        //   independent reader, so it coexists with restart_combat_system.
         app.add_systems(
             OnExit(AppState::Combat),
             reset_engine_mirrors_on_exit_combat,

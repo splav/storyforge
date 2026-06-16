@@ -1,11 +1,10 @@
-//! Global reusable unit stat blocks.
+//! Global reusable unit stat blocks (data-only).
 //!
-//! Templates are data-only. Anything that instantiates a combatant (encounter
-//! enemy definitions, boss phase transitions, future summon abilities) can
-//! reference a template by id and optionally override individual scalar fields
-//! or replace the whole `stats` / `equipment` / `resources` block wholesale.
+//! Anything instantiating a combatant (encounter enemies, boss phases, future
+//! summons) can reference a template by id and override individual scalar fields
+//! or replace a whole `stats` / `equipment` / `resources` block.
 //!
-//! Templates have no hex position — position is always supplied at the use site.
+//! Templates have no hex position — supplied at the use site.
 
 use crate::combat::ai::config::tuning::AiTuningOverride;
 use crate::game::components::CombatStats;

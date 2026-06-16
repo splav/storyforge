@@ -6,11 +6,9 @@ use combat_engine::{AbilityId, ArmorId, WeaponId};
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// A resolved environmental hazard object placed on the grid.
-///
-/// `kind` is always `Hazard` for now; future commits may add other env kinds.
-/// `hex` and `ability` are the only content-facing fields — the engine fields
-/// (`id`, `revealed_to`) are filled in at bootstrap time.
+/// A resolved environmental hazard object placed on the grid. `hex`/`ability`/
+/// `owner` are content-facing; engine fields (`id`, `revealed_to`) are filled at
+/// bootstrap.
 #[derive(Debug, Clone)]
 pub struct EnvObjectDef {
     pub hex: hexx::Hex,
@@ -179,10 +177,8 @@ pub struct PhaseDef {
     pub ai_behavior: Option<AiBehaviorKind>,
     /// `Some` = REPLACE the unit's tags on phase entry; `None` = keep current tags.
     pub tags: Option<std::collections::BTreeSet<combat_engine::TagId>>,
-    /// Equipment block carried by this phase's template (unsplit; split into
-    /// slots by the build-site when computing `RuntimeStats`).
-    /// `None` when the phase has no template or the template has no equipment
-    /// change — means "keep current armor/magic_resist".
+    /// Equipment block from this phase's template (split into slots at build
+    /// time). `None` = keep current armor/magic_resist.
     pub equipment: Option<EquipmentBlock>,
     /// Base movement speed from this phase's template.
     /// `None` = keep current base_speed.

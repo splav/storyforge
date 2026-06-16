@@ -1,9 +1,7 @@
 //! `ScoreTrace` — typed log of score-affecting effects accumulated by pipeline stages.
-//! See roadmap section "P3a" in docs/ai/restructure.md for migration context.
 //!
-//! P3b adds `ScoreTraceLog` mirror types for JSONL serialisation.
-//! Runtime types (`ScoreTrace`, `AddendHit`, etc.) keep `&'static str` fields;
-//! the mirror types use `String` for serde compatibility.
+//! Runtime types (`ScoreTrace`, `AddendHit`, …) keep `&'static str` fields; the
+//! `*Log` mirror types use owned `String` for JSONL serde (see the mirror section).
 
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
@@ -17,13 +15,9 @@ pub enum MultiplierKind {
     Critic,
 }
 
-/// Per-multiplier-hit diagnostic detail. Embedded in `MultiplierHit` after
-/// drive-loop derives it from the paired `EffectObservation`. Phase 3+:
-/// `score_trace_log` carries this so mining/replay no longer need legacy
-/// `ann.sanity` / `ann.critics` fields. (Phase 4 / TLE-3 will drop legacy.)
-///
-/// Variant choice mirrors the `EffectObservation` companion of a Multiplier
-/// hit: Sanity multiplier ↔ Sanity observation, Critic multiplier ↔ Critic.
+/// Per-multiplier-hit diagnostic detail, derived by the drive-loop from the
+/// paired `EffectObservation` (Sanity multiplier ↔ Sanity observation, Critic ↔
+/// Critic). Carried in `score_trace_log` so mining/replay need no legacy fields.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MultiplierDetail {
@@ -36,19 +30,13 @@ pub enum MultiplierDetail {
     },
 }
 
-/// Note: `Copy` is dropped because `MultiplierDetail::Critic` carries `CriticReason`
-/// which contains `String` fields. The `detail` field is derived by the drive-loop
-/// from the paired `EffectObservation` (TLE-1). Phase 4 / TLE-3 will promote this
-/// to a sum type, removing the `Option`.
+/// Not `Copy`: `MultiplierDetail::Critic` carries `String`-bearing `CriticReason`.
 #[derive(Debug, Clone)]
 pub struct MultiplierHit {
     pub kind: MultiplierKind,
     pub value: f32,
-    /// Per-hit detail derived by the drive-loop from the paired
-    /// `EffectObservation`. Required when `kind` is `Sanity`/`Critic`;
-    /// `None` is invalid for those kinds and panics in debug builds (see
-    /// `PlanAnnotation::apply_effect`). Phase 4 / TLE-3 promotes
-    /// `MultiplierHit` to a sum type and removes the `Option`.
+    /// Required for `Sanity`/`Critic` kinds — `None` is invalid there and panics
+    /// in debug builds (see `PlanAnnotation::apply_effect`).
     pub detail: Option<MultiplierDetail>,
 }
 
@@ -91,23 +79,19 @@ pub struct GateHit {
     pub source: &'static str,
 }
 
-// ── P3b: Serialisation mirror types ───────────────────────────────────────────
+// ── Serialisation mirror types ────────────────────────────────────────────────
 //
-// Runtime hit types use `&'static str` for zero-cost label references.
-// serde cannot deserialise `&'static str` (borrows from the stack, not the
-// input bytes), so we keep a parallel set of owned-String mirror types that
-// are used exclusively for JSONL serialisation. `ScoreTraceLog` is produced
-// by `From<&ScoreTrace>` immediately before writing; the runtime path never
-// reads it back.
+// serde cannot deserialise the runtime types' `&'static str` fields, so these
+// owned-`String` mirrors exist solely for JSONL. `ScoreTraceLog` is produced via
+// `From<&ScoreTrace>` just before writing; the runtime path never reads it back.
 
 /// Serialisable mirror of `MultiplierHit`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MultiplierHitLog {
     pub kind: MultiplierKind,
     pub value: f32,
-    /// Diagnostic detail. Additive: v33/v34 logs without this field
-    /// deserialize as `None` via `#[serde(default)]`; mining falls back
-    /// to legacy `ann.sanity` / `ann.critics` for those.
+    /// Diagnostic detail. Additive: older logs without this field deserialize as
+    /// `None`, and mining falls back to legacy `ann.sanity` / `ann.critics`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<MultiplierDetail>,
 }
@@ -135,12 +119,8 @@ pub struct GateHitLog {
     pub source: String,
 }
 
-/// Serialisable mirror of `ScoreTrace` for JSONL (P3b).
-///
-/// Produced by `From<&ScoreTrace>` immediately before writing; deserialisable
-/// for mining / replay tooling. All `skip_serializing_if` guards keep the JSON
-/// compact: empty vecs and `None` are omitted so v33 logs are readable without
-/// noise.
+/// Serialisable mirror of `ScoreTrace` for JSONL. The `skip_serializing_if`
+/// guards omit empty vecs and `None` so logs stay compact.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ScoreTraceLog {
     #[serde(default)]
@@ -202,13 +182,9 @@ impl From<&ScoreTrace> for ScoreTraceLog {
 
 /// Typed effect log for a single plan.
 ///
-/// Canonical application order in `compute()` (see roadmap P3a):
-/// 1. If any `Mask` with `Poison` → return `f32::NEG_INFINITY` (early exit).
-/// 2. score = base
-/// 3. score *= ∏ multipliers (in push order — sanity → critics)
-/// 4. score += Σ addends (modifiers)
-/// 5. If any `Gate` with `Reject` → plan stays in pool but gated flag is
-///    returned separately from score.
+/// `compute()` = `base × ∏ multipliers (push order: sanity → critics) + Σ addends`.
+/// Masks and gates do NOT affect the numeric score — they surface via
+/// `is_masked()` / `is_gated()` as separate selectability flags.
 #[derive(Debug, Clone, Default)]
 pub struct ScoreTrace {
     pub base: f32,
@@ -220,14 +196,8 @@ pub struct ScoreTrace {
 }
 
 impl ScoreTrace {
-    /// Finite numeric score: base × ∏multipliers + Σaddends.
-    ///
-    /// **Always finite** — masks/gates are NOT taken into account.
-    /// Selectability is communicated via `is_masked()` / `is_gated()` and
-    /// consumed by `SelectionKey`.
-    ///
-    /// Phase 3 Step 3: poison logic removed. Mask/Gate hits are pure
-    /// observability + selectability flags, not score modifiers.
+    /// `base × ∏multipliers + Σaddends`. **Always finite** — masks/gates are not
+    /// applied here; selectability is via `is_masked()` / `is_gated()`.
     pub fn compute(&self) -> f32 {
         let mut score = self.base;
         for m in &self.multipliers {
@@ -240,7 +210,6 @@ impl ScoreTrace {
     }
 
     /// `true` if any Mask hit is present (regardless of kind).
-    /// Phase 3 Step 1: pure helper for new SelectionKey path.
     pub fn is_masked(&self) -> bool {
         !self.masks.is_empty()
     }
@@ -252,7 +221,6 @@ impl ScoreTrace {
             .any(|g| matches!(g.outcome, GateOutcome::Reject))
     }
 
-    // Builder-style helpers — will be called by stages in P3a.{1..5}.
     pub fn push_multiplier(&mut self, hit: MultiplierHit) {
         self.multipliers.push(hit);
     }

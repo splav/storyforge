@@ -1,14 +1,10 @@
 //! Outcome builder — constructs `ActionOutcomeEstimate` from sim steps or
 //! hypothetical (def + target) inputs.
 //!
-//! Two primary entry points:
-//! - [`from_sim_step`] — used by `generator`'s beam search after each
-//!   `apply_step`; has access to sim result + pre-step snapshot.
-//! - [`hypothetical`] — used by `future_value::λ_attack` and
-//!   `picker::record_committed_reservations` where no sim step has been
-//!   executed; derives outcome from ability def + target alone.
-//!
-//! All private helpers live here; `outcome::mod.rs` re-exports the public API.
+//! - [`from_sim_step`] — beam search after each `apply_step`; has sim result +
+//!   pre-step snapshot.
+//! - [`hypothetical`] — `future_value::λ_attack` / `record_committed_reservations`
+//!   where no sim step ran; derives from ability def + target alone.
 
 use crate::combat::ai::orchestration::AiWorld;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
@@ -27,16 +23,12 @@ use combat_engine::ResourceKind;
 // Primary public API
 // ---------------------------------------------------------------------------
 
-/// Builds `ActionOutcomeEstimate` from a sim step result.
+/// Builds `ActionOutcomeEstimate` from a sim step result. Fact fields only — no
+/// policy weighting.
 ///
-/// Used by generator's beam search after each `apply_step`. Populates fact
-/// fields only — no policy weighting.
-///
-/// Uses the pre-step snapshot for target reads so killed targets (hp→0 in
-/// `outcome.killed`) are still visible via their pre-death stats.
-///
-/// `caster_tile` is the actor's position before this step — needed to compute
-/// the AoE blast area for multi-target p_kill_soon and status aggregation.
+/// Reads targets from the pre-step snapshot so killed targets stay visible via
+/// pre-death stats. `caster_tile` (pre-step actor position) drives the AoE blast
+/// area for multi-target p_kill_soon and status aggregation.
 #[allow(clippy::too_many_arguments)]
 pub fn from_sim_step(
     step: &PlanStep,
@@ -135,12 +127,9 @@ pub fn from_sim_step(
         }
         PlanStep::Move { path } => {
             let path_max_danger = step_path_danger(step, maps);
-            // Optimistic full-path estimate. The engine may truncate a move mid-path
-            // on an interrupt — an AoO provoked by leaving an enemy's reach, or a
-            // hidden hazard the unit self-reveals while moving (the planner can't see
-            // hidden env; snapshot.rs strips unrevealed). The AI self-corrects by
-            // re-planning next frame, so mp_spent may overestimate spent movement for
-            // such truncated moves.
+            // Optimistic full-path estimate. The engine may truncate a move on an
+            // interrupt (AoO, self-revealed hidden hazard the planner can't see), so
+            // mp_spent may overestimate; the AI self-corrects by re-planning.
             let mp_spent = path.len() as i32;
 
             ActionOutcomeEstimate {
@@ -152,22 +141,13 @@ pub fn from_sim_step(
     }
 }
 
-/// Builds `ActionOutcomeEstimate` without sim — for consumers without sim context
-/// (`future_value::λ_attack`, `picker::record_committed_reservations`).
+/// Builds `ActionOutcomeEstimate` without sim — parallel API to [`from_sim_step`]
+/// for consumers without sim context (`future_value::λ_attack`,
+/// `picker::record_committed_reservations`).
 ///
-/// First-class parallel API to [`from_sim_step`]. Same outcome shape; precision
-/// is hypothetical (no sim verification — all fields derived from ability def +
-/// target). Fact fields only — no policy weighting.
-///
-/// Populates:
-/// - `enemy_damage` — raw post-armor damage for single-target (formula-derived);
-///   0 for heal / status-only / GrantMovement.
-/// - `p_kill_now` / `p_kill_soon` — kill detection via same formula as from_sim_step.
-/// - `cc_turns_applied` / `armor_shred_applied` —
-///   status facts from ability def (single-target only; AoE not applicable here
-///   since callers have no area context).
-/// - `hp_restored` — raw clamped heal for heal abilities.
-/// - Resource fields — from `split_resource_costs`.
+/// Same shape; all fields derived from ability def + target (no sim
+/// verification). Fact fields only — no policy weighting. Status facts are
+/// single-target only (callers have no area context).
 pub fn hypothetical(
     def: &AbilityDef,
     target: &combat_engine::state::Unit,
@@ -345,14 +325,10 @@ pub(crate) struct DamageFacts {
 
 /// Build `DamageFacts` for a single Cast step by walking the AoE area.
 ///
-/// For AoE casts: resolves the blast area, computes expected net damage for
-/// each unit in that area, and separates enemies / allies / self. For
-/// single-target casts (AoE == None): uses `sim_damage` from the step
-/// outcome as the single enemy damage fact; `_per_entity` vecs stay empty.
-///
-/// `sim_damage` is the raw `StepOutcome.damage` value passed from the
-/// generator — used as a reference for single-target facts so they agree
-/// with the sim rather than re-deriving independently.
+/// AoE: resolves the blast area, computes expected net damage per unit, splits
+/// enemies / allies / self. Single-target (AoE == None): uses `sim_damage`
+/// (raw `StepOutcome.damage`) directly so facts agree with the sim;
+/// `_per_entity` vecs stay empty.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_damage_facts(
     def: &AbilityDef,

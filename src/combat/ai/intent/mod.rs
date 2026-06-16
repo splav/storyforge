@@ -4,11 +4,10 @@
 //! - `kinds`         — TacticalIntent / IntentKind / IntentReason types.
 //! - `select`        — choosing an intent given world facts.
 //! - `score`         — numeric evaluation of plan steps under an intent.
-//! - `agenda`, `bands`, `considerations` — already-cohesive sub-modules
-//!   (untouched by P4).
+//! - `agenda`, `bands`, `considerations` — sub-modules for those concerns.
 //!
-//! Note: `AiMemory` + `PlanSnapshot` have moved to `memory/ai_memory.rs` (R7).
-//! They are re-exported here for backward-compat.
+//! `AiMemory` + `PlanSnapshot` live in `memory/ai_memory.rs`; re-exported here
+//! for backward-compat.
 
 pub mod agenda;
 pub mod bands;

@@ -1,13 +1,8 @@
 //! Engine-side target enumeration for AoE / single-target abilities.
 //!
-//! Ported from `src/combat/effects_state.rs` in Phase 2 step 5.  The Bevy
-//! `compute_affected_targets` becomes a thin Bevy-adapter call into this
-//! function once Phase 2 step 6 wires `Action::Cast` through `step()`.
-//!
-//! Grid topology is **not** baked in here — `aoe_cells` returns the
-//! geometric hex set without bounds-clipping; the `TargetState::unit_at_cell`
-//! impl returns `None` for any cell that has no unit (whether out-of-bounds
-//! or just empty), which is the equivalent filter.
+//! Grid topology is **not** baked in: `aoe_cells` returns the geometric hex set
+//! without bounds-clipping; `TargetState::unit_at_cell` returns `None` for any
+//! cell with no unit (out-of-bounds or empty), which is the equivalent filter.
 
 use hexx::Hex;
 
@@ -76,13 +71,8 @@ fn hex_line(from: Hex, target: Hex, length: u32) -> Vec<Hex> {
 /// Enumerate every unit an ability touches.
 ///
 /// - **Non-AoE**: returns `[primary_target]`.
-/// - **AoE**: walks every cell of `aoe_cells`, collects live units, applies
-///   friendly-fire rules:
-///   - Actor is included only if `def.friendly_fire`.
-///   - Allies (same team as actor) are included only if `def.friendly_fire`.
-///   - Enemies are always included.
-///
-/// Mirrors `combat::effects_state::compute_affected_targets` exactly.
+/// - **AoE**: live units in `aoe_cells`; actor + same-team allies only when
+///   `def.friendly_fire`, enemies always.
 pub fn compute_affected_targets<S: TargetState>(
     actor: S::Id,
     def: &AbilityDef,

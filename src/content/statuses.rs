@@ -13,11 +13,9 @@ pub enum BuffClass {
     Shield,
 }
 
-/// Bridge status definition.
-///
-/// Gameplay fields live in `engine` (the `combat_engine::StatusDef`); this
-/// struct adds metadata fields that the engine doesn't need.
-/// `Deref` makes all engine fields directly accessible: `def.armor_bonus`, `def.skips_turn`, etc.
+/// Bridge status definition: adds bridge-only metadata around the engine
+/// `combat_engine::StatusDef`. `Deref` exposes engine fields directly
+/// (`def.armor_bonus`, `def.skips_turn`, …).
 #[derive(Debug, Clone)]
 pub struct StatusDef {
     // ── metadata (bridge-only) ────────────────────────────────────────────
@@ -28,7 +26,6 @@ pub struct StatusDef {
     /// AI buff-class for saturation tracking. `None` = not a tracked buff.
     pub buff_class: Option<BuffClass>,
     // ── gameplay (engine) ─────────────────────────────────────────────────
-    /// All gameplay fields. Access via Deref: `def.armor_bonus`, `def.skips_turn`, etc.
     pub engine: combat_engine::StatusDef,
 }
 

@@ -1,10 +1,5 @@
-//! Tests for `classify.rs` — split from the source file via `#[path]` in
-//! `classify.rs` (see end of that file). Production code stays in
-//! `classify.rs`; this file holds the test module body.
-//!
-//! Split per [docs/testing.md §2](../../../../../docs/testing.md):
-//! `classify.rs` had ~70% of its lines in tests (711 LOC total, ~500 test
-//! LOC). Splitting keeps the production logic immediately visible.
+//! Tests for `classify.rs` — split out via `#[path]` (see end of that file) so
+//! the production logic stays visible. Rationale: [docs/testing.md §2](../../../../../docs/testing.md).
 
 use super::*;
 use combat_engine::AbilityId;
@@ -43,16 +38,10 @@ fn status_def(id: &str, content: &crate::content::content_view::ActiveContentDat
 
 // ── Synthesized-input helpers ─────────────────────────────────────────────
 //
-// Phase 3: rule-based tests use minimal synthesized StatusDef / AbilityDef
-// objects instead of loading the real TOML content. This gives:
-//   - branch-level mutation discrimination (each test hits one OR-branch)
-//   - no coupling to content edits (rename of "fireball" doesn't break tests)
-//   - faster runtime (no TOML I/O)
-//
-// The remaining content-pin tests (load_content + status_def / ability) live
-// in the `// Special/regression tests` section below and intentionally couple
-// to specific TOML entries — they are guards on content↔classifier alignment
-// for taunt/taunted (the most behaviour-critical pair).
+// Rule tests use minimal synthesized defs (not real TOML) for branch-level
+// mutation discrimination, no content coupling, and no I/O. The content-pin
+// tests in "Special/regression tests" below intentionally couple to taunt/
+// taunted as a content↔classifier alignment guard.
 
 fn empty_engine_status() -> combat_engine::StatusDef {
     combat_engine::StatusDef {

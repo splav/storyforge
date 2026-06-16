@@ -20,11 +20,9 @@ pub fn applies_cc(def: &AbilityDef, content: &ActiveContentData) -> bool {
 }
 
 /// Sum of projected damage denied to `target` by `def`'s stun-class statuses.
-/// Reads `target.cache.damage_horizon` via `horizon_window_sum_raw`; the `cc`
-/// offensive factor and the `scarcity` swing-justification branch both read
-/// this so their stun formulas cannot drift apart. Non-stun effects
-/// (vulnerability, armor shred, DoT) are intentionally *not* included — each
-/// caller folds those in with its own weighting.
+/// Shared by the `cc` factor and the `scarcity` swing-justification branch so
+/// their stun formulas can't drift apart. Non-stun effects (vulnerability, armor
+/// shred, DoT) are excluded — each caller folds those in with its own weighting.
 pub fn stun_denial_value(
     def: &AbilityDef,
     target: crate::combat::ai::world::snapshot::UnitView<'_>,
@@ -36,16 +34,12 @@ pub fn stun_denial_value(
         .sum()
 }
 
-/// Yield `(StatusDef, duration_rounds)` pairs for every status application
-/// attached to `def`, resolving the id against `content`. Silently skips
-/// applications whose id isn't in the content registry.
+/// Yield `(StatusDef, duration_rounds)` pairs for every status application on
+/// `def`, resolving ids against `content`. Skips ids not in the registry.
 ///
-/// Single source of truth for the iterate-def-statuses-and-lookup-StatusDef
-/// pattern used by both `status_score` (full HP-equivalent contribution)
-/// and `factors::offensive::status_cc_value` (CC-denial subset). Each
-/// caller keeps its own value-accumulating closure — semantics differ
-/// (`.abs()` on damage_taken_bonus vs. positive-only gate), so only the
-/// iteration shape is shared.
+/// Single source of truth for the iterate-statuses-and-lookup pattern shared by
+/// `status_score` and `factors::offensive::status_cc_value`; only the iteration
+/// shape is shared — each caller keeps its own value-accumulating closure.
 pub fn status_applications<'a, 'c: 'a>(
     def: &'a AbilityDef,
     content: &'c ActiveContentData,
@@ -58,17 +52,11 @@ pub fn status_applications<'a, 'c: 'a>(
     })
 }
 
-/// Sum of projected damage over the first `duration` rounds of the
-/// target's damage horizon. Rounds-up fractional durations (a
-/// stun-for-2.5-rounds touches 3 rounds). Falls back to `target.cache.threat
-/// × duration` when the horizon is empty (legacy logs, uninitialised
-/// fixtures) so CC / stun / blocks-mana formulas stay continuous with
-/// the pre-#6 behaviour.
+/// Damage denied by removing the target's actions for `duration` rounds: sum of
+/// the first `ceil(duration)` rounds of its damage horizon. Falls back to
+/// `threat × duration` when the horizon is empty (legacy logs, fixtures).
 ///
-/// Caller semantics: "how much of the target's projected damage would
-/// be denied if we removed their actions for `duration` rounds". Used
-/// by `status_score` skips_turn / blocks_mana branches and the
-/// CC-factor valuation in `factors::offensive`.
+/// Used by `status_score` skips_turn/blocks_mana branches and the CC factor.
 pub fn horizon_window_sum(
     target: crate::combat::ai::world::snapshot::UnitView<'_>,
     duration: f32,
@@ -127,27 +115,17 @@ pub fn estimate_st_damage(
         .fold(0.0f32, f32::max)
 }
 
-/// Project expected single-target damage output over the next `rounds`
-/// rounds, accounting for AP budget and resource (mana/rage/energy/HP)
-/// depletion. Returns a `Vec<f32>` of length `rounds`; index `i` is the
-/// expected damage dealt on future round `i+1`.
+/// Project expected single-target damage over the next `rounds` rounds,
+/// accounting for AP budget and resource (mana/rage/energy/HP) depletion.
+/// Returns a `Vec<f32>` of length `rounds`; index `i` is round `i+1`.
 ///
-/// **Greedy** over damage-per-AP: each round the actor spends its AP
-/// budget starting with the best-per-AP castable ability.
-/// **Regeneration**: at the start of each subsequent round we add +1 to
-/// mana / rage / energy pools, capped at their max. Matches the live
-/// model — engine `start_actor_turn` restores +1 mana + +1 energy per own-turn,
-/// and rage gains ≥ +1/round from the steady damage flow in active
-/// combat. Conservative lower bound; real sustain may be higher (AoE
-/// damage, multi-hit rage triggers).
+/// **Greedy** over damage-per-AP: each round spends the AP budget starting with
+/// the best-per-AP castable ability. **Regen**: each subsequent round adds +1 to
+/// mana/rage/energy, capped at max (conservative lower bound — real sustain may
+/// be higher via AoE / multi-hit rage triggers).
 ///
-/// Sustained fighters (free melee) produce a flat horizon; burst casters
-/// front-load and drop to regen-limited cadence once the pool dries.
-///
-/// Used by the CC / heal / stun consumers that previously read
-/// `UnitSnapshot.threat` (peak single-cast damage); peak over-weighted
-/// resource-limited burst casters. See `UnitSnapshot.damage_horizon`
-/// for storage and consumers.
+/// Replaces `UnitSnapshot.threat` (peak single-cast) for CC/heal/stun consumers,
+/// since peak over-weighted resource-limited burst casters.
 #[allow(clippy::too_many_arguments)]
 pub fn estimate_damage_horizon(
     caster: &CasterContext,
@@ -160,10 +138,8 @@ pub fn estimate_damage_horizon(
     hp: i32,
     rounds: u32,
 ) -> Vec<f32> {
-    // Precompute: for each damaging SingleEnemy/AoE ability, the triple
-    // (expected_damage, cost_ap, cost_per_resource). Abilities that can't
-    // deal damage or cost 0 AP are filtered — 0-AP would create an
-    // infinite inner loop.
+    // Per damaging SingleEnemy/Ground ability: (expected, cost_ap, costs, dpa).
+    // 0-AP abilities are filtered — they'd spin the inner loop forever.
     struct AbilityProjection<'a> {
         expected: f32,
         cost_ap: i32,
@@ -210,10 +186,8 @@ pub fn estimate_damage_horizon(
 
     let mut out = Vec::with_capacity(rounds as usize);
     for round in 0..rounds {
-        // Start-of-round regen: +1 to each tracked pool, capped at max.
-        // Round 0 uses the unit's current pools as-is (today's turn already
-        // regen'd by engine `start_actor_turn`); subsequent rounds model the own-
-        // turn restoration + in-combat rage trickle.
+        // Start-of-round regen: +1 to each pool, capped at max. Round 0 uses
+        // current pools as-is (engine already regen'd this turn).
         if round > 0 {
             if max_mana > 0 {
                 pool_mana = (pool_mana + 1).min(max_mana);
@@ -311,20 +285,13 @@ pub(crate) fn scan_aoo_hits_for_step(
     hits
 }
 
-/// Sum of expected AoO damage the plan would take across all provoking
-/// transitions. For each melee enemy with reactions and a damage estimate,
-/// scan the plan's movement path for the first `was_adj && !still_adj`
-/// transition (one AoO per enemy per round) and accrue its expected damage
-/// against the actor's armor. Returns 0.0 if no provokers are triggered —
-/// fast path for typical non-adjacent moves.
-/// Visible to the adaptation layer — the `ExpectedSelfLethal` trigger
-/// compares this against `active.hp`. Kept here because the
-/// non-lethal multiplicative penalty (inside `sanity_adjust_plans`) uses
-/// the same number.
+/// Sum of expected AoO damage the plan would take, accrued against the actor's
+/// armor. One AoO per enemy per plan (`aoo_used` tracks spent reactions). 0.0
+/// when no provokers fire — fast path for non-adjacent moves.
 ///
-/// Uses `scan_aoo_hits_for_step` internally. Tracks per-enemy `aoo_used`
-/// across Move steps so the same enemy cannot AoO twice within a single plan
-/// (budget: one reaction per round).
+/// Shared with the adaptation layer: the `ExpectedSelfLethal` trigger compares
+/// this against `active.hp`, and `sanity_adjust_plans`' non-lethal penalty reads
+/// the same number — kept here so they can't diverge.
 pub(crate) fn expected_aoo_damage(
     active: UnitView<'_>,
     plan: &TurnPlan,
@@ -543,12 +510,8 @@ mod tests {
         assert!((h[4] - melee_ev).abs() < 0.01);
     }
 
-    /// Unit with no damaging abilities (support / healer only) yields all
-    /// zeros — useful guard for later call sites that sum over the horizon
-    /// and don't want division-by-zero or Option handling.
-    ///
-    /// Also pins the non-damaging case: `estimate_damage_horizon` never
-    /// returns None, always a Vec of correct length.
+    /// No damaging abilities → all-zeros Vec of correct length (never None),
+    /// so summing call sites need no division-by-zero / Option handling.
     #[test]
     fn horizon_empty_for_non_damaging_actor() {
         let ping = AbilityDef {

@@ -29,21 +29,10 @@ use combat_engine::{
 
 use super::types::{PlanStep, StepOutcome};
 
-/// Mutable working copy of a snapshot for plan search.
-///
-/// Each `apply_step` call goes through `combat_engine::step()`, mutating
-/// `combat_state` in place.  Read post-step unit state via `sim.unit(entity)`
-/// or `sim.actor_unit()` — these read from `combat_state` directly, not from
-/// `snapshot.state`.
-///
-/// **U4-cleanup invariant:** `snapshot.state` is frozen at construction and is
-/// never updated after steps.  `snapshot.units` is also frozen (U4 invariant).
-/// Derived AI fields (`threat`, `max_attack_range`, `tags`, `aoo_expected_damage`,
-/// etc.) are read-only caches from decision-entry time and are intentionally
-/// stale for the duration of a search branch.
-///
-/// `status_tags` is retained for `SnapshotContentView` construction.  Tests
-/// that don't exercise status resolution can pass `empty_status_tag_cache()`.
+/// Mutable working copy of a snapshot for plan search (see module doc for the
+/// U4-cleanup invariant). `combat_state` is the sole post-step mutable truth;
+/// `snapshot` fields are frozen at construction. Derived AI caches (`threat`,
+/// `tags`, `aoo_expected_damage`, …) are intentionally stale within a branch.
 pub struct SimState<'a> {
     pub snapshot: BattleSnapshot,
     /// Engine authoritative state.  Built once in `from_snapshot` directly
@@ -153,11 +142,6 @@ impl<'a> SimState<'a> {
 
     /// Advance time past the actor's turn end: tick active statuses (DoT damage,
     /// duration decrements, expiry) for the actor.
-    ///
-    /// After U4-cleanup: `combat_state` is the sole mutable source of truth.
-    /// `snapshot.state` is frozen at construction; read post-tick values via
-    /// `sim.unit(entity)` or `sim.actor_unit()`.
-    /// `snapshot.units` is frozen at construction (U4 invariant).
     ///
     /// **Single-tick invariant:** call exactly once per branch expansion — never
     /// inside the step loop for multi-step plans.  `generate_plans` enforces this

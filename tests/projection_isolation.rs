@@ -1,36 +1,12 @@
-//! Phase 6 D6 contract guard: engine-projected ECS components must only be
-//! written by `project_state_to_ecs` (and adjacent helpers) inside
-//! `src/combat/bridge/`. Direct writes from production code outside
-//! the bridge break replay determinism — the engine stops being authoritative
-//! for state.
+//! Contract guard: engine-projected ECS components must only be written by
+//! `project_state_to_ecs` (and adjacent helpers) inside `src/combat/bridge/`.
+//! Direct writes elsewhere break replay determinism — the engine stops being
+//! authoritative for state.
 //!
-//! This test walks `src/` (skipping the AI subtree, which works on a cloned
-//! engine `CombatState` in its plan sim, not ECS components) and greps for
-//! known mutation patterns. Anything outside the allowlist is a violation.
-//!
-//! # Scope
-//!
-//! Guarded patterns:
-//! - `<x>.hp = <y>`              (Vital.hp)
-//! - `<x>.action_points = <y>`   (ActionPoints.action_points)
-//! - `<x>.movement_points = <y>` (ActionPoints.movement_points)
-//! - `<x>.remaining = <y>`       (Reactions.remaining)
-//!
-//! # Allowed files
-//!
-//! - `src/combat/bridge/` — the projector itself + phase-transition
-//!   helper that preserves the `hp <= max_hp` invariant after a max_hp delta.
-//!
-//! # Skipped subtrees
-//!
-//! - `src/combat/ai/` — the plan sim mutates its own cloned engine
-//!   `CombatState`, not ECS. These mutations are unrelated to engine projection.
-//!
-//! # False positives
-//!
-//! The test uses substring matching, not real Rust parsing. If a new file
-//! legitimately needs to write a projected field (e.g. a new spawn path),
-//! add it to `ALLOWED_FILES` with a one-line justification.
+//! The test walks `src/`, greps for known mutation patterns (see
+//! `FORBIDDEN_PATTERNS`), and flags anything outside `ALLOWED_FILES` /
+//! `SKIPPED_DIRS`. Substring matching, not real parsing: a legitimate new
+//! projected-field writer gets added to `ALLOWED_FILES` with a justification.
 
 use std::fs;
 use std::path::{Path, PathBuf};

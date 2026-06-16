@@ -153,12 +153,10 @@ impl<'de> Deserialize<'de> for AbilityTagSet {
 
 // ── Status tags ───────────────────────────────────────────────────────────────
 
-/// Closed enum of derivable status semantics. 5 variants.
+/// Closed enum of derivable status semantics.
 ///
-/// Note: `forces_targeting` (taunted-style) is NOT a StatusTag — it's a raw
-/// shape flag checked directly from `StatusDef` when classifying Peel at the
-/// ability level. This cleanly separates "AI semantic" (5 tags) from "raw shape
-/// flag" (forces_targeting).
+/// Note: `forces_targeting` is read as a raw `StatusDef` shape flag when
+/// classifying Peel at the ability level — separate from these AI-semantic tags.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StatusTag {
@@ -166,10 +164,9 @@ pub enum StatusTag {
     SoftCC,
     Dot,
     Buff,
-    /// Step 9.B: derived from `forces_targeting = true` (taunted-like statuses).
-    /// Set in parallel with other tags; replaces the Cosmetic fallback when it
-    /// is the sole distinguishing property.
-    /// Treated as Invalidating by `repair::classify_mismatch` (commit 3).
+    /// Derived from `forces_targeting = true` (taunted-like). Replaces the
+    /// Cosmetic fallback when it's the sole distinguishing property. Treated as
+    /// Invalidating by `repair::classify_mismatch`.
     Compulsion,
     Cosmetic,
 }

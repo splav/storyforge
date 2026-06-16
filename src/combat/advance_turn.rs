@@ -66,9 +66,7 @@ fn check_combat_end(
 
 /// Pure victory/defeat decision. `Some(true)` = victory, `Some(false)` = defeat,
 /// `None` = combat continues. Party wipe always beats objective progress.
-///
-/// `is_named_alive(name)` is called by `KeepAlive` to check if a specific named
-/// unit is still alive.  Pass a closure that looks up ECS `Name` + `Vital`.
+/// `is_named_alive` looks up a named unit's liveness (for `KeepAlive`).
 pub(crate) fn determine_outcome(
     players_alive: bool,
     enemies_alive: bool,

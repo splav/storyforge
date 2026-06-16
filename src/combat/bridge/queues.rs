@@ -19,18 +19,10 @@ use combat_engine::state::UnitId;
 
 /// Consolidated bridge-side-effect queues.
 ///
-/// Groups all four formerly-separate `Pending*` Resources that had identical
-/// shape (deferred vecs drained by apply systems in the `Execute` step).
-/// Producers write into the relevant sub-field; the two apply systems drain
-/// their respective halves before/after `project_state_to_ecs`.
-///
-/// Sub-fields:
-/// * `deaths`          — units to mark `Dead` (pre-projection)
-/// * `turn_lifecycle`  — `ActiveCombatant` inserts/removes + round-start flag (pre-projection)
-/// * `animations`      — movement animations to push into `AnimationQueue` (post-projection)
-/// * `phases`          — `(UnitId, phase_idx)` phase-transition pairs (post-projection)
-/// * `phase_overrides` — victory-override/deadline intents queued by phase transitions (post-projection)
-/// * `env_revealed`    — true when at least one `EnvRevealed` event fired this frame (post-projection)
+/// Groups the formerly-separate `Pending*` Resources (deferred vecs drained in
+/// the `Execute` step). The two apply systems drain their halves before / after
+/// `project_state_to_ecs` — pre-projection: `deaths`, `turn_lifecycle`;
+/// post-projection: `animations`, `phases`, `phase_overrides`, `env_revealed`.
 #[derive(Resource, Default)]
 pub struct BridgeQueues {
     pub deaths: Vec<UnitId>,
@@ -52,10 +44,8 @@ pub struct BridgeQueues {
 pub struct BridgeTurnLifecycle {
     pub remove_active: Vec<UnitId>,
     pub insert_active: Vec<UnitId>,
-    /// When true, a `RoundStarted` was seen this frame; a `StartRound` transition
-    /// is scheduled by `apply_bridge_queues_pre_projection`.  `insert_active` is
-    /// always drained in the same call — the `BumpRound`-settled actor is inserted
-    /// via `insert_active` before `build_turn_order` runs in the next StartRound frame.
+    /// `RoundStarted` seen this frame → `apply_bridge_queues_pre_projection`
+    /// schedules a `StartRound` transition.
     pub round_started: bool,
 }
 
@@ -76,15 +66,12 @@ pub struct PhaseOverrideIntent {
 ///
 /// Runs after `process_action_system`, before `project_state_to_ecs`.
 ///
-/// Turn-lifecycle drain order: `remove_active` first (evict old/skipped holder),
-/// then `insert_active` (set new holder) → exactly one `ActiveCombatant` at all
-/// times, no empty frame between remove and insert.
+/// Turn-lifecycle drain order: `remove_active` before `insert_active` → exactly
+/// one `ActiveCombatant` at all times, no empty frame.
 ///
-/// `round_started`: schedules the `StartRound` phase transition and resets the
-/// flag.  `insert_active` is **always** drained — `BumpRound`'s `TurnStarted`
-/// pushes the engine-settled actor into `insert_active`, and `build_turn_order`
-/// no longer does a blanket `remove::<ActiveCombatant>`, so draining here is
-/// safe and correct for both round-boundary and mid-round handoffs.
+/// `insert_active` is **always** drained (round-boundary and mid-round alike):
+/// `BumpRound`'s `TurnStarted` pushes the engine-settled actor here, and
+/// `build_turn_order` no longer does a blanket `remove::<ActiveCombatant>`.
 pub fn apply_bridge_queues_pre_projection(
     mut queues: ResMut<BridgeQueues>,
     id_map: Res<UnitIdMap>,

@@ -66,18 +66,9 @@ pub fn target_selection_score(
         0.0
     };
 
-    // Axis weights (sum = 1.0):
-    //   threat             0.15  — raw damage output potential
-    //   killability        0.15  — how close to death the target is
-    //   density            0.10  — damage-per-HP ratio (efficiency)
-    //   vulnerability      0.10  — low-HP flag bonus
-    //   role_value         0.05  — strategic role importance
-    //   proximity          0.10  — closeness of the target
-    //   objective_priority 0.35  — KeepAlive victory condition on target
-    //
-    // objective_priority (0.35) exceeds threat+density (0.15+0.10=0.25), so an
-    // OPPONENT_OBJECTIVE unit always outranks a max-threat max-density hero at
-    // the same distance. At equal proximity the KeepAlive target wins by ≥0.10.
+    // Axis weights sum to 1.0. objective_priority (0.35) > threat+density
+    // (0.25), so an OPPONENT_OBJECTIVE unit always outranks a max-threat
+    // max-density hero at the same distance.
     let raw = threat * 0.15
         + killability * 0.15
         + density * 0.10
