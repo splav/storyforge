@@ -198,6 +198,17 @@ pub(crate) fn pool_amount(kind: ResourceKind, hp: i32, mana: i32, rage: i32, ene
 
 // ── Builder ───────────────────────────────────────────────────────────────────
 
+/// Materialized inverse of a UnitId→Entity map. Summons carry synthetic UnitIds
+/// (not `entity.to_bits()`), so the reverse lookup must be stored, not recomputed.
+fn invert_uid_map(
+    uid_to_entity: &HashMap<combat_engine::state::UnitId, Entity>,
+) -> HashMap<Entity, combat_engine::state::UnitId> {
+    uid_to_entity
+        .iter()
+        .map(|(&uid, &entity)| (entity, uid))
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)] // ECS query bundle; splitting into a struct adds churn without clarity
 pub fn build_snapshot(
     _round: u32,
@@ -355,12 +366,7 @@ pub fn build_snapshot(
             Some((uid, c.entity))
         })
         .collect();
-    // Build entity_to_uid as the inverse — needed by snap.unit(entity) to
-    // resolve summons whose synthetic UnitIds are not entity.to_bits().
-    let entity_to_uid: HashMap<Entity, combat_engine::state::UnitId> = uid_to_entity
-        .iter()
-        .map(|(&uid, &entity)| (entity, uid))
-        .collect();
+    let entity_to_uid = invert_uid_map(&uid_to_entity);
 
     BattleSnapshot {
         cache,
@@ -389,10 +395,7 @@ impl BattleSnapshot {
                 state.unit(uid).map(|_| (uid, c.entity))
             })
             .collect();
-        let entity_to_uid: HashMap<Entity, UnitId> = uid_to_entity
-            .iter()
-            .map(|(&uid, &entity)| (entity, uid))
-            .collect();
+        let entity_to_uid = invert_uid_map(&uid_to_entity);
         Self {
             cache,
             state,

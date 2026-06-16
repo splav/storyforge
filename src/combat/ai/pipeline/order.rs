@@ -48,6 +48,7 @@ pub enum StageId {
 /// Using fn pointers (instead of `&'static dyn PlanStage`) keeps the table
 /// `const`-constructible without running into `&'static dyn Trait` lifetime /
 /// Sync / object-safety corners in `const` context.
+#[derive(Clone, Copy)]
 pub struct StageEntry {
     pub id: StageId,
     pub apply: fn(&mut ScoredPool, &mut StageCtx),
@@ -188,65 +189,30 @@ pub const PRODUCTION_PIPELINE_POST_MASK: &[StageEntry] = &[
     },
 ];
 
-/// Full production pipeline — both halves concatenated, for tests that do not
-/// need the mid-pipeline `base_scored` snapshot.
-///
-/// `pick_action` itself uses the split constants directly.  This constant is
-/// the single literal name that test assertions require (DoD).
-pub const PRODUCTION_PIPELINE: &[StageEntry] = &[
-    StageEntry {
-        id: StageId::Viability,
-        apply: apply_viability,
-    },
-    StageEntry {
-        id: StageId::ItemScoring,
-        apply: apply_item_scoring,
-    },
-    StageEntry {
-        id: StageId::ModeSelection,
-        apply: apply_mode_selection,
-    },
-    StageEntry {
-        id: StageId::Finalize,
-        apply: apply_finalize,
-    },
-    StageEntry {
-        id: StageId::Sanity,
-        apply: apply_sanity,
-    },
-    StageEntry {
-        id: StageId::Critics,
-        apply: apply_critics,
-    },
-    StageEntry {
-        id: StageId::ProtectSelfMask,
-        apply: apply_protect_self_mask,
-    },
-    StageEntry {
-        id: StageId::TransitDeathMask,
-        apply: apply_transit_death_mask,
-    },
-    StageEntry {
-        id: StageId::KillableGate,
-        apply: apply_killable_gate,
-    },
-    StageEntry {
-        id: StageId::RepairAffinity,
-        apply: apply_repair_affinity,
-    },
-    StageEntry {
-        id: StageId::OverlayConsiderations,
-        apply: apply_overlay_considerations,
-    },
-    StageEntry {
-        id: StageId::PlanModifiers,
-        apply: apply_plan_modifiers,
-    },
-    StageEntry {
-        id: StageId::PickBest,
-        apply: apply_pick_best,
-    },
-];
+/// Full production pipeline — `PRE_MASK ++ POST_MASK`, derived by [`concat_masks`]
+/// so the combined table can't drift from its halves. Test-only convenience;
+/// `pick_action` runs the two halves directly (it needs the mid-pipeline
+/// `base_scored` snapshot between them).
+pub const PRODUCTION_PIPELINE: &[StageEntry] = &concat_masks();
+
+const fn concat_masks(
+) -> [StageEntry; PRODUCTION_PIPELINE_PRE_MASK.len() + PRODUCTION_PIPELINE_POST_MASK.len()] {
+    let pre = PRODUCTION_PIPELINE_PRE_MASK;
+    let post = PRODUCTION_PIPELINE_POST_MASK;
+    let mut out =
+        [pre[0]; PRODUCTION_PIPELINE_PRE_MASK.len() + PRODUCTION_PIPELINE_POST_MASK.len()];
+    let mut i = 0;
+    while i < pre.len() {
+        out[i] = pre[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < post.len() {
+        out[pre.len() + j] = post[j];
+        j += 1;
+    }
+    out
+}
 
 // ── Runner ────────────────────────────────────────────────────────────────────
 

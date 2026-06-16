@@ -511,3 +511,37 @@ fn settle_round_start_all_stunned_terminates() {
         "TurnStarted must not appear for all-stunned roster"
     );
 }
+
+/// Golden-snapshot: settle_round_start with actor A stunned (applier external,
+/// so no sirota-DoT side-effects) and actor B healthy.
+///
+/// Pins the FULL ordered event sequence to catch any accidental drain reorder
+/// inside `apply_and_drain` (e.g. pool_events before turn_skip_events).
+/// Expected: RoundStarted → TurnSkipped{A,Stunned} → TurnStarted{B}.
+/// (B has MP already full and no other pools, so start_actor_turn emits nothing.)
+#[test]
+fn settle_round_start_golden_snapshot_skip_then_start() {
+    let stun_id = StatusId("stun".to_string());
+    let mut a = make_unit(1, true);
+    // Applier = external uid(99) so tick_actor_statuses(A) finds no statuses to tick.
+    a.statuses.push(status("stun", 2, 0, uid(99)));
+    let b = make_unit(2, true);
+
+    let mut state = make_state(vec![a, b], vec![uid(1), uid(2)], 0);
+    let content = StubContent::new().with_status(stun_id, make_def(true));
+
+    let events = state.settle_round_start(&content);
+
+    let expected = vec![
+        Event::RoundStarted { round: 1 },
+        Event::TurnSkipped {
+            actor: uid(1),
+            reason: TurnSkipReason::Stunned,
+        },
+        Event::TurnStarted { actor: uid(2) },
+    ];
+    assert_eq!(
+        events, expected,
+        "event order must be RoundStarted → TurnSkipped → TurnStarted; got: {events:#?}"
+    );
+}

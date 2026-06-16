@@ -1144,6 +1144,33 @@ pub fn apply_effect(
     }
 }
 
+/// Apply one effect, emit its primary event, and drain its pool + turn-skip
+/// events into `out`. Returns the derived effects (caller decides queue
+/// placement) and the `ApplyCtx`. RNG-free (mirrors `apply_effect`, no DiceSource).
+///
+/// Drains ONLY `pool_events` and `turn_skip_events`; every other `ApplyCtx`
+/// field (`spawn_uid`, `damage`, `phase_entered`, …) is returned untouched for
+/// the caller to read.
+///
+/// `pump_advance_turn` (state.rs) and the main/AoO/trap loops (step.rs) all
+/// share this helper. S6 voluntary auto-end is a deliberately separate path
+/// (no primary event, no pool drain) and is NOT routed here.
+pub(crate) fn apply_and_drain(
+    state: &mut CombatState,
+    effect: &Effect,
+    content: &dyn ContentView,
+    pos_before: Option<Hex>,
+    out: &mut Vec<crate::event::Event>,
+) -> (Vec<Effect>, ApplyCtx) {
+    let (derived, mut ctx) = apply_effect(state, effect, content);
+    if let Some(ev) = crate::event::effect_to_event(effect, state, pos_before, &ctx) {
+        out.push(ev);
+    }
+    out.append(&mut ctx.pool_events);
+    out.append(&mut ctx.turn_skip_events);
+    (derived, ctx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

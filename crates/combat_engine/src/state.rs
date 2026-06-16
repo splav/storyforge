@@ -577,6 +577,11 @@ impl Unit {
             pools[crate::PoolKind::Hp].is_some(),
             "Unit::new requires pools[PoolKind::Hp] = Some((hp, max_hp))"
         );
+        debug_assert!(
+            pools[crate::PoolKind::Hp].is_none_or(|(cur, _)| cur <= 0)
+                || (pools[crate::PoolKind::Ap].is_some() && pools[crate::PoolKind::Mp].is_some()),
+            "Unit::new: an alive unit requires pools[Ap] and pools[Mp] = Some (see `pools` invariant)"
+        );
         Unit {
             id,
             team,
@@ -1384,14 +1389,19 @@ impl CombatState {
     /// this helper — keep the two in sync if `AdvanceTurn`/`BumpRound` semantics
     /// change. Callers must seed only `AdvanceTurn`/`BumpRound`-derived effects
     /// (never move/damage), which never spawn Cast/Move/AoO sub-queues.
+    /// Apply/emit/drain for each effect in `seed`, recurring on derived effects.
+    ///
+    /// Uses `apply_and_drain` — shared with the main, AoO, and trap loops in
+    /// `step_inner`. S6 voluntary auto-end is intentionally separate: it calls
+    /// `apply_effect` directly and drains only `turn_skip_events` (no primary
+    /// event, no pool drain).
     fn pump_advance_turn(
         &mut self,
         seed: std::collections::VecDeque<crate::effect::Effect>,
         content: &dyn crate::content::ContentView,
         budget: &mut usize,
     ) -> Vec<crate::event::Event> {
-        use crate::effect::{apply_effect, Effect};
-        use crate::event::effect_to_event;
+        use crate::effect::{apply_and_drain, Effect};
         use std::collections::VecDeque;
 
         let mut events: Vec<crate::event::Event> = Vec::new();
@@ -1405,18 +1415,7 @@ impl CombatState {
                 *budget -= 1;
             }
 
-            let (derived, mut ctx) = apply_effect(self, &eff, content);
-
-            // Emit the corresponding event (RoundStarted for BumpRound, etc.).
-            if let Some(ev) = effect_to_event(&eff, self, None, &ctx) {
-                events.push(ev);
-            }
-
-            // Drain pool events (from BumpRound's RefreshAggregates cascade).
-            events.append(&mut ctx.pool_events);
-
-            // Drain skip events (TurnSkipped + tick events from stun/dead skips).
-            events.append(&mut ctx.turn_skip_events);
+            let (derived, _ctx) = apply_and_drain(self, &eff, content, None, &mut events);
 
             // Derived effects go to the FRONT (matches step_inner ordering).
             for ef in derived.into_iter().rev() {

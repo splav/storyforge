@@ -25,8 +25,8 @@ use crate::{
     action::{Action, ActionError},
     content::{AbilityDef, CasterContext, ContentView, EffectDef, StatusDef},
     dice::{DiceExpr, DiceSource},
-    effect::{apply_effect, ApplyCtx, Effect},
-    event::{effect_to_event, Event},
+    effect::{apply_and_drain, apply_effect, ApplyCtx, Effect},
+    event::Event,
     legality::{check_legality, ActionState, ActorView, ProposedAction},
     reaction::{expand_reaction, scan_reactions, Reaction, ReactionKind},
     state::{CombatState, Team},
@@ -777,19 +777,9 @@ fn step_inner(
             None
         };
 
-        // Apply the effect.
-        let (derived, mut ctx) = apply_effect(state, &effect, content);
-
-        // Emit the corresponding event.
-        if let Some(ev) = effect_to_event(&effect, state, Some(pos_before), &ctx) {
-            events.push(ev);
-        }
-
-        // Drain unified PoolChanged events (dual-emitted alongside legacy events).
-        events.append(&mut ctx.pool_events);
-
-        // Drain skip events from AdvanceTurn/BumpRound cascades.
-        events.append(&mut ctx.turn_skip_events);
+        // Apply the effect, emit primary event, drain pool + skip events.
+        let (derived, ctx) =
+            apply_and_drain(state, &effect, content, Some(pos_before), &mut events);
 
         // Summon initiative roll: on Effect::Spawn, roll a d20 into the new
         // unit's initiative. Insertion into turn_queue.order is deferred to the
@@ -884,16 +874,8 @@ fn step_inner(
                         }
                     }
 
-                    let (sub_derived, mut sub_ctx) = apply_effect(state, &sub_eff, content);
-
-                    if let Some(ev) = effect_to_event(&sub_eff, state, Some(pos_before), &sub_ctx) {
-                        events.push(ev);
-                    }
-
-                    // Drain unified PoolChanged events (dual-emitted alongside legacy events).
-                    events.append(&mut sub_ctx.pool_events);
-
-                    events.append(&mut sub_ctx.turn_skip_events);
+                    let (sub_derived, _sub_ctx): (Vec<Effect>, _) =
+                        apply_and_drain(state, &sub_eff, content, Some(pos_before), &mut events);
 
                     for ef in sub_derived.into_iter().rev() {
                         sub_queue.push_front(ef);
@@ -975,16 +957,13 @@ fn step_inner(
                                 return Err(ActionError::ReactionDepthExceeded);
                             }
 
-                            let (sub_derived, mut sub_ctx) = apply_effect(state, &sub_eff, content);
-
-                            if let Some(ev) =
-                                effect_to_event(&sub_eff, state, Some(pos_before), &sub_ctx)
-                            {
-                                events.push(ev);
-                            }
-
-                            events.append(&mut sub_ctx.pool_events);
-                            events.append(&mut sub_ctx.turn_skip_events);
+                            let (sub_derived, _sub_ctx): (Vec<Effect>, _) = apply_and_drain(
+                                state,
+                                &sub_eff,
+                                content,
+                                Some(pos_before),
+                                &mut events,
+                            );
 
                             for ef in sub_derived.into_iter().rev() {
                                 trap_sub.push_front(ef);

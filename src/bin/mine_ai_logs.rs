@@ -1165,16 +1165,6 @@ fn fresh_decision_kind(d: &LoggedDecision) -> FreshDecisionKind {
     }
 }
 
-/// Approximate the fresh `TacticalIntent` from the logged decision + stored goal
-/// (v27 logs don't persist intent directly):
-///
-/// - Cast/MoveAndCast at the stored-goal entity → stored goal's intent kind.
-/// - Cast/MoveAndCast at a *different* entity → `FocusTarget` on it.
-/// - Move / EndTurn / Skip → `Reposition`.
-///
-/// Sufficient for the `preserved` vs `abandoned` split; reactive-vs-voluntary
-/// reads `event.intent_reason` directly.
-
 /// Build a `TacticalIntent` from an `AgendaItemLog` using `kind` + `target`.
 ///
 /// `Entity::try_from_bits` converts `target` bits; falls back to a
