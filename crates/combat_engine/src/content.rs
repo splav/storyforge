@@ -90,14 +90,14 @@ pub enum EffectDef {
     None,
     /// Uses caster's equipped weapon dice + stat modifier.
     /// `ranged=true`: uses `ranged_dice + dex_mod`; `ranged=false`: uses `weapon_dice + str_mod`.
-    /// `power` multiplies the DICE ONLY (stat mod always added in full).
+    /// Power multiplier lives at ability level (see `AbilityDef::power()`).
     /// Ability is ILLEGAL if the matching dice channel is `None`.
-    WeaponAttack { ranged: bool, power: f32 },
+    WeaponAttack { ranged: bool },
     /// Physical damage from a fixed dice roll + str_mod.
     Damage { dice: DiceExpr },
-    /// Magical damage: spell_power + int_mod + dice, pierces armor.
+    /// Magical damage: roll(dice) + int_mod + round(power × spell_power), pierces armor.
     SpellDamage { dice: DiceExpr },
-    /// Heal: spell_power + int_mod + dice.
+    /// Heal: roll(dice) + int_mod + round(power × spell_power).
     Heal { dice: DiceExpr },
     /// Grants bonus movement to the actor.  Does NOT end the turn.
     GrantMovement { distance: i32 },
@@ -244,8 +244,16 @@ pub struct AbilityDef {
     /// Checked by `ActionState::has_tags` for `SingleEnemy` / `SingleAlly`
     /// target types only.  Empty ⇒ no tag requirement.
     pub requires_tags: std::collections::BTreeSet<crate::TagId>,
-    /// Tags that the primary target must NOT have.  Empty ⇒ no exclusion.
+    /// Tags the primary target must NOT have.  Empty ⇒ no exclusion.
     pub excludes_tags: std::collections::BTreeSet<crate::TagId>,
+    /// Per-ability power multiplier (default `None` = 1.0).
+    ///
+    /// For `WeaponAttack`: scales weapon dice (stat mod always added in full).
+    /// For `SpellDamage` / `Heal`: scales `spell_power` contribution.
+    /// For DoT roll at cast time: scales `spell_power` in the baked tick value.
+    ///
+    /// Use `None` (i.e. `..Default::default()`) in tests so you get 1.0 automatically.
+    pub power: Option<f32>,
 }
 
 impl Default for AbilityDef {
@@ -264,6 +272,7 @@ impl Default for AbilityDef {
             passive: vec![],
             requires_tags: std::collections::BTreeSet::new(),
             excludes_tags: std::collections::BTreeSet::new(),
+            power: None,
         }
     }
 }
@@ -284,6 +293,16 @@ impl AbilityDef {
     /// Passives (any non-empty trigger list) are never player-activated.
     pub fn is_actively_castable(&self) -> bool {
         self.passive.is_empty()
+    }
+
+    /// Resolves the ability's power multiplier.  `None` → 1.0 (identity).
+    ///
+    /// Applied to:
+    /// - `WeaponAttack`: scales weapon dice (stat mod added in full).
+    /// - `SpellDamage` / `Heal`: scales `spell_power` contribution.
+    /// - DoT tick value baked at cast time: scales `spell_power`.
+    pub fn power(&self) -> f32 {
+        self.power.unwrap_or(1.0)
     }
 }
 

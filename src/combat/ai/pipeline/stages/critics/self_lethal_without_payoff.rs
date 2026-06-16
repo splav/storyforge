@@ -614,6 +614,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         };
 
@@ -683,6 +684,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         };
 

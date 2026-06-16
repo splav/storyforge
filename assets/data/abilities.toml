@@ -95,6 +95,7 @@ magic_method  = "alteration"
 target_type   = "single_enemy"
 costs         = [{ resource = "mana", amount = 1 }]
 range         = 2
+power         = 0.5
 statuses      = [
     { id = "burning", on = "target", duration = 3 },
 ]
@@ -169,7 +170,7 @@ name         = "Парализующий выстрел"
 target_type  = "single_enemy"
 effect       = "weapon_attack"
 ranged       = true
-weapon_power = 0.5
+power        = 0.5
 costs        = [{ resource = "energy", amount = 2 }]
 range        = 3
 min_range    = 2

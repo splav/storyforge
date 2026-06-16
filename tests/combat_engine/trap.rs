@@ -101,6 +101,7 @@ fn trap_ability(n: u32, status: Option<&str>) -> AbilityDef {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     }
 }
 

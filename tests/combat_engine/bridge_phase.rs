@@ -49,6 +49,7 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 
@@ -249,6 +250,7 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
     common::apps::bridge::insert_ability(&mut app, ability_def);
@@ -397,6 +399,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
     common::apps::bridge::insert_ability(&mut app, ability_def);
@@ -626,6 +629,7 @@ fn phase_transition_updates_ecs_tags_component() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 
@@ -763,6 +767,7 @@ fn phase_transition_mirrors_runtime_stats_into_ecs() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 

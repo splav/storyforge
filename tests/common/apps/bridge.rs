@@ -407,10 +407,7 @@ impl MeleeContent {
             engine: combat_engine::AbilityDef {
                 target_type: storyforge::content::abilities::TargetType::SingleEnemy,
                 range: AbilityRange::MELEE,
-                effect: EffectDef::WeaponAttack {
-                    ranged: false,
-                    power: 1.0,
-                },
+                effect: EffectDef::WeaponAttack { ranged: false },
                 costs: vec![],
                 cost_ap: 1,
                 aoe: AoEShape::None,
@@ -421,6 +418,7 @@ impl MeleeContent {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         };
         let mut cv = ActiveContentData::default();

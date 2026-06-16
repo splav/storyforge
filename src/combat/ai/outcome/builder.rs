@@ -175,7 +175,7 @@ pub fn hypothetical(
     content: &ActiveContentData,
 ) -> ActionOutcomeEstimate {
     // ── Damage fact ──
-    let enemy_damage = if let Some(calc) = def.effect.calc(caster) {
+    let enemy_damage = if let Some(calc) = def.effect.calc(caster, def.engine.power()) {
         if calc.is_heal {
             0.0
         } else {
@@ -256,7 +256,7 @@ pub fn estimate_kill_soon(
     caster: &CasterContext,
     content: &ActiveContentData,
 ) -> f32 {
-    let Some(calc) = def.effect.calc(caster) else {
+    let Some(calc) = def.effect.calc(caster, def.engine.power()) else {
         return 0.0;
     };
     let mit = if calc.pierces_armor {
@@ -383,7 +383,7 @@ pub(crate) fn build_damage_facts(
     // AoE: walk the blast area.
     let area = aoe_area(def, target_pos, caster_tile);
 
-    let Some(calc) = def.effect.calc(caster) else {
+    let Some(calc) = def.effect.calc(caster, def.engine.power()) else {
         return DamageFacts {
             enemy_damage: sim_damage,
             enemy_damage_per_entity: vec![],
@@ -545,7 +545,7 @@ pub(crate) fn estimate_hp_restored(
     target: &combat_engine::state::Unit,
     caster: &CasterContext,
 ) -> f32 {
-    let Some(calc) = def.effect.calc(caster) else {
+    let Some(calc) = def.effect.calc(caster, def.engine.power()) else {
         return 0.0;
     };
     if !calc.is_heal {

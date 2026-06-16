@@ -73,6 +73,7 @@ fn flee_test_offensive_ability(
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     (id, def)
@@ -105,6 +106,7 @@ fn flee_test_heal_ability(id: &'static str) -> (AbilityId, crate::content::abili
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     (id, def)
@@ -437,6 +439,7 @@ fn cc_reach_prefers_cc_ability_range() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     let melee = AbilityDef {
@@ -462,6 +465,7 @@ fn cc_reach_prefers_cc_ability_range() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     content
@@ -573,6 +577,7 @@ fn focus_target_scores_proportional_to_damage() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     let weak = AbilityDef {
@@ -598,6 +603,7 @@ fn focus_target_scores_proportional_to_damage() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     content.abilities.insert(strong.id.clone(), strong.clone());
@@ -631,7 +637,7 @@ fn focus_target_scores_proportional_to_damage() {
     let caster_ctx = CasterContext::default();
 
     let raw_damage = |def: &AbilityDef| -> f32 {
-        let Some(calc) = def.effect.calc(&caster_ctx) else {
+        let Some(calc) = def.effect.calc(&caster_ctx, def.engine.power()) else {
             return 0.0;
         };
         if calc.is_heal {
@@ -729,6 +735,7 @@ fn focus_target_wrong_target_scores_near_zero() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     content.abilities.insert(hit.id.clone(), hit);
@@ -795,6 +802,7 @@ mod intent_score_via_narrow_offensive_api_matches_legacy {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }
@@ -823,6 +831,7 @@ mod intent_score_via_narrow_offensive_api_matches_legacy {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }

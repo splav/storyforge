@@ -149,6 +149,7 @@ fn det_cast_ap_exhaustion_s6() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::new().with_ability("strike", ability);
 
@@ -277,6 +278,7 @@ fn det_phase_transition() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::new().with_ability("heavy_blow", ability);
 
@@ -339,6 +341,7 @@ fn det_aoe_multi_target_cast() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::new().with_ability("fireball", ability);
 

@@ -60,6 +60,7 @@ fn ability(aoe: AoEShape, target_type: TargetType, friendly_fire: bool) -> Abili
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     }
 }
 

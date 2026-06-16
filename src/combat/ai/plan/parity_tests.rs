@@ -91,6 +91,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }
@@ -476,6 +477,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         );
         content.abilities.insert(def.id.clone(), def.clone());
@@ -669,6 +671,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         );
 
@@ -808,6 +811,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         );
 
@@ -831,6 +835,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         );
 
@@ -1114,6 +1119,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         );
 
@@ -1217,6 +1223,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         );
 

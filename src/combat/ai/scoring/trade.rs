@@ -1,37 +1,23 @@
-//! Trade economics — actor-agnostic unit valuation.
-//!
-//! MVP2 Phase 1: introduces [`unit_value`] and its three per-round
-//! contribution projections (offense / heal / cc). No plan-level
-//! `trade_delta` or scorer integration yet; those land in phases 2 and 3.
+//! Trade economics — actor-agnostic unit valuation: [`unit_value`] and its
+//! offense / heal / cc per-round projections.
 //!
 //! # Design invariants
 //!
 //! 1. **Actor-agnostic.** `unit_value(u)` depends only on `u` and static
-//!    content. No inspecting-actor parameter, no proximity, no relative
-//!    threat — self, ally, and enemy all evaluate to the same scalar for
-//!    the same unit. This is the property that makes the Phase 2
-//!    `trade_delta` meaningful as a subtraction across sides.
-//! 2. **HP-equivalent units.** Every channel is normalised to "HP per
-//!    round" (damage inflicted / prevented / denied), so contributions
-//!    can be added and the final value multiplied by expected lifetime
-//!    gives an HP-scale scalar.
-//! 3. **No internal floor on [`unit_value`].** A valueless unit returns
-//!    `0.0`; summing over many trash kills therefore doesn't silently
-//!    inflate the delta. The Phase 3 normaliser guards
-//!    `tanh(delta / unit_value(self))` with its own
-//!    [`UNIT_VALUE_FLOOR`] only at the call site where the denominator
-//!    could otherwise be zero.
+//!    content — self, ally and enemy evaluate to the same scalar. This is what
+//!    makes `trade_delta` meaningful as a subtraction across sides.
+//! 2. **HP-equivalent.** Every channel is normalised to "HP per round", so
+//!    contributions add and `value × lifetime` stays on an HP scale.
+//! 3. **No internal floor.** A valueless unit returns `0.0`, so summing trash
+//!    kills can't silently inflate the delta. [`UNIT_VALUE_FLOOR`] guards only
+//!    the `tanh(delta / unit_value(self))` denominator, at that call site.
 //!
-//! # Known limitations (MVP2, tracked for Phase 2c)
+//! # Intentional omissions
 //!
-//! - [`lifetime_rounds`] is a fixed constant, not a dynamic
-//!   `clamp(eff_hp / incoming_dpr, …)`. Tanks derive no extra value from
-//!   their durability beyond what the constant allocates.
-//! - Taunt / `forces_targeting` redirect value is not priced. Pure
-//!   tanks score near the floor, consistent with the existing
-//!   `role_value` hierarchy (Tank 0.3 < Support 1.0).
-//! - [`cc_projection`] uses `u.threat` as the "peer DPR denied by a
-//!   stun" proxy — coarse but actor-agnostic. A dynamic per-snapshot
+//! - [`lifetime_rounds`] is a constant: tanks gain no value from durability.
+//! - Taunt / `forces_targeting` redirect is unpriced — pure tanks score near
+//!   the floor, matching `role_value` (Tank 0.3 < Support 1.0).
+//! - [`cc_projection`] proxies "peer DPR denied" with `u.threat`; a per-snapshot
 //!   average would couple `unit_value` to battle state.
 
 use crate::combat::ai::plan::TurnPlan;
@@ -69,15 +55,11 @@ pub const TRADE_WEIGHT: f32 = 0.5;
 ///              + objective_bonus(u)
 /// ```
 ///
-/// where `objective_bonus` adds `tuning.thresholds.objective_value_bonus` when
-/// `u` carries `AiTags::OPPONENT_OBJECTIVE` — i.e. the opponent has a
-/// `KeepAlive` condition on that unit. A permanently-stunned NPC would
-/// otherwise score 0 (no offense/heal/cc), which makes AI ignore it even
-/// though killing it triggers defeat for its side.
-///
-/// Returns `0.0` for dead / inert units — **no floor**. The floor
-/// [`UNIT_VALUE_FLOOR`] is applied at the Phase 3 denominator call-site,
-/// not here, so summing values over mass-killed trash stays honest.
+/// `objective_bonus` adds `tuning.thresholds.objective_value_bonus` for an
+/// `AiTags::OPPONENT_OBJECTIVE` unit (opponent has a `KeepAlive` on it): a
+/// permanently-stunned NPC scores 0 otherwise, so AI would ignore it even
+/// though killing it loses its side the fight. Returns `0.0`, no floor (see
+/// [`UNIT_VALUE_FLOOR`]).
 ///
 /// Consumers (Phase 2): plan-level `trade_delta` sums `unit_value` over
 /// killed enemies / lost allies and subtracts `unit_value(self)` when
@@ -130,7 +112,7 @@ fn heal_projection(u: UnitView<'_>, content: &ActiveContentData) -> f32 {
         .filter_map(|id| content.abilities.get(id))
         .filter(|def| matches!(def.target_type, TargetType::SingleAlly))
         .filter_map(|def| {
-            let calc = def.effect.calc(&u.cache.caster_ctx)?;
+            let calc = def.effect.calc(&u.cache.caster_ctx, def.engine.power())?;
             if !calc.is_heal {
                 return None;
             }
@@ -209,31 +191,19 @@ pub struct TradeBreakdown {
 
 /// Compute the trade-economy breakdown for a plan.
 ///
-/// **Commit-prefix only.** Only steps that would actually fire this tick
-/// count towards the breakdown — kills on steps 2+ of a multi-step plan
-/// are lookahead that the next `pick_action` tick will re-plan from
-/// scratch. Crediting them here would give full, undiscounted credit for
-/// hypothetical futures, breaking the architectural invariant that
-/// everything past the commit prefix is discounted lookahead. The prefix
-/// boundary comes from `plan.committed_step_count()` — the same source
-/// of truth `commit_plan` / `ScoredStep::from_plan_committed` already
-/// consume.
+/// **Commit-prefix only** (`plan.committed_step_count()`): tail-step kills are
+/// lookahead the next tick re-plans from scratch, so crediting them here would
+/// give undiscounted credit for hypothetical futures.
 ///
-/// Enemy kills accumulate into `killed_value`; ally kills (including
-/// the actor via self-AoE) accumulate into `lost_value`. Victims are
-/// looked up in the *pre-step* snapshot via `plan.pre_step_snapshot`,
-/// so a unit that sim records as killed still carries its alive
-/// `unit_value` from before the blow.
+/// Victims are valued from the *pre-step* snapshot, so a unit sim records as
+/// killed still carries its alive `unit_value`. Enemy kills → `killed_value`,
+/// ally/self kills → `lost_value`.
 ///
-/// Self-lethal via movement AoO is evaluated by
-/// [`expected_aoo_damage`][expected_aoo_damage] — the same EV estimate
-/// the adaptation layer uses. Within the commit prefix the risky move
-/// is always step 0 (valid prefixes are `[]`, `[Cast]`, `[Move]`,
-/// `[Move, Cast]`), so comparing `aoo_dmg >= active.hp` against the
-/// plan-start HP is exact — no self-heal could run before the move.
-/// Counted into `self_lost` only when the actor isn't already in the
-/// killed list; otherwise the sim path already charged the loss via
-/// `lost_value`.
+/// Self-lethal via movement AoO uses [`expected_aoo_damage`]. The risky move is
+/// always step 0 in a valid prefix (`[]`/`[Cast]`/`[Move]`/`[Move, Cast]`), so
+/// `aoo_dmg >= active.hp` against plan-start HP is exact — no self-heal runs
+/// first. Counted into `self_lost` only if the actor isn't already a sim kill
+/// (else `lost_value` already charged it).
 pub fn trade_delta(
     plan: &TurnPlan,
     active: UnitView<'_>,
@@ -386,6 +356,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }
@@ -419,6 +390,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }

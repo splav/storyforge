@@ -117,6 +117,7 @@ fn cast_emits_damage_result_log_entry() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 
@@ -215,6 +216,7 @@ fn cast_emits_status_applied_log_entry() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 
@@ -278,6 +280,7 @@ fn cast_emits_mana_changed_log_entry() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 
@@ -366,6 +369,7 @@ fn process_action_system_routes_cast_into_engine() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
     common::apps::bridge::insert_ability(&mut app, zap_def);
@@ -445,6 +449,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 
@@ -598,6 +603,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 
@@ -758,6 +764,7 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
 

@@ -215,6 +215,7 @@ fn cast_3_targets_consumes_d20_plus_3_damage_rolls() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = CastContent {
         id: "fireball".to_string(),

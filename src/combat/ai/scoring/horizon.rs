@@ -122,7 +122,7 @@ pub fn estimate_st_damage(
                 TargetType::SingleEnemy | TargetType::Ground
             )
         })
-        .filter_map(|def| def.effect.calc(ctx))
+        .filter_map(|def| def.effect.calc(ctx, def.engine.power()))
         .map(|calc| calc.expected().max(0.0))
         .fold(0.0f32, f32::max)
 }
@@ -182,7 +182,7 @@ pub fn estimate_damage_horizon(
         })
         .filter(|def| def.cost_ap > 0)
         .filter_map(|def| {
-            let calc = def.effect.calc(caster)?;
+            let calc = def.effect.calc(caster, def.engine.power())?;
             let expected = calc.expected().max(0.0);
             if expected <= 0.0 {
                 return None;
@@ -405,6 +405,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }
@@ -434,6 +435,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }
@@ -452,7 +454,11 @@ mod tests {
     #[test]
     fn horizon_free_attack_plateaus() {
         let melee = weapon_attack_def("melee", 1, DiceExpr::new(1, 6, 0));
-        let ev = melee.effect.calc(&ZERO).unwrap().expected();
+        let ev = melee
+            .effect
+            .calc(&ZERO, melee.engine.power())
+            .unwrap()
+            .expected();
         let content = content_with(vec![melee.clone()]);
         let abilities = Abilities(vec![melee.id.clone()]);
 
@@ -468,7 +474,11 @@ mod tests {
     #[test]
     fn horizon_exhausts_resource_pool() {
         let spell = mana_spell_def("bolt", 1, DiceExpr::new(1, 10, 0), 5);
-        let ev = spell.effect.calc(&ZERO).unwrap().expected();
+        let ev = spell
+            .effect
+            .calc(&ZERO, spell.engine.power())
+            .unwrap()
+            .expected();
         let content = content_with(vec![spell.clone()]);
         let abilities = Abilities(vec![spell.id.clone()]);
 
@@ -498,8 +508,16 @@ mod tests {
     fn horizon_greedy_falls_back_after_resource_drain() {
         let spell = mana_spell_def("bolt", 1, DiceExpr::new(1, 10, 0), 5);
         let melee = weapon_attack_def("slap", 1, DiceExpr::new(1, 4, 0));
-        let spell_ev = spell.effect.calc(&ZERO).unwrap().expected();
-        let melee_ev = melee.effect.calc(&ZERO).unwrap().expected();
+        let spell_ev = spell
+            .effect
+            .calc(&ZERO, spell.engine.power())
+            .unwrap()
+            .expected();
+        let melee_ev = melee
+            .effect
+            .calc(&ZERO, melee.engine.power())
+            .unwrap()
+            .expected();
         let content = content_with(vec![spell.clone(), melee.clone()]);
         let abilities = Abilities(vec![spell.id.clone(), melee.id.clone()]);
 
@@ -559,6 +577,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         };
         let content = content_with(vec![ping.clone()]);
@@ -634,7 +653,11 @@ mod tests {
     #[test]
     fn horizon_regen_unlocks_extra_casts() {
         let spell = mana_spell_def("zap", 1, DiceExpr::new(1, 4, 0), 2);
-        let ev = spell.effect.calc(&ZERO).unwrap().expected();
+        let ev = spell
+            .effect
+            .calc(&ZERO, spell.engine.power())
+            .unwrap()
+            .expected();
         let content = content_with(vec![spell.clone()]);
         let abilities = Abilities(vec![spell.id.clone()]);
 

@@ -68,6 +68,7 @@ fn ability(id: &str, effect: EffectDef, target_type: TargetType, range: u32) -> 
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }

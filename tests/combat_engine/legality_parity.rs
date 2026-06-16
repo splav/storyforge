@@ -121,6 +121,7 @@ fn insert_attack(app: &mut App) {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
     app.world_mut()
@@ -150,6 +151,7 @@ fn insert_heal(app: &mut App) {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
     app.world_mut()
@@ -182,6 +184,7 @@ fn insert_mana_spell(app: &mut App) {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     );
     app.world_mut()

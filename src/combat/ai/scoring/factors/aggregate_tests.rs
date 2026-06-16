@@ -70,7 +70,7 @@ fn annotate_plan(
                     let target_unit = snap.unit(*target);
                     // Raw pre-policy damage fact consumed by compute_offensive.
                     let enemy_damage = target_unit.map_or(0.0, |t| {
-                        let Some(calc) = def.effect.calc(&caster_ctx) else {
+                        let Some(calc) = def.effect.calc(&caster_ctx, def.engine.power()) else {
                             return 0.0;
                         };
                         if calc.is_heal {

@@ -98,7 +98,7 @@ name         = "Выстрел из лука"
 target_type  = "single_enemy"
 effect       = "weapon_attack"
 ranged       = true          # uses ranged_dice channel + dex_mod
-weapon_power = 1.0           # multiplier on the roll (0.5 for weaker shots)
+power        = 0.5           # optional; scales the weapon roll (default 1.0)
 range        = 5
 min_range    = 1
 requires_los = true       # blocked by obstacles from [[encounters.obstacles]]
@@ -109,14 +109,27 @@ Notes:
 - LOS check is **skipped** when `requires_los = false` (the default).
 - Obstacles are declared per-encounter via `[[encounters.obstacles]]` (see below).
 
+### `power` — масштаб «оружейной» части (default `1.0`)
+
+Один множитель на способность; задаётся полем `power`. Масштабирует только
+переменную, «оружейную» часть урона/лечения, а модификатор стата (`STR`/`INT`)
+добавляется всегда полностью:
+
+- `weapon_attack`: `round(roll × power) + mod`.
+- `spell_damage` / `heal` / DoT-бейк: `roll + INT_mod + round(power × spell_power)`.
+
+`power < 1` — ослабленная версия (напр. `paralyzing_shot`, `burn` = 0.5: добавляют
+статус-эффект ценой урона), `power > 1` — усиленная. Пропуск поля = `1.0`
+(нейтрально). См. [mechanics.md](mechanics.md#damage).
+
 ### Effect Types
 
-| Effect | Dice | Stat | Armor | Notes |
+| Effect | Dice | Stat | Mitigation | Notes |
 |---|:---:|:---:|:---:|---|
-| `weapon_attack` | weapon | +STR | Reduced | |
-| `damage` | Yes | +STR | Reduced | |
-| `spell_damage` | Yes | +INT +spell_power | **Pierced** | |
-| `heal` | Yes | +INT +spell_power | N/A | Capped at max_hp |
+| `weapon_attack` | weapon | +STR/+DEX | armor | `ranged=true` → ranged dice + DEX. `power` scales the roll. |
+| `damage` | Yes | +STR | armor | Fixed dice (no weapon); `power` ignored (always 1.0). |
+| `spell_damage` | Yes | +INT +`power`×spell_power | **magic_resist** | Magic — armor does NOT apply. |
+| `heal` | Yes | +INT +`power`×spell_power | N/A | Capped at max_hp |
 | `none` | — | — | — | Status-only |
 | `grant_movement` | — | — | — | Requires `distance`, doesn't end turn |
 | `restore_resources` | — | — | — | `rest`: +1 HP/mana/rage/energy |
@@ -181,8 +194,8 @@ requires_tags = ["symbiote"]      # may only heal units tagged `symbiote`
 [[statuses]]
 id                    = "burning"
 name                  = "Ожог"
-armor_bonus           = 0        # +armor (negative reduces)
-damage_taken_bonus    = 0        # extra damage on all hits
+armor_bonus           = 0        # +armor vs physical (negative reduces)
+magic_resist_bonus    = 0        # +magic_resist vs spell_damage/DoT (negative reduces)
 skips_turn            = false    # unit can't act
 forces_targeting      = false    # enemies must attack this unit
 dot_count             = 0        # DoT dice count (with dot_sides)

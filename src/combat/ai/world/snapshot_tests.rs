@@ -44,6 +44,7 @@ mod affordability_tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }
@@ -202,6 +203,7 @@ mod computation_tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }

@@ -104,6 +104,7 @@ fn make_ability(
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }
@@ -239,10 +240,7 @@ fn status_combo_negative_speed_and_dot_yields_soft_cc_and_dot() {
 fn ability_weapon_attack_yields_offensive() {
     use crate::content::abilities::{EffectDef, TargetType};
     let def = make_ability(
-        EffectDef::WeaponAttack {
-            ranged: false,
-            power: 1.0,
-        },
+        EffectDef::WeaponAttack { ranged: false },
         TargetType::SingleEnemy,
         vec![],
     );

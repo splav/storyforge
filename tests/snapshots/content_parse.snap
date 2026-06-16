@@ -44,6 +44,7 @@ AbilityId("backstab") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("blood_ward") => AbilityDef {
@@ -85,6 +86,7 @@ AbilityId("blood_ward") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("burn") => AbilityDef {
@@ -128,6 +130,9 @@ AbilityId("burn") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: Some(
+            0.5,
+        ),
     },
 }
 AbilityId("field_medic") => AbilityDef {
@@ -167,6 +172,7 @@ AbilityId("field_medic") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("fireball") => AbilityDef {
@@ -211,6 +217,7 @@ AbilityId("fireball") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("flash") => AbilityDef {
@@ -252,6 +259,7 @@ AbilityId("flash") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("heal") => AbilityDef {
@@ -294,6 +302,7 @@ AbilityId("heal") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("living_carapace") => AbilityDef {
@@ -335,6 +344,7 @@ AbilityId("living_carapace") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("melee_attack") => AbilityDef {
@@ -359,13 +369,13 @@ AbilityId("melee_attack") => AbilityDef {
         friendly_fire: false,
         effect: WeaponAttack {
             ranged: false,
-            power: 1.0,
         },
         statuses: [],
         requires_los: false,
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("move") => AbilityDef {
@@ -396,6 +406,7 @@ AbilityId("move") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("numbness") => AbilityDef {
@@ -437,6 +448,7 @@ AbilityId("numbness") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("paralyzing_shot") => AbilityDef {
@@ -466,7 +478,6 @@ AbilityId("paralyzing_shot") => AbilityDef {
         friendly_fire: false,
         effect: WeaponAttack {
             ranged: true,
-            power: 0.5,
         },
         statuses: [
             StatusApplication {
@@ -481,6 +492,9 @@ AbilityId("paralyzing_shot") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: Some(
+            0.5,
+        ),
     },
 }
 AbilityId("poison_shot") => AbilityDef {
@@ -510,7 +524,6 @@ AbilityId("poison_shot") => AbilityDef {
         friendly_fire: false,
         effect: WeaponAttack {
             ranged: true,
-            power: 0.5,
         },
         statuses: [
             StatusApplication {
@@ -525,6 +538,7 @@ AbilityId("poison_shot") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("ranged_shot") => AbilityDef {
@@ -549,13 +563,13 @@ AbilityId("ranged_shot") => AbilityDef {
         friendly_fire: false,
         effect: WeaponAttack {
             ranged: true,
-            power: 1.0,
         },
         statuses: [],
         requires_los: true,
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("rest") => AbilityDef {
@@ -586,6 +600,7 @@ AbilityId("rest") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("rush") => AbilityDef {
@@ -621,6 +636,7 @@ AbilityId("rush") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("scout_traps") => AbilityDef {
@@ -656,6 +672,7 @@ AbilityId("scout_traps") => AbilityDef {
         ],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("shepherd_heal") => AbilityDef {
@@ -699,6 +716,7 @@ AbilityId("shepherd_heal") => AbilityDef {
             ),
         },
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("spark") => AbilityDef {
@@ -740,6 +758,7 @@ AbilityId("spark") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("spike_trap") => AbilityDef {
@@ -782,6 +801,7 @@ AbilityId("spike_trap") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("stun") => AbilityDef {
@@ -823,6 +843,7 @@ AbilityId("stun") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("summon_storm_spirit") => AbilityDef {
@@ -861,6 +882,7 @@ AbilityId("summon_storm_spirit") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("taunt") => AbilityDef {
@@ -904,6 +926,7 @@ AbilityId("taunt") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("thunderstrike") => AbilityDef {
@@ -947,6 +970,7 @@ AbilityId("thunderstrike") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 AbilityId("vital_infusion") => AbilityDef {
@@ -988,6 +1012,7 @@ AbilityId("vital_infusion") => AbilityDef {
         passive: [],
         requires_tags: {},
         excludes_tags: {},
+        power: None,
     },
 }
 

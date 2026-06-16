@@ -131,6 +131,7 @@ fn single_enemy_ability() -> AbilityDef {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     }
 }
 
@@ -439,6 +440,55 @@ fn cast_spell_damage_pierces_armor() {
     );
 }
 
+/// Ability-level `power` scales ONLY the spell_power contribution of a magical
+/// SpellDamage; the dice roll and int_mod are added in full.
+/// raw = roll(1d4) + int_mod + round(power × spell_power)
+///     = 3 + 3 + round(0.5 × 4 = 2.0) = 8. hp = 10 - 8 = 2.
+#[test]
+fn cast_spell_damage_power_scales_only_spell_power() {
+    use storyforge::combat_engine::CasterContext;
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0); // hp=10, no armor/magic_resist
+
+    let mut state = state_with(vec![actor, target]);
+
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::SpellDamage {
+            dice: DiceExpr::new(1, 4, 0),
+        },
+        power: Some(0.5),
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("weak_bolt", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            int_mod: 3,
+            spell_power: 4,
+            ..Default::default()
+        },
+    );
+    content.apply_caster_contexts(&mut state);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("weak_bolt"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content).expect("legal cast should succeed");
+
+    // E[1d4]=2.5→3. raw = 3 + int_mod 3 + round(0.5×4)=2 → 8. hp = 10-8 = 2.
+    assert_eq!(
+        state.unit(UnitId(2)).unwrap().hp(),
+        2,
+        "power halves spell_power (4→2), leaves roll+int_mod intact"
+    );
+}
+
 /// WeaponAttack: raw = roll(1d8) + str_mod = 5 + 2 = 7. Target hp = 10-7 = 3.
 #[test]
 fn cast_weapon_attack_uses_weapon_dice() {
@@ -453,10 +503,7 @@ fn cast_weapon_attack_uses_weapon_dice() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::WeaponAttack {
-            ranged: false,
-            power: 1.0,
-        },
+        effect: EffectDef::WeaponAttack { ranged: false },
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("melee", ability).with_caster(
@@ -498,10 +545,7 @@ fn cast_weapon_attack_no_damage_when_no_weapon() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::WeaponAttack {
-            ranged: false,
-            power: 1.0,
-        },
+        effect: EffectDef::WeaponAttack { ranged: false },
         ..single_enemy_ability()
     };
     // CasterContext::default() has weapon_dice=None → MissingWeapon.
@@ -537,10 +581,7 @@ fn cast_ranged_weapon_attack_uses_ranged_dice_and_dex_mod() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::WeaponAttack {
-            ranged: true,
-            power: 1.0,
-        },
+        effect: EffectDef::WeaponAttack { ranged: true },
         range: AbilityRange { min: 0, max: 5 },
         ..single_enemy_ability()
     };
@@ -587,10 +628,8 @@ fn cast_weapon_attack_power_half_scales_dice_not_mod() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::WeaponAttack {
-            ranged: false,
-            power: 0.5,
-        },
+        effect: EffectDef::WeaponAttack { ranged: false },
+        power: Some(0.5),
         ..single_enemy_ability()
     };
     let content = StubContent::with_ability("weak_strike", ability).with_caster(
@@ -631,10 +670,7 @@ fn cast_ranged_weapon_attack_no_ranged_dice_is_illegal() {
     let ability = AbilityDef {
         cost_ap: 1,
         costs: vec![],
-        effect: EffectDef::WeaponAttack {
-            ranged: true,
-            power: 1.0,
-        },
+        effect: EffectDef::WeaponAttack { ranged: true },
         range: AbilityRange { min: 0, max: 5 },
         ..single_enemy_ability()
     };
@@ -703,6 +739,7 @@ fn cast_aoe_damages_targets_in_per_target_order() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::with_ability("fireball", ability).with_caster(
         UnitId(1),
@@ -830,6 +867,7 @@ fn cast_heal_restores_target_hp() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::with_ability("heal", ability).with_caster(
         UnitId(1),
@@ -897,6 +935,7 @@ fn cast_aoe_heal_restores_multiple_targets() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::with_ability("group_heal", ability);
 
@@ -990,6 +1029,7 @@ fn cast_applies_status_to_self_via_myself() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::with_ability("iron_skin", ability);
 
@@ -1441,6 +1481,7 @@ fn cast_applies_status_to_each_aoe_target() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::with_ability("flame_wave", ability);
 
@@ -1489,6 +1530,7 @@ fn summon_ability(max_active: Option<u32>) -> AbilityDef {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     }
 }
 
@@ -1838,5 +1880,70 @@ fn cast_dot_dice_bakes_roll_plus_spell_power_into_dot_per_tick() {
         "tick must deal exactly dot_per_tick=3 damage; hp_before={}, hp_after={}",
         hp_before,
         hp_after
+    );
+}
+
+/// DoT bake honours int_mod (added in full) AND ability `power` (scales only
+/// spell_power) — the burn mechanic. With power=0.5, int_mod=3, spell_power=4:
+/// dot_per_tick = roll(1d1)=1 + int_mod 3 + round(0.5×4)=2 = 6.
+#[test]
+fn cast_dot_bake_adds_int_mod_and_power_scales_spell_power() {
+    use storyforge::combat_engine::CasterContext;
+
+    let mut actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0);
+    actor.caster_context = CasterContext {
+        int_mod: 3,
+        spell_power: 4,
+        ..Default::default()
+    };
+
+    let mut state = state_with(vec![actor, target]);
+    state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
+
+    let burn_id = StatusId::from("burn");
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::None,
+        statuses: vec![StatusApplication {
+            status: burn_id.clone(),
+            duration_rounds: 3,
+            on: StatusOn::Target,
+        }],
+        power: Some(0.5),
+        ..single_enemy_ability()
+    };
+    let burn_def = StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        bonuses: storyforge::combat_engine::StatusBonuses::default(),
+        hp_percent_dot: 0,
+        heal_per_tick: 0,
+        dot_dice: Some(DiceExpr::new(1, 1, 0)),
+    };
+
+    let content =
+        StubContent::with_ability("scorch", ability).with_status_def(burn_id.clone(), burn_def);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("scorch"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    // d20=10 (no crit-fail), then 1d1=1 for the DoT roll.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[10, 1]);
+    step(&mut state, action, &mut rng, &content).expect("cast should succeed");
+
+    let s = &state.unit(UnitId(2)).unwrap().statuses[0];
+    assert_eq!(
+        s.dot_per_tick, 6,
+        "dot = roll 1 + int_mod 3 + round(0.5×4)=2 = 6; got {}",
+        s.dot_per_tick
     );
 }

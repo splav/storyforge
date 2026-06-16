@@ -56,6 +56,7 @@ fn damage_ability_def(dice: DiceExpr) -> combat_engine::AbilityDef {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     }
 }
 
@@ -74,6 +75,7 @@ fn heal_ability_def(dice: DiceExpr) -> combat_engine::AbilityDef {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     }
 }
 

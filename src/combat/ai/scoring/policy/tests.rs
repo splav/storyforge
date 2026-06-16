@@ -28,7 +28,7 @@ fn via_policy(
     content: &ActiveContentData,
     danger_at_target: f32,
 ) -> f32 {
-    let Some(calc) = def.effect.calc(ctx) else {
+    let Some(calc) = def.effect.calc(ctx, def.engine.power()) else {
         return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
             0.0
         } else {

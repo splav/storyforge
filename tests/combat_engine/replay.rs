@@ -257,6 +257,7 @@ fn replay_cast_damage_basic() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability.clone());
@@ -331,6 +332,7 @@ fn replay_phase_trigger() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
@@ -477,6 +479,7 @@ fn replay_rng_count_divergence_detected() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
 
     let content = StubContent::new().with_ability(ability_id.0.clone(), ability);
@@ -552,6 +555,7 @@ fn replay_summon_initiative_hash_stable() {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     };
     let content = StubContent::new()
         .with_ability("summon", summon_ability)

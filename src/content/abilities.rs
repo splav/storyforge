@@ -19,21 +19,24 @@ use combat_engine::PassiveTrigger as EngineTrigger;
 
 /// Extension trait that adds bridge-side effect computation to `EffectDef`.
 /// Requires `CasterContext`, which is a bridge/game-layer type.
+///
+/// `power` is the ability-level multiplier (`AbilityDef::power()`).  For callers
+/// that have an `AbilityDef` (bridge type), pass `def.engine.power()`.
 pub trait EffectCalcExt {
-    fn calc(&self, ctx: &CasterContext) -> Option<EffectCalc>;
+    fn calc(&self, ctx: &CasterContext, power: f32) -> Option<EffectCalc>;
 }
 
 impl EffectCalcExt for EffectDef {
-    fn calc(&self, ctx: &CasterContext) -> Option<EffectCalc> {
+    fn calc(&self, ctx: &CasterContext, power: f32) -> Option<EffectCalc> {
         match self {
-            EffectDef::WeaponAttack { ranged, power } => Some(EffectCalc {
+            EffectDef::WeaponAttack { ranged } => Some(EffectCalc {
                 dice: if *ranged {
                     ctx.ranged_dice
                 } else {
                     ctx.weapon_dice
                 },
                 bonus: if *ranged { ctx.dex_mod } else { ctx.str_mod },
-                power: *power,
+                power,
                 pierces_armor: false,
                 magic: false,
                 is_heal: false,
@@ -46,26 +49,34 @@ impl EffectCalcExt for EffectDef {
                 magic: false,
                 is_heal: false,
             }),
-            EffectDef::SpellDamage { dice } => Some(EffectCalc {
-                dice: Some(*dice),
-                bonus: ctx.int_mod + ctx.spell_power,
-                power: 1.0,
-                // SpellDamage uses magic_resist, not armor — engine matches this
-                // via Effect::Damage { magic: true }. pierces_armor=false because
-                // mitigation selection (armor vs magic_resist) happens via the
-                // `magic` flag; `pierces_armor` only suppresses ALL mitigation.
-                pierces_armor: false,
-                magic: true,
-                is_heal: false,
-            }),
-            EffectDef::Heal { dice } => Some(EffectCalc {
-                dice: Some(*dice),
-                bonus: ctx.int_mod + ctx.spell_power,
-                power: 1.0,
-                pierces_armor: false,
-                magic: false,
-                is_heal: true,
-            }),
+            EffectDef::SpellDamage { dice } => {
+                // bonus = int_mod + round(power × spell_power) — matches engine formula.
+                let sp_scaled = (power * ctx.spell_power as f32).round() as i32;
+                Some(EffectCalc {
+                    dice: Some(*dice),
+                    bonus: ctx.int_mod + sp_scaled,
+                    power: 1.0,
+                    // SpellDamage uses magic_resist, not armor — engine matches this
+                    // via Effect::Damage { magic: true }. pierces_armor=false because
+                    // mitigation selection (armor vs magic_resist) happens via the
+                    // `magic` flag; `pierces_armor` only suppresses ALL mitigation.
+                    pierces_armor: false,
+                    magic: true,
+                    is_heal: false,
+                })
+            }
+            EffectDef::Heal { dice } => {
+                // bonus = int_mod + round(power × spell_power) — matches engine formula.
+                let sp_scaled = (power * ctx.spell_power as f32).round() as i32;
+                Some(EffectCalc {
+                    dice: Some(*dice),
+                    bonus: ctx.int_mod + sp_scaled,
+                    power: 1.0,
+                    pierces_armor: false,
+                    magic: false,
+                    is_heal: true,
+                })
+            }
             EffectDef::None
             | EffectDef::GrantMovement { .. }
             | EffectDef::RestoreResources
@@ -216,10 +227,6 @@ fn default_cost_ap() -> i32 {
     1
 }
 
-fn default_weapon_power() -> f32 {
-    1.0
-}
-
 #[derive(Deserialize)]
 struct AbilityRecord {
     id: String,
@@ -273,9 +280,10 @@ struct AbilityRecord {
     /// `weapon_attack` only: `true` → uses ranged_dice + dex_mod.
     #[serde(default)]
     ranged: bool,
-    /// `weapon_attack` only: dice multiplier (default 1.0); stat mod always full.
-    #[serde(default = "default_weapon_power")]
-    weapon_power: f32,
+    /// Per-ability power multiplier. `None` (omitted in TOML) means 1.0.
+    /// For `weapon_attack`: scales dice. For magical abilities: scales `spell_power`.
+    #[serde(default)]
+    power: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -334,13 +342,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
             };
             let (effect, is_move_toggle) = match r.effect.as_str() {
                 "" | "none" => (EffectDef::None, false),
-                "weapon_attack" => (
-                    EffectDef::WeaponAttack {
-                        ranged: r.ranged,
-                        power: r.weapon_power,
-                    },
-                    false,
-                ),
+                "weapon_attack" => (EffectDef::WeaponAttack { ranged: r.ranged }, false),
                 "damage" => (
                     EffectDef::Damage {
                         dice: need_dice(&r.id, r.dice_count, r.dice_sides),
@@ -480,6 +482,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                         .iter()
                         .map(|s| combat_engine::TagId::from(s.as_str()))
                         .collect(),
+                    power: r.power,
                 },
             }
         })
@@ -512,12 +515,9 @@ mod tests {
     fn weapon_attack_uses_str_and_weapon_dice() {
         let weapon = DiceExpr::new(2, 6, 0);
         let c = ctx(4, 0, 0, Some(weapon));
-        let calc = EffectDef::WeaponAttack {
-            ranged: false,
-            power: 1.0,
-        }
-        .calc(&c)
-        .unwrap();
+        let calc = EffectDef::WeaponAttack { ranged: false }
+            .calc(&c, 1.0)
+            .unwrap();
         assert_eq!(calc.bonus, 4);
         assert_eq!(calc.dice.unwrap().count, 2);
         assert!(!calc.pierces_armor);
@@ -528,7 +528,7 @@ mod tests {
     fn damage_uses_str_and_own_dice() {
         let c = ctx(3, 5, 2, Some(DiceExpr::new(99, 99, 0)));
         let dice = DiceExpr::new(1, 8, 0);
-        let calc = EffectDef::Damage { dice }.calc(&c).unwrap();
+        let calc = EffectDef::Damage { dice }.calc(&c, 1.0).unwrap();
         assert_eq!(calc.bonus, 3, "should use str_mod, not int_mod");
         assert_eq!(
             calc.dice.as_ref().unwrap().sides,
@@ -542,7 +542,7 @@ mod tests {
     fn spell_damage_uses_int_plus_spell_power_and_is_magic() {
         let c = ctx(4, 3, 1, None);
         let dice = DiceExpr::new(2, 6, 0);
-        let calc = EffectDef::SpellDamage { dice }.calc(&c).unwrap();
+        let calc = EffectDef::SpellDamage { dice }.calc(&c, 1.0).unwrap();
         assert_eq!(calc.bonus, 4, "int_mod(3) + spell_power(1)");
         // SpellDamage uses magic_resist (not armor): magic=true, pierces_armor=false.
         assert!(calc.magic, "spell damage must be flagged magic");
@@ -557,7 +557,7 @@ mod tests {
     fn heal_uses_int_plus_spell_power_and_is_heal() {
         let c = ctx(4, 2, 1, None);
         let dice = DiceExpr::new(1, 6, 0);
-        let calc = EffectDef::Heal { dice }.calc(&c).unwrap();
+        let calc = EffectDef::Heal { dice }.calc(&c, 1.0).unwrap();
         assert_eq!(calc.bonus, 3, "int_mod(2) + spell_power(1)");
         assert!(!calc.pierces_armor);
         assert!(calc.is_heal);
@@ -566,8 +566,10 @@ mod tests {
     #[test]
     fn none_and_grant_movement_return_none() {
         let c = ctx(0, 0, 0, None);
-        assert!(EffectDef::None.calc(&c).is_none());
-        assert!(EffectDef::GrantMovement { distance: 3 }.calc(&c).is_none());
+        assert!(EffectDef::None.calc(&c, 1.0).is_none());
+        assert!(EffectDef::GrantMovement { distance: 3 }
+            .calc(&c, 1.0)
+            .is_none());
     }
 
     // ── expected() ───────────────────────────────────────────────────────
@@ -576,7 +578,7 @@ mod tests {
     fn expected_combines_dice_and_bonus() {
         let c = ctx(2, 0, 0, None);
         let dice = DiceExpr::new(2, 6, 0); // E[2d6] = 7.0
-        let calc = EffectDef::Damage { dice }.calc(&c).unwrap();
+        let calc = EffectDef::Damage { dice }.calc(&c, 1.0).unwrap();
         let expected = calc.expected();
         assert!(
             (expected - 9.0).abs() < 0.01,
@@ -587,12 +589,9 @@ mod tests {
     #[test]
     fn expected_without_dice_is_bonus_only() {
         let c = ctx(3, 0, 0, None); // no weapon dice
-        let calc = EffectDef::WeaponAttack {
-            ranged: false,
-            power: 1.0,
-        }
-        .calc(&c)
-        .unwrap();
+        let calc = EffectDef::WeaponAttack { ranged: false }
+            .calc(&c, 1.0)
+            .unwrap();
         assert!((calc.expected() - 3.0).abs() < 0.01);
     }
 
@@ -747,12 +746,9 @@ ai_tags_override = ["mobility"]
             weapon_dice: Some(weapon),
             ..Default::default()
         };
-        let calc = EffectDef::WeaponAttack {
-            ranged: false,
-            power: 0.5,
-        }
-        .calc(&c)
-        .unwrap();
+        let calc = EffectDef::WeaponAttack { ranged: false }
+            .calc(&c, 0.5)
+            .unwrap();
         assert!(
             (calc.expected() - 6.5).abs() < 0.01,
             "E[2d6]*0.5 + 3 = 6.5, got {}",
@@ -771,12 +767,9 @@ ai_tags_override = ["mobility"]
             ranged_dice: Some(bow),
             ..Default::default()
         };
-        let calc = EffectDef::WeaponAttack {
-            ranged: true,
-            power: 1.0,
-        }
-        .calc(&c)
-        .unwrap();
+        let calc = EffectDef::WeaponAttack { ranged: true }
+            .calc(&c, 1.0)
+            .unwrap();
         assert_eq!(calc.bonus, 4, "bonus = dex_mod");
         assert_eq!(calc.dice.unwrap().sides, 8, "dice = ranged (1d8)");
     }

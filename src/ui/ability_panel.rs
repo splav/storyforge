@@ -577,7 +577,7 @@ fn build_description(
 
 fn effect_line_ru(def: &AbilityDef, ctx: Option<&CasterContext>) -> String {
     if let Some(ctx) = ctx {
-        if let Some(calc) = def.effect.calc(ctx) {
+        if let Some(calc) = def.effect.calc(ctx, def.engine.power()) {
             let label = if calc.is_heal {
                 "лечение"
             } else if calc.pierces_armor {

@@ -70,6 +70,7 @@ fn strike_def(id: &str, range: u32, cost_ap: i32) -> AbilityDef {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }
@@ -209,7 +210,10 @@ fn annotation_enemy_damage_populated_for_cast_steps() {
 
     let caster_ctx = CasterContext::default();
     // Max possible rolled damage for 1d1 (strike_def uses sides=1) = 1.
-    let calc = def.effect.calc(&caster_ctx).expect("strike has calc");
+    let calc = def
+        .effect
+        .calc(&caster_ctx, def.engine.power())
+        .expect("strike has calc");
     let max_raw = calc.expected(); // deterministic for 1d1
 
     // Every Cast plan: annotation.enemy_damage must be populated (>= 0)
@@ -514,6 +518,7 @@ fn heal_def(id: &str, range: u32) -> AbilityDef {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }
@@ -544,6 +549,7 @@ fn stun_def(id: &str, range: u32, aoe: AoEShape) -> AbilityDef {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }
@@ -572,6 +578,7 @@ fn fireball_def(id: &str, range: u32, radius: u32) -> AbilityDef {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }
@@ -1100,6 +1107,7 @@ fn ground_generator_emits_enemy_centered_cells() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
 
@@ -1243,6 +1251,7 @@ fn disadvantage_status_discounts_plan_damage_estimate() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
 
@@ -1344,6 +1353,7 @@ fn generate_plans_excludes_summon_when_cap_reached() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
 
@@ -1418,6 +1428,7 @@ fn generate_plans_allows_summon_when_only_dead_summons_fill_slots() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
 
@@ -1483,6 +1494,7 @@ fn generate_plans_caps_multiple_summons_within_single_plan() {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
 

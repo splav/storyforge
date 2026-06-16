@@ -1,36 +1,23 @@
 //! `step()` — the public engine entry point.
 //!
-//! Validates an action, expands it into an effect queue, then pumps effects
-//! one at a time while scanning for reactions (AoOs) after each `MovePosition`
-//! effect.
+//! Validates an action, expands it into an effect queue, then pumps effects one
+//! at a time, scanning for reactions (AoOs) after each `MovePosition`.
 //!
 //! ## Strict failure (decision 6.5)
-//! If any `Damage` effect targets a unit that is already dead and that unit is
-//! **not** the current action's actor, `step()` returns `Err(TargetGone)` and
-//! rolls back state to entry. If the dead target *is* the actor (i.e. the mover
-//! was killed by an earlier reaction), the effect is silently skipped — see the
-//! actor-liveness truncation below.
-//!
-//! This branch is currently only reachable for Phase 2+ Cast/AoE actions where
-//! one target in an AoE burst dies mid-burst and a follow-up effect targets
-//! a different (also now dead) unit. For `Action::Move` the only Damage targets
-//! are AoO victims (= the mover = the actor), so the non-actor branch cannot
-//! trigger during Phase 0/1.
+//! A `Damage` effect on an already-dead unit that is **not** the actor →
+//! `Err(TargetGone)` + rollback. If the dead target *is* the actor (killed by an
+//! earlier reaction) the effect is silently skipped (see truncation below). The
+//! non-actor branch is only reachable for AoE bursts where one target dies
+//! mid-burst; `Action::Move`'s only Damage targets are AoO victims (= the actor).
 //!
 //! ## Actor-liveness truncation
-//! After each `MovePosition` effect is applied, reactions are processed one by
-//! one via per-reaction sub-queues. Before expanding each reaction the mover's
-//! liveness is checked: if the mover died from the previous reaction, the
-//! remaining reactions for this step are skipped. No `ReactionFired` event is
-//! emitted for skipped reactions and `reactions_left` on those enemies is not
-//! decremented.
-//!
-//! Subsequent `MovePosition` effects for the same path are also skipped (the
-//! dead-actor guard at the top of the main pump loop handles this).
+//! Reactions after a `MovePosition` run via per-reaction sub-queues; if the mover
+//! died from the previous reaction, the rest are skipped — no `ReactionFired`
+//! emitted, `reactions_left` not decremented. Further `MovePosition`s on the path
+//! are skipped by the dead-actor guard atop the pump loop.
 //!
 //! ## Reaction depth cap
-//! A counter tracks how many reaction expansions have fired. Exceeding 100
-//! returns `Err(ReactionDepthExceeded)` (state rolled back).
+//! >100 reaction expansions → `Err(ReactionDepthExceeded)` + rollback.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -244,10 +231,13 @@ impl<'a> crate::targeting::TargetState for EngineTargetState<'a> {
 
 /// Builds a `Damage` Effect for one target given the ability's `EffectDef`.
 ///
+/// `power` is the ability-level multiplier (see `AbilityDef::power()`).
+///
 /// Returns `None` for non-damage variants (`None`, `Heal`, `GrantMovement`,
 /// `RestoreResources`) or `WeaponAttack` without `weapon_dice`.
 fn effect_for_target(
     effect: &EffectDef,
+    power: f32,
     source: crate::state::EffectSource,
     target: crate::state::UnitId,
     caster: &CasterContext,
@@ -275,7 +265,8 @@ fn effect_for_target(
             })
         }
         EffectDef::SpellDamage { dice } => {
-            let raw = (roll!(*dice) + caster.int_mod + caster.spell_power) as f32;
+            let sp_scaled = (power * caster.spell_power as f32).round() as i32;
+            let raw = (roll!(*dice) + caster.int_mod + sp_scaled) as f32;
             Some(Effect::Damage {
                 target,
                 raw,
@@ -288,7 +279,7 @@ fn effect_for_target(
                 magic: true,
             })
         }
-        EffectDef::WeaponAttack { ranged, power } => {
+        EffectDef::WeaponAttack { ranged } => {
             let dice = if *ranged {
                 caster.ranged_dice
             } else {
@@ -309,7 +300,8 @@ fn effect_for_target(
             })
         }
         EffectDef::Heal { dice } => {
-            let amount = (roll!(*dice) + caster.int_mod + caster.spell_power).max(0);
+            let sp_scaled = (power * caster.spell_power as f32).round() as i32;
+            let amount = (roll!(*dice) + caster.int_mod + sp_scaled).max(0);
             Some(Effect::Heal { target, amount })
         }
         // Per-actor effects — not dispatched through this fn.
@@ -672,6 +664,7 @@ fn step_inner(
                     for &affected_id in &affected {
                         if let Some(eff) = effect_for_target(
                             &def.effect,
+                            def.power(),
                             crate::state::EffectSource::Unit(*actor),
                             affected_id,
                             &caster,
@@ -692,8 +685,9 @@ fn step_inner(
                 // sees the post-damage state.
                 //
                 // DoT roll: a dice-DoT status rolls its dice ONCE here (at cast) and
-                // bakes `roll + caster.spell_power` into the applied instance's
-                // `dot_per_tick`. Non-DoT statuses (`dot_dice = None`) consume no RNG.
+                // bakes `roll + int_mod + round(power × spell_power)` into the applied
+                // instance's `dot_per_tick`. Non-DoT statuses (`dot_dice = None`) consume no RNG.
+                let dot_power = def.power();
                 for status_app in &def.statuses {
                     let dot_dice = content
                         .status_def(&status_app.status)
@@ -701,8 +695,11 @@ fn step_inner(
                     match status_app.on {
                         crate::content::StatusOn::Target => {
                             for &affected_id in &affected {
-                                let dot_per_tick =
-                                    dot_dice.map_or(0, |d| rng.roll(d) + caster.spell_power);
+                                let dot_per_tick = dot_dice.map_or(0, |d| {
+                                    let sp_scaled =
+                                        (dot_power * caster.spell_power as f32).round() as i32;
+                                    rng.roll(d) + caster.int_mod + sp_scaled
+                                });
                                 effect_queue.push_back(Effect::ApplyStatus {
                                     target: affected_id,
                                     status: status_app.status.clone(),
@@ -713,8 +710,11 @@ fn step_inner(
                             }
                         }
                         crate::content::StatusOn::MySelf => {
-                            let dot_per_tick =
-                                dot_dice.map_or(0, |d| rng.roll(d) + caster.spell_power);
+                            let dot_per_tick = dot_dice.map_or(0, |d| {
+                                let sp_scaled =
+                                    (dot_power * caster.spell_power as f32).round() as i32;
+                                rng.roll(d) + caster.int_mod + sp_scaled
+                            });
                             effect_queue.push_back(Effect::ApplyStatus {
                                 target: *actor,
                                 status: status_app.status.clone(),
@@ -984,6 +984,7 @@ fn step_inner(
 
                         if let Some(dmg_eff) = effect_for_target(
                             &def.effect,
+                            def.power(),
                             env_source,
                             mover_id,
                             &caster,
@@ -1064,25 +1065,14 @@ fn step_inner(
                 interrupted = true;
             }
 
-            // ── No-stacking on interrupt: slide off an occupied pass-through hex ──
-            //
-            // Pre-validate allows a path to *pass through* a friendly-occupied hex
-            // (only the final hex and enemy-occupied intermediates are rejected).
-            // It assumes the mover always reaches the validated final hex. But an
-            // interrupt (AoO / trap / reveal) halts movement on whatever hex the
-            // current step just landed on — which may be one of those friendly
-            // pass-through hexes, leaving two alive units stacked (violates the
-            // "landing must be empty" rule, and trips the bridge's one-unit-per-hex
-            // index → debug_assert panic / silent corruption in release).
-            //
-            // Fix: when a halt would rest the mover on a hex occupied by another
-            // alive unit, slide it forward along the already-validated remaining
-            // path to the first unoccupied hex. The pre-validated final hex is
-            // guaranteed unoccupied (only the mover changes position within a step,
-            // and deaths only free cells), so a legal landing always exists. No new
-            // RNG is drawn and no further reactions are scanned for the slide — the
-            // mover's turn is still interrupted; it just cannot physically rest on
-            // an ally's cell.
+            // No-stacking on interrupt: pre-validate lets a path pass *through* a
+            // friendly-occupied hex, but an interrupt (AoO/trap/reveal) halts the
+            // mover on whatever hex it just landed on — possibly one of those,
+            // stacking two alive units (trips the bridge's one-unit-per-hex index).
+            // Slide forward along the already-validated path to the first free hex;
+            // the validated final hex is guaranteed free (only the mover moves,
+            // deaths only free cells), so a landing always exists. No RNG, no extra
+            // reaction scan for the slide.
             if halt && state.unit(mover_id).is_some_and(|u| u.is_alive()) {
                 let resting_occupied = state
                     .units()

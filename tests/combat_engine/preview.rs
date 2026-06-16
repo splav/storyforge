@@ -60,6 +60,7 @@ fn damage_ability(dice: DiceExpr) -> AbilityDef {
         passive: vec![],
         requires_tags: Default::default(),
         excludes_tags: Default::default(),
+        power: None,
     }
 }
 

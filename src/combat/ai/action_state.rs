@@ -171,10 +171,7 @@ mod tests {
             engine: combat_engine::AbilityDef {
                 target_type: TargetType::SingleEnemy,
                 range: AbilityRange { min: 0, max: 2 },
-                effect: EffectDef::WeaponAttack {
-                    ranged: false,
-                    power: 1.0,
-                },
+                effect: EffectDef::WeaponAttack { ranged: false },
                 costs: Vec::new(),
                 cost_ap: 1,
                 aoe: AoEShape::None,
@@ -185,6 +182,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }
@@ -216,6 +214,7 @@ mod tests {
                 passive: vec![],
                 requires_tags: Default::default(),
                 excludes_tags: Default::default(),
+                power: None,
             },
         }
     }

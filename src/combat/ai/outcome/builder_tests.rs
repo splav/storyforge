@@ -314,6 +314,7 @@ fn single_target_damage_def() -> AbilityDef {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }
@@ -344,6 +345,7 @@ fn aoe_damage_def(radius: u32) -> AbilityDef {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }
@@ -379,6 +381,7 @@ fn stun_def_inner() -> (AbilityDef, crate::content::statuses::StatusDef) {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     };
     let status = StatusDef {
@@ -427,6 +430,7 @@ fn heal_def_inner() -> AbilityDef {
             passive: vec![],
             requires_tags: Default::default(),
             excludes_tags: Default::default(),
+            power: None,
         },
     }
 }

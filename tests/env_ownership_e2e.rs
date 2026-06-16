@@ -54,6 +54,7 @@ impl Stub {
                     passive: vec![],
                     requires_tags: Default::default(),
                     excludes_tags: Default::default(),
+                    power: None,
                 },
             )]),
             StatusDef {

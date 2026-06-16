@@ -15,25 +15,33 @@
 
 ## Damage
 
-### Physical (weapon_attack, damage)
+Каждая способность имеет множитель `power` (по умолчанию `1.0`). Он масштабирует
+**только** «оружейную» часть урона — кубик у физических атак и `spell_power` у
+магических; модификатор характеристики (`STR`/`INT`) добавляется всегда в полном
+объёме. Так ослабляющие/усиливающие способности (`power < 1` / `power > 1`)
+бьют по масштабируемой части, а не по фиксированному бонусу стата.
+
+### Physical (weapon_attack)
 ```
-raw = dice_roll + STR_mod
-actual = max(1, raw - armor - armor_bonus + damage_taken_bonus)
+raw    = round(dice_roll × power) + mod          # mod = STR (melee) либо DEX (ranged)
+actual = max(1, raw - armor - armor_bonus)
 ```
+`damage` (немагический фикс-кубик без оружия) всегда использует `power = 1.0` и STR_mod.
 
 ### Magical (spell_damage)
 ```
-raw = dice_roll + INT_mod + spell_power
-actual = max(1, raw + damage_taken_bonus)
+raw    = dice_roll + INT_mod + round(power × spell_power)
+actual = max(1, raw - magic_resist)
 ```
-Pierces armor: ignores `armor` and `armor_bonus`.
+Магический урон митигируется `magic_resist` (см. `RuntimeStatsDelta`), **не**
+бронёй — поэтому физическая броня против заклинаний бесполезна, и наоборот.
 
-**Минимальный урон = 1.** Любая атака наносит не менее 1 урона независимо от брони. Это значит, что даже полностью заблокированная атака «царапает». Множество слабых атак по бронированной цели суммарно пробивают защиту.
+**Минимальный урон = 1.** Любая атака наносит не менее 1 урона независимо от защиты. Это значит, что даже полностью заблокированная атака «царапает». Множество слабых атак по защищённой цели суммарно пробивают её.
 
 ## Healing
 
 ```
-amount = dice_roll + INT_mod + spell_power
+amount = dice_roll + INT_mod + round(power × spell_power)
 ```
 
 Исцеление сначала нейтрализует яды на цели (см. [Яды и исцеление](#яды-и-исцеление)), затем оставшееся количество восстанавливает HP (не выше max_hp).
@@ -104,8 +112,8 @@ Self-target способность (клавиша `R`, effect `restore_resource
 
 | Field | Effect |
 |-------|--------|
-| `armor_bonus` | Reduces physical damage (stacks with armor) |
-| `damage_taken_bonus` | Increases all incoming damage |
+| `armor_bonus` | Reduces physical damage (stacks with base `armor`) |
+| `magic_resist_bonus` | Reduces magical damage (stacks with base `magic_resist`) |
 | `skips_turn` | Unit cannot act or move |
 | `forces_targeting` | Enemies must target this unit (taunt) |
 | `dot_dice` | Периодический урон (яд); см. ниже |
@@ -125,7 +133,14 @@ Self-target способность (клавиша `R`, effect `restore_resource
 Статус с полем `dot_dice` наносит периодический урон (damage over time).
 
 ### Наложение
-При наложении ядовитого статуса кубик `dot_dice` бросается **один раз**. Результат записывается в `dot_per_tick` — это фиксированный урон за каждый тик. Например, яд с `1d4` при броске 3 будет наносить 3 урона каждый ход.
+При наложении DoT-статуса кубик `dot_dice` бросается **один раз** и в `dot_per_tick`
+запекается фиксированный урон за тик по той же магической раскладке, что и
+`spell_damage`:
+```
+dot_per_tick = roll(dot_dice) + INT_mod + round(power × spell_power)
+```
+где `power` — множитель накладывающей способности. Пример: «Ожог» (`power = 0.5`,
+`burning` = `1d2`) у мага с INT_mod=0, spell_power=4 при броске 1 → `1 + 0 + round(0.5×4) = 3` урона за тик. Тик фиксирован — последующие изменения статов кастера на него не влияют.
 
 ### Тикание
 Урон от яда наносится при тике статуса (в конце хода **наложившего** эффект), **перед** декрементом `rounds_remaining`. DoT-урон игнорирует броню.
