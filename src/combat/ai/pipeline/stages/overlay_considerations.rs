@@ -104,8 +104,8 @@ impl PlanStage for OverlayConsiderationsStage {
             } else {
                 0.0
             };
-            let exposure = ann
-                .terminal
+            let exposure = pool
+                .plan_terminal(plan_idx)
                 .get(TerminalFactor::ExposureAtEnd)
                 .clamp(0.0, 1.0);
             let safety = 1.0 - self_damage_ratio.max(exposure);
@@ -126,10 +126,12 @@ impl PlanStage for OverlayConsiderationsStage {
             let leverages: Vec<f32> = {
                 let plan = &pool.plans[plan_idx];
                 let ann = &pool.annotations[plan_idx];
-                // Authoritative outcomes — pipeline annotation outcomes are dead
-                // during pipeline (default-empty); see `ScoredPool::plan_outcomes`.
+                // Authoritative outcomes — PipelineAnnotation has no `outcomes` field;
+                // use `ScoredPool::plan_outcomes`.
                 let outcomes = plan.annotation.outcomes.as_slice();
-                let terminal = ann.terminal;
+                // Authoritative terminal — PipelineAnnotation has no `terminal` field;
+                // use `ScoredPool::plan_terminal`.
+                let terminal = *pool.plan_terminal(plan_idx);
                 let factors = ann.factors;
                 let n_per_item = ann.per_item.len();
 

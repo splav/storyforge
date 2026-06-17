@@ -1,6 +1,6 @@
 //! RepairAffinityStage — populates `pool.annotations[i].repair_affinity` for
 //! every plan when a stored goal exists; no-op otherwise. The bonus is applied
-//! later by `finalize_scores`, which reads this annotation field.
+//! by the `repair_bonus` modifier, which reads this annotation field.
 
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::repair::compute_repair_affinity;

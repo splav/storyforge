@@ -18,7 +18,7 @@ pub mod stages;
 use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
+use crate::combat::ai::outcome::PipelineAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::game::hex::Hex;
 use combat_engine::DiceRng;
@@ -76,10 +76,14 @@ impl<'w, 's> StageCtx<'w, 's> {
 ///
 /// **Invariant:** `plans.len() == annotations.len()` at all times — constructors
 /// uphold it, stages must preserve it. `score` / `raw_factors` live inside
-/// `PlanAnnotation`, not in parallel vecs.
+/// `PipelineAnnotation`, not in parallel vecs.
+///
+/// The generator-side fields (`outcomes`, `terminal`, `score_trace_log`) live on
+/// `TurnPlan.annotation: PlanAnnotation` and are accessed via `plan_outcomes` /
+/// `plan_terminal`. The pipeline never writes those fields on the pool side.
 pub struct ScoredPool {
     pub plans: Vec<TurnPlan>,
-    pub annotations: Vec<PlanAnnotation>,
+    pub annotations: Vec<PipelineAnnotation>,
 }
 
 impl ScoredPool {
@@ -88,7 +92,7 @@ impl ScoredPool {
         let n = plans.len();
         Self {
             plans,
-            annotations: vec![PlanAnnotation::default(); n],
+            annotations: vec![PipelineAnnotation::default(); n],
         }
     }
 
@@ -109,7 +113,9 @@ impl ScoredPool {
     }
 
     /// Iterate plans together with their annotation and score.
-    pub fn iter_with_annotation(&self) -> impl Iterator<Item = (&TurnPlan, &PlanAnnotation, f32)> {
+    pub fn iter_with_annotation(
+        &self,
+    ) -> impl Iterator<Item = (&TurnPlan, &PipelineAnnotation, f32)> {
         self.plans
             .iter()
             .zip(self.annotations.iter())
@@ -117,13 +123,22 @@ impl ScoredPool {
     }
 
     /// Authoritative outcomes for plan at `idx` — live on `TurnPlan.annotation`.
-    /// `pool.annotations[i].outcomes` is dead during the pipeline (populated only
-    /// at log time), so stages and critics MUST read through this accessor.
+    /// `pool.annotations[i]` (PipelineAnnotation) has no `outcomes` field.
+    /// Stages and critics MUST read outcomes through this accessor.
     pub fn plan_outcomes(
         &self,
         idx: usize,
     ) -> &[crate::combat::ai::outcome::ActionOutcomeEstimate] {
         self.plans[idx].annotation.outcomes.as_slice()
+    }
+
+    /// Authoritative terminal-state score for plan at `idx` — live on `TurnPlan.annotation`.
+    /// `PipelineAnnotation` has no `terminal` field; stages read it through this accessor.
+    pub fn plan_terminal(
+        &self,
+        idx: usize,
+    ) -> &crate::combat::ai::scoring::factors::FactorTerminalScore {
+        &self.plans[idx].annotation.terminal
     }
 }
 

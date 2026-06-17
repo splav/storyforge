@@ -7,7 +7,6 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::stages::sanity::plan_has_self_aoe;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::scoring::factors::terminal::TerminalFactor;
@@ -36,12 +35,7 @@ impl PlanCritic for SelfLethalWithoutPayoff {
         "self_lethal_without_payoff"
     }
 
-    fn evaluate(
-        &self,
-        plan: &TurnPlan,
-        _ann: &PlanAnnotation,
-        ctx: &ScoringCtx,
-    ) -> Option<CriticHit> {
+    fn evaluate(&self, plan: &TurnPlan, ctx: &ScoringCtx) -> Option<CriticHit> {
         let active = ctx.active;
         let max_hp = active.max_hp().max(1) as f32;
 
@@ -336,9 +330,7 @@ mod tests {
                 self_damage,
                 ..Default::default()
             });
-            let ann = PlanAnnotation::default();
-
-            let hit = run_critic(&SelfLethalWithoutPayoff, &plan, &ann, &scn);
+            let hit = run_critic(&SelfLethalWithoutPayoff, &plan, &scn);
             if should_fire {
                 assert!(
                     hit.is_some() && hit.unwrap().critic == CriticKind::SelfLethalWithoutPayoff,
@@ -380,9 +372,7 @@ mod tests {
                 enemy_damage,
                 ..Default::default()
             });
-            let ann = PlanAnnotation::default();
-
-            let hit = run_critic(&SelfLethalWithoutPayoff, &plan, &ann, &scn);
+            let hit = run_critic(&SelfLethalWithoutPayoff, &plan, &scn);
             if should_fire {
                 assert!(
                     hit.is_some() && hit.unwrap().critic == CriticKind::SelfLethalWithoutPayoff,
@@ -434,12 +424,9 @@ mod tests {
                 p_kill_now: 0.0,
                 ..Default::default()
             });
-            let ann = PlanAnnotation::default();
-
             assert_critic_fires(
                 &SelfLethalWithoutPayoff,
                 &plan,
-                &ann,
                 &scn,
                 CriticKind::SelfLethalWithoutPayoff,
                 expected_mult,
@@ -488,14 +475,11 @@ mod tests {
             p_kill_now: 0.0,
             ..Default::default()
         });
-        let ann = PlanAnnotation::default();
-
         // ratio = 0.4, multiplier = 1.0 - 0.5 * 0.1 / 0.7 = 1.0 - 1/14 ≈ 0.928571…
         let expected_mult = 1.0_f32 - 0.5 * (0.4 - 0.3) / 0.7;
         assert_critic_fires(
             &SelfLethalWithoutPayoff,
             &plan,
-            &ann,
             &scn,
             CriticKind::SelfLethalWithoutPayoff,
             expected_mult,
@@ -537,9 +521,7 @@ mod tests {
             p_kill_now: 1.0, // payoff = 50 → covers 0.5 * 40 = 20 → critic passes
             ..Default::default()
         });
-        let ann = PlanAnnotation::default();
-
-        assert_critic_passes(&SelfLethalWithoutPayoff, &plan, &ann, &scn);
+        assert_critic_passes(&SelfLethalWithoutPayoff, &plan, &scn);
     }
 
     // ── self-AoE fallback: no outcomes but plan_has_self_aoe → fires ─────────
@@ -619,10 +601,9 @@ mod tests {
         });
         plan.final_pos = actor_pos;
         // No outcomes → fallback sets self_damage_total = 0.1 * 100 = 10 (10% < 30%)
-        let ann = PlanAnnotation::default();
 
         // 10% < 30% threshold → critic passes even with self-AoE fallback
-        assert_critic_passes(&SelfLethalWithoutPayoff, &plan, &ann, &scn);
+        assert_critic_passes(&SelfLethalWithoutPayoff, &plan, &scn);
     }
 
     // ── self-AoE fallback fires when max_hp is small enough ──────────────────
@@ -687,9 +668,8 @@ mod tests {
         });
         plan.final_pos = actor_pos;
         // no outcomes → fallback = 0.1 * 100 = 10.0 → ratio = 0.1 ≤ 0.3 → passes
-        let ann = PlanAnnotation::default();
 
-        let hit = run_critic(&SelfLethalWithoutPayoff, &plan, &ann, &scn);
+        let hit = run_critic(&SelfLethalWithoutPayoff, &plan, &scn);
         assert!(
             hit.is_none(),
             "fallback self_damage (10%) is below 30% threshold, critic must pass; got {hit:?}"
@@ -719,8 +699,7 @@ mod tests {
         plan.annotation
             .terminal
             .set(TerminalFactor::AllyRescue, 1.0); // contributes 20 payoff
-        let ann = PlanAnnotation::default();
 
-        assert_critic_passes(&SelfLethalWithoutPayoff, &plan, &ann, &scn);
+        assert_critic_passes(&SelfLethalWithoutPayoff, &plan, &scn);
     }
 }

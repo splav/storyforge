@@ -211,7 +211,7 @@ mod tests {
     use crate::combat::ai::intent::considerations::IntentConsiderations;
     use crate::combat::ai::intent::IntentKind;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-    use crate::combat::ai::outcome::{PlanAnnotation, ViabilityResult};
+    use crate::combat::ai::outcome::{PipelineAnnotation, ViabilityResult};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
@@ -275,7 +275,7 @@ mod tests {
     /// TODO: migrate to StageTestHarness in Phase 5 when harness gains snap injection.
     fn run_stage_with_snap(
         plans: Vec<TurnPlan>,
-        annotations: Vec<PlanAnnotation>,
+        annotations: Vec<PipelineAnnotation>,
         agenda: &Agenda,
         actor: UnitFixture,
         snap: BattleSnapshot,
@@ -474,7 +474,7 @@ mod tests {
         );
 
         let plans = vec![empty_plan()];
-        let mut annotation = PlanAnnotation::default();
+        let mut annotation = PipelineAnnotation::default();
         annotation.viability = ViabilityResult {
             passed: true,
             adjusted_score: 1.0,
@@ -508,7 +508,7 @@ mod tests {
 
         // One move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
-        let mut ann = PlanAnnotation::default();
+        let mut ann = PipelineAnnotation::default();
         ann.viability = ViabilityResult {
             passed: true,
             adjusted_score: 1.0,
@@ -547,12 +547,12 @@ mod tests {
         // Plan 1: move-only toward taunter.
         let move_plan = move_plan_to(closer_pos);
 
-        let mut ann_cast = PlanAnnotation::default();
+        let mut ann_cast = PipelineAnnotation::default();
         ann_cast.viability = ViabilityResult {
             passed: true,
             adjusted_score: 1.5,
         };
-        let mut ann_move = PlanAnnotation::default();
+        let mut ann_move = PipelineAnnotation::default();
         ann_move.viability = ViabilityResult {
             passed: true,
             adjusted_score: 0.8,
@@ -600,7 +600,7 @@ mod tests {
 
         // Move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
-        let mut ann = PlanAnnotation::default();
+        let mut ann = PipelineAnnotation::default();
         ann.viability = ViabilityResult {
             passed: true,
             adjusted_score: 1.0,
@@ -641,7 +641,7 @@ mod tests {
 
         // Move-only plan that moves AWAY from taunter (no approach).
         let move_away = move_plan_to(farther_pos);
-        let mut ann = PlanAnnotation::default();
+        let mut ann = PipelineAnnotation::default();
         ann.viability = ViabilityResult {
             passed: true,
             adjusted_score: 1.0,
@@ -688,12 +688,12 @@ mod tests {
         // Plan 1: move-only toward target (approach).
         let move_plan = move_plan_to(closer_pos);
 
-        let mut ann_cast = PlanAnnotation::default();
+        let mut ann_cast = PipelineAnnotation::default();
         ann_cast.viability = ViabilityResult {
             passed: true,
             adjusted_score: 1.5,
         };
-        let mut ann_move = PlanAnnotation::default();
+        let mut ann_move = PipelineAnnotation::default();
         ann_move.viability = ViabilityResult {
             passed: true,
             adjusted_score: 0.8,

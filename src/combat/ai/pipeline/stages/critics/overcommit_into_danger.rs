@@ -8,7 +8,6 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::scoring::factors::aggregate::worst_path_danger;
 use crate::combat::ai::scoring::horizon::expected_aoo_damage;
@@ -35,12 +34,7 @@ impl PlanCritic for OvercommitIntoDanger {
         "overcommit_into_danger"
     }
 
-    fn evaluate(
-        &self,
-        plan: &TurnPlan,
-        _ann: &PlanAnnotation,
-        ctx: &ScoringCtx,
-    ) -> Option<CriticHit> {
+    fn evaluate(&self, plan: &TurnPlan, ctx: &ScoringCtx) -> Option<CriticHit> {
         let active = ctx.active;
         let t = &ctx.world.tuning.thresholds;
 

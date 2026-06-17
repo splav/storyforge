@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
+use crate::combat::ai::outcome::{ActionOutcomeEstimate, PipelineAnnotation, PlanAnnotation};
 use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues, StepFactor};
 use crate::combat::ai::test_helpers::make_scoring_ctx;
@@ -576,7 +576,7 @@ fn trade_bonus_favors_valuable_victim() {
         annotation: Default::default(),
     };
 
-    let ann = PlanAnnotation::default();
+    let ann = PipelineAnnotation::default();
     let b_support = trade_modifier.modify(&mk_kill_plan(&support), &ann, &mctx);
     let b_rat = trade_modifier.modify(&mk_kill_plan(&rat), &ann, &mctx);
 

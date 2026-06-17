@@ -12,7 +12,6 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::content::abilities::EffectCalcExt;
 use combat_engine::ResourceKind;
@@ -38,12 +37,7 @@ impl PlanCritic for RareResourceForLowImpact {
         "rare_resource_for_low_impact"
     }
 
-    fn evaluate(
-        &self,
-        plan: &TurnPlan,
-        _ann: &PlanAnnotation,
-        ctx: &ScoringCtx,
-    ) -> Option<CriticHit> {
+    fn evaluate(&self, plan: &TurnPlan, ctx: &ScoringCtx) -> Option<CriticHit> {
         for (step_idx, step) in plan.steps.iter().enumerate() {
             let PlanStep::Cast { ability, .. } = step else {
                 continue;
@@ -119,7 +113,7 @@ impl PlanCritic for RareResourceForLowImpact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
+    use crate::combat::ai::outcome::{ActionOutcomeEstimate, PipelineAnnotation};
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
@@ -170,7 +164,7 @@ mod tests {
         target_entity: Entity,
         target_pos: crate::game::hex::Hex,
         enemy_damage: f32,
-    ) -> (TurnPlan, PlanAnnotation) {
+    ) -> (TurnPlan, PipelineAnnotation) {
         let mut plan = TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: AbilityId::from(ability),
@@ -187,7 +181,7 @@ mod tests {
             enemy_damage,
             ..Default::default()
         });
-        (plan, PlanAnnotation::default())
+        (plan, PipelineAnnotation::default())
     }
 
     // ── name is stable ────────────────────────────────────────────────────────
@@ -224,9 +218,9 @@ mod tests {
             .with_units(vec![target])
             .with_ability("bolt", expensive_spell("bolt", 40, DiceExpr::new(4, 6, 0)))
             .build();
-        let (plan, ann) = cast_plan_with_outcome("bolt", target_entity, target_pos, 2.0);
+        let (plan, _ann) = cast_plan_with_outcome("bolt", target_entity, target_pos, 2.0);
 
-        let hit = run_critic(&RareResourceForLowImpact, &plan, &ann, &scn)
+        let hit = run_critic(&RareResourceForLowImpact, &plan, &scn)
             .expect("critic must fire: high mana cost with negligible damage");
         assert_eq!(hit.critic, CriticKind::RareResourceForLowImpact);
         assert!(
@@ -274,13 +268,13 @@ mod tests {
             .with_ability("effective", expensive_spell("effective", 40, dice))
             .build();
 
-        let (plan_cheap, ann_cheap) =
+        let (plan_cheap, _ann_cheap) =
             cast_plan_with_outcome("cheap", target_entity, target_pos, 0.0);
-        let (plan_eff, ann_eff) =
+        let (plan_eff, _ann_eff) =
             cast_plan_with_outcome("effective", target_entity, target_pos, 12.0);
 
-        assert_critic_passes(&RareResourceForLowImpact, &plan_cheap, &ann_cheap, &scn);
-        assert_critic_passes(&RareResourceForLowImpact, &plan_eff, &ann_eff, &scn);
+        assert_critic_passes(&RareResourceForLowImpact, &plan_cheap, &scn);
+        assert_critic_passes(&RareResourceForLowImpact, &plan_eff, &scn);
     }
 
     // ── multiplier scales monotonically with impact ratio ─────────────────────
@@ -301,13 +295,13 @@ mod tests {
             .with_ability("bolt", expensive_spell("bolt", 40, DiceExpr::new(4, 6, 0))) // expected ~14
             .build();
 
-        let (plan_vl, ann_vl) = cast_plan_with_outcome("bolt", target_entity, target_pos, 1.0); // ratio ≈ 0.07
-        let (plan_ml, ann_ml) = cast_plan_with_outcome("bolt", target_entity, target_pos, 5.0); // ratio ≈ 0.36
+        let (plan_vl, _ann_vl) = cast_plan_with_outcome("bolt", target_entity, target_pos, 1.0); // ratio ≈ 0.07
+        let (plan_ml, _ann_ml) = cast_plan_with_outcome("bolt", target_entity, target_pos, 5.0); // ratio ≈ 0.36
 
-        let mult_vl = run_critic(&RareResourceForLowImpact, &plan_vl, &ann_vl, &scn)
+        let mult_vl = run_critic(&RareResourceForLowImpact, &plan_vl, &scn)
             .expect("very-low-impact case must fire")
             .multiplier;
-        let mult_ml = run_critic(&RareResourceForLowImpact, &plan_ml, &ann_ml, &scn)
+        let mult_ml = run_critic(&RareResourceForLowImpact, &plan_ml, &scn)
             .expect("moderate-low-impact case must fire")
             .multiplier;
 
@@ -345,9 +339,9 @@ mod tests {
             .with_units(vec![target])
             .with_ability("hard_stun", stun)
             .build();
-        let (plan, ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
+        let (plan, _ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
 
-        assert_critic_passes(&RareResourceForLowImpact, &plan, &ann, &scn);
+        assert_critic_passes(&RareResourceForLowImpact, &plan, &scn);
     }
 
     // ── mana cost boundary: exactly at threshold ──────────────────────────────
@@ -379,14 +373,14 @@ mod tests {
             .build();
 
         // cost=29: below threshold, must not fire even with zero damage.
-        let (plan_below, ann_below) =
+        let (plan_below, _ann_below) =
             cast_plan_with_outcome("below_threshold", target_entity, target_pos, 0.0);
-        assert_critic_passes(&RareResourceForLowImpact, &plan_below, &ann_below, &scn);
+        assert_critic_passes(&RareResourceForLowImpact, &plan_below, &scn);
 
         // cost=30: at threshold, with impact_ratio≈0 (zero actual damage), must fire.
-        let (plan_at, ann_at) =
+        let (plan_at, _ann_at) =
             cast_plan_with_outcome("at_threshold", target_entity, target_pos, 0.0);
-        run_critic(&RareResourceForLowImpact, &plan_at, &ann_at, &scn)
+        run_critic(&RareResourceForLowImpact, &plan_at, &scn)
             .expect("critic must fire when mana_cost == MANA_COST_THRESHOLD and impact is low");
     }
 
@@ -417,14 +411,14 @@ mod tests {
             .build();
 
         // actual = 10, expected = 20 → ratio = 10/20 = 0.5 exactly → must NOT fire.
-        let (plan_at, ann_at) =
+        let (plan_at, _ann_at) =
             cast_plan_with_outcome("const_dmg", target_entity, target_pos, 10.0);
-        assert_critic_passes(&RareResourceForLowImpact, &plan_at, &ann_at, &scn);
+        assert_critic_passes(&RareResourceForLowImpact, &plan_at, &scn);
 
         // actual = 9.9, expected = 20 → ratio = 0.495 < 0.5 → must fire.
-        let (plan_below, ann_below) =
+        let (plan_below, _ann_below) =
             cast_plan_with_outcome("const_dmg", target_entity, target_pos, 9.9);
-        run_critic(&RareResourceForLowImpact, &plan_below, &ann_below, &scn)
+        run_critic(&RareResourceForLowImpact, &plan_below, &scn)
             .expect("critic must fire when impact_ratio < IMPACT_RATIO_THRESHOLD");
     }
 
@@ -458,9 +452,8 @@ mod tests {
             .build();
 
         // actual = 2, expected = 20 → ratio = 0.1; expected multiplier ≈ 0.68.
-        let (plan, ann) = cast_plan_with_outcome("const_dmg", target_entity, target_pos, 2.0);
-        let hit =
-            run_critic(&RareResourceForLowImpact, &plan, &ann, &scn).expect("critic must fire");
+        let (plan, _ann) = cast_plan_with_outcome("const_dmg", target_entity, target_pos, 2.0);
+        let hit = run_critic(&RareResourceForLowImpact, &plan, &scn).expect("critic must fire");
 
         assert!(
             hit.multiplier > 0.60 && hit.multiplier < 0.76,

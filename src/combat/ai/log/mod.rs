@@ -1135,24 +1135,42 @@ fn build_logged_plans(pool: &crate::combat::ai::pipeline::ScoredPool) -> Vec<Log
         .annotations
         .iter()
         .enumerate()
-        .map(|(i, a)| (i, a.score))
+        .map(|(i, a)| (i, a.score()))
         .collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     indexed
         .into_iter()
         .enumerate()
         .map(|(rank_idx, (pool_idx, _score))| {
-            // pool.annotations[pool_idx] holds all pipeline-stage data (score,
-            // sanity, adaptation, chosen, …) but was default-constructed in
-            // ScoredPool::new and therefore has outcomes = [].
-            // pool.plans[pool_idx].annotation.outcomes was populated during
-            // plan generation (generator.rs) and is the authoritative source.
-            // Merge: start from the pipeline annotation, then fill outcomes
-            // from the generator-side annotation so both halves are present.
-            let mut annotation = pool.annotations[pool_idx].clone();
-            annotation.outcomes = pool.plans[pool_idx].annotation.outcomes.clone();
-            // P3b: populate the serialisation mirror from the runtime trace.
-            annotation.score_trace_log = Some(ScoreTraceLog::from(&annotation.score_trace));
+            // Assemble a PlanAnnotation DTO from two sources:
+            //   - Generator side (TurnPlan.annotation): outcomes, terminal
+            //   - Pipeline side (PipelineAnnotation b): the 14 working-state fields
+            // This is the sole place where both halves are merged for serialisation.
+            let b = &pool.annotations[pool_idx];
+            let gen = &pool.plans[pool_idx].annotation;
+            let annotation = PlanAnnotation {
+                // Generator-side fields (not tracked in PipelineAnnotation)
+                outcomes: gen.outcomes.clone(),
+                terminal: gen.terminal,
+                // Pipeline-side fields (B-fields from PipelineAnnotation)
+                score: b.score(),
+                factors: b.factors,
+                adaptation: b.adaptation.clone(),
+                repair_affinity: b.repair_affinity,
+                viability: b.viability.clone(),
+                chosen: b.chosen,
+                pick: b.pick.clone(),
+                effective_ai_tags: b.effective_ai_tags.clone(),
+                score_initial: b.score_initial,
+                per_item: b.per_item.clone(),
+                agenda_item: b.agenda_item,
+                considerations_per_item: b.considerations_per_item.clone(),
+                reject_reasons_per_item: b.reject_reasons_per_item.clone(),
+                // P3b: serialisation mirror of the runtime trace
+                score_trace_log: Some(ScoreTraceLog::from(b.score_trace())),
+                // P3a: runtime-only, not serialised — default (skip in serde)
+                score_trace: Default::default(),
+            };
             LoggedPlan {
                 rank: rank_idx + 1,
                 steps: pool.plans[pool_idx].steps.clone(),

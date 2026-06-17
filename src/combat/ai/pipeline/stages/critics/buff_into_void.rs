@@ -6,7 +6,6 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use bevy::prelude::Entity;
 use combat_engine::StatusId;
@@ -27,12 +26,7 @@ impl PlanCritic for BuffIntoVoid {
         "buff_into_void"
     }
 
-    fn evaluate(
-        &self,
-        plan: &TurnPlan,
-        _ann: &PlanAnnotation,
-        ctx: &ScoringCtx,
-    ) -> Option<CriticHit> {
+    fn evaluate(&self, plan: &TurnPlan, ctx: &ScoringCtx) -> Option<CriticHit> {
         // Track statuses applied by earlier plan steps, keyed by target Entity.
         // Entity is stable identity even if the target moves between steps —
         // a Hex-keyed proxy would miss intra-plan re-buff after target movement.
@@ -100,7 +94,6 @@ impl PlanCritic for BuffIntoVoid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
@@ -184,12 +177,10 @@ mod tests {
             .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
             .build();
         let plan = cast_plan("buff_shield", target_entity, target_pos);
-        let ann = PlanAnnotation::default();
 
         assert_critic_fires(
             &BuffIntoVoid,
             &plan,
-            &ann,
             &scn,
             CriticKind::BuffIntoVoid,
             BUFF_INTO_VOID_MULTIPLIER,
@@ -223,9 +214,8 @@ mod tests {
             .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
             .build();
         let plan = cast_plan("buff_shield", target_entity, target_pos);
-        let ann = PlanAnnotation::default();
 
-        assert_critic_passes(&BuffIntoVoid, &plan, &ann, &scn);
+        assert_critic_passes(&BuffIntoVoid, &plan, &scn);
     }
 
     // ── fires on redundant cast within plan (second step duplicates first) ────
@@ -266,13 +256,11 @@ mod tests {
             outcomes: vec![Default::default(), Default::default()],
             ..TurnPlan::default()
         };
-        let ann = PlanAnnotation::default();
-
         // Single cast — must not fire.
-        assert_critic_passes(&BuffIntoVoid, &single_plan, &ann, &scn);
+        assert_critic_passes(&BuffIntoVoid, &single_plan, &scn);
 
         // Double cast — second step is redundant, must fire.
-        let hit = run_critic(&BuffIntoVoid, &double_plan, &ann, &scn)
+        let hit = run_critic(&BuffIntoVoid, &double_plan, &scn)
             .expect("second cast of same status must trigger buff_into_void critic");
         let CriticReason::BuffIntoVoid {
             target_already_buffed,
@@ -335,8 +323,7 @@ mod tests {
             outcomes: vec![Default::default(), Default::default()],
             ..TurnPlan::default()
         };
-        let ann = PlanAnnotation::default();
-        assert_critic_passes(&BuffIntoVoid, &plan, &ann, &scn);
+        assert_critic_passes(&BuffIntoVoid, &plan, &scn);
     }
 
     /// 2-step plan applying the SAME status to DIFFERENT targets.
@@ -379,7 +366,6 @@ mod tests {
             outcomes: vec![Default::default(), Default::default()],
             ..TurnPlan::default()
         };
-        let ann = PlanAnnotation::default();
-        assert_critic_passes(&BuffIntoVoid, &plan, &ann, &scn);
+        assert_critic_passes(&BuffIntoVoid, &plan, &scn);
     }
 }

@@ -22,7 +22,6 @@ pub use rare_resource_for_low_impact::RareResourceForLowImpact;
 pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::effects::{
     apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
 };
@@ -41,13 +40,7 @@ pub trait PlanCritic: Send + Sync {
     /// Short identifier used in logs and debug output (e.g. `"overcommit_into_danger"`).
     fn name(&self) -> &'static str;
 
-    /// Evaluate one plan. Returns `Some(hit)` when the critic fires, `None` otherwise.
-    fn evaluate(
-        &self,
-        plan: &TurnPlan,
-        ann: &PlanAnnotation,
-        ctx: &ScoringCtx,
-    ) -> Option<CriticHit>;
+    fn evaluate(&self, plan: &TurnPlan, ctx: &ScoringCtx) -> Option<CriticHit>;
 }
 
 // ── CriticKind ────────────────────────────────────────────────────────────────
@@ -186,10 +179,9 @@ impl ScoreEffectStage for CriticsStage {
 
     fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
         let mut emitted = Vec::new();
-        for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate()
-        {
+        for (plan_index, plan) in pool.plans.iter().enumerate() {
             for c in &self.critics {
-                if let Some(hit) = c.evaluate(plan, ann, ctx.scoring) {
+                if let Some(hit) = c.evaluate(plan, ctx.scoring) {
                     emitted.push(EmittedEffect {
                         plan_index,
                         hit: ScoreHit::Multiplier(MultiplierHit {
@@ -223,7 +215,6 @@ mod tests {
     use super::*;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::orchestration::ScoringCtx;
-    use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
@@ -289,12 +280,7 @@ mod tests {
             "always_hit"
         }
 
-        fn evaluate(
-            &self,
-            _plan: &TurnPlan,
-            _ann: &PlanAnnotation,
-            _ctx: &ScoringCtx,
-        ) -> Option<CriticHit> {
+        fn evaluate(&self, _plan: &TurnPlan, _ctx: &ScoringCtx) -> Option<CriticHit> {
             use overcommit_into_danger::OvercommitSource;
             Some(CriticHit {
                 critic: CriticKind::OvercommitIntoDanger,
@@ -557,12 +543,7 @@ mod tests {
         fn name(&self) -> &'static str {
             "fixed_multiplier"
         }
-        fn evaluate(
-            &self,
-            _plan: &TurnPlan,
-            _ann: &PlanAnnotation,
-            _ctx: &ScoringCtx,
-        ) -> Option<CriticHit> {
+        fn evaluate(&self, _plan: &TurnPlan, _ctx: &ScoringCtx) -> Option<CriticHit> {
             use overcommit_into_danger::OvercommitSource;
             Some(CriticHit {
                 critic: CriticKind::OvercommitIntoDanger,
@@ -675,6 +656,7 @@ mod tests {
 
     #[test]
     fn plan_annotation_critics_default_empty() {
+        use crate::combat::ai::outcome::PlanAnnotation;
         use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         let ann = PlanAnnotation::default();
         assert!(

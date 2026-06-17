@@ -22,7 +22,6 @@
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::appraisal::ally_threat_proxy;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::content::abilities::EffectDef;
 
@@ -51,12 +50,7 @@ impl PlanCritic for HealWithoutRescueValue {
         "heal_without_rescue_value"
     }
 
-    fn evaluate(
-        &self,
-        plan: &TurnPlan,
-        _ann: &PlanAnnotation,
-        ctx: &ScoringCtx,
-    ) -> Option<CriticHit> {
+    fn evaluate(&self, plan: &TurnPlan, ctx: &ScoringCtx) -> Option<CriticHit> {
         for (step_idx, step) in plan.steps.iter().enumerate() {
             let PlanStep::Cast {
                 ability,
@@ -132,7 +126,7 @@ impl PlanCritic for HealWithoutRescueValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
+    use crate::combat::ai::outcome::{ActionOutcomeEstimate, PipelineAnnotation};
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{
@@ -180,7 +174,7 @@ mod tests {
         target_pos: crate::game::hex::Hex,
         caster_pos: crate::game::hex::Hex,
         hp_restored: f32,
-    ) -> (TurnPlan, PlanAnnotation) {
+    ) -> (TurnPlan, PipelineAnnotation) {
         let mut plan = TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: AbilityId::from(ability),
@@ -197,7 +191,7 @@ mod tests {
             hp_restored,
             ..Default::default()
         });
-        (plan, PlanAnnotation::default())
+        (plan, PipelineAnnotation::default())
     }
 
     // ── fires on canonical case ───────────────────────────────────────────────
@@ -220,9 +214,9 @@ mod tests {
             .with_units(vec![target])
             .with_ability("heal", heal_ability("heal"))
             .build();
-        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
+        let (plan, _ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
 
-        let hit = run_critic(&HealWithoutRescueValue, &plan, &ann, &scn)
+        let hit = run_critic(&HealWithoutRescueValue, &plan, &scn)
             .expect("must fire: healthy ally + no threat");
         assert_eq!(hit.critic, CriticKind::HealWithoutRescueValue);
         assert!(
@@ -267,9 +261,9 @@ mod tests {
             .with_units(vec![low_hp_target])
             .with_ability("heal", heal_ability("heal"))
             .build();
-        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 10.0);
+        let (plan, _ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 10.0);
 
-        assert_critic_passes(&HealWithoutRescueValue, &plan, &ann, &scn);
+        assert_critic_passes(&HealWithoutRescueValue, &plan, &scn);
     }
 
     // ── HP-need gate boundary ─────────────────────────────────────────────────
@@ -293,8 +287,8 @@ mod tests {
             .with_units(vec![target_fires])
             .with_ability("heal", heal_ability("heal"))
             .build();
-        let (plan_f, ann_f) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
-        let hit_f = scn_f.run(|ctx| HealWithoutRescueValue.evaluate(&plan_f, &ann_f, ctx));
+        let (plan_f, _ann_f) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
+        let hit_f = scn_f.run(|ctx| HealWithoutRescueValue.evaluate(&plan_f, ctx));
         assert!(hit_f.is_some(), "hp_pct ≈ 0.77 must fire");
         let m_f = hit_f.unwrap().multiplier;
         assert!(
@@ -312,8 +306,8 @@ mod tests {
             .with_units(vec![target_passes])
             .with_ability("heal", heal_ability("heal"))
             .build();
-        let (plan_p, ann_p) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);
-        assert_critic_passes(&HealWithoutRescueValue, &plan_p, &ann_p, &scn_p);
+        let (plan_p, _ann_p) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);
+        assert_critic_passes(&HealWithoutRescueValue, &plan_p, &scn_p);
     }
 
     // ── name() is stable ──────────────────────────────────────────────────────
@@ -344,9 +338,9 @@ mod tests {
             .with_units(vec![target])
             .with_ability("heal", heal_ability("heal"))
             .build();
-        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 2.0);
+        let (plan, _ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 2.0);
 
-        let hit = run_critic(&HealWithoutRescueValue, &plan, &ann, &scn);
+        let hit = run_critic(&HealWithoutRescueValue, &plan, &scn);
         assert!(
             hit.is_some(),
             "hp_pct == HP_NEED_GATE must fire (not below the gate)"
@@ -371,9 +365,9 @@ mod tests {
             .with_units(vec![target])
             .with_ability("heal", heal_ability("heal"))
             .build();
-        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);
+        let (plan, _ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);
 
-        assert_critic_passes(&HealWithoutRescueValue, &plan, &ann, &scn);
+        assert_critic_passes(&HealWithoutRescueValue, &plan, &scn);
     }
 
     // ── Multiplier bounds (lines 106-107: arithmetic mutations) ──────────────
@@ -401,9 +395,9 @@ mod tests {
             .with_units(vec![target])
             .with_ability("heal", heal_ability("heal"))
             .build();
-        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 1.0);
+        let (plan, _ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 1.0);
 
-        let hit = run_critic(&HealWithoutRescueValue, &plan, &ann, &scn)
+        let hit = run_critic(&HealWithoutRescueValue, &plan, &scn)
             .expect("full-HP ally with no threat must fire");
         // Multiplier must sit in [1-MAX_PENALTY, 1.0). Tight upper bound (< 0.6)
         // ensures `- → +` (multiplier ≈ 1.5) and `* → +` (multiplier ≈ -0.5) are caught.
@@ -424,11 +418,8 @@ mod tests {
     /// the `is_heal_by_outcome` branch. With is_heal_by_effect=false,
     /// is_heal_by_outcome=true the `!a && !b` guard catches both `&&`→`||` and
     /// `delete !` (second !) mutations.
-    fn non_heal_effect_with_outcome_fires() -> (
-        crate::combat::ai::plan::types::TurnPlan,
-        crate::combat::ai::outcome::PlanAnnotation,
-        CriticScenario,
-    ) {
+    fn non_heal_effect_with_outcome_fires(
+    ) -> (crate::combat::ai::plan::types::TurnPlan, CriticScenario) {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, TargetType};
         use combat_engine::AbilityId;
 
@@ -472,16 +463,16 @@ mod tests {
             .with_units(vec![target])
             .with_ability("restore", restore_ability)
             .build();
-        let (plan, ann) = cast_heal_plan("restore", target_entity, target_pos, caster_pos, 5.0);
-        (plan, ann, scn)
+        let (plan, _ann) = cast_heal_plan("restore", target_entity, target_pos, caster_pos, 5.0);
+        (plan, scn)
     }
 
     #[test]
     fn heal_by_outcome_only_fires() {
         // is_heal_by_effect=false, is_heal_by_outcome=true → must fire.
         // Catches: `&&` → `||` and `delete !` (86:38).
-        let (plan, ann, scn) = non_heal_effect_with_outcome_fires();
-        let hit = run_critic(&HealWithoutRescueValue, &plan, &ann, &scn);
+        let (plan, scn) = non_heal_effect_with_outcome_fires();
+        let hit = run_critic(&HealWithoutRescueValue, &plan, &scn);
         assert!(
             hit.is_some(),
             "heal-by-outcome-only (non-Heal effect) must fire"
@@ -524,9 +515,8 @@ mod tests {
             outcomes: vec![Default::default()],
             ..crate::combat::ai::plan::types::TurnPlan::default()
         };
-        let ann = crate::combat::ai::outcome::PlanAnnotation::default();
 
-        let hit = run_critic(&HealWithoutRescueValue, &plan, &ann, &scn);
+        let hit = run_critic(&HealWithoutRescueValue, &plan, &scn);
         assert!(
             hit.is_some(),
             "heal-by-effect (EffectDef::Heal) with no outcome must fire"

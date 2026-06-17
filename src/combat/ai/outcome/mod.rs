@@ -326,13 +326,6 @@ impl PlanAnnotation {
         self.score
     }
 
-    /// Set the plan score from intra-crate pipeline stages outside the engine
-    /// drive-loop (`FinalizeStage`, `PickBestStage`, `ViabilityStage`, `pick_action`).
-    /// The drive-loop uses `recompute_score_from_trace` instead.
-    pub(crate) fn set_score(&mut self, score: f32) {
-        self.score = score;
-    }
-
     /// Builder-style score initialiser for test fixtures and external struct
     /// construction (e.g. bins that construct `PlanAnnotation` literals).
     pub fn with_score(mut self, score: f32) -> Self {
@@ -343,6 +336,83 @@ impl PlanAnnotation {
     /// Read-only access to the accumulated score trace for external consumers
     /// (e.g. replay / mining bins, tests). Writing is restricted to the pipeline
     /// (`apply_effect`, `FinalizeStage`).
+    pub fn score_trace(&self) -> &crate::combat::ai::pipeline::score_trace::ScoreTrace {
+        &self.score_trace
+    }
+}
+
+// ── PipelineAnnotation ────────────────────────────────────────────────────────
+
+/// Per-plan working state for pipeline stages.
+///
+/// This is the type stored in `ScoredPool.annotations` — the "live" annotation
+/// that every stage reads and writes. It holds exactly the **14** pipeline-only
+/// fields; the 3 generator-side fields (`outcomes`, `terminal`, `score_trace_log`)
+/// live solely on `TurnPlan.annotation: PlanAnnotation` and are never written
+/// by pipeline stages.
+///
+/// At log time, `build_logged_plans` assembles a `PlanAnnotation` DTO from both
+/// sources (generator side + pipeline side) to produce the serde-serialisable
+/// record.
+#[derive(Debug, Clone, Default)]
+pub struct PipelineAnnotation {
+    /// Final aggregated score for this plan after all pipeline stages.
+    /// Always finite after the pipeline (SelectionKey carries masked/gated
+    /// state). Intra-crate writers only; external consumers use `score()`.
+    pub(crate) score: f32,
+    /// Step 7.4: factor decomposition for this plan (v29 named map).
+    /// Written by the initial scoring pass.
+    pub factors: PlanFactorValues,
+    /// Step 7.2: adaptation decision for this plan.
+    /// `None` when no adaptation trigger fired for this plan.
+    pub adaptation: Option<AdaptationData>,
+    /// Step 6.2: repair affinity of this plan against the stored goal context.
+    pub repair_affinity: crate::combat::ai::repair::RepairAffinity,
+    /// Step 7.1: viability gate result for this plan.
+    pub viability: ViabilityResult,
+    /// Step 7.4: whether this plan was chosen as the winning plan.
+    pub chosen: bool,
+    /// Step 7.4: pick mechanics info for the chosen plan.
+    pub pick: Option<PickInfo>,
+    /// Step 9.A: per-Cast-step effective AI tags.
+    pub effective_ai_tags: Vec<crate::combat::ai::world::tags::AbilityTagSet>,
+    /// Step 11.4: score immediately after the initial `score_plans_with_raw` pass.
+    pub score_initial: f32,
+    /// Per-agenda-item scoring cache.
+    pub per_item: Vec<PerItemEval>,
+    /// Winning agenda-item index (into `Agenda::items`) as chosen by `PickBestStage`.
+    pub agenda_item: Option<u8>,
+    /// Step 11.6: per-agenda-item considerations overlay.
+    pub considerations_per_item:
+        Vec<crate::combat::ai::intent::considerations::IntentConsiderations>,
+    /// Step 11.7: per-agenda-item reject reasons.
+    pub reject_reasons_per_item: Vec<Option<RejectReason>>,
+    /// P3a: typed log of score-affecting effects accumulated during pipeline.
+    /// Not serialised (runtime-only); see `PlanAnnotation.score_trace_log` for the
+    /// JSONL mirror.
+    pub(crate) score_trace: crate::combat::ai::pipeline::score_trace::ScoreTrace,
+}
+
+impl PipelineAnnotation {
+    /// Final aggregated score for this plan (Copy — returned by value).
+    pub fn score(&self) -> f32 {
+        self.score
+    }
+
+    /// Set the plan score from intra-crate pipeline stages outside the engine
+    /// drive-loop (`FinalizeStage`, `PickBestStage`, `ViabilityStage`, `pick_action`).
+    /// The drive-loop uses `recompute_score_from_trace` instead.
+    pub(crate) fn set_score(&mut self, score: f32) {
+        self.score = score;
+    }
+
+    /// Builder-style score initialiser for test fixtures.
+    pub fn with_score(mut self, score: f32) -> Self {
+        self.score = score;
+        self
+    }
+
+    /// Read-only access to the accumulated score trace for external consumers.
     pub fn score_trace(&self) -> &crate::combat::ai::pipeline::score_trace::ScoreTrace {
         &self.score_trace
     }
@@ -366,9 +436,6 @@ impl PlanAnnotation {
     ///   - `Mask` ↔ `Contract` | `None`
     ///   - `Gate` ↔ `None`
     ///
-    /// `EffectObservation` is used as a derivation source (detail/original_score)
-    /// but is no longer stored in legacy fields (removed in TLE-3a).
-    ///
     /// Sole writer of `score_trace`; called only by
     /// `pipeline::effects::apply_score_effect_stage`.
     pub(crate) fn apply_effect(
@@ -378,8 +445,6 @@ impl PlanAnnotation {
         use crate::combat::ai::pipeline::effects::{EffectObservation, ScoreHit};
 
         // Pairing validation — invalid pairs are programmer error, panic.
-        // Gate ↔ Contract: KillableGate emits a single Gate hit whose Contract
-        // observation carries the ContractMaskHit for legacy JSONL.
         match (&effect.hit, &effect.observability) {
             (
                 ScoreHit::Multiplier(_),
@@ -400,7 +465,6 @@ impl PlanAnnotation {
         };
         match &effect.hit {
             ScoreHit::Multiplier(h) => {
-                // Derive detail from paired observation; pairing already validated above.
                 let detail = match &effect.observability {
                     Some(EffectObservation::Sanity(s)) => {
                         Some(MultiplierDetail::Sanity { rule: s.rule })
@@ -411,8 +475,6 @@ impl PlanAnnotation {
                     }),
                     _ => None,
                 };
-                // TLE-1 invariant: Sanity/Critic multiplier MUST carry detail.
-                // Phase 4 / TLE-3 type-enforces via sum-type.
                 debug_assert!(
                     !matches!(h.kind, MultiplierKind::Sanity | MultiplierKind::Critic)
                         || detail.is_some(),
@@ -448,8 +510,6 @@ impl PlanAnnotation {
     }
 
     /// Phase 3: derive selection key from trace flags + cached score.
-    /// `score` is always finite (Step 3 cutover complete); SelectionKey
-    /// relies on trace flags for selectability, not score magnitude.
     pub(crate) fn selection_key(&self) -> crate::combat::ai::pipeline::effects::SelectionKey {
         crate::combat::ai::pipeline::effects::SelectionKey {
             selectable: self.is_selectable(),
@@ -613,7 +673,7 @@ mod tests {
 
     #[test]
     fn annotation_default_is_selectable() {
-        let ann = PlanAnnotation::default();
+        let ann = PipelineAnnotation::default();
         assert!(
             ann.is_selectable(),
             "default annotation has no masks/gates — selectable"
@@ -629,7 +689,7 @@ mod tests {
         use crate::combat::ai::pipeline::order::StageId;
         use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
 
-        let mut ann = PlanAnnotation::default();
+        let mut ann = PipelineAnnotation::default();
         ann.apply_effect(&AppliedEffect {
             source: StageId::ProtectSelfMask,
             plan_index: 0,
@@ -650,7 +710,7 @@ mod tests {
         use crate::combat::ai::pipeline::order::StageId;
         use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome};
 
-        let mut ann = PlanAnnotation::default();
+        let mut ann = PipelineAnnotation::default();
         ann.apply_effect(&AppliedEffect {
             source: StageId::KillableGate,
             plan_index: 0,
@@ -671,7 +731,7 @@ mod tests {
         use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
         use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
 
-        let mut ann = PlanAnnotation::with_score(PlanAnnotation::default(), 1.0);
+        let mut ann = PipelineAnnotation::default().with_score(1.0);
         ann.apply_effect(&AppliedEffect {
             source: StageId::Sanity,
             plan_index: 0,

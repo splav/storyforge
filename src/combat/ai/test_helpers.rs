@@ -11,7 +11,7 @@ use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
-use crate::combat::ai::outcome::{AdaptationData, PerItemEval, PlanAnnotation};
+use crate::combat::ai::outcome::{AdaptationData, PerItemEval, PipelineAnnotation};
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::scoring::factors::PlanFactorValues;
@@ -629,7 +629,7 @@ impl StageTestHarness {
 
 // ── PoolBuilder ───────────────────────────────────────────────────────────
 
-/// Fluent builder for `ScoredPool` — sets per-`PlanAnnotation` fields via
+/// Fluent builder for `ScoredPool` — sets per-`PipelineAnnotation` fields via
 /// orthogonal, chainable setters.  Each per-plan setter asserts that the
 /// supplied slice length matches the number of plans.
 ///
@@ -651,7 +651,7 @@ pub(crate) struct PoolBuilder {
 
 impl PoolBuilder {
     /// Initialise from a plan list.  All annotations are zero-filled
-    /// (`PlanAnnotation::default()`).
+    /// (`PipelineAnnotation::default()`).
     pub fn new(plans: Vec<TurnPlan>) -> Self {
         Self {
             pool: ScoredPool::new(plans),
@@ -753,7 +753,7 @@ impl PoolBuilder {
 
     /// Escape hatch: arbitrary mutation of the annotation slice after all
     /// field setters have run.
-    pub fn customize(mut self, f: impl FnOnce(&mut [PlanAnnotation])) -> Self {
+    pub fn customize(mut self, f: impl FnOnce(&mut [PipelineAnnotation])) -> Self {
         f(&mut self.pool.annotations);
         self
     }
@@ -780,7 +780,7 @@ impl PoolBuilder {
 ///     .with_ability("heal", heal_ability("heal"))
 ///     .build();
 ///
-/// assert_critic_fires(&HealWithoutRescueValue, &plan, &ann, &scn,
+/// assert_critic_fires(&HealWithoutRescueValue, &plan, &scn,
 ///     CriticKind::HealWithoutRescueValue, expected_multiplier,
 ///     |reason| { /* inspect CriticReason fields */ });
 /// ```
@@ -869,16 +869,15 @@ impl CriticScenarioBuilder {
     }
 }
 
-/// Run `critic.evaluate(plan, ann, ctx)` inside a [`CriticScenario`].
+/// Run `critic.evaluate(plan, ctx)` inside a [`CriticScenario`].
 ///
 /// Returns the `Option<CriticHit>` from the critic.
 pub(crate) fn run_critic<C: crate::combat::ai::pipeline::stages::critics::PlanCritic>(
     critic: &C,
     plan: &crate::combat::ai::plan::types::TurnPlan,
-    ann: &crate::combat::ai::outcome::PlanAnnotation,
     scn: &CriticScenario,
 ) -> Option<crate::combat::ai::pipeline::stages::critics::CriticHit> {
-    scn.run(|ctx| critic.evaluate(plan, ann, ctx))
+    scn.run(|ctx| critic.evaluate(plan, ctx))
 }
 
 /// Assert that a critic **fires** for the given plan, checking kind,
@@ -893,7 +892,6 @@ pub(crate) fn run_critic<C: crate::combat::ai::pipeline::stages::critics::PlanCr
 pub(crate) fn assert_critic_fires<C>(
     critic: &C,
     plan: &crate::combat::ai::plan::types::TurnPlan,
-    ann: &crate::combat::ai::outcome::PlanAnnotation,
     scn: &CriticScenario,
     expected_kind: crate::combat::ai::pipeline::stages::critics::CriticKind,
     expected_multiplier: f32,
@@ -902,7 +900,7 @@ pub(crate) fn assert_critic_fires<C>(
 where
     C: crate::combat::ai::pipeline::stages::critics::PlanCritic,
 {
-    let hit = run_critic(critic, plan, ann, scn)
+    let hit = run_critic(critic, plan, scn)
         .unwrap_or_else(|| panic!("critic {:?} must fire, but returned None", expected_kind));
     assert_eq!(
         hit.critic, expected_kind,
@@ -922,12 +920,11 @@ where
 pub(crate) fn assert_critic_passes<C>(
     critic: &C,
     plan: &crate::combat::ai::plan::types::TurnPlan,
-    ann: &crate::combat::ai::outcome::PlanAnnotation,
     scn: &CriticScenario,
 ) where
     C: crate::combat::ai::pipeline::stages::critics::PlanCritic,
 {
-    let result = run_critic(critic, plan, ann, scn);
+    let result = run_critic(critic, plan, scn);
     assert!(
         result.is_none(),
         "critic must not fire, but returned {:?}",

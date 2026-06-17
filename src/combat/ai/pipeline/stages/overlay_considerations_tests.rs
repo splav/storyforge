@@ -8,7 +8,7 @@ use crate::combat::ai::intent::bands::PriorityBand;
 use crate::combat::ai::intent::considerations::IntentConsiderations;
 use crate::combat::ai::intent::{IntentKind, IntentReason, TacticalIntent};
 use crate::combat::ai::outcome::{
-    ActionOutcomeEstimate, PerItemEval, PlanAnnotation, ViabilityResult,
+    ActionOutcomeEstimate, PerItemEval, PipelineAnnotation, ViabilityResult,
 };
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
@@ -42,7 +42,7 @@ fn empty_agenda_item() -> AgendaItem {
 
 fn run_overlay(
     plans: Vec<TurnPlan>,
-    annotations: Vec<PlanAnnotation>,
+    annotations: Vec<PipelineAnnotation>,
     agenda: &Agenda,
 ) -> ScoredPool {
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
@@ -59,7 +59,7 @@ fn run_overlay(
 /// TODO: migrate to StageTestHarness in Phase 5 when harness gains snap injection.
 fn run_overlay_with_snap(
     plans: Vec<TurnPlan>,
-    annotations: Vec<PlanAnnotation>,
+    annotations: Vec<PipelineAnnotation>,
     agenda: &Agenda,
     snap: BattleSnapshot,
 ) -> ScoredPool {
@@ -115,7 +115,7 @@ fn overlay_feasibility_is_continuous_adjusted_score() {
     };
 
     // passed=true, adjusted_score=1.0 → (1.0 - 0.0) / 2.0 = 0.5.
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.viability = ViabilityResult {
         passed: true,
         adjusted_score: 1.0,
@@ -136,7 +136,7 @@ fn overlay_urgency_and_role_affinity_preserved_from_item() {
         band: PriorityBand::NormalTactical,
         items: vec![empty_agenda_item()],
     };
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.viability = ViabilityResult {
         passed: true,
         adjusted_score: 0.0,
@@ -165,7 +165,7 @@ fn overlay_noop_when_agenda_empty() {
     };
     let pool = run_overlay(
         vec![TurnPlan::default()],
-        vec![PlanAnnotation::default()],
+        vec![PipelineAnnotation::default()],
         &agenda,
     );
     assert!(
@@ -198,7 +198,7 @@ fn plan_aware_overlay_changes_feasibility_axis() {
     };
 
     // passed=true, adjusted_score=1.8 → (1.8-0.0)/2.0 = 0.9.
-    let mut ann_high = PlanAnnotation::default();
+    let mut ann_high = PipelineAnnotation::default();
     ann_high.viability = ViabilityResult {
         passed: true,
         adjusted_score: 1.8,
@@ -214,7 +214,7 @@ fn plan_aware_overlay_changes_feasibility_axis() {
     );
 
     // passed=false → feasibility=0.0 regardless of adjusted_score.
-    let mut ann_zero = PlanAnnotation::default();
+    let mut ann_zero = PipelineAnnotation::default();
     ann_zero.viability = ViabilityResult {
         passed: false,
         adjusted_score: 1.8,
@@ -242,7 +242,7 @@ fn overlay_safety_reflects_max_of_self_damage_and_exposure() {
         items: vec![empty_agenda_item()],
     };
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.viability = ViabilityResult {
         passed: true,
         adjusted_score: 1.0,
@@ -270,7 +270,7 @@ fn overlay_safety_self_damage_dominates_exposure() {
         ..Default::default()
     }];
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.viability = ViabilityResult {
         passed: true,
         adjusted_score: 1.0,
@@ -320,7 +320,7 @@ fn leverage_focus_target_uses_target_specific_damage() {
         ..Default::default()
     }];
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
     // SecureKill = 0 (default terminal)
 
@@ -360,7 +360,7 @@ fn leverage_apply_cc_uses_target_specific_cc() {
         ..Default::default()
     }];
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
 
     let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
@@ -405,7 +405,7 @@ fn leverage_protect_ally_combines_heal_and_cc() {
         ..Default::default()
     }];
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
 
     let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
@@ -434,16 +434,17 @@ fn leverage_protect_self_caps_at_survival_when_no_danger_reduction() {
         }],
     };
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
     ann.factors.set_plan(PlanFactor::SelfSurvival, 0.8);
+    let mut plan = TurnPlan::default();
     let mut terminal = FactorTerminalScore::default();
     terminal.set(TerminalFactor::ExposureAtEnd, 0.2);
-    ann.terminal = terminal;
+    plan.annotation.terminal = terminal;
     // empty_maps has danger=0 everywhere → danger_now=0, reduction=(0-0.2).max(0)=0
     // → leverage = 0.7*0.8 + 0.3*0.0 = 0.56
 
-    let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
+    let pool = run_overlay(vec![plan], vec![ann], &agenda);
     let leverage = pool.annotations[0].per_item[0].considerations.leverage;
     assert!(
         (leverage - 0.56).abs() < 1e-4,
@@ -490,15 +491,16 @@ fn leverage_protect_self_uses_reduction_when_danger_decreases() {
         }],
     };
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
     ann.factors.set_plan(PlanFactor::SelfSurvival, 0.8);
     // Plan ends in safer tile → ExposureAtEnd = 0.2 (danger_after).
     // danger_now = 0.6 (from map at actor_pos). reduction = 0.6 - 0.2 = 0.4.
     // leverage = 0.7 * 0.8 + 0.3 * 0.4 = 0.56 + 0.12 = 0.68.
+    let mut plan = TurnPlan::default();
     let mut terminal = FactorTerminalScore::default();
     terminal.set(TerminalFactor::ExposureAtEnd, 0.2);
-    ann.terminal = terminal;
+    plan.annotation.terminal = terminal;
 
     let mut ctx = StageCtx::new(
         &scoring,
@@ -508,7 +510,7 @@ fn leverage_protect_self_uses_reduction_when_danger_decreases() {
         &mut rng,
     )
     .with_agenda(&agenda);
-    let mut pool = ScoredPool::new(vec![TurnPlan::default()]);
+    let mut pool = ScoredPool::new(vec![plan]);
     pool.annotations = vec![ann];
     OverlayConsiderationsStage.apply(&mut pool, &mut ctx);
 
@@ -538,14 +540,15 @@ fn leverage_reposition_uses_terminal_factors() {
         }],
     };
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
+    let mut plan = TurnPlan::default();
     let mut terminal = FactorTerminalScore::default();
     terminal.set(TerminalFactor::LineActionability, 0.8);
     terminal.set(TerminalFactor::PressureSpacingZone, 0.6);
-    ann.terminal = terminal;
+    plan.annotation.terminal = terminal;
 
-    let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
+    let pool = run_overlay(vec![plan], vec![ann], &agenda);
     let leverage = pool.annotations[0].per_item[0].considerations.leverage;
     assert!(
         (leverage - 0.7).abs() < 1e-4,
@@ -573,12 +576,12 @@ fn leverage_last_stand_uses_total_damage_and_kill() {
         enemy_damage: 10.0,
         ..Default::default()
     }];
-
-    let mut ann = PlanAnnotation::default();
-    ann.per_item = vec![PerItemEval::default()];
     let mut terminal = FactorTerminalScore::default();
     terminal.set(TerminalFactor::SecureKill, 1.0);
-    ann.terminal = terminal;
+    plan.annotation.terminal = terminal;
+
+    let mut ann = PipelineAnnotation::default();
+    ann.per_item = vec![PerItemEval::default()];
 
     let pool = run_overlay(vec![plan], vec![ann], &agenda);
     let leverage = pool.annotations[0].per_item[0].considerations.leverage;
@@ -627,7 +630,7 @@ fn leverage_focus_target_aoe_does_not_credit_other_enemies() {
         ..Default::default()
     }];
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
     // SecureKill = 0.0 (default)
 
@@ -669,7 +672,7 @@ fn leverage_apply_cc_aoe_cc_does_not_credit_other_enemies() {
         ..Default::default()
     }];
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
 
     let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
@@ -694,7 +697,7 @@ fn feasibility_continuous_distinguishes_two_adjusted_scores() {
     };
 
     // adjusted_score = 0.5, passed = true → (0.5 - 0.0) / 2.0 = 0.25
-    let mut ann_low = PlanAnnotation::default();
+    let mut ann_low = PipelineAnnotation::default();
     ann_low.viability = ViabilityResult {
         passed: true,
         adjusted_score: 0.5,
@@ -706,7 +709,7 @@ fn feasibility_continuous_distinguishes_two_adjusted_scores() {
         .feasibility;
 
     // adjusted_score = 1.5, passed = true → (1.5 - 0.0) / 2.0 = 0.75
-    let mut ann_high = PlanAnnotation::default();
+    let mut ann_high = PipelineAnnotation::default();
     ann_high.viability = ViabilityResult {
         passed: true,
         adjusted_score: 1.5,
@@ -742,7 +745,7 @@ fn feasibility_zero_when_viability_failed() {
     };
 
     // High adjusted_score but passed=false → guard must fire → feasibility=0.0.
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.viability = ViabilityResult {
         passed: false,
         adjusted_score: 1.5,
@@ -771,7 +774,7 @@ fn safety_drops_below_one_when_exposure_at_end_is_high() {
         items: vec![empty_agenda_item()],
     };
 
-    let mut ann = PlanAnnotation::default();
+    let mut ann = PipelineAnnotation::default();
     ann.viability = ViabilityResult {
         passed: true,
         adjusted_score: 1.0,
@@ -779,11 +782,12 @@ fn safety_drops_below_one_when_exposure_at_end_is_high() {
     ann.per_item = vec![PerItemEval::default()];
     // High danger at plan end position — captured as terminal factor.
     // safety = 1.0 - max(self_damage_ratio=0, exposure=0.8) = 0.2
+    let mut plan = TurnPlan::default();
     let mut terminal = FactorTerminalScore::default();
     terminal.set(TerminalFactor::ExposureAtEnd, 0.8);
-    ann.terminal = terminal;
+    plan.annotation.terminal = terminal;
 
-    let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
+    let pool = run_overlay(vec![plan], vec![ann], &agenda);
     let safety = pool.annotations[0].per_item[0].considerations.safety;
 
     assert!(
@@ -830,14 +834,11 @@ fn overlay_uses_plan_annotation_outcomes_not_pipeline_annotation() {
         ..Default::default()
     }];
 
-    // Intentionally leave pipeline annotation outcomes empty — formula must
-    // ignore it and read from plan.annotation.outcomes instead.
-    let mut ann = PlanAnnotation::default();
+    // Intentionally leave pipeline annotation without outcomes — PipelineAnnotation
+    // has no outcomes field (type-enforced), so formula must read from
+    // plan.annotation.outcomes (the authoritative generator-side source).
+    let mut ann = PipelineAnnotation::default();
     ann.per_item = vec![PerItemEval::default()];
-    assert!(
-        ann.outcomes.is_empty(),
-        "pipeline annotation outcomes start empty (default)"
-    );
 
     let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
     let leverage = pool.annotations[0].per_item[0].considerations.leverage;

@@ -1,7 +1,7 @@
 //! Additive post-normalisation bonus for Summon plans.
 
 use super::{ModifierCtx, PlanModifier};
-use crate::combat::ai::outcome::PlanAnnotation;
+use crate::combat::ai::outcome::PipelineAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::content::abilities::EffectDef;
 
@@ -13,7 +13,12 @@ impl PlanModifier for SummonBonus {
         "summon_bonus"
     }
 
-    fn modify(&self, plan: &TurnPlan, _ann: &PlanAnnotation, ctx: &ModifierCtx<'_, '_, '_>) -> f32 {
+    fn modify(
+        &self,
+        plan: &TurnPlan,
+        _ann: &PipelineAnnotation,
+        ctx: &ModifierCtx<'_, '_, '_>,
+    ) -> f32 {
         let active = ctx.stage.scoring.active;
         let snap = ctx.stage.scoring.snap;
         let world = ctx.stage.scoring.world;
@@ -135,7 +140,7 @@ mod tests {
         };
 
         // ── 4. Act ──
-        let ann = crate::combat::ai::outcome::PlanAnnotation::default();
+        let ann = crate::combat::ai::outcome::PipelineAnnotation::default();
         let result = MODIFIER.modify(&plan, &ann, &ctx);
 
         // ── 5. Assert ──
@@ -222,7 +227,7 @@ mod tests {
             final_pos: pos,
             ..TurnPlan::default()
         };
-        let ann = crate::combat::ai::outcome::PlanAnnotation::default();
+        let ann = crate::combat::ai::outcome::PipelineAnnotation::default();
         let got = MODIFIER.modify(&plan, &ann, &ctx);
 
         // ── 5. Assert ──

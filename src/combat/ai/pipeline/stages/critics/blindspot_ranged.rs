@@ -5,7 +5,6 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::{has_los, in_bounds};
@@ -28,12 +27,7 @@ impl PlanCritic for BlindspotRanged {
         "blindspot_ranged"
     }
 
-    fn evaluate(
-        &self,
-        plan: &TurnPlan,
-        _ann: &PlanAnnotation,
-        ctx: &ScoringCtx,
-    ) -> Option<CriticHit> {
+    fn evaluate(&self, plan: &TurnPlan, ctx: &ScoringCtx) -> Option<CriticHit> {
         let active = ctx.active;
 
         // Gate: only applies to ranged units with at least one living enemy.

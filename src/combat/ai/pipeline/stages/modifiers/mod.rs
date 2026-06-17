@@ -17,7 +17,7 @@ pub mod repair_bonus;
 pub mod summon_bonus;
 pub mod trade_bonus;
 
-use crate::combat::ai::outcome::PlanAnnotation;
+use crate::combat::ai::outcome::PipelineAnnotation;
 use crate::combat::ai::pipeline::effects::{
     apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
 };
@@ -47,7 +47,12 @@ pub trait PlanModifier: Sync {
     /// Returns `0.0` when the modifier does not apply (e.g. no Summon steps,
     /// no stored goal). Positive values increase `ann.score`; negative values
     /// decrease it.
-    fn modify(&self, plan: &TurnPlan, ann: &PlanAnnotation, ctx: &ModifierCtx<'_, '_, '_>) -> f32;
+    fn modify(
+        &self,
+        plan: &TurnPlan,
+        ann: &PipelineAnnotation,
+        ctx: &ModifierCtx<'_, '_, '_>,
+    ) -> f32;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────

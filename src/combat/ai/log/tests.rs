@@ -262,12 +262,17 @@ fn build_logged_plans_preserves_annotation_outcomes() {
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::pipeline::ScoredPool;
     use crate::combat::ai::plan::types::TurnPlan;
+    use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 
-    // Build a plan whose generator-side annotation has one outcome entry.
+    // Build a plan whose generator-side annotation has one outcome entry and
+    // a non-default terminal score.
     let mut plan = TurnPlan::default();
     plan.annotation
         .outcomes
         .push(ActionOutcomeEstimate::default());
+    let mut terminal = FactorTerminalScore::default();
+    terminal.set(TerminalFactor::ExposureAtEnd, 0.75);
+    plan.annotation.terminal = terminal;
 
     let mut pool = ScoredPool::new(vec![plan]);
     pool.annotations[0].score = 1.0;
@@ -303,6 +308,13 @@ fn build_logged_plans_preserves_annotation_outcomes() {
         event.plans[0].annotation.outcomes.len(),
         1,
         "annotation.outcomes must be preserved through build_logged_plans"
+    );
+    // Mandatory: the logged annotation's `terminal` must equal pool.plans[i].annotation.terminal.
+    // This pins the one fact the neutrality argument of the PlanAnnotation/PipelineAnnotation
+    // split rests on — generator-side terminal is not lost during log assembly.
+    assert_eq!(
+        event.plans[0].annotation.terminal, pool.plans[0].annotation.terminal,
+        "logged annotation.terminal must equal pool.plans[i].annotation.terminal (generator side)"
     );
 }
 

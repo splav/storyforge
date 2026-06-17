@@ -517,10 +517,7 @@ mod tests {
         use crate::combat::ai::pipeline::order::StageId;
         use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
 
-        let mut ann = crate::combat::ai::outcome::PlanAnnotation::with_score(
-            crate::combat::ai::outcome::PlanAnnotation::default(),
-            1.0,
-        );
+        let mut ann = crate::combat::ai::outcome::PipelineAnnotation::default().with_score(1.0);
         ann.score_trace.base = 1.0;
         ann.apply_effect(&AppliedEffect {
             source: StageId::Sanity,
@@ -553,10 +550,7 @@ mod tests {
         use crate::combat::ai::pipeline::stages::critics::overcommit_into_danger::OvercommitSource;
         use crate::combat::ai::pipeline::stages::critics::{CriticHit, CriticKind, CriticReason};
 
-        let mut ann = crate::combat::ai::outcome::PlanAnnotation::with_score(
-            crate::combat::ai::outcome::PlanAnnotation::default(),
-            1.0,
-        );
+        let mut ann = crate::combat::ai::outcome::PipelineAnnotation::default().with_score(1.0);
         ann.score_trace.base = 1.0;
         let reason = CriticReason::OvercommitIntoDanger {
             source: OvercommitSource::SurvivalPath,
@@ -594,10 +588,7 @@ mod tests {
         use crate::combat::ai::pipeline::effects::{AppliedEffect, EffectObservation, ScoreHit};
         use crate::combat::ai::pipeline::order::StageId;
 
-        let mut ann = crate::combat::ai::outcome::PlanAnnotation::with_score(
-            crate::combat::ai::outcome::PlanAnnotation::default(),
-            2.5,
-        );
+        let mut ann = crate::combat::ai::outcome::PipelineAnnotation::default().with_score(2.5);
         ann.score_trace.base = 2.5;
         ann.apply_effect(&AppliedEffect {
             source: StageId::ProtectSelfMask,
@@ -628,10 +619,7 @@ mod tests {
         use crate::combat::ai::pipeline::effects::{AppliedEffect, ScoreHit};
         use crate::combat::ai::pipeline::order::StageId;
 
-        let mut ann = crate::combat::ai::outcome::PlanAnnotation::with_score(
-            crate::combat::ai::outcome::PlanAnnotation::default(),
-            1.0,
-        );
+        let mut ann = crate::combat::ai::outcome::PipelineAnnotation::default().with_score(1.0);
         ann.score_trace.base = 1.0;
         ann.apply_effect(&AppliedEffect {
             source: StageId::Sanity,

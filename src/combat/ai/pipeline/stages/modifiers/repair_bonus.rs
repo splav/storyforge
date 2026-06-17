@@ -2,7 +2,7 @@
 //! `continue_commitment`, scale by `repair_bonus_scale`. Inert without a stored goal.
 
 use super::{ModifierCtx, PlanModifier};
-use crate::combat::ai::outcome::PlanAnnotation;
+use crate::combat::ai::outcome::PipelineAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 
 pub struct RepairBonus;
@@ -13,7 +13,12 @@ impl PlanModifier for RepairBonus {
         "repair_bonus"
     }
 
-    fn modify(&self, _plan: &TurnPlan, ann: &PlanAnnotation, ctx: &ModifierCtx<'_, '_, '_>) -> f32 {
+    fn modify(
+        &self,
+        _plan: &TurnPlan,
+        ann: &PipelineAnnotation,
+        ctx: &ModifierCtx<'_, '_, '_>,
+    ) -> f32 {
         // Only active when a stored goal is present.
         if ctx.stage.scoring.last_goal.is_none() {
             return 0.0;
@@ -38,6 +43,7 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::orchestration::AiWorld;
+    use crate::combat::ai::outcome::PipelineAnnotation;
     use crate::combat::ai::pipeline::stages::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
     use crate::combat::ai::plan::types::TurnPlan;
@@ -143,16 +149,18 @@ mod tests {
         };
 
         // ── 4. Act ──
-        let mut plan = inert_plan(pos);
-        plan.annotation.repair_affinity = RepairAffinity {
-            goal_alignment: 1.0,
-            region_alignment: 1.0,
-            method_alignment: 1.0,
-            severity_factor: 1.0,
-            ttl_factor: 1.0,
-            confidence: 1.0,
+        let plan = inert_plan(pos);
+        let ann = PipelineAnnotation {
+            repair_affinity: RepairAffinity {
+                goal_alignment: 1.0,
+                region_alignment: 1.0,
+                method_alignment: 1.0,
+                severity_factor: 1.0,
+                ttl_factor: 1.0,
+                confidence: 1.0,
+            },
+            ..Default::default()
         };
-        let ann = plan.annotation.clone();
         let result = MODIFIER.modify(&plan, &ann, &ctx);
 
         // ── 5. Assert ──
@@ -217,9 +225,11 @@ mod tests {
                 &mut rng,
             );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            let ann = plan.annotation.clone();
+            let plan = inert_plan(pos);
+            let ann = PipelineAnnotation {
+                repair_affinity: affinity,
+                ..Default::default()
+            };
             // ── 4. Act ──
             MODIFIER.modify(&plan, &ann, &ctx)
         };
@@ -240,9 +250,11 @@ mod tests {
                 &mut rng,
             );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            let ann = plan.annotation.clone();
+            let plan = inert_plan(pos);
+            let ann = PipelineAnnotation {
+                repair_affinity: affinity,
+                ..Default::default()
+            };
             // ── 4. Act ──
             MODIFIER.modify(&plan, &ann, &ctx)
         };
@@ -314,9 +326,11 @@ mod tests {
                 &mut rng,
             );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            let ann = plan.annotation.clone();
+            let plan = inert_plan(pos);
+            let ann = PipelineAnnotation {
+                repair_affinity: affinity,
+                ..Default::default()
+            };
             // ── 4. Act ──
             MODIFIER.modify(&plan, &ann, &ctx)
         };
@@ -348,9 +362,11 @@ mod tests {
                 &mut rng,
             );
             let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            let ann = plan.annotation.clone();
+            let plan = inert_plan(pos);
+            let ann = PipelineAnnotation {
+                repair_affinity: affinity,
+                ..Default::default()
+            };
             // ── 4. Act ──
             MODIFIER.modify(&plan, &ann, &ctx)
         };
@@ -422,9 +438,11 @@ mod tests {
         };
 
         // ── 4. Act ──
-        let mut plan = inert_plan(pos);
-        plan.annotation.repair_affinity = affinity;
-        let ann = plan.annotation.clone();
+        let plan = inert_plan(pos);
+        let ann = PipelineAnnotation {
+            repair_affinity: affinity,
+            ..Default::default()
+        };
         let got = MODIFIER.modify(&plan, &ann, &ctx);
 
         // ── 5. Assert ──
