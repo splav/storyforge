@@ -39,8 +39,6 @@ pub(crate) fn compute_offensive(
     let active = ctx.active;
 
     // ── Damage: facts → policies ──
-    // Single-target: apply damage::value with target HP context.
-    // AoE: per-entity policy walk captures per-target progression semantics.
     let enemy_damage_value = if outcome.enemy_damage_per_entity.is_empty() {
         // Single-target path.
         snap.unit(target).map_or(0.0, |t| {
@@ -147,9 +145,6 @@ mod tests {
         crate::content::content_view::ActiveContentData::load_global_for_tests()
     }
 
-    /// Step 4.10: `compute_offensive` reads new fact fields and applies
-    /// policy functions. Injects a synthetic outcome with known values and
-    /// asserts the returned `OffensiveFactors` correctly applies all policies.
     #[test]
     fn compute_offensive_reads_facts_and_applies_policy() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;

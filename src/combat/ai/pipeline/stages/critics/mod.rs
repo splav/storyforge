@@ -381,8 +381,6 @@ mod tests {
             .adaptations(adaptations)
             .build();
 
-        // Run partial pipeline: ModeSelection already ran (adaptation is pre-injected),
-        // so we start from FinalizeStage then Critics.
         use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
         use crate::combat::ai::pipeline::PlanStage;
         FinalizeStage.apply(&mut pool, &mut ctx);

@@ -11,11 +11,6 @@ use crate::game::hex::Hex;
 
 use super::SanityRule;
 
-/// Evaluate the HealerExposure rule for one plan.
-///
-/// Returns one `SanityHit` per unguarded healer that the active unit abandons.
-/// Returns an empty `Vec` when the rule does not apply (active is a healer /
-/// support, or no healer is being abandoned).
 pub(super) fn evaluate(
     active: UnitView<'_>,
     final_pos: Hex,

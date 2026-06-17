@@ -159,9 +159,6 @@ pub fn project_state_to_ecs(
 
                 let mut new_list: Vec<crate::game::components::ActiveStatus> = preserved;
                 for engine_s in &unit.statuses {
-                    // R2: map engine EffectSource back to an optional ECS Entity.
-                    // EffectSource::Unit → Some(entity); EffectSource::Env → None
-                    // (no unit entity represents an environment applier).
                     let applier_opt: Option<Entity> = match engine_s.applier {
                         combat_engine::state::EffectSource::Unit(uid) => {
                             Some(id_map.get_entity(uid).unwrap_or(entity))

@@ -25,9 +25,6 @@ pub fn check_victory_system(
     }
 }
 
-/// Single-pass iteration over combatants → dispatch to `determine_outcome`.
-///
-/// `named_vitals` supplies `(Name, Vital)` pairs for `KeepAlive` lookups.
 fn check_combat_end(
     combatants: &Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
     named_vitals: &Query<(&Name, &Vital)>,
@@ -268,8 +265,6 @@ mod tests {
     #[test]
     fn outcome_party_with_only_npc_alive_counts_as_defeat() {
         let obj = VictoryCondition::AllEnemiesDead;
-        // NPC is alive but filtered out → players_alive = false, enemies_alive = true
-        // This is defeat (party wipe from engine's perspective).
         assert_eq!(
             determine_outcome(false, true, false, &obj, &always_alive),
             Some(false)
@@ -282,8 +277,6 @@ mod tests {
     #[test]
     fn outcome_npc_does_not_satisfy_enemies_alive_for_all_enemies_dead() {
         let obj = VictoryCondition::AllEnemiesDead;
-        // If only NPC and hero alive (npc filtered out of enemies count),
-        // enemies_alive = false → victory.
         assert_eq!(
             determine_outcome(true, false, false, &obj, &always_alive),
             Some(true)

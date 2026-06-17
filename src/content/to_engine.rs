@@ -9,10 +9,6 @@ use crate::content::abilities::AbilityDef;
 use crate::content::races::CritFailEffect;
 use combat_engine::EffectDef as EngineEffectDef;
 
-/// Translate a Bevy `CritFailEffect` into the engine's `CritFailOutcome`.
-///
-/// `CircuitBreach` uses a fixed `SelfDamage(0d1+2)` placeholder (Phase 2 step 6f).
-/// Full mana_cost-derived damage parity is a Phase 2 step 7 follow-up.
 pub fn crit_fail_outcome(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
     use combat_engine::CritFailOutcome as Out;
     use combat_engine::{DiceExpr, StatusId};
@@ -27,8 +23,6 @@ pub fn crit_fail_outcome(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
     }
 }
 
-/// Translate a Bevy `AbilityDef` into a `combat_engine::AbilityDef`.
-///
 /// Clone of `def.engine` with one transform: `Summon` → `None`, because the AI
 /// plan-sim can't model summons (`sim.rs::unit_template` returns `None`) and
 /// shouldn't score spawn outcomes. The ECS/bridge path keeps the real `Summon`.

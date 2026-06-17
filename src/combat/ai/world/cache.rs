@@ -113,8 +113,6 @@ pub struct AiCache {
 }
 
 impl AiCache {
-    /// Build an `AiCache` from a vec of unit records, constructing the index
-    /// eagerly.
     pub fn from_units(units: Vec<UnitAiCache>) -> Self {
         let mut cache = Self {
             units,

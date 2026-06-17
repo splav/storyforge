@@ -65,8 +65,6 @@ impl PlanCritic for OvercommitIntoDanger {
         };
 
         // ── Pick the stricter of the two ──────────────────────────────────────
-        // A lower multiplier = stricter penalty. We choose the minimum multiplier
-        // (worst case) and record which source it came from.
         let (multiplier, source) = match (surv_multiplier, aoo_multiplier) {
             (None, None) => return None,
             (Some(m), None) => (m, OvercommitSource::SurvivalPath),

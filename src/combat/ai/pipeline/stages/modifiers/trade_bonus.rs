@@ -1,7 +1,3 @@
-//! Plan-level trade bonus modifier (step 8.B).
-//!
-//! Thin wrapper over `trade_delta` + `trade_score`.
-
 use super::{ModifierCtx, PlanModifier};
 use crate::combat::ai::outcome::PipelineAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
@@ -115,9 +111,6 @@ mod tests {
         assert_eq!(result, 0.0);
     }
 
-    /// Pin formula: a kill-plan against a valuable victim yields positive bonus,
-    /// and a kill against a more valuable victim yields higher bonus than a less
-    /// valuable one. This matches the legacy `plan_trade_bonus` behavior.
     #[test]
     fn trade_bonus_matches_legacy_formula() {
         // ── 1. Test data ──

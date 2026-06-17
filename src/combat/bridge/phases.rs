@@ -19,16 +19,10 @@ use combat_engine::state::UnitId;
 
 // ── apply_phase_ecs_writes ────────────────────────────────────────────────────
 
-/// Apply ECS-only deltas for a boss phase transition, once per
-/// `Event::PhaseEntered`. Reads `EnemyPhases.pending[phase_idx]`, mutates the
-/// ECS components (Name/Abilities/CombatStats/Vital/RuntimeStatsMirror,
-/// re-infers `AxisProfile`, revives on `heal_to_full`), pops the phase (spec
-/// §8: one pop per event), logs `PhaseEntered`, and queues a
-/// `PhaseOverrideIntent` if the phase carries `victory_override`/`turn_limit`.
-///
 /// Runs from `apply_bridge_queues_post_projection`, AFTER `project_state_to_ecs`
 /// (avoids a `&mut Vital` query conflict). Engine `EnterPhase` already ran, so
-/// `unit.runtime` is the single source of truth — no recompute.
+/// `unit.runtime` is the single source of truth — no recompute. Pops
+/// `EnemyPhases.pending[phase_idx]` exactly once per event (spec §8).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn apply_phase_ecs_writes(
     unit: UnitId,
@@ -92,8 +86,6 @@ pub(crate) fn apply_phase_ecs_writes(
         abilities.0 = new_ability_ids.clone();
     }
 
-    // Mirror engine Unit.runtime → RuntimeStatsMirror (engine EnterPhase already
-    // ran, so this read is the single source of truth).
     if let Some(engine_unit) = engine_state.unit(unit) {
         runtime.0 = engine_unit.runtime;
     }
@@ -150,7 +142,6 @@ pub(crate) fn apply_phase_ecs_writes(
     phases.pending.remove(phase_idx);
 }
 
-/// Applies victory-override / deadline intents queued by phase transitions.
 /// Runs in Execute right after `apply_bridge_queues_post_projection`.
 pub fn apply_phase_overrides_system(
     mut queues: ResMut<BridgeQueues>,

@@ -14,8 +14,6 @@ use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::world::tags::AiTags;
 
-/// Compute the terminal-state score (all 8 axes) for a plan from its final sim
-/// snapshot.
 pub fn terminal_state_score(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,

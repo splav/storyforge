@@ -79,14 +79,7 @@ pub(crate) struct UnitBuildInput {
 ///
 /// Runs the status-aggregate-bonus loop (mirrors `Effect::RefreshAggregates`,
 /// status half only) then calls `Unit::new` with the derived values.
-///
-/// This function owns the single call site of `Unit::new` that was previously
-/// inlined inside `from_ecs`, making it reusable for the future ECS-free
-/// `init_fight` path (Step 2+).
 pub(crate) fn build_unit(input: UnitBuildInput, content: &ActiveContent) -> Unit {
-    // Compute status-derived aggregate bonuses from active statuses.
-    // Mirrors Effect::RefreshAggregates (status half only); aura-based
-    // contributions are added after bootstrap populates unit.auras.
     let mut runtime_bonus = combat_engine::RuntimeStatsDelta::default();
     for s in &input.statuses {
         if let Some(def) = content.statuses.get(&s.id) {
@@ -289,9 +282,7 @@ pub struct EnvironmentParams<'w> {
     pub environment: Res<'w, CombatEnvironment>,
 }
 
-/// Bundles the initiative-rolling params added in Wave 3.
-///
-/// Groups the three new params that would push `bootstrap_combat_state` over
+/// Bundles initiative-rolling params to keep `bootstrap_combat_state` within
 /// Bevy's 16-system-param limit.
 #[derive(SystemParam)]
 pub struct InitiativeParams<'w, 's> {
@@ -473,9 +464,6 @@ pub fn bootstrap_combat_state(
                 .map(|phase| {
                     let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
                     let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
-                    // Compute RuntimeStats when the phase carries a template's equipment/speed.
-                    // Uses the same active_content helpers as the base-unit armor derivation
-                    // (equipment_armor / equipment_magic_resist).
                     let runtime = phase.equipment.as_ref().map(|eq_block| {
                         let phase_equipment = Equipment {
                             main_hand: Some(eq_block.main_hand.clone()),
@@ -528,8 +516,6 @@ pub fn bootstrap_combat_state(
     }
 
     // ── Roll round-1 initiative + build authoritative turn order (engine owns this) ──
-    // Build preset map: Name → UnitId, only for units present in the engine state.
-    // Resolve each preset name → Entity (via name_q) → UnitId (via id_map).
     let preset_map: std::collections::HashMap<UnitId, i32> = init_params
         .preset
         .0

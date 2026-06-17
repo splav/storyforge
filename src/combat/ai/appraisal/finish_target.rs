@@ -9,8 +9,6 @@ pub(super) fn compute_finish_target(ctx: &AppraisalCtx<'_>) -> f32 {
     let reach_budget =
         (active.effective_speed().max(0) as u32).saturating_add(active.cache.max_attack_range);
 
-    // Best killability metric among reachable killable enemies.
-    // None means no killable target exists → signal stays 0.
     let killable_low_hp: Option<f32> = snap
         .enemies_of(active.team)
         .filter(|_| active.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) > 0)

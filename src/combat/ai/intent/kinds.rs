@@ -119,8 +119,6 @@ pub enum IntentReason {
     SetupAoe {
         clustered_pairs: usize,
     },
-    /// Step 3.4: fields migrated from raw pos_eval/threshold to
-    /// need_signals.reposition/floor. Schema v21 → v22.
     Reposition {
         reposition: f32,
         floor: f32,

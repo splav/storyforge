@@ -209,8 +209,6 @@ fn annotation_enemy_damage_populated_for_cast_steps() {
         .expect("strike has calc");
     let max_raw = calc.expected(); // deterministic for 1d1
 
-    // Every Cast plan: annotation.enemy_damage must be populated (>= 0)
-    // and within plausible range.
     let mut found_cast = false;
     for plan in plans.iter().filter(|p| !p.steps.is_empty()) {
         for (i, ann) in plan.annotation.outcomes.iter().enumerate() {
@@ -323,8 +321,6 @@ fn killed_target_absent_in_second_step_enumeration() {
 
     let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
-    // Find depth-2 plans that target the weak unit first. In step 2 they
-    // must not cast at weak again (it's dead post step 1).
     for p in plans.iter().filter(|p| p.steps.len() == 2) {
         let (PlanStep::Cast { target: t1, .. }, PlanStep::Cast { target: t2, .. }) =
             (&p.steps[0], &p.steps[1])
@@ -953,8 +949,6 @@ fn generate_plans_excludes_los_blocked_cast() {
         );
     }
 
-    // ── Phase 2 — positive assertion: WITH obstacle on the line,
-    //    planner must NOT propose a Cast at the obstructed enemy.
     {
         let (actor, enemy, actor_id, enemy_id, content, difficulty) = make_setup();
         let mut snap = snapshot_from(vec![actor, enemy], 1);
@@ -974,8 +968,6 @@ fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
     use crate::combat::ai::test_helpers::status_view;
     use combat_engine::ResourceKind;
 
-    // Actor has broken_faith + enough mana + both a mana spell and a
-    // no-cost melee fallback.
     let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 2);
     actor.mana = Some((10, 10));
     actor.statuses.push(status_view("broken_faith", 3, 0));
@@ -1560,8 +1552,6 @@ fn enumerate_terminates_when_actor_dies_mid_plan() {
     let maps = empty_maps();
     let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
-    // Any plan whose first step is a Move-out-of-adjacency that deals
-    // lethal AoO (self_damage >= 1) must have length == 1 (no extension).
     for p in &plans {
         if p.steps.is_empty() {
             continue;

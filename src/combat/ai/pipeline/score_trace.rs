@@ -234,7 +234,7 @@ impl ScoreTrace {
         self.gates.push(hit);
     }
 
-    /// Clear accumulated effects (called by Finalize on rescore — P3a.5).
+    /// Clear accumulated effects (called by Finalize on rescore).
     /// Preserves `base` and `rescore_mode`.
     pub fn reset_effects(&mut self) {
         self.multipliers.clear();

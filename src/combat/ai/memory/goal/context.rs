@@ -74,7 +74,7 @@ pub enum GoalKind {
 ///
 /// Stored in `AiMemory.last_goal`; consumed by repair affinity to bonus fresh
 /// plans that preserve the same goal next tick. Carries severity-check fields
-/// (formerly in `PlanSnapshot`) so continuation severity needs no `last_plan`.
+/// so continuation severity needs no `last_plan`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredGoalContext {
     /// Semantic goal kind and its primary entity / position anchor.
@@ -91,13 +91,13 @@ pub struct StoredGoalContext {
     pub region_radius: u32,
     /// Ability we expected to cast as the climax of this goal, if any.
     /// Derived from `chosen_steps[1]` when it is a `Cast` step.
-    /// Used to bonus `method_preserved` over `method_changed` in 6.2.
+    /// Used to bonus `method_preserved` over `method_changed` in repair affinity.
     pub planned_ability: Option<AbilityId>,
     /// Rounds remaining before the goal expires via TTL decay.
     /// Initialised from `tuning.thresholds.repair_default_ttl`.
     pub ttl: u8,
     /// Scorer confidence in this goal at store time: `chosen_score / pool_max_score`.
-    /// Clamped to `[0.0, 1.0]`. Acts as a multiplicative gate on repair bonus (6.3).
+    /// Clamped to `[0.0, 1.0]`. Acts as a multiplicative gate on repair bonus.
     pub confidence: f32,
     /// Combat round when the goal was created — used for TTL decay and telemetry.
     pub created_round: u32,
@@ -112,7 +112,7 @@ pub struct StoredGoalContext {
     /// Stable hash over actor status ids + remaining durations at store time.
     pub actor_status_hash: u64,
     /// Status ids present on the actor at store time — used to compute the
-    /// diff (added/removed) when `actor_status_changed` fires (step 9.B.3).
+    /// diff (added/removed) when `actor_status_changed` fires.
     #[serde(default)]
     pub actor_statuses_at_store: Vec<combat_engine::StatusId>,
     /// Target HP at the time of store (0 when no target).

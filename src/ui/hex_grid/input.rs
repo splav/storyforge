@@ -281,8 +281,6 @@ pub fn hex_click_target(
     last_click.time = now;
 }
 
-/// Tries to path-find and send `ActionInput::Move` for the active player to target hex.
-/// Returns true if the move was sent.
 fn try_move(
     target: Hex,
     active: Option<Entity>,

@@ -629,7 +629,7 @@ fn classify_is_pure_no_io() {
 
 // ── Step 9.B: Compulsion tests ────────────────────────────────────────────
 
-/// Pin test (9.B): `taunted` has `forces_targeting=true` → tag set must
+/// Pin test: `taunted` has `forces_targeting=true` → tag set must
 /// contain `Compulsion` and NOT contain `Cosmetic`.
 #[test]
 fn derive_status_tags_taunted_has_compulsion() {
@@ -646,7 +646,7 @@ fn derive_status_tags_taunted_has_compulsion() {
     );
 }
 
-/// Generic test (9.B): any status with `forces_targeting=true` (and no other
+/// Generic test: any status with `forces_targeting=true` (and no other
 /// AI-side fields) receives `Compulsion` as its sole tag; Cosmetic is suppressed.
 #[test]
 fn derive_status_tags_compulsion_set_for_forces_targeting() {

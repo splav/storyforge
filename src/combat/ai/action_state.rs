@@ -467,7 +467,7 @@ mod tests {
     }
 
     /// Dead target (corpse with hp=0, still present in the snapshot) →
-    /// `TargetDead`. Backends now agree on the unknown-vs-dead distinction.
+    /// `TargetDead` (distinct from absent → `TargetUnknown`).
     #[test]
     fn dead_target_rejects_as_dead() {
         let actor_pos = hex_from_offset(0, 0);

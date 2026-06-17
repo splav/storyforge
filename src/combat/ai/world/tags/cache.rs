@@ -36,8 +36,6 @@ impl StatusTagCache {
         self.map.get(id).copied().unwrap_or_default()
     }
 
-    /// Return the numeric bonuses for the given status id, or zero defaults
-    /// when the id is not in the cache.
     pub fn bonuses(&self, id: &StatusId) -> StatusBonuses {
         self.bonuses.get(id).copied().unwrap_or_default()
     }

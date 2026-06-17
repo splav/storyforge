@@ -77,8 +77,6 @@ pub struct StatusApplication {
 
 /// Engine-side effect kinds.  Mirrors `crate::content::abilities::EffectDef`
 /// minus `ToggleMoveMode` (UI-only).
-///
-/// Phase 2 step 6c-e implements expansion in `step()`'s `Action::Cast` arm.
 #[derive(Debug, Clone)]
 pub enum EffectDef {
     /// No direct damage / heal — ability only applies statuses.
@@ -207,8 +205,7 @@ pub enum AoEShape {
     },
 }
 
-/// Engine-side minimal ability definition.  Legality + targeting fields;
-/// `effect` and `statuses` populated by Phase 2 step 6a, expanded in step 6c-e.
+/// Engine-side minimal ability definition.  Legality + targeting fields.
 #[derive(Debug, Clone)]
 pub struct AbilityDef {
     pub key: Option<String>,
@@ -278,7 +275,6 @@ pub fn aoe_radius(def: &AbilityDef) -> i32 {
 
 impl AbilityDef {
     /// Returns `true` if this ability can be actively cast by the player.
-    /// Passives (any non-empty trigger list) are never player-activated.
     pub fn is_actively_castable(&self) -> bool {
         self.passive.is_empty()
     }
@@ -339,8 +335,7 @@ pub struct UnitTemplate {
     pub auras: Vec<crate::content::AuraDef>,
     /// Phase transitions for boss-like units (empty for most templates).
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
-    /// **Phase C-2 parallel-shape.** Per-pool turn-start regen policy.
-    /// Currently hardcoded at construction time; TOML wiring lands in C5.
+    /// Per-pool turn-start regen policy.
     /// Copied onto `Unit.regen_per_pool` at spawn / bridge init.
     pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
     /// Statuses applied to a spawned unit immediately after creation, each
@@ -352,8 +347,7 @@ pub struct UnitTemplate {
     /// Populated from TOML `initial_pools = { hp = 6 }` on the template record.
     pub initial_pools: enum_map::EnumMap<crate::PoolKind, Option<i32>>,
     /// Creature tags applied to units spawned from this template (e.g. "undead",
-    /// "beast"). Empty for most templates; populated in Slice B/C when content
-    /// authors them.
+    /// "beast"). Empty for most templates.
     pub tags: std::collections::BTreeSet<crate::TagId>,
 }
 
@@ -434,10 +428,9 @@ pub struct PhaseTransition {
 
 /// Per-phase trigger data stored on `Unit.enemy_phases`.
 ///
-/// Replaces the `PhaseEntry` that was previously on `EcsContentView` in the
-/// bridge (5c.1).  The first entry in `Unit.enemy_phases` is the next pending
-/// phase; `check_phase_trigger` peeks at `[0]` without consuming it (the
-/// bridge translator pops it on `Event::PhaseEntered`).
+/// The first entry in `Unit.enemy_phases` is the next pending phase;
+/// `check_phase_trigger` peeks at `[0]` without consuming it (the bridge
+/// translator pops it on `Event::PhaseEntered`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct PhaseEntry {
     /// HP-below-percent threshold (0..=100).

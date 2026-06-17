@@ -515,8 +515,6 @@ mod tests {
         db
     }
 
-    /// `write_victory_flags` inserts all `on_victory_flags` of the current
-    /// combat scene into `CampaignState.flags`.
     #[test]
     fn victory_flags_written_to_campaign_state() {
         let scenario = minimal_scenario("s1", vec!["found_token", "kael_found"]);
@@ -838,8 +836,6 @@ mod tests {
         scenario_from_scenes(vec![story("scene 0"), story("scene 1")])
     }
 
-    /// Helper: build a minimal advance app around a given `ScenarioDef`.
-    /// Optionally inserts a `CampaignState`.
     fn make_advance_app(scen: ScenarioDef, with_campaign: bool) -> App {
         use crate::content::settings::GameSettings;
         let db = make_db(scen);
@@ -938,8 +934,6 @@ mod tests {
         );
     }
 
-    /// Standalone scenario (no `CampaignState`) does NOT route to Camp —
-    /// Story→Story stays `AppState::Story`.
     #[test]
     fn advance_story_to_story_without_campaign_skips_camp() {
         let mut app = make_advance_app(two_story_scenario(), false);
@@ -1049,8 +1043,6 @@ mod tests {
         );
     }
 
-    /// Crossing into a new chapter with an EMPTY stash does NOT force a camp —
-    /// the chapter opens directly on its first Story scene.
     #[test]
     fn chapter_start_skips_camp_when_stash_empty() {
         let mut app = make_chapter_advance_app(vec![]);
@@ -1230,12 +1222,6 @@ mod tests {
         let mut app = App::new();
         app.add_message::<AdvanceScenario>();
         app.insert_resource(db);
-        // Start at index -1 conceptually; we place scene_index at 0 and use the
-        // write_victory_flags system to verify it doesn't fire when gated.
-        // Instead: advance from a pre-scene into scene 0 (gated-combat) and check
-        // that after skip_skipped the system ends at scene 1 (story), not scene 0.
-        // We verify by running advance from a notional scene "-1" via index wrapping:
-        // easier approach — just assert skip_skipped logic directly.
         let f_flee = flags(&["flee"]); // "fight" flag NOT present
         let scen2 = app
             .world()
@@ -1273,8 +1259,6 @@ mod tests {
 
     // ── all-gated tail: clean termination ────────────────────────────────────
 
-    /// advance_scenario_system reaching an all-gated tail terminates cleanly
-    /// (no panic, transitions to MainMenu).
     #[test]
     fn advance_reaches_all_gated_tail_terminates() {
         use crate::content::settings::GameSettings;
@@ -1319,16 +1303,12 @@ mod tests {
 
     // ── enter_scenario_at: gated tail is graceful (no panic) ─────────────────
 
-    /// enter_scenario_at with a gated tail and no flags must NOT panic —
-    /// it gracefully transitions to MainMenu.
     #[test]
     fn enter_scenario_at_gated_tail_no_panic() {
         let scen = scenario_from_scenes(vec![
             gated_story(Some("secret")), // index 0: gated, flag absent
         ]);
         let db = make_db(scen);
-        // Also need at least one encounter-free scenario so enter_scenario_at doesn't
-        // fail on missing content — our scenario has no encounters, that's fine.
 
         let mut commands_queue = bevy::ecs::world::CommandQueue::default();
         let world = bevy::ecs::world::World::new();
@@ -1344,8 +1324,6 @@ mod tests {
             0,
             None, // no flags
         );
-        // If we reach here without panic, the test passes.
-        // next_state should have been set to MainMenu.
         assert!(
             matches!(next_state, NextState::Pending(AppState::MainMenu)),
             "expected MainMenu transition"
@@ -1354,8 +1332,6 @@ mod tests {
 
     // ── save-load reentry with flags ──────────────────────────────────────────
 
-    /// enter_scenario_at with populated flags resolves to the same scene advance would.
-    /// With gate flag present: gated scene plays. Without: skipped.
     #[test]
     fn enter_scenario_at_flag_resolves_correctly() {
         let scen = scenario_from_scenes(vec![
@@ -1402,8 +1378,6 @@ mod tests {
 
     // ── None-campaign: no panic, flags treated as empty ──────────────────────
 
-    /// Entering a scenario with no CampaignState treats flags as empty:
-    /// gated scenes skip, no panic.
     #[test]
     fn none_campaign_gated_scenes_skip_no_panic() {
         use crate::content::settings::GameSettings;

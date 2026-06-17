@@ -1,5 +1,5 @@
-//! Engine trace writer (Phase 5 D6/D11). Writes one JSONL file per combat
-//! into `logs/<fight_id>/engine.jsonl`, independent of the AI-decision log.
+//! Engine trace writer. Writes one JSONL file per combat into
+//! `logs/<fight_id>/engine.jsonl`, independent of the AI-decision log.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -50,9 +50,7 @@ impl EngineTraceWriter {
         w.flush()
     }
 
-    /// Record a single engine `step()` call. Assigns the step index and
-    /// increments the internal counter. Write order: BEFORE any ECS projection
-    /// so a downstream panic can't corrupt the trace.
+    /// Write order: BEFORE any ECS projection so a downstream panic can't corrupt the trace.
     pub fn write_step(
         &mut self,
         action: &Action,

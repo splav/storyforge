@@ -229,7 +229,7 @@ pub struct PlanAnnotation {
     /// run yet or the gate did not apply to this intent.
     #[serde(default)]
     pub viability: ViabilityResult,
-    /// Step 7.2: adaptation decision for this plan (was PlanRanking.adaptation.reasons[i]).
+    /// Step 7.2: adaptation decision for this plan.
     /// `None` when no adaptation trigger fired for this plan.
     #[serde(default)]
     pub adaptation: Option<AdaptationData>,

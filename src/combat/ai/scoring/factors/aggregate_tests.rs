@@ -634,9 +634,6 @@ fn self_lethal_kill_support_outscores_passive_under_last_stand() {
     let reservations = Reservations::default();
     let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
 
-    // P7: LastStand is now EvaluationMode::LastStand, not a TacticalIntent.
-    // Use EvaluationMode::LastStand to trigger last-stand scoring.
-    // For this test, we compare LastStand-mode scoring vs Reposition intent.
     let last_stand_mode = EvaluationMode::LastStand;
     let passive_intent = TacticalIntent::Reposition;
 
@@ -663,8 +660,6 @@ fn self_lethal_kill_support_outscores_passive_under_last_stand() {
         ..Default::default()
     };
 
-    // P7: LastStand is now EvaluationMode::LastStand, not a TacticalIntent.
-    // Use rescore_with_per_plan_modes with all plans in LastStand mode.
     let _ = last_stand_mode; // used below
     let fallback_intent = TacticalIntent::Reposition; // dummy; overridden by mode
     let (mut cast_plans_ls, mut cast_plans_passive) = (

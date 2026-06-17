@@ -431,8 +431,6 @@ pub fn apply_effect(
                 .map(|u| (u.effective_armor(), u.effective_magic_resist()))
                 .unwrap_or((0, 0));
 
-            // Magic damage uses magic_resist; physical uses effective armor.
-            // `pierces=true` bypasses ALL mitigation regardless of damage type.
             let mit = mitigation(eff_armor, 0, eff_magic_resist, *magic);
             let final_dmg = final_damage_f32(*raw, mit, *pierces);
 
@@ -994,8 +992,6 @@ pub fn apply_effect(
 
         Effect::BumpRound => {
             state.round += 1;
-            // start_round resets index=0, sets phase=ActorTurn, resets
-            // reactions_left=reactions_max for alive units.
             state.start_round(content);
 
             // Insert mid-combat summons at their rolled initiative. Must run
@@ -1010,8 +1006,6 @@ pub fn apply_effect(
                 .map(|id| Effect::RefreshAggregates { unit: id })
                 .collect();
 
-            // Check index-0 actor: if dead/stunned, emit skip events and
-            // derive AdvanceTurn to continue the chain; if alive+active, settle.
             let (skip_derived, skip_ctx) = skip_or_settle_current(state, content);
             derived.extend(skip_derived);
 

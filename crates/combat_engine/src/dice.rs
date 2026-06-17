@@ -74,8 +74,6 @@ pub trait DiceSource {
     /// Roll under disadvantage: real RNG rolls twice and takes the min;
     /// `ExpectedValue` returns the analytical per-die disadvantaged mean.
     fn roll_disadvantage(&mut self, dice: DiceExpr) -> i32;
-    /// Cumulative number of `roll()` calls since construction.
-    ///
     /// Used by `step()` to compute per-action RNG-call deltas for the trace
     /// canary (Phase 5 D2). Replay re-seeds the same RNG and asserts the
     /// per-step delta matches; mismatch pinpoints the divergent step.

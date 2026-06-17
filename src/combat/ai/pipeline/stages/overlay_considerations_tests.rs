@@ -105,8 +105,6 @@ fn make_cast_step(target: Entity) -> PlanStep {
 // ── Existing tests (preserved) ────────────────────────────────────────────
 
 /// Continuous feasibility: passed=true, adjusted_score=1.0, margin=2.0 → 0.5.
-/// This replaces the old binary test (pre-11.8 clamped adjusted_score to [0,1];
-/// 11.8 introduces margin normalisation + !passed guard — see Section B).
 #[test]
 fn overlay_feasibility_is_continuous_adjusted_score() {
     let agenda = Agenda {

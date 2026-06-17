@@ -75,8 +75,6 @@ pub fn compute_forecast(
         }
     };
 
-    // Fold events into per-unit forecast entries.
-    // We build a map keyed by UnitId to accumulate damage, heal, death, statuses.
     use std::collections::HashMap;
     struct UnitAccum {
         entity: Entity,

@@ -37,7 +37,6 @@ pub struct StageCtx<'w, 's> {
     pub intent_reason: IntentReason,
     pub actor_pos: Hex,
     pub rng: &'s mut DiceRng,
-    /// Step 11.4: optional agenda for per-item composition.
     /// `Some` when `pick_action` has built a non-empty agenda; `None` on legacy
     /// / empty-agenda paths so that `ItemScoringStage` and `PickBestStage` can
     /// gracefully fall back to single-intent behaviour.
@@ -62,8 +61,6 @@ impl<'w, 's> StageCtx<'w, 's> {
         }
     }
 
-    /// Attach an agenda to this context.  Called from `pick_action` after
-    /// `build_agenda` returns a non-empty agenda.
     pub fn with_agenda(mut self, agenda: &'s Agenda) -> Self {
         self.agenda = Some(agenda);
         self
@@ -243,7 +240,7 @@ mod tests {
         assert_eq!(chosen.score_trace.addends[2].name, "repair_bonus");
     }
 
-    /// P3a.6: after the full pipeline, `ann.score == ann.score_trace.compute()`
+    /// After the full pipeline, `ann.score == ann.score_trace.compute()`
     /// for every finite-score plan. Catches any stage that resets the score or
     /// forgets to push its trace hit (trace accumulates from `FinalizeStage::base`).
     #[test]

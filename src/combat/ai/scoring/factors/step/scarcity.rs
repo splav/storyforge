@@ -33,10 +33,6 @@ pub fn compute(
     compute_scarcity(step, kill_now, ctx)
 }
 
-/// Compute resource-scarcity factor: `swing_value - resource_ratio`.
-/// Free abilities return 0.0 (neutral). Expensive abilities on low-value
-/// situations get negative scores; expensive abilities in high-swing moments
-/// get positive scores.
 fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     let ScoredStep::Cast {
         ability,

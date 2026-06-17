@@ -591,8 +591,6 @@ mod tests {
             .with_ability("self_aoe_test", aoe_ability)
             .build();
 
-        // Plan: cast at the caster's own tile → plan_has_self_aoe returns true.
-        // No outcomes populated → self_damage_total starts at 0.
         let mut plan = TurnPlan::default();
         plan.steps.push(PlanStep::Cast {
             ability: AbilityId::from("self_aoe_test"),

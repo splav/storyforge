@@ -208,9 +208,6 @@ mod tests {
             false,
         );
 
-        // EV of 1d4 = 2.5 → 3; bonus = int_mod 3; raw = 6.
-        // magic_resist=0 (target default) so mitigation=0; final = max(1, 6-0) = 6.
-        // Numerically identical to the old pierces=true path when magic_resist=0.
         let raw = DiceExpr::new(1, 4, 0).expected().round() as i32 + ctx.int_mod;
         let dealt = final_damage_f32(raw as f32, 0.0, false); // magic_resist=0, no pierce
         let t = sim.unit(target_id).unwrap();

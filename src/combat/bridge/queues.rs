@@ -38,8 +38,8 @@ pub struct BridgeQueues {
 
 /// Turn-lifecycle sub-queue inside [`BridgeQueues`].
 ///
-/// Previously `PendingTurnLifecycle`.  Extracted as a named sub-struct so the
-/// field types remain self-documenting without a top-level Resource.
+/// Extracted as a named sub-struct so the field types remain self-documenting
+/// without a top-level Resource.
 #[derive(Default)]
 pub struct BridgeTurnLifecycle {
     pub remove_active: Vec<UnitId>,

@@ -221,7 +221,7 @@ pub fn hypothetical(
 }
 
 // ---------------------------------------------------------------------------
-// Extraction helpers (step 4.2)
+// Extraction helpers
 // ---------------------------------------------------------------------------
 
 /// `p_kill_soon` component of `ActionOutcomeEstimate`.

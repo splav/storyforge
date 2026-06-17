@@ -725,8 +725,6 @@ fn grant_movement_pays_ap_engine_defers_mp() {
 // Positions (verified in tests/aoo.rs): actor (3,3), enemy (4,3) adjacent;
 // (2,3) dist 2 from enemy (leaves adjacency); (3,4) dist 1 from both.
 
-/// Moving out of adjacency with a reacting enemy records AoO self_damage
-/// and applies it to actor hp.
 #[test]
 fn apply_move_records_aoo_self_damage() {
     // Actor at (3,3), enemy at (4,3) — adjacent (distance 1).
@@ -840,7 +838,6 @@ fn apply_move_kills_actor_with_lethal_aoo() {
     );
     let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
 
-    // Engine path: self_damage = HP delta (1 hp lost, not 10 raw dealt).
     assert_eq!(
         outcome.self_damage, 1.0,
         "engine shim: self_damage is HP delta (1 hp lost), not raw dealt damage (10)"
@@ -855,7 +852,6 @@ fn apply_move_kills_actor_with_lethal_aoo() {
     assert_eq!(dead.hp(), 0, "hp clamped to 0");
 }
 
-/// Path that stays adjacent to the enemy does not trigger AoO.
 #[test]
 fn apply_move_no_aoo_when_path_stays_adjacent() {
     // Actor at (3,3), enemy at (4,3). Move to (3,4) which is adjacent to
@@ -969,8 +965,6 @@ fn apply_move_aoo_mitigated_by_armor_bonus() {
 
 // ── Rage gain on damage (drift #3) ─────────────────────────────────────
 
-/// Single-target hit: attacker has rage, defender does not.
-/// Attacker rage increments by 1; defender rage stays None.
 #[test]
 fn apply_damage_grants_rage_to_attacker_per_hit() {
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
@@ -1019,8 +1013,6 @@ fn apply_damage_grants_rage_to_attacker_per_hit() {
     );
 }
 
-/// Single-target hit: defender has rage, attacker does not.
-/// Defender rage increments by 1; attacker rage stays None.
 #[test]
 fn apply_damage_grants_rage_to_defender_per_hit() {
     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build(); // no rage

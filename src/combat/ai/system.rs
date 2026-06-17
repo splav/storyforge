@@ -195,8 +195,6 @@ fn run_ai_turn(
     // Capture stored goal state before pre_tick mutates it — used in actor_tick log.
     let memory_pre = memory_ref.last_goal.clone();
 
-    // Step 7.3: centralised goal lifecycle — TTL decay + invalidating clear.
-    // Replaces the inline FIXME(step 7) TTL clear on the early-return path.
     goal_lifecycle::pre_tick(memory_ref, &snap, actor_view, &env.status_tags);
 
     if c.ap
@@ -283,8 +281,8 @@ fn run_ai_turn(
         HashMap::new()
     };
 
-    // Phase 6c: capture step counter BEFORE dispatching ActionInput messages.
-    // flush_pending_ai_log_system will use this to compute [start, end) range.
+    // Capture step counter BEFORE dispatching ActionInput messages —
+    // flush_pending_ai_log_system uses this to compute the [start, end) range.
     let start_step = trace_writer.step_counter();
 
     // pick_action is pure (does not mutate memory); update_memory runs after it
@@ -322,10 +320,9 @@ fn run_ai_turn(
         })
     };
 
-    // Step 7.5 / Phase 6c: build actor_tick event and push to pending queue.
     // engine_step_range is populated by flush_pending_ai_log_system after
     // process_action_system advances the step counter.
-    // Serialize to Value immediately so we don't store BattleSnapshot (!Sync) in a Resource.
+    // Serialize to Value immediately — BattleSnapshot is !Sync and can't live in a Resource.
     if logger.is_enabled() {
         let event = build_actor_tick_event(ActorTickInput {
             session_id,
@@ -385,7 +382,6 @@ fn run_ai_turn(
         }
     }
 
-    // Step 7.3: centralised goal lifecycle post-tick.
     goal_lifecycle::post_tick(
         memory_ref,
         &decision,

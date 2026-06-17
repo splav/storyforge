@@ -53,8 +53,6 @@ impl PlanSnapshot {
         }
     }
 
-    /// Returns `None` when the snapshot still matches current world state, or
-    /// `Some(reason_code)` identifying the first detected change.
     pub fn mismatch(
         &self,
         actor: UnitView<'_>,
@@ -126,8 +124,6 @@ impl PlanSnapshot {
         })
     }
 
-    /// Like [`Self::mismatch`] but attaches a `StatusDelta` (via the shared
-    /// `compute_status_delta_engine`) when the code is `actor_status_changed`.
     pub fn mismatch_with_delta(
         &self,
         actor: UnitView<'_>,

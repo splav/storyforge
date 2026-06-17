@@ -325,8 +325,6 @@ fn print_and_exit(
     _init_a: Option<&InitLine>,
     step_summaries: &[(usize, &StepLine)],
 ) {
-    // This function is called from main after streaming output; result carries
-    // the final verdict.  We only use init_a / step_summaries for the header.
     match result {
         DiffResult::Identical { steps } => {
             println!("Step 1..{steps}: all identical");

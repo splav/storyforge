@@ -74,8 +74,6 @@ fn via_policy(
 
 // ── Scenario-based invariant tests ────────────────────────────────────────────
 
-/// Extract all `(ability_def, engine_pair, caster_ctx)` triples from an
-/// `ActorTickEvent` JSONL line.
 fn extract_cast_triples_from_line(
     line: &str,
     content: &ActiveContentData,
@@ -127,8 +125,6 @@ fn extract_cast_triples_from_line(
     triples
 }
 
-/// Parse all JSONL files from `tests/ai_scenarios/snapshots/` and collect
-/// `(ability_def, engine_pair, caster_ctx)` triples.
 fn collect_scenario_triples(
     content: &ActiveContentData,
 ) -> Vec<(
@@ -177,8 +173,6 @@ fn collect_scenario_triples(
     all_triples
 }
 
-/// Verify that `via_policy` gives non-negative, finite values for all triples
-/// from scenario fixtures.
 #[test]
 fn policy_non_negative_for_all_scenario_fixtures() {
     let content = ActiveContentData::load_global_for_tests();

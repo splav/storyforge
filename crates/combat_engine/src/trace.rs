@@ -58,7 +58,6 @@ pub struct StepLine {
     pub action: Action,
     pub events: Vec<Event>,
     /// Number of RNG calls consumed by this step.
-    // populated by step() in 5b
     pub rng_calls: u64,
     /// BLAKE3 hash of engine state after this step (canary for mid-trace drift).
     pub post_state_hash: String,

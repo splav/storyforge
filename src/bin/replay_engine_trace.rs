@@ -190,8 +190,6 @@ fn resolve_overlay(session_id: &str, campaigns_root: &Path) -> Option<(PathBuf, 
     // Drop the timestamp prefix (everything up to and including the first '_').
     let after_ts = session_id.split_once('_')?.1;
 
-    // Find the campaign dir whose name is the longest prefix of `after_ts`
-    // followed by '_' (or equal to `after_ts` if nothing remains).
     let campaign_name = longest_dir_prefix(after_ts, campaigns_root)?;
     let campaign_dir = campaigns_root.join(&campaign_name);
 
@@ -256,8 +254,6 @@ fn events_match_within(recorded: &[Event], live: &[Event], eps: f32) -> Result<(
                 ));
             }
         } else {
-            // Tolerance check: for UnitDamaged, allow `raw` to differ by <= eps.
-            // All other variants and all other fields require strict equality.
             match (rec, liv) {
                 (
                     Event::UnitDamaged {

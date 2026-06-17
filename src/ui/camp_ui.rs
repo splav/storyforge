@@ -242,8 +242,6 @@ pub fn try_equip(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Resolve a hero's current effective equipment: saved loadout (if any) or
-/// class default.
 fn resolve_hero_equipment(
     hero_id: &str,
     class_id: &str,
@@ -1374,8 +1372,6 @@ pub fn camp_interaction_system(
                         }
                     }
 
-                    // Replace the backpack cell with the displaced item (if any),
-                    // or remove it if the equip slot was empty (hand slot, None displaced).
                     let is_empty_sentinel =
                         |d: &ItemRef| matches!(d, ItemRef::Armor(aid) if aid.0.is_empty());
                     match result.displaced {
@@ -1537,8 +1533,6 @@ pub fn camp_comparison_system(
         return;
     };
 
-    // Determine if the hovered cell qualifies for two-column comparison.
-    // Only possible when a selection is active.
     let compare_hovered: Option<CellKind> = if has_selection {
         let selected_kind = selection.selected.as_ref().unwrap();
         hovered_kind.and_then(|hk| {
@@ -2900,8 +2894,6 @@ mod tests {
 
     // ── hero_can_wear ────────────────────────────────────────────────────────
 
-    /// Build a `ActiveContentData` with light/medium/heavy chest pieces and
-    /// warrior/ranger/mage class defs — enough for proficiency tests.
     fn proficiency_content() -> ActiveContentData {
         use crate::content::classes::ClassDef;
         use crate::game::components::CombatStats;

@@ -370,7 +370,6 @@ mod computation_tests {
     }
 
     // ── BattleSnapshot::entity_for_uid / uid_for_entity ──────────────────
-    // Targets line 645:9 (entity_for_uid returns Option).
 
     #[test]
     fn entity_for_uid_some_for_known_none_for_unknown() {
@@ -390,7 +389,6 @@ mod computation_tests {
     }
 
     // ── BattleSnapshot::unit_at ───────────────────────────────────────────
-    // Targets line 683:9.
 
     #[test]
     fn unit_at_some_for_occupied_none_for_empty() {

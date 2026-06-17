@@ -109,12 +109,8 @@ pub trait ScoreEffectStage {
     fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect>;
 }
 
-/// Run a `ScoreEffectStage`: compute emitted effects → wrap with source →
-/// apply each via `PlanAnnotation::apply_effect` → recompute `ann.score`
-/// from trace for every annotation.
-///
-/// This is the sole writer of `score_trace`, legacy observability fields,
-/// and the cached `score` for stages that opt into the engine.
+/// Sole writer of `score_trace`, legacy observability fields, and the
+/// cached `score` for stages that opt into the engine.
 pub fn apply_score_effect_stage<S: ScoreEffectStage + ?Sized>(
     stage: &S,
     pool: &mut ScoredPool,
@@ -137,8 +133,7 @@ pub fn apply_score_effect_stage<S: ScoreEffectStage + ?Sized>(
         };
         pool.annotations[applied.plan_index].apply_effect(&applied);
     }
-    // Recompute cached score from trace for every plan.
-    // Important: applies even to plans this stage didn't touch — preserves
+    // Applies even to plans this stage didn't touch — preserves
     // invariant `ann.score == ann.score_trace.compute()` after each stage.
     for ann in pool.annotations.iter_mut() {
         ann.recompute_score_from_trace();

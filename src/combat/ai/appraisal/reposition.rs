@@ -111,8 +111,6 @@ mod tests {
 
     #[test]
     fn reposition_zero_when_engaged_no_position_gain() {
-        // Enemy is adjacent (within max_attack_range=1) → no engagement gap.
-        // Maps are all zeros → no position improvement.
         let actor_pos = hex_from_offset(3, 3);
         let enemy_pos = hex_from_offset(4, 3);
         let active = UnitBuilder::new(1, Team::Enemy, actor_pos)

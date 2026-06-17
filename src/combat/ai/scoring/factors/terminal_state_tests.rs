@@ -116,8 +116,6 @@ fn exposure_at_end_non_zero_when_actor_in_enemy_threat_zone() {
     );
 }
 
-/// `exposure_at_end` is ≈ 0 when actor stays in a safe backline tile
-/// (danger map is zero at the final position).
 #[test]
 fn exposure_at_end_zero_in_safe_backline() {
     let actor_pos = hex_from_offset(5, 5); // far from any enemy

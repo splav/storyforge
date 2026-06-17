@@ -111,7 +111,6 @@ pub fn delete(paths: &AppPaths, slot: u8) -> io::Result<()> {
     Ok(())
 }
 
-/// Write a campaign's current position into the slot, updating `last_campaign`.
 /// Reads existing profile to preserve other campaigns' progress.
 pub fn record_progress(
     paths: &AppPaths,
@@ -137,7 +136,6 @@ pub fn record_progress(
     save(paths, slot, &profile)
 }
 
-/// Drop a campaign's record from the slot (on completion or explicit delete).
 /// Clears `last_campaign` if it pointed to this one.
 pub fn clear_campaign(paths: &AppPaths, slot: u8, campaign_id: &str) -> io::Result<()> {
     let Some(mut profile) = load(paths, slot) else {

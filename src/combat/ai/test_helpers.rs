@@ -159,7 +159,7 @@ pub(crate) fn status_view(id: &str, rounds: u32, dot: i32) -> combat_engine::sta
 /// Convert a `UnitFixture` into the engine pair `(Unit, UnitAiCache)`.
 ///
 /// This is the single canonical conversion path — `UnitBuilder::build_pair`
-/// delegates here, eliminating the former duplicated `unit_snapshot_to_pair`.
+/// delegates here.
 pub(crate) fn fixture_to_pair(
     u: &UnitFixture,
 ) -> (
@@ -267,9 +267,7 @@ pub struct UnitBuilder {
 #[allow(dead_code)] // full chain kept for future tests; used ones rotate.
 impl UnitBuilder {
     /// Reasonable "generic melee bruiser" defaults. Tests override via the
-    /// chain methods below. Canonical defaults (picked to match the most
-    /// common old factory): hp/max_hp=20, ap=1/max=1, speed=3, mp=3,
-    /// threat=5.0, max_attack_range=1, role=Bruiser, tags=empty.
+    /// chain methods below.
     pub fn new(id: u32, team: Team, pos: Hex) -> Self {
         Self {
             inner: UnitFixture {
@@ -435,7 +433,7 @@ impl UnitBuilder {
     /// Build both halves: an engine `Unit` (for `CombatState`) and a
     /// `UnitAiCache` (for `AiCache`). Use with `snapshot_from` to produce
     /// a `BattleSnapshot` via the authoritative `BattleSnapshot::new(state, cache)`
-    /// constructor instead of the legacy `new_from_unit_snapshots`.
+    /// constructor.
     pub fn build_pair(self) -> (combat_engine::state::Unit, UnitAiCache) {
         fixture_to_pair(&self.inner)
     }
@@ -869,9 +867,6 @@ impl CriticScenarioBuilder {
     }
 }
 
-/// Run `critic.evaluate(plan, ctx)` inside a [`CriticScenario`].
-///
-/// Returns the `Option<CriticHit>` from the critic.
 pub(crate) fn run_critic<C: crate::combat::ai::pipeline::stages::critics::PlanCritic>(
     critic: &C,
     plan: &crate::combat::ai::plan::types::TurnPlan,

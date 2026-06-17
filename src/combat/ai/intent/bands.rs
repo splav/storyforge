@@ -33,10 +33,9 @@ pub enum PriorityBand {
 
 // ── BandWeights ──────────────────────────────────────────────────────────────
 
-/// Per-band weights for the six `IntentConsiderations` axes (introduced in 11.3).
+/// Per-band weights for the six `IntentConsiderations` axes.
 ///
 /// Stored here alongside the band enum so the source of truth is co-located.
-/// Consumed in 11.3 when `IntentConsiderations` scoring lands.
 #[derive(Clone, Copy, Debug)]
 pub struct BandWeights {
     pub urgency: f32,
@@ -98,7 +97,7 @@ impl PriorityBand {
 
 /// Diagnostic payload explaining which rule triggered the band assignment.
 ///
-/// Tagged serde enum so the log diff tool can parse it in 11.6.
+/// Tagged serde enum so the log diff tool can parse it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BandReason {
@@ -151,7 +150,6 @@ pub fn assign_band(
         );
     }
 
-    // 3. HardRescueOpportunity — rescue need above hard threshold AND actor can heal.
     // CAN_RESCUE does not exist in this codebase; CAN_HEAL is the sole gate.
     let hard_rescue = tuning.thresholds.hard_rescue_threshold;
     if needs.rescue_ally >= hard_rescue && active.cache.tags.contains(AiTags::CAN_HEAL) {

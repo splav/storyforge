@@ -4,8 +4,6 @@
 //! snapshot. All compute sigs are `(plan, snap, ctx)` for uniformity; bodies
 //! that don't need `snap` bind it as `_snap`.
 //!
-//! The new `TerminalScore` typed wrapper lives here (distinct from the legacy
-//! `planning::terminal::TerminalScore`). Both coexist in commit 1.
 
 pub mod ally_rescue;
 pub mod board_control_gain;
@@ -104,8 +102,6 @@ impl TerminalFactor {
         }
     }
 
-    /// Compute this terminal factor.
-    ///
     /// `snap` is the initial (pre-plan) battle snapshot. Bodies that don't
     /// need it bind the parameter as `_snap`.
     pub fn compute(self, plan: &TurnPlan, snap: &BattleSnapshot, ctx: &ScoringCtx) -> f32 {

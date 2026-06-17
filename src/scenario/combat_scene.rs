@@ -195,9 +195,6 @@ pub fn spawn_combatants(
             legs: cls.legs.clone(),
             feet: cls.feet.clone(),
         };
-        // Apply saved loadout override (if any) before resolving stats.
-        // Per-slot validation: fall back to class default for any slot whose saved
-        // id is absent from the content registries, with a warning.
         let equipment = if let Some(save) = loadouts.get(&member.id) {
             let main_hand = match &save.main_hand {
                 Some(wid) if content.weapons.contains_key(wid) => Some(wid.clone()),
@@ -399,8 +396,6 @@ pub fn spawn_combatants(
     }
 }
 
-/// Recursively collect all `target_name` strings from any `KeepAlive` node
-/// at any depth inside the victory condition tree.
 pub(crate) fn collect_keep_alive_names(cond: &VictoryCondition) -> std::collections::HashSet<&str> {
     let mut names = std::collections::HashSet::new();
     walk_victory_names(cond, &mut names);

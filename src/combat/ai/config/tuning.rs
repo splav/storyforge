@@ -270,8 +270,6 @@ impl Default for Tables {
     #[rustfmt::skip]
     fn default() -> Self {
         Self {
-            // columns (v29): [damage, kill_now, kill_promised, cc, heal, scarcity, saturation, intent, tempo_gain, self_survival]
-            // was (v28):     [damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival]
             axis_factor_weights: [
                 //  dmg   kn    kp    cc    heal  scarc sat   intent tempo surv
                 [   0.4,  0.6,  0.3,  0.5,  0.2,  0.4,  1.0,  1.0,  0.8,  1.0 ], // Tank
@@ -405,9 +403,6 @@ impl Default for Difficulty {
 pub struct AiTuningOverride {
     #[serde(default)]
     pub thresholds: Option<ThresholdsOverride>,
-    // hooks (not yet wired):
-    // pub difficulty: Option<DifficultyOverride>,
-    // pub tables: Option<TablesOverride>,
 }
 
 /// Per-unit partial override of `Thresholds`. Each field that is `Some(v)`

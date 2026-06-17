@@ -94,8 +94,6 @@ pub enum EffectSource {
 }
 
 impl EffectSource {
-    /// Returns `Some(UnitId)` if this source is a unit, `None` if it is
-    /// an environment object.
     pub fn as_unit(self) -> Option<UnitId> {
         match self {
             EffectSource::Unit(u) => Some(u),

@@ -322,8 +322,6 @@ fn is_goal_obsolete(outcome: &ContinuationOutcome) -> bool {
     )
 }
 
-/// EndTurn with a matching in-transit goal → outcome is InTransit → NOT obsolete
-/// → goal should be preserved across rounds.
 #[test]
 fn last_goal_preserved_across_endturn() {
     let target = ent(1);

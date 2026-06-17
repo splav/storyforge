@@ -3,7 +3,6 @@ use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::game::hex::Hex;
 
-/// Evaluate how desirable `tile` is for a unit with the given profile.
 /// Composed weights from `AxisProfile::position_weights()` combine the 3
 /// influence maps (danger, ally_support, opportunity) — role emergent.
 pub fn evaluate_position(

@@ -7,7 +7,7 @@
 //! Sub-modules:
 //! - `cache`    — `AbilityTagCache`, `StatusTagCache`.
 //! - `classify` — tag derivation from content shapes.
-//! - `ai_tags`  — `AiTags` bitflags (formerly in `world/snapshot.rs`; moved R7).
+//! - `ai_tags`  — `AiTags` bitflags.
 
 pub mod ai_tags;
 pub mod cache;

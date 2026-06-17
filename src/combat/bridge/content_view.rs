@@ -14,10 +14,9 @@ use combat_engine::modifier;
 
 /// ECS-backed `ActiveContentData` adapter for `process_action_system`.
 ///
-/// After 5c.1, this struct carries only static content (active_content).
-/// Per-combat state (caster contexts, auras, AoO dice, phase triggers) now
-/// lives on engine `Unit` fields and is populated once at combat init by
-/// `from_ecs` / `bootstrap_combat_state`.
+/// Carries only static content (active_content); per-combat state (caster
+/// contexts, auras, AoO dice, phase triggers) lives on engine `Unit` fields
+/// and is populated once at combat init by `from_ecs` / `bootstrap_combat_state`.
 pub struct EcsContentView<'a> {
     active_content: &'a ActiveContent,
 }

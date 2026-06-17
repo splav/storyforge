@@ -322,10 +322,6 @@ impl PlanStage for PickBestStage {
             return;
         }
 
-        // ── Step 11.4: per-agenda-item additive composition ───────────────────
-        //
-        // When an agenda is present and ItemScoringStage has filled `per_item`,
-        // rewrite ann.score to the composed per-item maximum before jitter.
         if let Some(agenda) = ctx.agenda {
             if !agenda.items.is_empty() {
                 let has_per_item = pool.annotations.iter().any(|a| !a.per_item.is_empty());
@@ -458,8 +454,6 @@ impl PlanStage for PickBestStage {
                             }
                         }
 
-                        // Step 11.6: snapshot considerations for all per_item entries
-                        // (serialised in schema v32 as considerations_per_item).
                         // Populated unconditionally so the log contains the full
                         // overlay even for non-chosen / ineligible items.
                         ann.considerations_per_item =

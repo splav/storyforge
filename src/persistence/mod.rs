@@ -9,7 +9,6 @@ use bevy::prelude::*;
 #[derive(Resource, Debug, Clone)]
 pub struct PersistencePaths(pub AppPaths);
 
-/// Resolve user directories once at startup.
 /// Returns `None` if the OS doesn't expose standard user dirs (extremely rare on desktop).
 pub fn detect_paths() -> Option<AppPaths> {
     match AppPaths::detect() {

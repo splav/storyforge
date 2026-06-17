@@ -9,11 +9,6 @@ use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::EffectCalcExt;
 use crate::game::hex::Hex;
 
-/// Evaluate the SynergyBonus rule for one plan.
-///
-/// Returns `Some(SanityHit { rule: SynergyBonus, multiplier: 1.1 })` when the
-/// plan moves to a safer or positionally better tile **and** includes a useful
-/// cast. Returns `None` otherwise (including when the plan does not reposition).
 pub(super) fn evaluate(
     active: UnitView<'_>,
     plan: &TurnPlan,

@@ -55,8 +55,6 @@ pub struct StageEntry {
 }
 
 // ── Thin shims ────────────────────────────────────────────────────────────────
-//
-// One function per stage.  Each simply delegates to the stage's `PlanStage::apply`.
 
 fn apply_viability(pool: &mut ScoredPool, ctx: &mut StageCtx) {
     use crate::combat::ai::pipeline::stages::viability::ViabilityStage;

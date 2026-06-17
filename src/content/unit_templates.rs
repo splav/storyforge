@@ -25,7 +25,6 @@ pub struct UnitTemplateDef {
     pub ability_ids: Vec<AbilityId>,
     /// Per-unit AiTuning override. `None` for all current units.
     /// Populated from `ai_tuning_override` in `unit_templates.toml`.
-    /// See step 2.7 of docs/ai_rework_plan.md.
     pub ai_tuning_override: Option<AiTuningOverride>,
     /// Statuses applied at combat bootstrap with `PERMANENT_DURATION`.
     /// Used for non-acting party NPCs that must skip every turn

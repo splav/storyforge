@@ -33,7 +33,6 @@ use crate::content::content_view::ActiveContentData;
 pub struct AppraisalCtx<'a> {
     /// Active unit as a `UnitView` — engine state + AI cache.
     /// Use `active.cache.*` for AI-derived fields; engine fields deref directly.
-    /// U2/C1: flipped from `&'a UnitSnapshot`.
     pub active: UnitView<'a>,
     pub snap: &'a BattleSnapshot,
     pub maps: &'a InfluenceMaps,
@@ -105,7 +104,7 @@ pub(crate) mod tests {
     /// Convenience helper: build an `AppraisalCtx` for unit tests that call
     /// individual producer functions. Uses empty caches and empty maps by default.
     ///
-    /// U2/C1: `active` is resolved to a `UnitView` from `battle_snap`. The unit
+    /// `active` is resolved to a `UnitView` from `battle_snap`. The unit
     /// must already be present in the snapshot (built via `snapshot_from`).
     #[allow(clippy::too_many_arguments)]
     pub fn make_ctx<'a>(

@@ -642,8 +642,6 @@ pub fn load_encounters_from_str(
 mod tests {
     use super::*;
 
-    /// A `PhaseRecord` with `victory_override` and `turn_limit` resolves into a
-    /// `PhaseDef` whose new fields are correctly populated.
     #[test]
     fn phase_record_resolves_victory_override_and_turn_limit() {
         let toml_src = r#"

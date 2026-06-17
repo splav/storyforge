@@ -227,8 +227,6 @@ pub fn check_legality<S: ActionState>(
 
     let mut disadvantage = actor.causes_disadvantage;
 
-    // WeaponAttack dice availability check.
-    // Illegal if the matching dice channel (melee or ranged) is absent.
     if let crate::content::EffectDef::WeaponAttack { ranged, .. } = &def.effect {
         let (weapon_dice, ranged_dice) = state.actor_weapon_channels(action.actor);
         let has_dice = if *ranged {
@@ -255,8 +253,6 @@ pub fn check_legality<S: ActionState>(
             disadvantage = true;
         }
 
-        // LOS check: ranged abilities with requires_los=true reject actions
-        // where any intermediate hex on the line is blocked.
         if def.requires_los
             && def.range.max > 1
             && state.is_blocked_los(actor.pos, action.target_pos)

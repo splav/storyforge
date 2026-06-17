@@ -93,8 +93,7 @@ impl StepFactor {
     ///
     /// `ctx.snap` must be the **pre-step** snapshot (caller applies
     /// `ctx.with_perspective(&sim_actor, pre_snap)` before entering the step
-    /// loop). `needs` is forwarded for future step-11 use; current bodies
-    /// ignore it.
+    /// loop).
     pub fn compute(
         self,
         ctx: &ScoringCtx,

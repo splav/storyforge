@@ -103,8 +103,8 @@ pub enum RegenRule {
     RefillToMax,
 }
 
-/// Reason a pool's current/max changed. Carried on `Event::PoolChanged`
-/// (added in C4). Bridge mirror parameterizes log/UI rendering by this.
+/// Reason a pool's current/max changed. Carried on `Event::PoolChanged`.
+/// Bridge mirror parameterizes log/UI rendering by this.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PoolChangeCause {
     /// Turn-start regen step (Increment rule fired).

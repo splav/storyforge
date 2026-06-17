@@ -222,10 +222,6 @@ mod tests {
 
     #[test]
     fn rescue_ally_ignores_dead_allies_in_reach() {
-        // REGRESSION: до Phase D Pass 3 best_danger итерировался по snap.units без
-        // alive-фильтра, и трупы союзников с hp_pct=0 → hp_low=1.0 ложно
-        // триггерили rescue need signal. Проверяем, что мёртвые ally не увеличивают
-        // сигнал по сравнению с baseline (нет живых союзников).
         let actor_pos = hex_from_offset(3, 3);
         let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .full_hp(20)
@@ -290,10 +286,6 @@ mod tests {
 
     #[test]
     fn ally_threat_proxy_ignores_dead_enemies() {
-        // REGRESSION: до Phase D Pass 3 ally_threat_proxy итерировался по snap.units
-        // без alive-фильтра, и мёртвые враги с непустыми damage_horizon (из cache)
-        // ложно поднимали "угрозу союзнику". Проверяем, что мёртвый враг рядом с
-        // живым союзником не поднимает rescue-сигнал выше baseline (нет врагов).
         let actor_pos = hex_from_offset(3, 3);
         let ally_pos = hex_from_offset(4, 3);
         let active = UnitBuilder::new(1, Team::Enemy, actor_pos)

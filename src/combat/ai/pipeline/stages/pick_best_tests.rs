@@ -35,8 +35,6 @@ fn pick_best_marks_exactly_one_chosen() {
 
 #[test]
 fn pick_best_selects_highest_score() {
-    // With deterministic DiceRng seed and no mercy margin (default difficulty),
-    // the highest-scored plan should be chosen.
     let pool = run_pick(vec![0.1, 0.9, 0.4]);
     // Index 1 has the highest score.
     assert!(
@@ -129,8 +127,6 @@ fn pick_jitter_skips_masked_plans() {
     assert!(post_scores[2].is_finite(), "plan 2 score should be finite");
 }
 
-/// Noise is order-invariant: same plan in position 0 or 1 gets the same noise value.
-/// Migrates the invariant tested in `scorer.rs::noise_is_plan_order_invariant`.
 #[test]
 fn pick_jitter_is_plan_order_invariant() {
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome};
@@ -185,8 +181,6 @@ fn pick_jitter_is_plan_order_invariant() {
     );
 }
 
-/// Winner's PickInfo.noise_applied is populated with the actual noise value
-/// when score_noise > 0.
 #[test]
 fn pick_jitter_records_noise_applied_in_pick_info() {
     let difficulty = DifficultyProfile::easy();
@@ -604,8 +598,6 @@ fn cdot_changes_score_additively_with_intent_weight() {
         );
 }
 
-/// A plan with a band-eligible item beats a fallback (no eligible items) plan
-/// when both start with the same initial score.
 #[test]
 fn attributed_plan_beats_fallback_plan_with_equal_initial_score() {
     let agenda = Agenda {
@@ -639,9 +631,6 @@ fn attributed_plan_beats_fallback_plan_with_equal_initial_score() {
         per_items,
         &agenda,
     );
-    // Plan A: composed = 0.5 + 0 + 0 + w_intent*cdot  (cdot > 0 → composed > 0.5)
-    // Plan B: fallback → score stays 0.5.
-    // Plan A must win.
     assert!(
         pool.annotations[0].chosen,
         "attributed plan (eligible item) must beat fallback plan with equal initial score"

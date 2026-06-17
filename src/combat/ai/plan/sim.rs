@@ -243,7 +243,6 @@ impl<'a> SimState<'a> {
             Ok((events, _ctx)) => {
                 // combat_state is already updated in-place by step().
                 // No sync needed — read post-step values via sim.unit(entity).
-
                 // ── Populate StepOutcome from engine events ────────────────────
                 use combat_engine::event::Event;
                 for ev in &events {
@@ -309,16 +308,14 @@ impl<'a> SimState<'a> {
 
 // ── Engine shim helpers ───────────────────────────────────────────────────────
 
-/// `ActiveContentData` adapter for the AI sim (5c.1: static content only).
+/// `ActiveContentData` adapter for the AI sim — static content only.
 ///
 /// Per-combat state (caster contexts, AoO dice) lives on engine `Unit`
 /// fields in `SimState.combat_state` (set at construction from `snap.state`).
 /// This struct only carries static content: ability and status definitions
 /// for engine legality.
 struct SnapshotContentView {
-    /// Engine-format ability definitions (populated for Cast steps).
     abilities: std::collections::HashMap<combat_engine::AbilityId, combat_engine::AbilityDef>,
-    /// Engine-format status definitions (populated for Cast steps).
     statuses: std::collections::HashMap<combat_engine::StatusId, combat_engine::StatusDef>,
 }
 

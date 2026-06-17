@@ -111,7 +111,6 @@ impl PlanStage for OverlayConsiderationsStage {
             let safety = 1.0 - self_damage_ratio.max(exposure);
 
             // continuation_value: recompute with plan-level repair_affinity.
-            // Formula: 0.5 × continue_commitment + 0.5 × repair_severity_factor
             let repair_affinity = &ann.repair_affinity;
             let commitment = ctx.scoring.need_signals.continue_commitment.clamp(0.0, 1.0);
             let repair_score = repair_affinity.severity_factor.clamp(0.0, 1.0);
@@ -283,8 +282,6 @@ fn compute_leverage(
 
 // ── Leverage helpers ──────────────────────────────────────────────────────────
 
-/// Returns current HP of the target unit from the battle snapshot.
-/// Returns 0.0 when `target_opt` is `None` or unit not found.
 fn target_current_hp_or_max(snap: &BattleSnapshot, target_opt: Option<Entity>) -> f32 {
     target_opt
         .and_then(|t| snap.unit(t))
@@ -369,8 +366,6 @@ fn sum_enemy_damage(outcomes: &[ActionOutcomeEstimate]) -> f32 {
     outcomes.iter().map(|o| o.enemy_damage).sum()
 }
 
-/// Returns HP deficit (max_hp - hp) of the protected ally.
-/// Returns 0.0 when `ally_opt` is `None` or unit not found.
 fn ally_hp_deficit_for_target(snap: &BattleSnapshot, ally_opt: Option<Entity>) -> f32 {
     ally_opt
         .and_then(|a| snap.unit(a))

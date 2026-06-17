@@ -126,8 +126,6 @@ mod tests {
 
     #[test]
     fn ally_tile_is_not_stoppable_but_passable() {
-        // Teammate blocks stopping on their tile but lets the actor pass
-        // through when pathing to something beyond.
         let actor = unit(1, Team::Enemy, hex_from_offset(3, 3));
         let ally_pos = hex_from_offset(4, 3);
         let ally = unit(2, Team::Enemy, ally_pos);

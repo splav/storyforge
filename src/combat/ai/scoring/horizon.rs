@@ -553,10 +553,9 @@ mod tests {
         }
     }
 
-    /// Stun-value scoring now reads `damage_horizon` (DPR-correct) instead
-    /// of `threat` (peak) — a burst mage who's already spent their pool
-    /// should score lower to CC than a sustained fighter with the same
-    /// `threat`. Pins the key user-visible effect of #6-B.
+    /// `damage_horizon` (DPR-correct) rather than `threat` (peak): a burst mage
+    /// who's already spent their pool should score lower to CC than a sustained
+    /// fighter with the same `threat`.
     #[test]
     fn stun_value_devalues_resource_starved_target() {
         use crate::combat::ai::test_helpers::UnitBuilder;

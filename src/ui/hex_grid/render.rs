@@ -267,9 +267,6 @@ pub fn setup_hex_grid(
                 -16.0,
             );
 
-            // Status-badge slots: a compact row of up to STATUS_BADGE_SLOTS
-            // small labels along the bottom of the hex (y_offset -27).
-            // Slots are spaced 14px apart, centered around x=0.
             let n = STATUS_BADGE_SLOTS as f32;
             let badge_spacing = 14.0_f32;
             let badge_row_start_x = -(n - 1.0) * badge_spacing * 0.5;

@@ -73,8 +73,6 @@ mod tests {
 
     // ── mode_selection_does_not_mutate_score ──────────────────────────────
 
-    /// ModeSelectionStage must not change ann.score for any plan, including
-    /// those that triggered LastStand mode.
     #[test]
     fn mode_selection_does_not_mutate_score() {
         // ── 1. Test data ──
@@ -112,8 +110,6 @@ mod tests {
 
     // ── mode_selection_writes_adaptation_for_laststand_plans ──────────────
 
-    /// Plans that trigger LastStand must have ann.adaptation = Some(_) after
-    /// ModeSelectionStage.
     #[test]
     fn mode_selection_writes_adaptation_for_laststand_plans() {
         // ── 1. Test data ──
@@ -151,8 +147,6 @@ mod tests {
 
     // ── mode_selection_records_original_score ────────────────────────────
 
-    /// When adaptation triggers, ann.adaptation.original_score must equal
-    /// the pre-adaptation ann.score.
     #[test]
     fn mode_selection_records_original_score() {
         // ── 1. Test data ──
@@ -191,8 +185,6 @@ mod tests {
 
     // ── mode_selection_adaptation_reason_is_protect_self_no_defensive ────
 
-    /// IntentReason::Adapted built from ann.adaptation encodes the correct
-    /// AdaptationReason (parity with legacy adaptation_data_round_trips_through_intent_reason).
     #[test]
     fn mode_selection_adaptation_reason_is_protect_self_no_defensive() {
         // ── 1. Test data ──
@@ -234,8 +226,6 @@ mod tests {
 
     // ── mode_selection_no_adaptation_when_no_trigger ──────────────────────
 
-    /// Healthy actor with no AoO threats under non-ProtectSelf intent →
-    /// no adaptation annotation written.
     #[test]
     fn mode_selection_no_adaptation_when_no_trigger() {
         // ── 1. Test data ──

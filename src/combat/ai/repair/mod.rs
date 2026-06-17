@@ -2,7 +2,6 @@
 /// `PlanSnapshot::mismatch()` into semantic severity levels, so downstream
 /// logic can reason about whether a stored goal is still achievable rather than
 /// replanning from scratch on every state change.
-// goal.rs/lifecycle.rs moved to memory/goal/; re-export for backward-compat.
 pub use crate::combat::ai::memory::goal::{extract_goal_context, GoalKind, StoredGoalContext};
 
 pub mod affinity;
@@ -280,9 +279,9 @@ fn is_reactive_reason(reason: &IntentReason) -> bool {
             | "protect_self_no_defensive"
             | "expected_self_lethal"
             | "killable"
-            // Step 6.8.B: ally needing rescue is contractual abandon, not free choice.
+            // Ally needing rescue is contractual abandon, not free choice.
             | "protect_ally"
-            // Step 6.8.B: urgency fires when self_preserve × danger crosses threshold —
+            // Urgency fires when self_preserve × danger crosses threshold —
             // a forced reaction to immediate threat, not a goal-driven decision.
             | "urgency"
     )
@@ -326,10 +325,6 @@ pub fn is_abandoned_outcome(outcome: &ContinuationOutcome) -> bool {
 
 /// Diff between the status set stored at plan-capture time and the current
 /// actor status set.
-///
-/// Used in commit 3 by `classify_mismatch` to determine the severity of an
-/// `actor_status_changed` mismatch without hard-coding severity per code.
-/// Introduced here (commit 0) as a pure shared helper; no consumers yet.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StatusDelta {
     /// Status ids present in `current` but absent in `stored`.

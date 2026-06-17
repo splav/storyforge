@@ -1,6 +1,5 @@
 //! CC composite value policy — combines turn denial, vulnerability, and armor
-//! reduction. No consumers yet (migration + legacy-`deny_value` bit-identity
-//! property tests land in step 4.10). Weights are 1.0 placeholders.
+//! reduction.
 
 /// Combined HP-equivalent value of crowd-control effects applied in one action.
 ///

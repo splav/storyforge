@@ -16,8 +16,6 @@ impl TurnQueue {
         Self { order, index: 0 }
     }
 
-    /// Returns the `UnitId` of the currently active actor, or `None` if the
-    /// queue is empty.
     pub fn current(&self) -> Option<UnitId> {
         self.order.get(self.index).copied()
     }
@@ -57,8 +55,7 @@ mod tests {
         }
     }
 
-    /// Simulates the advance-and-skip logic (mirrors `Effect::AdvanceTurn` predicate).
-    /// Returns `(wrapped, final_index)`.
+    /// Mirrors the `Effect::AdvanceTurn` advance-and-skip predicate.
     fn sim_advance(queue: &mut TurnQueue, is_alive: impl Fn(usize) -> bool) -> (bool, usize) {
         let start_idx = queue.index;
         let mut wrapped = false;

@@ -37,9 +37,6 @@ use crate::game::hex::Hex;
 
 pub struct ItemScoringStage;
 
-/// `true` if `plan` has a `Move` step and `final_pos` is strictly closer (hex
-/// distance) to `target_pos` than `actor_start_pos`.
-///
 /// v1 limitation: geometric distance, not path — a plan ending closer but behind
 /// an obstacle still counts. Path-distance refinement is backlogged.
 fn approaches_target(plan: &TurnPlan, actor_start_pos: Hex, target_pos: Hex) -> bool {
@@ -480,8 +477,6 @@ mod tests {
             adjusted_score: 1.0,
         };
 
-        // run_stage_with_snap drives ItemScoringStage; it must complete without
-        // panic and produce per_item for both agenda items.
         let pool = run_stage_with_snap(plans, vec![annotation], &agenda, actor, snap);
         assert_eq!(
             pool.annotations[0].per_item.len(),
@@ -585,7 +580,7 @@ mod tests {
     }
 
     /// NormalTactical band + no offensive plan in pool → ApproachTarget relaxation
-    /// applies (extended in fix #1 post step 11), approach-only plan is eligible.
+    /// applies; approach-only plan is eligible.
     #[test]
     fn approach_target_eligible_in_normal_tactical_when_no_offensive_plan() {
         // Actor at (0,0), target at (3,0). Move plan ends at (2,0) — strictly closer.

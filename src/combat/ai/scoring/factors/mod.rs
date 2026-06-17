@@ -201,12 +201,6 @@ pub(crate) fn compute_offensive_for_step(
     off
 }
 
-// Normalization tests used to live here but only exercised inlined copies
-// of the formula, not production code. The real batch-normalisation contract
-// is pinned by `planning::scorer::tests::sum_factors_scale_by_step_weight`
-// and `rescore_matches_full_score_under_same_intent`, which drive
-// `finalize_scores` end-to-end.
-
 // ── PlanFactorValues typed wrapper ───────────────────────────────────────────
 
 /// Typed `[f32; 10]` wrapper for plan factor values.
@@ -223,13 +217,6 @@ pub(crate) fn compute_offensive_for_step(
 /// Custom serde writes/reads a named map `{"damage": ..., ..., "self_survival":
 /// ...}` via `StepFactor::from_name` + `PlanFactor::from_name`. Unknown keys →
 /// error; missing keys → 0.0 (forward-compat).
-///
-/// # Column order (post-8.A)
-/// `[damage, kill_now, kill_promised, cc, heal, scarcity, saturation, intent,
-/// tempo_gain, self_survival]`.
-/// Was `[damage, kill_now, kill_promised, cc, heal, intent, scarcity,
-/// tempo_gain, saturation, self_survival]` in v28. The re-permutation
-/// co-incides with TOML row update in commit 2.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct PlanFactorValues([f32; 10]);
 

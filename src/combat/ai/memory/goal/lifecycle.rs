@@ -237,9 +237,6 @@ mod tests {
     #[test]
     fn pre_tick_preserves_when_relevant_or_cosmetic() {
         let target = ent(2);
-        // Actor at pos (0,0); stored expects (0,0) → no actor mismatch.
-        // Target exists in snapshot → no target_gone.
-        // Target hp dropped (Relevant) — should NOT clear.
         let actor_unit = make_actor(1);
         let target_unit = crate::combat::ai::test_helpers::UnitBuilder::new(
             2,

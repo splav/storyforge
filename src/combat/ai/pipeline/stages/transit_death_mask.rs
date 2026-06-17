@@ -104,8 +104,6 @@ mod tests {
         }
     }
 
-    /// Run the stage in isolation on a solo-actor snapshot. Returns the pool
-    /// after the stage has been applied.
     fn run_stage_simple(
         actor_hp: i32,
         plans: Vec<TurnPlan>,

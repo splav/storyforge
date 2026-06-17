@@ -417,11 +417,6 @@ pub fn print_assertion_failure(actual: &ActualDecision, results: &[VariantMatchR
     }
 }
 
-/// Build `ActualDecision` from the chosen plan log entry and intent.
-///
-/// `steps` come from the chosen `PlanLog`;
-/// `final_pos` is `[x, y]`; `intent_kind_str` is the intent kind name string
-/// (e.g. `"FocusTarget"`); `content` is used for primary_effect lookup.
 pub fn build_actual_decision(
     steps: &[PlanStep],
     final_pos: [i32; 2],

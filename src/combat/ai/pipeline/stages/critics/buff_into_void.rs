@@ -48,11 +48,7 @@ impl PlanCritic for BuffIntoVoid {
                 continue;
             }
 
-            // Look up target unit by Entity (handles cross-step movement and
-            // entity-keyed identity correctly).
             let Some(target_unit) = ctx.snap.unit(*target) else {
-                // Register statuses this step would apply even if target not found,
-                // then continue.
                 for sa in &def.statuses {
                     plan_applied.push((*target, sa.status.clone()));
                 }

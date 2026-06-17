@@ -178,7 +178,7 @@ struct Aggregate {
     // Denominator: total_chosen (plans where annotation.chosen == true).
     f1_ability_tag_counts: BTreeMap<String, usize>,
 
-    // F2: Need signals post-9.B.
+    // F2: Need signals.
     // NOTE: NeedSignals are NOT part of the v30 log schema (ActorTickEvent).
     // This section pins the setup_aoe goal_kind count as a regression gate
     // (setup_aoe goal should never be stored; its NeedSignal is always 0.0).
@@ -616,7 +616,6 @@ impl Aggregate {
         }
 
         // ── P3b: score_trace_log-sourced stats (v33+) ─────────────────────────
-        // E1-trace + A1-trace: walk all plans in the pool.
         for plan in &event.plans {
             let ann = &plan.annotation;
             if let Some(trace) = &ann.score_trace_log {
@@ -786,8 +785,6 @@ impl Aggregate {
                 }
             }
 
-            // H3a: construction-time metrics from existing v32 logs.
-            // Agenda size distribution per band.
             let size_key = format!("{}/{}", band_key, event.agenda.len());
             *self.h3a_agenda_size.entry(size_key).or_default() += 1;
 
@@ -1011,8 +1008,7 @@ impl Aggregate {
             approximate_fresh_intent(event, chosen, &cont.stored_goal);
         *self.intent_source_counts.entry(intent_source).or_default() += 1;
 
-        // fresh_reason: read from event.intent_reason (full structured reason).
-        // None on skip-path; classify as NoRuleDefault (voluntary if goal abandoned).
+        // None on skip-path → NoRuleDefault (voluntary if goal abandoned).
         let fallback_reason = storyforge::combat::ai::intent::IntentReason::NoRuleDefault;
         let fresh_reason = event.intent_reason.as_ref().unwrap_or(&fallback_reason);
 
@@ -1085,8 +1081,6 @@ impl Aggregate {
                 .entry(sev_label.clone())
                 .or_default() += 1;
 
-            // Cross-tab: which statuses are on the actor at this tick?
-            // Map each known status_id to its hardcoded StatusTag bucket.
             let tags_seen = statuses_to_tag_labels(event);
             if tags_seen.is_empty() {
                 let key = format!("{sev_label}×(none)");
@@ -2996,8 +2990,6 @@ mod tests {
 
     #[test]
     fn v26_schema_skipped_with_error() {
-        // The main() loop checks schema_version before deserialising.
-        // This test verifies the label logic directly via the fast-path check.
         let json = r#"{"event_type":"actor_tick","schema_version":26,"round":1}"#;
         let val: serde_json::Value = serde_json::from_str(json).unwrap();
         let ver = val

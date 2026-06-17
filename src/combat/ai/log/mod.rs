@@ -320,8 +320,6 @@ pub fn format_timestamp_utc(epoch_s: u64) -> String {
     format!("{year:04}{month:02}{d:02}T{h:02}{m:02}{s:02}")
 }
 
-/// Replace non-alphanumeric-and-hyphen chars with `_` so the segment is safe
-/// to embed in a filename across platforms.
 pub fn sanitize_for_filename(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -364,10 +362,6 @@ pub fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-/// Build a `PlanLogEntry` from a plan + its raw factors, per-adaptation
-/// score pair, trade breakdown, evaluation-mode metadata, and sanity
-/// breakdown. `chosen` reflects whether this plan was the one `pick_action`
-/// committed.
 pub fn plan_to_log_entry<'a>(
     plan: &'a TurnPlan,
     rank: usize,
@@ -567,9 +561,6 @@ fn compute_data_dir_hash() -> String {
     let digest = combat_engine::content_hash::hash_content(&refs);
     combat_engine::content_hash::format_hex(&digest)
 }
-
-// (Plan divergence log types removed in v27 clean-break — divergence data
-// now lives inside `ActorTickEvent.continuation` per tick.)
 
 // ── Replay snapshot wire types (v17+) ─────────────────────────────────────
 
@@ -998,7 +989,7 @@ pub struct ActorTickInput<'a> {
     /// skip-path or when no adaptation fired for the chosen plan.
     pub evaluation_mode_reason: Option<&'a crate::combat::ai::adapt::AdaptationReason>,
     /// v35: `TacticalIntent` selected by `pick_action`; `None` on skip-path.
-    /// Copied verbatim into `ActorTickEvent.chosen_intent` for mining C6.
+    /// Copied verbatim into `ActorTickEvent.chosen_intent` for mining tools.
     pub chosen_intent: Option<crate::combat::ai::intent::TacticalIntent>,
     pub debug_names: &'a std::collections::HashMap<Entity, String>,
     /// Status tag cache for severity classification in `continuation` section.

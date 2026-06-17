@@ -110,10 +110,10 @@ pub struct PickResult {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MoveOrigin {
     /// Came out of `picker::commit_plan` — winning plan's first step is a
-    /// move-only prefix. Historically labelled "MoveOnlyRetreat".
+    /// move-only prefix.
     BestPlan,
     /// Came out of `utility::fallback::fallback_move` — no plans were
-    /// generated. Historically labelled "MoveCloser".
+    /// generated.
     Fallback,
 }
 
@@ -474,8 +474,6 @@ mod tests {
     use combat_engine::DiceRng;
     use std::collections::HashMap;
 
-    /// Helper: run pick_action with a single actor against an enemy,
-    /// return the annotations of all scored plans.
     fn run_pick(
         actor_abilities: &[&str],
         use_content_cache: bool,
@@ -666,8 +664,6 @@ mod tests {
 
     #[test]
     fn pick_action_override_propagates_to_annotation() {
-        // Actor with melee_attack; override it to MOBILITY.
-        // Plans with Cast(melee_attack) must show MOBILITY, not OFFENSIVE.
         let content_base = crate::content::content_view::ActiveContentData::load_global_for_tests();
         let mut content = content_base.clone();
         let ability_id = combat_engine::AbilityId::from("melee_attack");

@@ -401,8 +401,6 @@ mod tests {
 
     #[test]
     fn ally_support_healer_bonus() {
-        // With two allies, the healer's higher weight makes nearby cells
-        // score higher than when both allies are plain fighters.
         let snap_a = snapshot_from_pairs(
             vec![
                 UnitBuilder::new(0, Team::Enemy, hex_from_offset(4, 3))
@@ -436,8 +434,6 @@ mod tests {
         let without_healer =
             build_ally_support(&cells, &[fighter2, fighter1_b], &InfluenceConfig::default());
 
-        // Cell near the healer/fighter2 position should be higher with healer
-        // because healer contributes a larger share of total support.
         let near = hex_from_offset(4, 2);
         assert!(
             with_healer.get(near) > without_healer.get(near),

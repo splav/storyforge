@@ -45,10 +45,8 @@ impl UnitIdMap {
 
 // ── Entity → UnitId encoding ──────────────────────────────────────────────────
 
-/// Encode a Bevy `Entity` as a `u64` for `UnitId`.
-///
-/// Uses `Entity::to_bits()` which is Bevy's canonical stable serialization
-/// encoding (low bits = index, high bits = generation).
+/// Uses `Entity::to_bits()` — Bevy's canonical stable serialization encoding
+/// (low bits = index, high bits = generation).
 pub fn entity_to_uid(entity: Entity) -> UnitId {
     UnitId(entity.to_bits())
 }

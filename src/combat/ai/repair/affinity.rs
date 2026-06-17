@@ -124,8 +124,7 @@ fn goal_alignment(stored_kind: &GoalKind, fresh_intent: TacticalIntent) -> f32 {
         // Cross-goal partial credit — same target but different method
         (GoalKind::Finish { target: a }, TacticalIntent::ApplyCC { target: b }) if *a == b => 0.4,
         (GoalKind::Pressure { target: a }, TacticalIntent::ApplyCC { target: b }) if *a == b => 0.4,
-        // Step 6.8.B: target switch within the same intent (FocusTarget on a
-        // different enemy) — partial credit. Recognises that the actor is still
+        // Target switch within FocusTarget — partial credit. Recognises that the actor is still
         // "in attack mode" and provides a small commitment nudge against
         // marginal target-hopping, without suppressing clearly-better switches
         // (sd > 0.5 still wins easily).
@@ -244,7 +243,7 @@ mod tests {
         assert!((affinity.goal_alignment - 1.0).abs() < 1e-6);
     }
 
-    /// Step 6.8.B: target switch within FocusTarget gets partial credit (0.3),
+    /// Target switch within FocusTarget gets partial credit (0.3),
     /// not zero — the actor is still in attack mode, just retargeting.
     #[test]
     fn goal_alignment_partial_for_target_switch_within_focus_target() {

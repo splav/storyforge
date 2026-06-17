@@ -1,9 +1,8 @@
 //! Goal data + lifecycle helpers — sub-module of `memory/`.
 //!
-//! - `context`   — `GoalKind`, `StoredGoalContext`, `extract_goal_context`
-//!   (formerly `repair/goal.rs`).
+//! - `context`   — `GoalKind`, `StoredGoalContext`, `extract_goal_context`.
 //! - `lifecycle` — `pre_tick` / `post_tick` free functions called by the
-//!   orchestrator (formerly `repair/lifecycle.rs`).
+//!   orchestrator.
 
 pub mod context;
 pub mod lifecycle;

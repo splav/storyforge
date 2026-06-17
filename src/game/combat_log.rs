@@ -11,7 +11,6 @@ use combat_engine::{
 // ── Mirror types ─────────────────────────────────────────────────────────────
 
 /// Mirror of engine `TurnSkipReason` for the ECS side.
-/// ECS-only doc-alias; mirrors engine enum verbatim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TurnSkipReasonEcs {
     Dead,

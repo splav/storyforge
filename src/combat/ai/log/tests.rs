@@ -264,8 +264,6 @@ fn build_logged_plans_preserves_annotation_outcomes() {
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 
-    // Build a plan whose generator-side annotation has one outcome entry and
-    // a non-default terminal score.
     let mut plan = TurnPlan::default();
     plan.annotation
         .outcomes

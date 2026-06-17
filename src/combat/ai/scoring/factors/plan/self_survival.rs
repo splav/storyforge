@@ -355,8 +355,6 @@ mod tests {
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let mut maps = empty_maps();
-        // Actor starts in high danger; retreat destination has low danger.
-        // Under the old code, exit_danger would credit the phantom retreat.
         maps.danger.add(actor_pos, 0.88);
         maps.danger.add(retreat_pos, 0.30);
         let reservations = Reservations::default();
