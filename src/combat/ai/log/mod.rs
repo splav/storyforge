@@ -203,7 +203,7 @@ pub struct PlanLogEntry<'a> {
     /// Per-step outcome annotations (step 4.5, schema v19). Each entry contains
     /// an `ActionOutcomeEstimate` for the corresponding plan step. v18 logs
     /// deserialize via `#[serde(default)]` → empty annotation.
-    pub annotation: &'a PlanAnnotation,
+    pub annotation: &'a crate::combat::ai::outcome::GeneratorAnnotation,
 }
 
 /// Serialised form of `combat::ai::trade::TradeBreakdown` plus the
@@ -1134,7 +1134,7 @@ fn build_logged_plans(pool: &crate::combat::ai::pipeline::ScoredPool) -> Vec<Log
         .enumerate()
         .map(|(rank_idx, (pool_idx, _score))| {
             // Assemble a PlanAnnotation DTO from two sources:
-            //   - Generator side (TurnPlan.annotation): outcomes, terminal
+            //   - Generator side (TurnPlan.annotation: GeneratorAnnotation): outcomes, terminal
             //   - Pipeline side (PipelineAnnotation b): the 14 working-state fields
             // This is the sole place where both halves are merged for serialisation.
             let b = &pool.annotations[pool_idx];

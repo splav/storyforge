@@ -286,7 +286,7 @@ fn plan_with_outcomes(
         outcomes: vec![],
         partial_score: 0.0,
         sim_snapshots: vec![],
-        annotation: crate::combat::ai::outcome::PlanAnnotation {
+        annotation: crate::combat::ai::outcome::GeneratorAnnotation {
             outcomes,
             ..Default::default()
         },

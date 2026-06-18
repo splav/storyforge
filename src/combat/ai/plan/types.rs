@@ -1,7 +1,7 @@
 //! Plan data model: steps, multi-step turns, and the cumulative outcome of
 //! applying a plan to a simulated battle state.
 
-use crate::combat::ai::outcome::PlanAnnotation;
+use crate::combat::ai::outcome::GeneratorAnnotation;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
@@ -76,7 +76,7 @@ pub struct TurnPlan {
     /// Serialized into JSONL (schema v19). v18 logs deserialize via
     /// `#[serde(default)]` → empty annotation, preserving backward compatibility.
     #[serde(default)]
-    pub annotation: PlanAnnotation,
+    pub annotation: GeneratorAnnotation,
 }
 
 impl TurnPlan {

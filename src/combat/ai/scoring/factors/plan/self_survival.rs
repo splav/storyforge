@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn self_survival_ignores_intent_parameter() {
         use crate::combat::ai::intent::TacticalIntent;
-        use crate::combat::ai::outcome::PlanAnnotation;
+        use crate::combat::ai::outcome::GeneratorAnnotation;
         use bevy::prelude::Entity;
 
         let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
@@ -540,7 +540,7 @@ mod tests {
 
         let plan = TurnPlan {
             steps: vec![],
-            annotation: PlanAnnotation::default(),
+            annotation: GeneratorAnnotation::default(),
             outcomes: vec![],
             sim_snapshots: vec![],
             final_pos: hex_from_offset(0, 0),

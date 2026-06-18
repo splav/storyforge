@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
-use crate::combat::ai::outcome::{ActionOutcomeEstimate, PipelineAnnotation, PlanAnnotation};
+use crate::combat::ai::outcome::{ActionOutcomeEstimate, GeneratorAnnotation, PipelineAnnotation};
 use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues, StepFactor};
 use crate::combat::ai::test_helpers::make_scoring_ctx;
@@ -91,7 +91,7 @@ fn annotate_plan(
             }
         })
         .collect();
-    plan.annotation = PlanAnnotation {
+    plan.annotation = GeneratorAnnotation {
         outcomes,
         ..Default::default()
     };
@@ -1667,7 +1667,6 @@ fn terminal_aggregator_role_weighted_distinguishes_tank_vs_ranged() {
 #[test]
 fn repair_bonus_zero_when_severity_invalidating() {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::repair::RepairAffinity;
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::test_helpers::UnitBuilder;
 
@@ -1686,17 +1685,8 @@ fn repair_bonus_zero_when_severity_invalidating() {
 
     let raw = vec![PlanFactorValues::default()];
 
-    // Plan with severity-invalidating RepairAffinity (severity_factor=0.0 kills the bonus).
-    let mut plan = inert_plan(pos);
-    plan.annotation.repair_affinity = RepairAffinity {
-        severity_factor: 0.0,
-        goal_alignment: 1.0,
-        ..Default::default()
-    };
+    let plan = inert_plan(pos);
     let score_invalidating = aggregate_factors_to_score(&mut [plan.clone()], &raw, &ctx)[0];
-
-    // Plan with zero affinity (no repair).
-    plan.annotation.repair_affinity = RepairAffinity::default();
     let score_zero_affinity = aggregate_factors_to_score(&mut [plan.clone()], &raw, &ctx)[0];
 
     // RepairAffinity::SeverityInvalidating penalises the plan.

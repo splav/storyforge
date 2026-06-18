@@ -433,7 +433,7 @@ fn schema_v32_round_trip() {
     let decision = AiDecision::EndTurn;
     let reason = IntentReason::NoRuleDefault;
 
-    let mut plan = TurnPlan::default();
+    let plan = TurnPlan::default();
     let cons = IntentConsiderations {
         urgency: 0.8,
         feasibility: 0.9,
@@ -442,9 +442,6 @@ fn schema_v32_round_trip() {
         role_affinity: 0.5,
         continuation_value: 0.4,
     };
-    plan.annotation.considerations_per_item = vec![cons];
-    plan.annotation.agenda_item = Some(0);
-
     let mut pool = ScoredPool::new(vec![plan]);
     pool.annotations[0].score = 3.15;
     pool.annotations[0].chosen = true;

@@ -347,9 +347,8 @@ impl PlanAnnotation {
 ///
 /// This is the type stored in `ScoredPool.annotations` — the "live" annotation
 /// that every stage reads and writes. It holds exactly the **14** pipeline-only
-/// fields; the 3 generator-side fields (`outcomes`, `terminal`, `score_trace_log`)
-/// live solely on `TurnPlan.annotation: PlanAnnotation` and are never written
-/// by pipeline stages.
+/// fields; the 2 generator-side fields (`outcomes`, `terminal`) live on
+/// `TurnPlan.annotation: GeneratorAnnotation` and are never written by pipeline stages.
 ///
 /// At log time, `build_logged_plans` assembles a `PlanAnnotation` DTO from both
 /// sources (generator side + pipeline side) to produce the serde-serialisable
@@ -391,6 +390,22 @@ pub struct PipelineAnnotation {
     /// Not serialised (runtime-only); see `PlanAnnotation.score_trace_log` for the
     /// JSONL mirror.
     pub(crate) score_trace: crate::combat::ai::pipeline::score_trace::ScoreTrace,
+}
+
+/// Generator-side annotation carried on `TurnPlan.annotation`.
+///
+/// Only `outcomes` and `terminal` are meaningful during plan generation;
+/// all pipeline fields live on `PipelineAnnotation` in `ScoredPool`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct GeneratorAnnotation {
+    /// One `ActionOutcomeEstimate` per plan step, same length as `TurnPlan.steps`.
+    #[serde(default)]
+    pub outcomes: Vec<ActionOutcomeEstimate>,
+    /// One-shot terminal-state evaluation. Populated by `terminal_state_score`
+    /// in `finalize_scores`; consumed by aggregation in 5.4.
+    /// Serialized into JSONL as of schema v29 as a named map.
+    #[serde(default)]
+    pub terminal: FactorTerminalScore,
 }
 
 impl PipelineAnnotation {

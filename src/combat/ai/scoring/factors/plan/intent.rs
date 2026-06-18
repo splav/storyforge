@@ -21,7 +21,7 @@ mod tests {
     use crate::combat::ai::adapt::EvaluationMode;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::TacticalIntent;
-    use crate::combat::ai::outcome::PlanAnnotation;
+    use crate::combat::ai::outcome::GeneratorAnnotation;
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
 
@@ -36,7 +36,7 @@ mod tests {
     fn build_idle_plan() -> TurnPlan {
         TurnPlan {
             steps: vec![],
-            annotation: PlanAnnotation::default(),
+            annotation: GeneratorAnnotation::default(),
             outcomes: vec![],
             sim_snapshots: vec![],
             final_pos: hex_from_offset(0, 0),
