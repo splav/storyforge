@@ -1665,41 +1665,6 @@ fn terminal_aggregator_role_weighted_distinguishes_tank_vs_ranged() {
 }
 
 #[test]
-fn repair_bonus_zero_when_severity_invalidating() {
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::combat::ai::test_helpers::UnitBuilder;
-
-    let pos = hex_from_offset(0, 0);
-    let actor = UnitBuilder::new(1, Team::Enemy, pos)
-        .hp(10)
-        .max_hp(20)
-        .build();
-    let snap = snapshot_from(vec![actor.clone()], 1);
-    let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
-    let difficulty = DifficultyProfile::default();
-    let world = test_ctx(&content, &difficulty);
-    let maps = empty_maps();
-    let reservations = Reservations::default();
-    let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-
-    let raw = vec![PlanFactorValues::default()];
-
-    let plan = inert_plan(pos);
-    let score_invalidating = aggregate_factors_to_score(&mut [plan.clone()], &raw, &ctx)[0];
-    let score_zero_affinity = aggregate_factors_to_score(&mut [plan.clone()], &raw, &ctx)[0];
-
-    // RepairAffinity::SeverityInvalidating penalises the plan.
-    // For a single-plan pool (batch normalisation won't help), the exact
-    // delta depends on `repair_weight`. We only assert that the
-    // invalidating plan does not outscore the zero-affinity plan.
-    assert!(
-            score_invalidating <= score_zero_affinity,
-            "severity-invalidating repair must not outscore zero-affinity plan: invalidating={score_invalidating}, zero={score_zero_affinity}",
-        );
-}
-
-#[test]
 fn aggregate_factors_to_score_no_longer_writes_noise() {
     let pos = hex_from_offset(0, 0);
     let actor = unit(1, Team::Enemy, pos);

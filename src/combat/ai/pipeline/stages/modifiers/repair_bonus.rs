@@ -185,6 +185,54 @@ mod tests {
         }
     }
 
+    /// `severity_factor` multiplicatively gates the aggregate, so an invalidating
+    /// continuation (0.0) zeros the bonus even with a stored goal and otherwise
+    /// positive alignments.
+    #[test]
+    fn repair_bonus_zero_when_severity_invalidating() {
+        let pos = hex_from_offset(0, 0);
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let (world, actor, snap) = make_world_and_actor(&content, &difficulty, pos);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
+        let stored_goal = make_stored_goal(target_entity, pos);
+        let summon_dpr = HashMap::new();
+
+        let bonus = |severity_factor: f32| {
+            let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            scoring.last_goal = Some(&stored_goal);
+            let mut rng = combat_engine::DiceRng::default();
+            let stage = StageCtx::new(
+                &scoring,
+                TacticalIntent::Reposition,
+                IntentReason::NoRuleDefault,
+                pos,
+                &mut rng,
+            );
+            let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
+            let ann = PipelineAnnotation {
+                repair_affinity: RepairAffinity {
+                    goal_alignment: 1.0,
+                    region_alignment: 1.0,
+                    method_alignment: 1.0,
+                    severity_factor,
+                    ttl_factor: 1.0,
+                    confidence: 1.0,
+                },
+                ..Default::default()
+            };
+            MODIFIER.modify(&inert_plan(pos), &ann, &ctx)
+        };
+
+        assert!(
+            bonus(1.0) > 0.0,
+            "valid severity must yield a positive bonus"
+        );
+        assert_eq!(bonus(0.0), 0.0, "invalidating severity must zero the bonus");
+    }
+
     /// Higher continue_commitment → larger repair bonus.
     /// bonus(c=0) = agg × 1.0 × scale; bonus(c=1) = agg × 2.0 × scale → diff = agg × scale.
     #[test]
