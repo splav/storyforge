@@ -371,10 +371,11 @@ mod tests {
         );
     }
 
-    /// `OutcomePrimary::RestoreResources` — engine defers to Phase 3.
-    /// AP is paid; resources stay unchanged.
+    /// `rest` / `RestoreResources` — engine restores +1 to each existing
+    /// resource pool (HP/mana/rage/energy, clamped to max); AP cost is paid.
+    /// The plan-sim sees it because `apply_step` runs the real engine `step()`.
     #[test]
-    fn restore_resources_pays_ap_engine_defers_increment() {
+    fn restore_resources_restores_one_per_pool() {
         let actor = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .hp(15)
             .max_hp(20)
@@ -404,7 +405,7 @@ mod tests {
         );
 
         let a = sim.unit(actor_id).unwrap();
-        // Phase 3 TODO: once engine emits RestoreResources effect, assert +1 on each.
+        // rest restores +1 to each existing pool (clamped to max); AP cost paid.
         assert_eq!(
             a.pools[combat_engine::PoolKind::Ap]
                 .map(|(c, _)| c)
@@ -412,25 +413,21 @@ mod tests {
             0,
             "AP cost paid"
         );
-        assert_eq!(
-            a.hp(),
-            15,
-            "engine defers RestoreResources to Phase 3; HP unchanged"
-        );
+        assert_eq!(a.hp(), 16, "HP +1 (15→16)");
         assert_eq!(
             a.pools[combat_engine::PoolKind::Mana],
-            Some((3, 10)),
-            "mana unchanged"
+            Some((4, 10)),
+            "mana +1 (3→4)"
         );
         assert_eq!(
             a.pools[combat_engine::PoolKind::Rage],
-            Some((1, 5)),
-            "rage unchanged"
+            Some((2, 5)),
+            "rage +1 (1→2)"
         );
         assert_eq!(
             a.pools[combat_engine::PoolKind::Energy],
-            Some((0, 8)),
-            "energy unchanged"
+            Some((1, 8)),
+            "energy +1 (0→1)"
         );
     }
 

@@ -177,6 +177,75 @@ fn decrement_mp_clamps_at_zero() {
     assert!(derived.is_empty());
 }
 
+// ── RestorePool (the `rest` primitive) ──────────────────────────────────────────
+
+#[test]
+fn restore_pool_adds_clamps_and_only_emits_on_increase() {
+    use storyforge::combat_engine::{PoolChangeCause, PoolKind};
+
+    // Below max → +amount, clamped, emits exactly one PoolChanged{Gained}.
+    let mut state = state_with(vec![unit_with_rage(1, 1, 5)]);
+    let (derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::RestorePool {
+            target: UnitId(1),
+            kind: PoolKind::Rage,
+            amount: 1,
+        },
+        &StubContent::neutral(),
+    );
+    assert!(derived.is_empty());
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[PoolKind::Rage],
+        Some((2, 5))
+    );
+    assert_eq!(
+        ctx.pool_events.len(),
+        1,
+        "a strict increase emits one event"
+    );
+    assert!(matches!(
+        ctx.pool_events[0],
+        Event::PoolChanged {
+            pool: PoolKind::Rage,
+            current: 2,
+            cause: PoolChangeCause::Gained,
+            ..
+        }
+    ));
+
+    // Already at max → clamp is a no-op, NO event (not a mislabeled "gain").
+    let mut state = state_with(vec![unit_with_rage(1, 5, 5)]);
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::RestorePool {
+            target: UnitId(1),
+            kind: PoolKind::Rage,
+            amount: 1,
+        },
+        &StubContent::neutral(),
+    );
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[PoolKind::Rage],
+        Some((5, 5))
+    );
+    assert!(ctx.pool_events.is_empty(), "at-max restore emits no event");
+
+    // Absent pool (unit has no Mana) → no-op, no panic, no event.
+    let mut state = state_with(vec![make_unit(1, 20, 20)]);
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::RestorePool {
+            target: UnitId(1),
+            kind: PoolKind::Mana,
+            amount: 1,
+        },
+        &StubContent::neutral(),
+    );
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[PoolKind::Mana], None);
+    assert!(ctx.pool_events.is_empty(), "absent pool emits no event");
+}
+
 // ── Damage ────────────────────────────────────────────────────────────────────
 
 /// Decision 6.3: Damage derives GainRage{source}, GainRage{target} for non-lethal.

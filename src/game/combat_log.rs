@@ -309,9 +309,22 @@ impl CombatEvent {
             } => {
                 use combat_engine::{PoolChangeCause, PoolKind};
                 let pool_name = match pool {
-                    // Hp pool changes are not shown in the combat log; HP
-                    // events surface via UnitDamaged/UnitHealed entries.
-                    PoolKind::Hp => return None,
+                    // HP damage/heal surface via UnitDamaged/UnitHealed (rich,
+                    // with source/crit), so those stay suppressed here. But a
+                    // direct pool *gain* (rest's RestorePool, or HP regen) has no
+                    // rich event — show it, else it's invisible.
+                    PoolKind::Hp => {
+                        if matches!(
+                            cause,
+                            PoolChangeCause::Gained
+                                | PoolChangeCause::Regen
+                                | PoolChangeCause::Refill
+                        ) {
+                            "HP"
+                        } else {
+                            return None;
+                        }
+                    }
                     PoolKind::Mana => "мана",
                     PoolKind::Rage => "ярость",
                     PoolKind::Energy => "энергия",

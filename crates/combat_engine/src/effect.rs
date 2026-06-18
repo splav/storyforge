@@ -97,6 +97,16 @@ pub enum Effect {
     RemoveStatus { target: UnitId, status: StatusId },
     /// Grant +1 rage (clamped to max) to `target`.
     GainRage { target: UnitId },
+    /// Restore `amount` to `target`'s `kind` pool (clamped to max). The generic
+    /// resource-gain effect behind `rest`/`RestoreResources`: emits
+    /// `PoolChanged{Gained}` so the change surfaces in the combat log. No-op when
+    /// the unit lacks that pool. (HP uses this too — its log line is the only
+    /// path that shows a non-damage/heal HP change.)
+    RestorePool {
+        target: UnitId,
+        kind: crate::PoolKind,
+        amount: i32,
+    },
     /// Spend one reaction from the actor.
     DecrementReactions { actor: UnitId },
     /// Mark `unit` as dead (hp already 0 when this fires).
@@ -634,6 +644,32 @@ pub fn apply_effect(
                         max: *pmax,
                         cause: crate::PoolChangeCause::Gained,
                     });
+                }
+            }
+            (vec![], ctx)
+        }
+
+        Effect::RestorePool {
+            target,
+            kind,
+            amount,
+        } => {
+            let mut ctx = ApplyCtx::default();
+            if let Some(u) = state.unit_mut(*target) {
+                if let Some((pc, pmax)) = u.pools[*kind].as_mut() {
+                    let before = *pc;
+                    *pc = (*pc + amount).min(*pmax);
+                    // Strict increase only — a no-op (already at max) or a clamp-down
+                    // (max just lowered) must not emit a "gained" event.
+                    if *pc > before {
+                        ctx.pool_events.push(crate::event::Event::PoolChanged {
+                            unit: *target,
+                            pool: *kind,
+                            current: *pc,
+                            max: *pmax,
+                            cause: crate::PoolChangeCause::Gained,
+                        });
+                    }
                 }
             }
             (vec![], ctx)

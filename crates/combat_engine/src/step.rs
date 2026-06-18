@@ -604,7 +604,8 @@ fn step_inner(
                     }
                 }
             } else {
-                // Summon is per-actor; everything else is per-target fanout.
+                // Summon and RestoreResources are per-actor; everything else is
+                // per-target fanout.
                 let mut affected: Vec<crate::state::UnitId> = Vec::new();
 
                 if let EffectDef::Summon {
@@ -618,6 +619,22 @@ fn step_inner(
                         max_active: *max_active,
                     });
                     // `affected` intentionally empty — status loop below applies only MySelf statuses.
+                } else if matches!(def.effect, EffectDef::RestoreResources) {
+                    // `rest`: +1 to each of the caster's existing resource pools.
+                    // RestorePool no-ops on absent pools (clamped); AP/MP are excluded
+                    // (turn-managed). `affected` stays empty — MySelf statuses still apply.
+                    for kind in [
+                        crate::PoolKind::Hp,
+                        crate::PoolKind::Mana,
+                        crate::PoolKind::Rage,
+                        crate::PoolKind::Energy,
+                    ] {
+                        effect_queue.push_back(Effect::RestorePool {
+                            target: *actor,
+                            kind,
+                            amount: 1,
+                        });
+                    }
                 } else {
                     // Step 6d: target enumeration + damage/heal fanout.
                     let target_state = EngineTargetState { state };
