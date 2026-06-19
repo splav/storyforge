@@ -31,23 +31,23 @@ use crate::content::classes::ClassDef;
 use crate::content::scenarios::PartyMemberDef;
 use crate::content::unit_templates::UnitTemplateDef;
 
-/// Substitutes the unit's race id into a class sprite PATTERN's `{race}`
-/// placeholder; a pattern without it is returned verbatim.
-fn resolve_class_sprite(pattern: &str, race: &str) -> String {
-    pattern.replace("{race}", race)
-}
+use crate::game::components::resolve_race;
 
+// Resolve `{race}` at spawn; `{facing}` stays for the render layer (dynamic).
 fn hero_sprite(member: &PartyMemberDef, class: &ClassDef) -> Option<String> {
-    member.sprite.clone().or_else(|| {
-        class
-            .sprite
-            .as_ref()
-            .map(|p| resolve_class_sprite(p, &member.race))
-    })
+    member
+        .sprite
+        .clone()
+        .or_else(|| class.sprite.clone())
+        .map(|p| resolve_race(&p, &member.race))
 }
 
 fn template_member_sprite(member: &PartyMemberDef, tpl: &UnitTemplateDef) -> Option<String> {
-    member.sprite.clone().or_else(|| tpl.sprite.clone())
+    member
+        .sprite
+        .clone()
+        .or_else(|| tpl.sprite.clone())
+        .map(|p| resolve_race(&p, &member.race))
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -424,7 +424,11 @@ pub fn spawn_combatants(
         if !enemy.tags.is_empty() {
             ec.insert(crate::game::components::Tags(enemy.tags.clone()));
         }
-        if let Some(s) = enemy.sprite.clone() {
+        if let Some(s) = enemy
+            .sprite
+            .as_deref()
+            .map(|p| resolve_race(p, &enemy.race))
+        {
             ec.insert(crate::game::components::UnitSprite(s));
         }
     }
@@ -760,27 +764,20 @@ mod sprite_tests {
     }
 
     #[test]
-    fn class_sprite_substitutes_race_or_returns_verbatim() {
-        assert_eq!(
-            resolve_class_sprite("units/warrior_{race}.png", "elf"),
-            "units/warrior_elf.png"
-        );
-        assert_eq!(
-            resolve_class_sprite("units/hero.png", "elf"),
-            "units/hero.png"
-        );
-    }
-
-    #[test]
-    fn hero_sprite_precedence() {
-        // (member override, class pattern) -> expected
+    fn hero_sprite_precedence_and_race_only() {
+        // (member override, class pattern) -> expected. Covers precedence AND that
+        // only {race} is resolved at spawn ({facing} stays for the render layer).
         let cases = [
             (
-                Some("units/custom.png"),
+                Some("units/custom_{facing}.png"),
                 Some("units/w_{race}.png"),
-                Some("units/custom.png"),
+                Some("units/custom_{facing}.png"),
             ),
-            (None, Some("units/w_{race}.png"), Some("units/w_elf.png")),
+            (
+                None,
+                Some("units/w_{race}_{facing}.png"),
+                Some("units/w_elf_{facing}.png"),
+            ),
             (None, None, None),
         ];
         for (m, c, expected) in cases {
@@ -790,14 +787,18 @@ mod sprite_tests {
     }
 
     #[test]
-    fn template_member_sprite_precedence() {
+    fn template_member_sprite_precedence_and_race_only() {
         let cases = [
             (
-                Some("units/custom.png"),
+                Some("units/custom_{facing}.png"),
                 Some("units/t.png"),
-                Some("units/custom.png"),
+                Some("units/custom_{facing}.png"),
             ),
-            (None, Some("units/t.png"), Some("units/t.png")),
+            (
+                None,
+                Some("units/t_{race}_{facing}.png"),
+                Some("units/t_human_{facing}.png"),
+            ),
             (None, None, None),
         ];
         for (m, t, expected) in cases {

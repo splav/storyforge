@@ -126,7 +126,16 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
     if let Some(ref p) = template.path {
         ec.insert(CombatPath(p.clone()));
     }
-    let sprite_key = template.sprite.clone();
+    // Summons spawn mid-combat: face the enemy side by team; the event-driven
+    // turn system corrects this on the unit's first interaction. `Facing` is a
+    // property of every combatant (not just sprited ones), so the turn system can
+    // mutate it uniformly — keep it out of the sprite-gated block.
+    let facing = crate::game::components::Facing::for_team(ecs_team);
+    ec.insert(facing);
+    let sprite_key = template
+        .sprite
+        .as_deref()
+        .map(|p| crate::game::components::resolve_race(p, &template.race));
     if let Some(ref s) = sprite_key {
         ec.insert(crate::game::components::UnitSprite(s.clone()));
     }
@@ -148,13 +157,8 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
             Transform::from_xyz(pixel.x, pixel.y, 0.15),
         ))
         .with_children(|parent| {
-            if let (Some(path), Some(srv)) = (sprite_key.as_ref(), asset_server) {
-                crate::ui::hex_grid::spawn_figure_child(
-                    parent,
-                    srv,
-                    path,
-                    ecs_team == EcsTeam::Enemy,
-                );
+            if let (Some(pattern), Some(srv)) = (sprite_key.as_ref(), asset_server) {
+                crate::ui::hex_grid::spawn_figure_child(parent, srv, new_entity, pattern, facing);
             }
         });
 

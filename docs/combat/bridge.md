@@ -296,22 +296,29 @@ Each combatant token (`UnitToken` circle) optionally carries a **figurine sprite
 as a Bevy child entity. The circle stays — it reads as the faction color / selection
 ring / contact shadow under the figure.
 
-- **Resolution** is app-side and happens at spawn (never in the engine — sprites are
-  outside the determinism contract). Per-path precedence + the `{race}` pattern rule
-  live in [Content Guide → Battle figurines](../content-guide.md#battle-figurines-sprite).
-  The resolved key lands on the ECS `UnitSprite(String)` component (path relative to
-  `assets/images/`).
+- **Resolution** is app-side (never in the engine — sprites are outside the
+  determinism contract). At spawn only the content `{race}` placeholder is resolved
+  (`resolve_race`); the `{facing}` placeholder stays. Per-path precedence + the pattern
+  rules live in [Content Guide → Battle figurines](../content-guide.md#battle-figurines-sprite).
+  The `{race}`-resolved key lands on the ECS `UnitSprite(String)` component.
 - **Two spawn paths**, both ending in the shared helper
-  `spawn_figure_child(parent, asset_server, path, flip_x)` (`ui/hex_grid/render.rs`):
-  - bootstrap / restart — `assign_hex_positions` reads `Option<&UnitSprite>` and adds
-    the figure inside the token's `.with_children`, after the `VictoryTarget` ring;
-  - summons — `spawn_ecs_entity_from_engine_unit` (`bridge/process.rs`) resolves the
-    summon template's literal `sprite`, inserts `UnitSprite`, and spawns the same
-    child on its freshly-built token. `AssetServer` rides in via the `VisualAssets`
-    `SystemParam`.
+  `spawn_figure_child(parent, asset_server, unit, pattern, facing)` (`ui/hex_grid/render.rs`),
+  which substitutes `{facing}`, spawns the `Sprite`, and tags it `UnitFigure { unit, pattern, facing }`:
+  - bootstrap / restart — `assign_hex_positions` reads `Option<&UnitSprite>`, computes
+    initial `Facing` (toward the nearest opposing-party hex, by world X), inserts the
+    `Facing` component on the logic entity, and adds the figure after the `VictoryTarget` ring;
+  - summons — `spawn_ecs_entity_from_engine_unit` (`bridge/process.rs`) inserts
+    `UnitSprite` + a team-based initial `Facing`, then spawns the same child. `AssetServer`
+    rides in via the `VisualAssets` `SystemParam`.
 - **Z-order** (figure transform local to the token at abs z `0.15`): figure at `+0.02`
   → above the token, below the `VictoryTarget` ring child (`-0.01`) is *behind*; the
   figure is anchored `BOTTOM_CENTER` and nudged `-6` Y so the circle reads as a contact
   shadow. World-space HP/status badges sit at abs z `0.2`, above the figure.
-- **`flip_x`** = `faction == Team::Enemy`: art is authored facing right (player units
-  as-is, enemies mirrored).
+- **Facing is dynamic — a pre-lit file, not a mirror.** `Facing` is a runtime component;
+  `{facing}` resolves to `right`/`left`. The scene light is fixed top-left in screen space,
+  so flipping would light the wrong side — each orientation is a separately-drawn asset
+  (symmetric art may omit `{facing}` and reuse one file). `sync_figure_facing` runs every
+  combat frame, comparing each `UnitFigure.facing` to its unit's live `Facing` and reloading
+  the `Sprite` image only on change. Initial facing is toward the nearest opponent; the
+  system that turns a unit toward its last interaction (action target / incoming attacker)
+  is a planned follow-up — it only needs to mutate the `Facing` component. There is no `flip_x`.

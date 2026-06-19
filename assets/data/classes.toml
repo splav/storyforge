@@ -16,7 +16,7 @@ feet         = "leather_boots"
 ability_ids          = ["melee_attack", "taunt", "stun", "rush"]
 rage_max             = 5
 armor_proficiencies  = ["medium", "heavy"]
-sprite               = "units/warrior_{race}.png"
+sprite               = "units/warrior_{race}_{facing}.png"
 
 [[classes]]
 id           = "mage"
@@ -36,7 +36,7 @@ feet         = "cloth_shoes"
 ability_ids          = ["melee_attack", "flash", "burn", "fireball", "heal"]
 mana_max             = 10
 armor_proficiencies  = []
-sprite               = "units/mage_{race}.png"
+sprite               = "units/mage_{race}_{facing}.png"
 
 [[classes]]
 id           = "ranger"
@@ -57,4 +57,4 @@ feet         = "leather_boots"
 ability_ids          = ["melee_attack", "ranged_shot", "paralyzing_shot", "field_medic", "poison_shot", "scout_traps"]
 energy_max           = 6
 armor_proficiencies  = ["medium"]
-sprite               = "units/ranger_{race}.png"
+sprite               = "units/ranger_{race}_{facing}.png"

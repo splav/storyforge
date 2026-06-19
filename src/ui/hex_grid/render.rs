@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 use crate::game::components::{
-    Combatant, Faction, StartingHexPos, Team, UnitSprite, UnitToken, VictoryTarget,
+    facing_toward, Combatant, Facing, Faction, StartingHexPos, Team, UnitFigure, UnitSprite,
+    UnitToken, VictoryTarget,
 };
 use crate::game::hex::{hex_from_offset, row_cols, Hex, GRID_COLS, GRID_ROWS, HEX_SIZE, LAYOUT};
 use crate::game::hex_map::HexMap;
@@ -324,32 +325,70 @@ pub fn setup_hex_grid(
 
 // ── System: Assign positions ──────────────────────────────────────────────────
 
-/// Assigns hex positions and spawns visual tokens for combatants that still
-/// have a `StartingHexPos` marker. The marker is removed after assignment,
-/// so on subsequent rounds this is a no-op.
-/// Spawns the figurine sprite as a child of a unit's token circle. Shared by
-/// the initial spawn (`assign_hex_positions`) and the bridge summon path.
+/// Resolves a figure's `{facing}`-pending `pattern` into a loadable asset handle.
+/// Single home for the `{facing}` substitution + `images/` prefix rule.
+fn figure_image(asset_server: &AssetServer, pattern: &str, facing: Facing) -> Handle<Image> {
+    let path = pattern.replace("{facing}", facing.token());
+    asset_server.load(format!("images/{path}"))
+}
+
+/// Spawns the figurine sprite as a child of a unit's token circle, shared by the
+/// initial spawn (`assign_hex_positions`) and the bridge summon path. `pattern`
+/// still carries the `{facing}` placeholder; facing picks a pre-lit file (no
+/// `flip_x` — the scene light is fixed in screen space). `sync_figure_facing`
+/// reloads the image when the unit later turns.
 pub fn spawn_figure_child(
     parent: &mut ChildSpawnerCommands,
     asset_server: &AssetServer,
-    path: &str,
-    flip_x: bool,
+    unit: Entity,
+    pattern: &str,
+    facing: Facing,
 ) {
-    let image: Handle<Image> = asset_server.load(format!("images/{path}"));
     const FIGURE_PX: f32 = HEX_SIZE * 2.0 * 1.4; // hex height × 1.4; tunable vs real art
     parent.spawn((
         Sprite {
-            image,
+            image: figure_image(asset_server, pattern, facing),
             custom_size: Some(Vec2::splat(FIGURE_PX)),
-            flip_x,
             ..default()
         },
         Anchor::BOTTOM_CENTER,
         // above token (abs z 0.17), below world-space badges (abs 0.2); -6 Y so circle reads as contact shadow
         Transform::from_xyz(0.0, -6.0, 0.02),
+        UnitFigure {
+            unit,
+            pattern: pattern.to_string(),
+            facing,
+        },
     ));
 }
 
+/// Reloads each figure's sprite when its unit's `Facing` changes (turn toward the
+/// last interaction). Cheap per-frame comparison; swaps the (cached) asset only on
+/// change. On the spawn frame `get` may miss the just-inserted `Facing` command —
+/// harmless, the figure already spawned with the correct facing baked in.
+pub fn sync_figure_facing(
+    facings: Query<&Facing>,
+    mut figures: Query<(&mut Sprite, &mut UnitFigure)>,
+    asset_server: Option<Res<AssetServer>>,
+) {
+    let Some(asset_server) = asset_server else {
+        return;
+    };
+    for (mut sprite, mut fig) in &mut figures {
+        let Ok(&facing) = facings.get(fig.unit) else {
+            continue;
+        };
+        if facing != fig.facing {
+            fig.facing = facing;
+            sprite.image = figure_image(&asset_server, &fig.pattern, facing);
+        }
+    }
+}
+
+/// Assigns hex positions and spawns visual tokens for combatants that still
+/// have a `StartingHexPos` marker. The marker is removed after assignment,
+/// so on subsequent rounds this is a no-op. Also computes each unit's initial
+/// `Facing` (toward the nearest opposing-party hex).
 #[allow(clippy::type_complexity)]
 pub fn assign_hex_positions(
     mut commands: Commands,
@@ -377,9 +416,34 @@ pub fn assign_hex_positions(
     }
     positions.clear();
     let asset_server = asset_server.as_deref();
+
+    // Pre-pass: enemy-team hexes, so each unit can face its nearest opponent.
+    let enemy_hexes: Vec<Hex> = combatants
+        .iter()
+        .filter(|(_, _, f, _, _)| f.0 == Team::Enemy)
+        .map(|(_, h, _, _, _)| h.0)
+        .collect();
+    let player_hexes: Vec<Hex> = combatants
+        .iter()
+        .filter(|(_, _, f, _, _)| f.0 == Team::Player)
+        .map(|(_, h, _, _, _)| h.0)
+        .collect();
+
     for (entity, hex_pos, faction, target, sprite) in &combatants {
         positions.insert(entity, hex_pos.0);
         commands.entity(entity).remove::<StartingHexPos>();
+
+        let opponents = if faction.0 == Team::Player {
+            &enemy_hexes
+        } else {
+            &player_hexes
+        };
+        let facing = opponents
+            .iter()
+            .min_by_key(|h| hex_pos.0.unsigned_distance_to(**h))
+            .map(|nearest| facing_toward(hex_pos.0, *nearest))
+            .unwrap_or_else(|| Facing::for_team(faction.0));
+        commands.entity(entity).insert(facing);
 
         let pixel = LAYOUT.hex_to_world_pos(hex_pos.0) + grid_offset.0;
         let mat = if faction.0 == Team::Player {
@@ -405,8 +469,8 @@ pub fn assign_hex_positions(
                         Transform::from_xyz(0.0, 0.0, -0.01),
                     ));
                 }
-                if let (Some(UnitSprite(path)), Some(srv)) = (sprite, asset_server) {
-                    spawn_figure_child(parent, srv, path, faction.0 == Team::Enemy);
+                if let (Some(UnitSprite(pattern)), Some(srv)) = (sprite, asset_server) {
+                    spawn_figure_child(parent, srv, entity, pattern, facing);
                 }
             });
     }

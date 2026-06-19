@@ -203,6 +203,7 @@ fn main() {
                 ui::hex_grid::update_hex_tooltip,
                 ui::hex_grid::hex_click_target,
                 ui::hex_grid::update_token_positions,
+                ui::hex_grid::sync_figure_facing,
                 ui::log_ui::update_log,
                 ui::log_ui::log_scroll_input,
                 ui::log_ui::log_scrollbar_update,

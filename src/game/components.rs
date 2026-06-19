@@ -95,11 +95,68 @@ pub struct AiBehaviorOverride {
 #[derive(Component, Debug, Clone)]
 pub struct TemplateRef(pub String);
 
-/// App-side battle-sprite key (asset path relative to `assets/images/`),
-/// resolved at spawn. Absent → colored-circle fallback. Never seen by the
+/// App-side battle-sprite key: a `{race}`-resolved asset path (relative to
+/// `assets/images/`) that still carries the `{facing}` placeholder — facing is
+/// dynamic, resolved per-frame by the render layer (see [`Facing`] /
+/// `sync_figure_facing`). Absent → colored-circle fallback. Never seen by the
 /// pure engine crate (determinism contract).
 #[derive(Component, Debug, Clone)]
 pub struct UnitSprite(pub String);
+
+/// Runtime screen-space orientation of a battle figure. Mutated during combat
+/// (turn toward the last interaction); the initial value faces the nearest
+/// opposing-party member.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Facing {
+    Right,
+    Left,
+}
+
+impl Facing {
+    /// Default orientation for a team — face the opposing side (player → right,
+    /// enemy → left). Used before any positional info / interaction is known.
+    pub fn for_team(team: Team) -> Self {
+        match team {
+            Team::Player => Self::Right,
+            Team::Enemy => Self::Left,
+        }
+    }
+
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Right => "right",
+            Self::Left => "left",
+        }
+    }
+}
+
+/// Binary screen facing from one hex toward another, by world X (so even-r
+/// column offsets are handled correctly). A tie (same world column) → `Left`,
+/// arbitrary but deterministic.
+pub fn facing_toward(from: crate::game::hex::Hex, to: crate::game::hex::Hex) -> Facing {
+    use crate::game::hex::LAYOUT;
+    if LAYOUT.hex_to_world_pos(to).x > LAYOUT.hex_to_world_pos(from).x {
+        Facing::Right
+    } else {
+        Facing::Left
+    }
+}
+
+/// Resolves the content `{race}` placeholder at spawn, leaving `{facing}` for the
+/// render layer. A pattern without `{race}` is returned verbatim.
+pub fn resolve_race(pattern: &str, race: &str) -> String {
+    pattern.replace("{race}", race)
+}
+
+/// Marks the figurine child entity of a unit token and links it back to the
+/// logic `unit`. `pattern` is the `{facing}`-pending path; `facing` caches the
+/// last applied orientation so `sync_figure_facing` only reloads on change.
+#[derive(Component, Clone)]
+pub struct UnitFigure {
+    pub unit: Entity,
+    pub pattern: String,
+    pub facing: Facing,
+}
 
 pub use combat_engine::state::Team;
 
@@ -417,5 +474,24 @@ mod tests {
     #[test]
     fn is_alive_true_above_zero() {
         assert!(vital(1, 10).is_alive());
+    }
+
+    #[test]
+    fn resolve_race_substitutes_or_returns_verbatim() {
+        assert_eq!(
+            resolve_race("units/warrior_{race}_{facing}.png", "elf"),
+            "units/warrior_elf_{facing}.png" // {facing} stays — resolved later by render
+        );
+        assert_eq!(resolve_race("units/oren.png", "elf"), "units/oren.png");
+    }
+
+    #[test]
+    fn facing_toward_uses_world_x() {
+        use crate::game::hex::hex_from_offset;
+        let center = hex_from_offset(3, 3);
+        assert_eq!(facing_toward(center, hex_from_offset(5, 3)), Facing::Right);
+        assert_eq!(facing_toward(center, hex_from_offset(1, 3)), Facing::Left);
+        // Same column → tie → Left.
+        assert_eq!(facing_toward(center, hex_from_offset(3, 1)), Facing::Left);
     }
 }

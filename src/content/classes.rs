@@ -140,14 +140,17 @@ mod tests {
         assert_eq!(find("mage"), Vec::<ArmorWeight>::new());
     }
 
-    /// `sprite` is `#[serde(default)]` — present classes carry the `{race}`
-    /// pattern; a class TOML without the field parses to `None`.
+    /// `sprite` is `#[serde(default)]` — present classes carry the
+    /// `{race}`/`{facing}` pattern; a class TOML without the field parses to `None`.
     #[test]
     fn sprite_parses_with_serde_default() {
         let src = include_str!("../../assets/data/classes.toml");
         let classes = parse_classes("assets/data/classes.toml", src);
         let warrior = classes.iter().find(|c| c.id == "warrior").unwrap();
-        assert_eq!(warrior.sprite.as_deref(), Some("units/warrior_{race}.png"));
+        assert_eq!(
+            warrior.sprite.as_deref(),
+            Some("units/warrior_{race}_{facing}.png")
+        );
 
         let no_sprite = parse_classes(
             "t.toml",
