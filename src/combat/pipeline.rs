@@ -97,6 +97,7 @@ impl Plugin for CombatPipelinePlugin {
             Update,
             (
                 enemy_popup::queue_enemy_popup,
+                enemy_popup::enqueue_victim_facing,
                 advance_turn::check_victory_system,
                 advance_turn::check_phase_deadline_system,
             )

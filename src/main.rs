@@ -65,6 +65,7 @@ fn main() {
         .init_resource::<ui::hex_grid::HexLastClick>()
         .init_resource::<AnimationQueue>()
         .init_resource::<combat::enemy_popup::PopupCursor>()
+        .init_resource::<combat::enemy_popup::FacingCursor>()
         .init_resource::<UiDirty>()
         .init_resource::<ActionForecast>()
         .init_resource::<ui::modal::PendingPrompt>()

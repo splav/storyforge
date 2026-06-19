@@ -69,12 +69,16 @@ patches `engine_step_range` into pending AI log entries and writes them.
 
 ```
 queue_enemy_popup
+  → enqueue_victim_facing
   → advance_turn_system
   → check_victory_system
 ```
 
 `queue_enemy_popup` scans new `CombatLog` events and emits
 `PendingAnim::Popup` for enemy ability use and phase transitions.
+`enqueue_victim_facing` runs immediately after — it pushes
+`PendingAnim::Face` for the hostile-cast victim so the victim's face lands
+*after* the popup in the queue.
 `advance_turn_system` applies new statuses, advances the turn-queue cursor.
 `check_victory_system` evaluates the `CombatObjective` and transitions to
 `Victory` or `Defeat` if the condition is met.
@@ -146,6 +150,16 @@ pushes `PendingAnim::Movement` → `process_animation_queue` pops it → inserts
 **Popup flow:**
 `queue_enemy_popup` pushes `PendingAnim::Popup` → spawned as UI overlay →
 player presses Space/Esc → despawned → chain resumes.
+
+**Facing flow (per-turn ordering invariant):**
+AnimationQueue ordering within a turn = Execute-pushed items (actor-face,
+movement) come before Finalize-pushed items (popup, victim-face). This
+ordering holds because `apply_bridge_queues_post_projection` drains
+`BridgeQueues.animations` into `AnimationQueue` during Execute, before
+Finalize systems run. The actor-face (`PendingAnim::Face` for the caster)
+is pushed before the cast popup so the sprite is already turned when the
+popup appears. The victim-face is pushed by `enqueue_victim_facing` in
+Finalize after `queue_enemy_popup`, so it resolves after the popup clears.
 
 ---
 

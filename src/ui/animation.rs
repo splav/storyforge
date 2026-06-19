@@ -17,6 +17,13 @@ pub enum PendingAnim {
     Movement { token: Entity, waypoints: Vec<Vec2> },
     /// Enemy action popup (text lines).
     Popup { lines: Vec<String> },
+    /// Instantaneous facing flip — sets the unit's `Facing`. No blocker, no
+    /// duration; ordered in the queue relative to Movement/Popup (turn-before-cast
+    /// / turn-after-hit).
+    Face {
+        unit: Entity,
+        facing: crate::game::components::Facing,
+    },
 }
 
 // ── Components ───────────────────────────────────────────────────────────────
@@ -56,27 +63,40 @@ pub fn process_animation_queue(
     mut queue: ResMut<AnimationQueue>,
     moving: Query<(), With<MovePath>>,
     popup: Query<(), With<EnemyActionPopup>>,
+    mut facings: Query<&mut crate::game::components::Facing>,
     asset_server: Res<AssetServer>,
 ) {
-    // Only start next item when current is done.
+    // Only start next item when current blocker is done.
     if !moving.is_empty() || !popup.is_empty() {
         return;
     }
-    let Some(next) = queue.0.pop_front() else {
-        return;
-    };
-    match next {
-        PendingAnim::Movement { token, waypoints } => {
-            if waypoints.len() >= 2 {
-                commands.entity(token).insert(MovePath {
-                    waypoints,
-                    index: 0,
-                    t: 0.0,
-                });
+    // Drain consecutive Face items in a single frame to avoid per-Face stutter.
+    // Stop as soon as we pop a Movement or Popup (those start a blocker).
+    loop {
+        let Some(next) = queue.0.pop_front() else {
+            return;
+        };
+        match next {
+            PendingAnim::Face { unit, facing } => {
+                if let Ok(mut f) = facings.get_mut(unit) {
+                    *f = facing;
+                }
+                // Keep looping — coalesce consecutive Face items.
             }
-        }
-        PendingAnim::Popup { lines } => {
-            spawn_enemy_popup(&mut commands, &asset_server, &lines);
+            PendingAnim::Movement { token, waypoints } => {
+                if waypoints.len() >= 2 {
+                    commands.entity(token).insert(MovePath {
+                        waypoints,
+                        index: 0,
+                        t: 0.0,
+                    });
+                }
+                return;
+            }
+            PendingAnim::Popup { lines } => {
+                spawn_enemy_popup(&mut commands, &asset_server, &lines);
+                return;
+            }
         }
     }
 }

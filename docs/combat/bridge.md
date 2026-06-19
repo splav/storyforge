@@ -319,6 +319,10 @@ ring / contact shadow under the figure.
   so flipping would light the wrong side — each orientation is a separately-drawn asset
   (symmetric art may omit `{facing}` and reuse one file). `sync_figure_facing` runs every
   combat frame, comparing each `UnitFigure.facing` to its unit's live `Facing` and reloading
-  the `Sprite` image only on change. Initial facing is toward the nearest opponent; the
-  system that turns a unit toward its last interaction (action target / incoming attacker)
-  is a planned follow-up — it only needs to mutate the `Facing` component. There is no `flip_x`.
+  the `Sprite` image only on change. Initial facing is toward the nearest opponent.
+  Turn-toward-last-interaction is implemented via `PendingAnim::Face` — an instantaneous,
+  queue-ordered flip that mutates the `Facing` component (no tween, no blocker). Ordering:
+  actor faces target **before** cast (Execute-pushed Face before popup); hostile victim faces
+  attacker **after** cast (Finalize-pushed Face after popup via `enqueue_victim_facing` +
+  `FacingCursor`); friendly recipients do not turn; movement faces travel direction (Execute);
+  Attacks of Opportunity are excluded in v1. There is no `flip_x`.

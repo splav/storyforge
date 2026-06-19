@@ -373,8 +373,27 @@ fn engine_enqueues_movement_animation() {
     app.update();
 
     let queue = app.world().resource::<AnimationQueue>();
-    assert_eq!(queue.0.len(), 1, "one animation should be enqueued");
+    // A horizontal move (col 0 → col 1) enqueues Face then Movement.
+    assert_eq!(
+        queue.0.len(),
+        2,
+        "Face + Movement should be enqueued for a horizontal move"
+    );
+    // First item: actor-face toward travel direction.
     match &queue.0[0] {
+        PendingAnim::Face { unit, .. } => {
+            assert_eq!(
+                *unit, actor,
+                "actor-face unit must be the actor logic entity"
+            );
+        }
+        other => panic!(
+            "expected Face animation first, got {:?}",
+            std::mem::discriminant(other)
+        ),
+    }
+    // Second item: Movement animation.
+    match &queue.0[1] {
         PendingAnim::Movement { token, waypoints } => {
             assert_eq!(*token, token_entity, "token entity must match");
             // waypoints = [start, step1] → path.len() + 1 = 2

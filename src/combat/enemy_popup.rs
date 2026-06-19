@@ -1,6 +1,7 @@
 use crate::content::content_view::ActiveContent;
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::components::{Faction, Team};
+use crate::game::components::{facing_toward, Faction, Team};
+use crate::game::resources::HexPositions;
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use bevy::prelude::*;
 
@@ -135,5 +136,71 @@ pub fn queue_enemy_popup(
         anim_queue.0.push_back(PendingAnim::Popup { lines });
 
         i = j;
+    }
+}
+
+/// Cursor tracking which CombatLog events have been checked for victim facing.
+#[derive(Resource, Default)]
+pub struct FacingCursor(pub usize);
+
+/// Pure decision kernel for victim facing: returns the facing the victim should
+/// adopt after a hostile cast, or `None` for same-team (friendly) casts.
+///
+/// Extracted for unit-testability independent of Bevy ECS.
+pub fn victim_face(
+    actor_team: Team,
+    target_team: Team,
+    victim_hex: crate::game::hex::Hex,
+    attacker_hex: crate::game::hex::Hex,
+) -> Option<crate::game::components::Facing> {
+    if actor_team == target_team {
+        return None;
+    }
+    Some(facing_toward(victim_hex, attacker_hex))
+}
+
+/// Runs in the Finalize set AFTER `queue_enemy_popup`.
+///
+/// For each hostile `AbilityUsed` event the victim did not initiate, pushes a
+/// `PendingAnim::Face` so the target turns toward the attacker after the popup.
+/// Friendly (same-team) casts and self-casts are skipped. AoO is out of scope (v1).
+pub fn enqueue_victim_facing(
+    log: Res<CombatLog>,
+    mut cursor: ResMut<FacingCursor>,
+    factions: Query<&Faction>,
+    positions: Res<HexPositions>,
+    mut anim_queue: ResMut<AnimationQueue>,
+) {
+    let events = &log.0[cursor.0..];
+    cursor.0 = log.0.len();
+
+    for event in events {
+        let CombatEvent::AbilityUsed { actor, target, .. } = event else {
+            continue;
+        };
+
+        if actor == target {
+            continue;
+        }
+
+        // Only hostile (cross-team) casts make the victim turn.
+        let (Ok(actor_faction), Ok(target_faction)) = (factions.get(*actor), factions.get(*target))
+        else {
+            continue;
+        };
+        if actor_faction.0 == target_faction.0 {
+            continue;
+        }
+
+        // Both must still have known positions (dead units may have been removed).
+        let (Some(victim_hex), Some(attacker_hex)) = (positions.get(target), positions.get(actor))
+        else {
+            continue;
+        };
+
+        anim_queue.0.push_back(PendingAnim::Face {
+            unit: *target,
+            facing: facing_toward(victim_hex, attacker_hex),
+        });
     }
 }

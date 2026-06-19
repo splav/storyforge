@@ -10,7 +10,7 @@ use crate::content::content_view::ActiveContent;
 use crate::game::bundles::enemy_bundle;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    CombatPath, Energy, Equipment, Faction, Mana, Rage, SummonedBy, UnitToken,
+    facing_toward, CombatPath, Energy, Equipment, Faction, Mana, Rage, SummonedBy, UnitToken,
 };
 use crate::game::hex::LAYOUT;
 use crate::game::messages::ActionInput;
@@ -261,6 +261,20 @@ pub fn process_action_system(
                             if let Some((token_entity, _)) =
                                 visuals.tokens.iter().find(|(_, t)| t.0 == final_actor)
                             {
+                                // Face travel direction before the slide animation.
+                                // Skip on pure-vertical moves (equal world-X → tie → Left,
+                                // which is meaningless and would flip the sprite oddly).
+                                if let (Some(from), Some(to)) = (final_from, final_to) {
+                                    use crate::game::hex::LAYOUT;
+                                    if LAYOUT.hex_to_world_pos(from).x
+                                        != LAYOUT.hex_to_world_pos(to).x
+                                    {
+                                        queues.animations.push(PendingAnim::Face {
+                                            unit: final_actor,
+                                            facing: facing_toward(from, to),
+                                        });
+                                    }
+                                }
                                 queues.animations.push(PendingAnim::Movement {
                                     token: token_entity,
                                     waypoints: final_waypoints,
@@ -346,6 +360,16 @@ pub fn process_action_system(
                             trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash)
                         {
                             warn!("Engine trace step write failed: {e}");
+                        }
+                        // Face the target before cast visuals (actor_uid != target_uid
+                        // guards self-targeted abilities).
+                        if actor_uid != target_uid {
+                            if let Some(actor_hex) = combat_state.0.unit(actor_uid).map(|u| u.pos) {
+                                queues.animations.push(PendingAnim::Face {
+                                    unit: *actor,
+                                    facing: facing_toward(actor_hex, *target_pos),
+                                });
+                            }
                         }
                         emit_ability_used(
                             *actor,

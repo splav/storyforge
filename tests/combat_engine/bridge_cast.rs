@@ -851,3 +851,140 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
         log.0,
     );
 }
+
+// ── Facing tests ─────────────────────────────────────────────────────────────
+
+/// After a hostile cast the actor's `PendingAnim::Face` appears in the queue
+/// before the cast's `PendingAnim::Popup`. Caster is at col=0 (left), target
+/// at col=1 (right), so the actor should face Right.
+#[test]
+fn cast_enqueues_actor_face_before_popup_for_hostile_cast() {
+    use storyforge::game::components::Facing;
+    use storyforge::ui::animation::PendingAnim;
+
+    let ability_id: AbilityId = "punch".into();
+    let caster_pos = hex_from_offset(0, 0);
+    let target_pos = hex_from_offset(1, 0);
+
+    let mut app = common::apps::bridge::bridge_app();
+    common::apps::bridge::insert_ability(
+        &mut app,
+        common::apps::bridge::bevy_ability(
+            "punch",
+            "Punch",
+            combat_engine::AbilityDef {
+                effect: EffectDef::Damage {
+                    dice: DiceExpr::new(0, 1, 1),
+                },
+                target_type: storyforge::content::abilities::TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 5 },
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![],
+                key: None,
+                requires_los: false,
+                passive: vec![],
+                requires_tags: Default::default(),
+                excludes_tags: Default::default(),
+                power: None,
+            },
+        ),
+    );
+
+    let caster = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Player,
+        common::apps::bridge::bridge_stats(),
+        0,
+        6,
+        vec![ability_id.clone()],
+        common::apps::bridge::no_equipment(),
+        caster_pos,
+    );
+    let target = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Enemy,
+        common::apps::bridge::bridge_stats(),
+        0,
+        6,
+        vec![],
+        common::apps::bridge::no_equipment(),
+        target_pos,
+    );
+
+    common::apps::bridge::bootstrap(&mut app);
+    common::apps::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::write_cast(&mut app, caster, ability_id, target, target_pos);
+    app.update();
+
+    let queue = app
+        .world()
+        .resource::<storyforge::ui::animation::AnimationQueue>();
+    let items: Vec<_> = queue.0.iter().collect();
+
+    // First item must be a Face for the caster pointing Right (col 0 → col 1).
+    let Some(first) = items.first() else {
+        panic!("AnimationQueue is empty; expected at least a Face entry");
+    };
+    match first {
+        PendingAnim::Face { unit, facing } => {
+            assert_eq!(*unit, caster, "actor-face unit must be the caster");
+            assert_eq!(
+                *facing,
+                Facing::Right,
+                "caster at col=0 must face Right toward col=1"
+            );
+        }
+        _other => panic!("expected PendingAnim::Face as first item, got a different variant"),
+    }
+
+    // The Face must appear before any Popup in the queue.
+    let face_idx = items
+        .iter()
+        .position(|i| matches!(i, PendingAnim::Face { .. }));
+    let popup_idx = items
+        .iter()
+        .position(|i| matches!(i, PendingAnim::Popup { .. }));
+    if let (Some(fi), Some(pi)) = (face_idx, popup_idx) {
+        assert!(fi < pi, "actor Face must precede Popup in queue");
+    }
+
+    let _ = target;
+}
+
+/// Pure helper: hostile cast → victim faces attacker; friendly cast → None.
+#[test]
+fn victim_face_pure_helper_hostile_and_friendly() {
+    use storyforge::combat::enemy_popup::victim_face;
+    use storyforge::game::components::Facing;
+    use storyforge::game::hex::hex_from_offset;
+
+    let victim_hex = hex_from_offset(2, 0); // right of attacker
+    let attacker_hex = hex_from_offset(0, 0);
+
+    // Hostile: enemy casts at player → player victim should face Left (toward attacker).
+    let result = victim_face(Team::Enemy, Team::Player, victim_hex, attacker_hex);
+    assert_eq!(
+        result,
+        Some(Facing::Left),
+        "hostile: victim at col=2 should face Left toward attacker at col=0"
+    );
+
+    // Friendly: player heals player → no facing change.
+    let result = victim_face(Team::Player, Team::Player, victim_hex, attacker_hex);
+    assert_eq!(
+        result, None,
+        "friendly: same-team cast must not turn the victim"
+    );
+
+    // Hostile reversed: player attacks enemy → enemy faces Left (attacker is to the left).
+    // victim=col0, attacker=col2 → victim faces Right.
+    let result = victim_face(Team::Player, Team::Enemy, attacker_hex, victim_hex);
+    assert_eq!(
+        result,
+        Some(Facing::Right),
+        "hostile reversed: victim at col=0 faces Right toward attacker at col=2"
+    );
+}

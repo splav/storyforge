@@ -3,7 +3,7 @@ use crate::app_state::CombatPhase;
 use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::world::tags::AbilityTagCache;
-use crate::combat::enemy_popup::PopupCursor;
+use crate::combat::enemy_popup::{FacingCursor, PopupCursor};
 use crate::content::encounters::VictoryCondition;
 use crate::content::scenarios::{active_party, active_party_statuses, SceneDef};
 use crate::game::bundles::{enemy_bundle, hero_bundle};
@@ -480,6 +480,7 @@ fn reset_combat_state(
     log: &mut CombatLog,
     cursor: &mut ConsoleCursor,
     popup_cursor: &mut PopupCursor,
+    facing_cursor: &mut FacingCursor,
     anim_queue: &mut AnimationQueue,
     deadline: &mut PhaseDeadline,
 ) {
@@ -489,6 +490,7 @@ fn reset_combat_state(
     log.push(CombatEvent::CombatStarted);
     cursor.0 = 0;
     popup_cursor.0 = 0;
+    facing_cursor.0 = 0;
     anim_queue.0.clear();
     deadline.0 = None;
 }
@@ -505,14 +507,19 @@ pub fn spawn_combat_scene(
     mut objective: ResMut<CombatObjective>,
     mut blocked_hexes: ResMut<CombatBlockedHexes>,
     mut environment: ResMut<CombatEnvironment>,
-    mut log: ResMut<CombatLog>,
-    mut cursor: ResMut<ConsoleCursor>,
-    mut popup_cursor: ResMut<PopupCursor>,
-    mut anim_queue: ResMut<AnimationQueue>,
-    mut deadline: ResMut<PhaseDeadline>,
     tag_cache: Res<AbilityTagCache>,
     campaign: Option<Res<crate::game::resources::CampaignState>>,
+    mut reset_bundle: (
+        ResMut<CombatLog>,
+        ResMut<ConsoleCursor>,
+        ResMut<PopupCursor>,
+        ResMut<FacingCursor>,
+        ResMut<AnimationQueue>,
+        ResMut<PhaseDeadline>,
+    ),
 ) {
+    let (log, cursor, popup_cursor, facing_cursor, anim_queue, deadline) = &mut reset_bundle;
+
     let empty_loadouts = std::collections::HashMap::new();
     let loadouts = campaign
         .as_ref()
@@ -531,11 +538,12 @@ pub fn spawn_combat_scene(
     spawn_background(&mut commands, &db, &scenario, &asset_server, &windows);
     reset_combat_state(
         &mut ctx,
-        &mut log,
-        &mut cursor,
-        &mut popup_cursor,
-        &mut anim_queue,
-        &mut deadline,
+        log,
+        cursor,
+        popup_cursor,
+        facing_cursor,
+        anim_queue,
+        deadline,
     );
 }
 
@@ -638,6 +646,7 @@ pub fn restart_combat_system(
         ResMut<CombatLog>,
         ResMut<ConsoleCursor>,
         ResMut<PopupCursor>,
+        ResMut<FacingCursor>,
         ResMut<AnimationQueue>,
         ResMut<PhaseDeadline>,
         Option<Res<crate::game::resources::CampaignState>>,
@@ -649,8 +658,17 @@ pub fn restart_combat_system(
         return;
     }
 
-    let (blocked_hexes, environment, log, cursor, popup_cursor, anim_queue, deadline, campaign) =
-        &mut reset_bundle;
+    let (
+        blocked_hexes,
+        environment,
+        log,
+        cursor,
+        popup_cursor,
+        facing_cursor,
+        anim_queue,
+        deadline,
+        campaign,
+    ) = &mut reset_bundle;
 
     // 1. Save initiative by name.
     preset.0.clear();
@@ -691,7 +709,15 @@ pub fn restart_combat_system(
         &tag_cache,
         loadouts,
     );
-    reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue, deadline);
+    reset_combat_state(
+        &mut ctx,
+        log,
+        cursor,
+        popup_cursor,
+        facing_cursor,
+        anim_queue,
+        deadline,
+    );
 
     // 4. → StartRound, где assign_hex_positions создаст токены,
     //    а build_turn_order возьмёт инициативу из PresetInitiative.
