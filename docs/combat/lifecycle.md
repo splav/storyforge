@@ -151,15 +151,28 @@ step(Cast { ability with EffectDef::Summon })
               emit Event::SpawnBlocked { reason }
 ```
 
-The bridge's `translate_cast_events` (called from `process_action_system`)
-handles `Event::UnitSpawned` by calling `spawn_ecs_entity_from_engine_unit`
-which creates the Bevy entity with the full `CombatantBundle` and inserts it
-into `HexPositions` and `UnitIdMap`.
+`process_action_system` handles `Event::UnitSpawned` by calling
+`spawn_ecs_entity_from_engine_unit`, which creates the Bevy entity with the
+full `CombatantBundle` and inserts it into `HexPositions` and `UnitIdMap`.
+
+**Ordering invariant — spawn is a PRE-pass, before `translate_events`.**
+A summon cast by the round's *last* actor exhausts its AP (and MP), so the
+engine auto-ends the turn and wraps the round **inside the same `step(Cast)`**:
+the event stream contains `UnitSpawned … TurnEnded … RoundStarted …
+TurnStarted { summon }` when the summon wins initiative for the new round.
+`translate_events` resolves `TurnStarted`'s actor through `UnitIdMap` to assign
+`ActiveCombatant`. If the entity were created *after* translation (the old
+post-pass), that lookup returned `None`, no unit received `ActiveCombatant`,
+and the turn loop had no actor to drive → **the game hung**. So the
+`UnitSpawned` handling runs before `translate_events`, guaranteeing the entity
+is in `UnitIdMap` when the `TurnStarted` for it is translated.
+Regression: `bridge_cast::summon_by_last_actor_hands_active_combatant_to_summon`.
 
 The spawned unit joins the **next** StartRound turn queue — it does not
-participate in the current round's queue.  On the next round-start the engine
-rolls `d20 + dex_mod` for the spawned unit and inserts it into the order by
-its initiative value (same `reconcile_turn_order` sort as all other units).
+participate in the current round's queue.  Its `d20 + dex_mod` initiative is
+rolled at spawn time (`step.rs`, on `Effect::Spawn`); insertion into
+`turn_queue.order` is deferred to the next `BumpRound`'s `reconcile_turn_order`
+(same sort as all other units), so the summon first acts in the next round.
 
 **Action economy rule:** a spawned unit does **not** trigger Attacks of
 Opportunity in the round it is spawned. AoO is only provoked by movement

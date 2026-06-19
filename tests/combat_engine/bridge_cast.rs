@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use combat_engine::{AbilityId, DiceExpr, StatusId};
 use storyforge::combat::bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
-use storyforge::content::content_view::ActiveContent;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{CombatStats, Team};
 use storyforge::game::hex::hex_from_offset;
@@ -570,79 +569,12 @@ fn cast_no_crit_fail_no_crit_fail_log_when_d20_non_one() {
 
 #[test]
 fn cast_summon_creates_ecs_entity_synchronously() {
-    use storyforge::content::abilities::TargetType;
-    use storyforge::content::unit_templates::{EquipmentBlock, ResourcesBlock, UnitTemplateDef};
     use storyforge::game::components::{Combatant, SummonedBy};
 
     let summoner_pos = hex_from_offset(0, 0);
 
-    let ability_id = AbilityId::from("summon_imp");
-    let template_id = "imp";
-
-    let ability_def = common::apps::bridge::bevy_ability(
-        "summon_imp",
-        "Призвать беса",
-        combat_engine::AbilityDef {
-            target_type: TargetType::Myself,
-            range: AbilityRange { min: 0, max: 0 },
-            effect: EffectDef::Summon {
-                template_id: template_id.into(),
-                max_active: None,
-            },
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
-            key: None,
-            requires_los: false,
-            passive: vec![],
-            requires_tags: Default::default(),
-            excludes_tags: Default::default(),
-            power: None,
-        },
-    );
-
-    let template = UnitTemplateDef {
-        id: template_id.into(),
-        name: "Imp".into(),
-        race: String::new(),
-        faction: None,
-        path: None,
-        speed: 4,
-        stats: CombatStats {
-            max_hp: 8,
-            strength: 2,
-            dexterity: 5,
-            constitution: 8,
-            intelligence: 0,
-            wisdom: 5,
-            charisma: 5,
-        },
-        equipment: EquipmentBlock {
-            main_hand: "unarmed".into(),
-            off_hand: None,
-            chest: "".into(),
-            legs: "".into(),
-            feet: "".into(),
-        },
-        resources: ResourcesBlock::default(),
-        ability_ids: vec![],
-        ai_tuning_override: None,
-        initial_statuses: vec![],
-        initial_pools: std::collections::HashMap::new(),
-        sprite: None,
-    };
-
     let mut app = common::apps::bridge::bridge_app();
-    {
-        let mut content = app.world_mut().resource_mut::<ActiveContent>();
-        content.0.abilities.insert(ability_id.clone(), ability_def);
-        content
-            .0
-            .unit_templates
-            .insert(template_id.into(), template);
-    }
+    let ability_id = common::apps::bridge::insert_summon(&mut app, "summon_imp", "imp");
 
     let summoner = common::apps::bridge::spawn_unit(
         &mut app,
@@ -725,83 +657,19 @@ fn cast_summon_creates_ecs_entity_synchronously() {
 }
 
 /// After a summon cast, the log must contain `InitiativeRolled` for the new
-/// entity. Regression guard: the engine emits it before `UnitSpawned`, so
-/// `translate_events` has no entity to attach it to; the post-pass in
-/// `process_action_system` must re-scan once the entity is in `id_map`.
+/// entity. The engine emits `InitiativeRolled` before `UnitSpawned`, but
+/// `process_action_system` creates the ECS entity in a PRE-pass (before
+/// `translate_events`), so by the time `translate_events` reaches the
+/// `InitiativeRolled` arm the entity is already in `id_map` and the log entry
+/// lands.
 #[test]
 fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
-    use storyforge::content::abilities::TargetType;
-    use storyforge::content::unit_templates::{EquipmentBlock, ResourcesBlock, UnitTemplateDef};
     use storyforge::game::components::Combatant;
 
     let summoner_pos = hex_from_offset(0, 0);
-    let ability_id = AbilityId::from("summon_imp");
-    let template_id = "imp";
-
-    let ability_def = common::apps::bridge::bevy_ability(
-        "summon_imp",
-        "Призвать беса",
-        combat_engine::AbilityDef {
-            target_type: TargetType::Myself,
-            range: AbilityRange { min: 0, max: 0 },
-            effect: EffectDef::Summon {
-                template_id: template_id.into(),
-                max_active: None,
-            },
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
-            key: None,
-            requires_los: false,
-            passive: vec![],
-            requires_tags: Default::default(),
-            excludes_tags: Default::default(),
-            power: None,
-        },
-    );
-
-    let template = UnitTemplateDef {
-        id: template_id.into(),
-        name: "Imp".into(),
-        race: String::new(),
-        faction: None,
-        path: None,
-        speed: 4,
-        stats: CombatStats {
-            max_hp: 8,
-            strength: 2,
-            dexterity: 5,
-            constitution: 8,
-            intelligence: 0,
-            wisdom: 5,
-            charisma: 5,
-        },
-        equipment: EquipmentBlock {
-            main_hand: "unarmed".into(),
-            off_hand: None,
-            chest: "".into(),
-            legs: "".into(),
-            feet: "".into(),
-        },
-        resources: ResourcesBlock::default(),
-        ability_ids: vec![],
-        ai_tuning_override: None,
-        initial_statuses: vec![],
-        initial_pools: std::collections::HashMap::new(),
-        sprite: None,
-    };
 
     let mut app = common::apps::bridge::bridge_app();
-    {
-        let mut content = app.world_mut().resource_mut::<ActiveContent>();
-        content.0.abilities.insert(ability_id.clone(), ability_def);
-        content
-            .0
-            .unit_templates
-            .insert(template_id.into(), template);
-    }
+    let ability_id = common::apps::bridge::insert_summon(&mut app, "summon_imp", "imp");
 
     let summoner = common::apps::bridge::spawn_unit(
         &mut app,
@@ -849,6 +717,79 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
         initiative_entry.is_some(),
         "CombatLog must contain InitiativeRolled for the summoned entity; got: {:?}",
         log.0,
+    );
+}
+
+/// Regression: a summon cast by the round's **last** actor wraps the round
+/// inside the same `step(Cast)` and emits `TurnStarted { summon }`. The bridge
+/// must register the summoned entity in `id_map` BEFORE translating that event,
+/// otherwise the `TurnStarted` lookup returns `None`, no entity receives
+/// `ActiveCombatant`, and the turn loop has no actor to drive → the game hangs.
+///
+/// Setup: a single enemy summoner (length-1 queue → every turn-end wraps the
+/// round). The summon rolls a high initiative (d20=20) so it becomes the new
+/// round's first actor; the summoner is pinned to initiative 1. After the cast,
+/// exactly one entity — the summon — must hold `ActiveCombatant`.
+#[test]
+fn summon_by_last_actor_hands_active_combatant_to_summon() {
+    use storyforge::game::components::{ActiveCombatant, Combatant};
+
+    let summoner_pos = hex_from_offset(0, 0);
+
+    let mut app = common::apps::bridge::bridge_app();
+    let ability_id = common::apps::bridge::insert_summon(&mut app, "summon_imp", "imp");
+
+    let summoner = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Enemy,
+        common::apps::bridge::bridge_stats(),
+        0,
+        4,
+        vec![ability_id.clone()],
+        common::apps::bridge::no_equipment(),
+        summoner_pos,
+    );
+
+    common::apps::bridge::bootstrap(&mut app);
+
+    // Summoner is the sole (hence last) actor. To make the cast auto-end its
+    // turn — and thus wrap the round inside the same `step(Cast)` — both AP and
+    // MP must hit zero (AP drops to 0 on cast; MP is pinned to 0 here). Its
+    // initiative is pinned below the summon's roll so the summon goes first.
+    common::apps::bridge::with_engine_unit(&mut app, summoner, |unit| {
+        unit.pools[combat_engine::PoolKind::Ap] = Some((1, 1));
+        unit.pools[combat_engine::PoolKind::Mp] = Some((0, 0));
+        unit.initiative = Some(1);
+    });
+
+    // Two d20 draws: crit-fail check (11 → none), summon initiative (20 → high).
+    app.world_mut()
+        .resource_mut::<storyforge::combat::DiceRngRes>()
+        .script(&[11, 20]);
+
+    common::apps::bridge::write_cast(&mut app, summoner, ability_id, summoner, summoner_pos);
+    app.update();
+
+    // The summoned entity (the only Combatant that isn't the summoner).
+    let summoned: Entity = app
+        .world_mut()
+        .query::<(Entity, &Combatant)>()
+        .iter(app.world())
+        .map(|(e, _)| e)
+        .find(|&e| e != summoner)
+        .expect("expected a summoned Combatant entity");
+
+    // Exactly one ActiveCombatant, and it is the summon — the turn loop handed
+    // control to the new round's first actor instead of stalling.
+    let active: Vec<Entity> = app
+        .world_mut()
+        .query_filtered::<Entity, With<ActiveCombatant>>()
+        .iter(app.world())
+        .collect();
+    assert_eq!(
+        active,
+        vec![summoned],
+        "summon (new round's first actor) must hold ActiveCombatant; summoner={summoner:?} summoned={summoned:?}"
     );
 }
 

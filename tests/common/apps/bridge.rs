@@ -337,6 +337,80 @@ pub fn bevy_ability(id: &str, name: &str, engine: combat_engine::AbilityDef) -> 
     }
 }
 
+/// Insert a minimal self-targeted summon ability and the plain melee imp
+/// template it spawns into the app's `ActiveContent`, returning the ability id.
+///
+/// Costs 1 AP, no pool costs — enough for any "cast summon → entity appears"
+/// bridge test. The template is an 8-HP imp with no abilities or resources.
+pub fn insert_summon(app: &mut App, ability_id: &str, template_id: &str) -> AbilityId {
+    use storyforge::content::abilities::TargetType;
+    use storyforge::content::unit_templates::{EquipmentBlock, ResourcesBlock, UnitTemplateDef};
+
+    let ability = bevy_ability(
+        ability_id,
+        "Призвать беса",
+        combat_engine::AbilityDef {
+            target_type: TargetType::Myself,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::Summon {
+                template_id: template_id.into(),
+                max_active: None,
+            },
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+            requires_los: false,
+            passive: vec![],
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
+            power: None,
+        },
+    );
+
+    let template = UnitTemplateDef {
+        id: template_id.into(),
+        name: "Imp".into(),
+        race: String::new(),
+        faction: None,
+        path: None,
+        speed: 4,
+        stats: CombatStats {
+            max_hp: 8,
+            strength: 2,
+            dexterity: 5,
+            constitution: 8,
+            intelligence: 0,
+            wisdom: 5,
+            charisma: 5,
+        },
+        equipment: EquipmentBlock {
+            main_hand: "unarmed".into(),
+            off_hand: None,
+            chest: "".into(),
+            legs: "".into(),
+            feet: "".into(),
+        },
+        resources: ResourcesBlock::default(),
+        ability_ids: vec![],
+        ai_tuning_override: None,
+        initial_statuses: vec![],
+        initial_pools: std::collections::HashMap::new(),
+        sprite: None,
+    };
+
+    let id = AbilityId::from(ability_id);
+    let mut content = app.world_mut().resource_mut::<ActiveContent>();
+    content.0.abilities.insert(id.clone(), ability);
+    content
+        .0
+        .unit_templates
+        .insert(template_id.into(), template);
+    id
+}
+
 /// Wrap a pure-engine `StatusDef` in the Bevy `StatusDef` shell with empty
 /// bridge-only fields (no dot_dice, not AI-controlled, no buff class).
 pub fn bevy_status(id: &str, engine: combat_engine::StatusDef) -> StatusDef {

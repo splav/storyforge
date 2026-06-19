@@ -379,19 +379,18 @@ pub fn process_action_system(
                             &active_content,
                             &mut log,
                         );
-                        {
-                            let cast_ctx = CastCtx { _phantom: () };
-                            let mut ctx = TranslateCtx {
-                                log: &mut log,
-                                id_map: &mut id_map,
-                                queues: &mut queues,
-                                cast: Some(cast_ctx),
-                                move_: None,
-                            };
-                            translate_events(&events, &mut ctx);
-                        } // ctx drops here, releasing &mut id_map
-                          // Post-pass: handle UnitSpawned separately (needs &mut Commands
-                          // which cannot be stored in TranslateCtx — same pattern as PhaseEntered).
+                        // PRE-pass: handle UnitSpawned BEFORE translate_events so the
+                        // summoned entity is registered in `id_map` first.  A summon cast
+                        // by the round's last actor wraps the round inside this same
+                        // `step(Cast)` and emits `TurnStarted { summon }`; translate_events
+                        // resolves that actor via `id_map` to assign `ActiveCombatant`.
+                        // If the entity were created afterwards (old post-pass), the
+                        // lookup returned `None`, the new actor got no `ActiveCombatant`,
+                        // and the turn loop stalled (no driver → game hang).
+                        // Needs `&mut Commands` (un-storable in TranslateCtx — same reason
+                        // PhaseEntered is handled at the callsite). `InitiativeRolled` for
+                        // the summon is logged by translate_events below, which now finds
+                        // the entity in `id_map`.
                         for ev in &events {
                             if let Event::UnitSpawned {
                                 uid,
@@ -404,9 +403,8 @@ pub fn process_action_system(
                                 let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else {
                                     continue;
                                 };
-                                let spawned_uid = *uid;
-                                if let Some(new_entity) = spawn_ecs_entity_from_engine_unit(
-                                    spawned_uid,
+                                spawn_ecs_entity_from_engine_unit(
+                                    *uid,
                                     summoner_entity,
                                     *pos,
                                     template_id,
@@ -421,23 +419,19 @@ pub fn process_action_system(
                                     &visuals.grid_offset,
                                     visuals.asset_server.as_deref(),
                                     &mut log,
-                                ) {
-                                    // The InitiativeRolled event for the summon was emitted
-                                    // before UnitSpawned — translate_events skipped it because
-                                    // the entity didn't exist yet. Push it now that it does.
-                                    if let Some(Event::InitiativeRolled { roll, dex_mod, total, .. }) = events
-                                        .iter()
-                                        .find(|e| matches!(e, Event::InitiativeRolled { unit, .. } if *unit == spawned_uid))
-                                    {
-                                        log.push(CombatEvent::InitiativeRolled {
-                                            actor: new_entity,
-                                            dex_mod: *dex_mod,
-                                            roll: *roll,
-                                            total: *total,
-                                        });
-                                    }
-                                }
+                                );
                             }
+                        }
+                        {
+                            let cast_ctx = CastCtx { _phantom: () };
+                            let mut ctx = TranslateCtx {
+                                log: &mut log,
+                                id_map: &mut id_map,
+                                queues: &mut queues,
+                                cast: Some(cast_ctx),
+                                move_: None,
+                            };
+                            translate_events(&events, &mut ctx);
                         }
                         // Queue phase transitions from cast events (most common case:
                         // boss crosses HP threshold from a direct damage spell).
