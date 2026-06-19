@@ -337,6 +337,15 @@ fn figure_image(asset_server: &AssetServer, pattern: &str, facing: Facing) -> Ha
 /// still carries the `{facing}` placeholder; facing picks a pre-lit file (no
 /// `flip_x` — the scene light is fixed in screen space). `sync_figure_facing`
 /// reloads the image when the unit later turns.
+/// Fixed on-screen WIDTH of every figure (~hex height × 1.4). Height follows the
+/// art's aspect ratio (see `size_unit_figures`), so tall/short creatures keep
+/// their proportions while sharing one width. Tunable vs real art.
+const FIGURE_WIDTH_PX: f32 = HEX_SIZE * 2.0 * 1.4;
+/// Empty padding below the feet as a fraction of the figure's HEIGHT. Source art
+/// authored with feet ~this far from the bottom edge; the figure is dropped by
+/// it so the feet plant on the token. Trim assets to the feet to push toward 0.
+const FIGURE_FEET_PAD: f32 = 0.07;
+
 pub fn spawn_figure_child(
     parent: &mut ChildSpawnerCommands,
     asset_server: &AssetServer,
@@ -344,22 +353,49 @@ pub fn spawn_figure_child(
     pattern: &str,
     facing: Facing,
 ) {
-    const FIGURE_PX: f32 = HEX_SIZE * 2.0 * 1.4; // hex height × 1.4; tunable vs real art
+    // Provisional square size/placement until `size_unit_figures` reads the loaded
+    // texture aspect (avoids a one-frame native-resolution flash).
+    let provisional = -(FIGURE_WIDTH_PX * FIGURE_FEET_PAD + 6.0);
     parent.spawn((
         Sprite {
             image: figure_image(asset_server, pattern, facing),
-            custom_size: Some(Vec2::splat(FIGURE_PX)),
+            custom_size: Some(Vec2::splat(FIGURE_WIDTH_PX)),
             ..default()
         },
         Anchor::BOTTOM_CENTER,
-        // above token (abs z 0.17), below world-space badges (abs 0.2); -6 Y so circle reads as contact shadow
-        Transform::from_xyz(0.0, -6.0, 0.02),
+        // above token (abs z 0.17), below world-space badges (abs 0.2)
+        Transform::from_xyz(0.0, provisional, 0.02),
         UnitFigure {
             unit,
             pattern: pattern.to_string(),
             facing,
         },
     ));
+}
+
+/// Width-normalizes each figure once its texture is loaded: on-screen width is
+/// fixed (`FIGURE_WIDTH_PX`), height follows the art's aspect ratio (taller ogres,
+/// shorter dwarves stay in proportion). Re-seats the feet (padding scales with
+/// height). Idempotent — only writes when the computed size changes.
+pub fn size_unit_figures(
+    images: Res<Assets<Image>>,
+    mut figures: Query<(&mut Sprite, &mut Transform), With<UnitFigure>>,
+) {
+    for (mut sprite, mut tf) in &mut figures {
+        let Some(img) = images.get(&sprite.image) else {
+            continue;
+        };
+        let size = img.size().as_vec2();
+        if size.x <= 0.0 {
+            continue;
+        }
+        let height = FIGURE_WIDTH_PX * size.y / size.x;
+        let target = Vec2::new(FIGURE_WIDTH_PX, height);
+        if sprite.custom_size != Some(target) {
+            sprite.custom_size = Some(target);
+            tf.translation.y = -(height * FIGURE_FEET_PAD + 6.0);
+        }
+    }
 }
 
 /// Reloads each figure's sprite when its unit's `Facing` changes (turn toward the
