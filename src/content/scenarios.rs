@@ -72,6 +72,10 @@ pub struct PartyMemberDef {
     /// Template-based member: resolved via `content.unit_templates`.
     /// When set, `class_id` is ignored by `spawn_combatants`.
     pub template: Option<String>,
+    /// Per-hero battle figurine sprite override (asset path relative to
+    /// `assets/images/`). Overrides class/template sprite when set.
+    /// `None` → falls back to class or template sprite.
+    pub sprite: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -257,6 +261,8 @@ struct PartyRecord {
     /// Optional template id (unit_templates.toml). When set, `class` is ignored.
     #[serde(default)]
     template: Option<String>,
+    #[serde(default)]
+    sprite: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -336,6 +342,7 @@ fn convert_party_record(p: PartyRecord) -> PartyMemberDef {
         class_id: p.class,
         hex_pos: crate::game::hex::hex_from_offset(p.hex_col, p.hex_row),
         template: p.template,
+        sprite: p.sprite,
     }
 }
 
@@ -439,6 +446,7 @@ mod tests {
             class_id: "warrior".into(),
             hex_pos: hexx::Hex::ZERO,
             template: None,
+            sprite: None,
         }];
         let bob = PartyMemberDef {
             id: "bob".into(),
@@ -449,6 +457,7 @@ mod tests {
             class_id: "mage".into(),
             hex_pos: hexx::Hex::ZERO,
             template: None,
+            sprite: None,
         };
         ScenarioDef {
             id: "s1".into(),
@@ -541,6 +550,7 @@ mod tests {
                 class_id: "warrior".into(),
                 hex_pos: hexx::Hex::ZERO,
                 template: None,
+                sprite: None,
             }],
             scenes: vec![
                 SceneDef::Story {

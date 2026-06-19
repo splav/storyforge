@@ -2632,6 +2632,7 @@ mod tests {
             class_id: class_id.to_string(),
             hex_pos: hexx::Hex::ZERO,
             template: None,
+            sprite: None,
         };
         let scen = ScenarioDef {
             id: scen_id.clone(),
@@ -2933,6 +2934,7 @@ mod tests {
             mana_max: 0,
             energy_max: 0,
             armor_proficiencies: profs,
+            sprite: None,
         };
 
         let mut classes = HashMap::new();
@@ -3089,6 +3091,7 @@ mod tests {
             mana_max: 10,
             energy_max: 0,
             armor_proficiencies: vec![],
+            sprite: None,
         };
 
         let mut armor: HashMap<ArmorId, ArmorDef> = HashMap::new();

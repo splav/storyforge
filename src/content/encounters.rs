@@ -115,6 +115,10 @@ pub struct EnemyDef {
     pub race: String,
     pub faction: Option<String>,
     pub path: Option<String>,
+    /// Asset path relative to `assets/images/` for the battle figurine sprite.
+    /// Literal (no `{race}` substitution). Inherits the template's `sprite`
+    /// when absent. `None` → colored-circle fallback.
+    pub sprite: Option<String>,
     pub stats: CombatStats,
     pub speed: i32,
     pub main_hand: WeaponId,
@@ -293,6 +297,8 @@ struct EnemyRecord {
     #[serde(default)]
     path: Option<String>,
     #[serde(default)]
+    sprite: Option<String>,
+    #[serde(default)]
     speed: Option<i32>,
     #[serde(default)]
     stats: Option<StatsRecord>,
@@ -470,6 +476,10 @@ fn resolve_enemy(
     // Faction/path: explicit override OR template; no way to unset from template (acceptable).
     let faction = rec.faction.or_else(|| base.and_then(|t| t.faction.clone()));
     let combat_path = rec.path.or_else(|| base.and_then(|t| t.path.clone()));
+    let sprite = rec
+        .sprite
+        .clone()
+        .or_else(|| base.and_then(|t| t.sprite.clone()));
 
     // Block overrides — whole block replaced if present, otherwise taken from template, else panic.
     let stats: CombatStats = rec
@@ -505,6 +515,7 @@ fn resolve_enemy(
         race,
         faction,
         path: combat_path,
+        sprite,
         stats,
         speed,
         main_hand: equipment.main_hand,
@@ -932,5 +943,73 @@ target_name = "Лодка"
     fn rewards_present_parsed() {
         let enc = load_enc(&enc_toml_with(r#"rewards = ["sword_x", "plate_y"]"#, ""));
         assert_eq!(enc.rewards, vec!["sword_x", "plate_y"]);
+    }
+
+    // ── sprite precedence: record > template > None ──────────────────────────
+
+    fn enemy_record(extra: &str) -> EnemyRecord {
+        let toml_src = format!(
+            r#"
+template = "imp"
+hex_col = 1
+hex_row = 1
+{extra}
+"#
+        );
+        toml::from_str(&toml_src).expect("EnemyRecord must deserialize")
+    }
+
+    fn template_map(sprite: Option<&str>) -> HashMap<String, UnitTemplateDef> {
+        let tpl_src = format!(
+            r#"
+[[unit_templates]]
+id = "imp"
+name = "Imp"
+race = "imp"
+speed = 4
+ability_ids = []
+{}
+
+[unit_templates.stats]
+max_hp = 8
+strength = 2
+dexterity = 5
+constitution = 8
+intelligence = 0
+wisdom = 5
+charisma = 5
+
+[unit_templates.equipment]
+main_hand = "unarmed"
+chest = "cloth"
+legs = "cloth"
+feet = "cloth"
+"#,
+            sprite.map_or(String::new(), |s| format!(r#"sprite = "{s}""#))
+        );
+        crate::content::unit_templates::parse_unit_templates("test.toml", &tpl_src)
+            .into_iter()
+            .map(|t| (t.id.clone(), t))
+            .collect()
+    }
+
+    #[test]
+    fn resolve_enemy_sprite_precedence() {
+        // (record sprite, template sprite) -> expected resolved sprite
+        let cases = [
+            (
+                Some(r#"sprite = "units/r.png""#),
+                Some("units/t.png"),
+                Some("units/r.png"),
+            ),
+            (None, Some("units/t.png"), Some("units/t.png")),
+            (None, None, None),
+        ];
+        for (rec_sprite, tpl_sprite, expected) in cases {
+            let rec = enemy_record(rec_sprite.unwrap_or(""));
+            let templates = template_map(tpl_sprite);
+            let resolved = resolve_enemy("test.toml", "enc1", rec, &templates);
+            assert_eq!(resolved.sprite.as_deref(), expected);
+        }
     }
 }

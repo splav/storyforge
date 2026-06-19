@@ -1,5 +1,7 @@
 #![allow(clippy::too_many_arguments)]
-use crate::game::components::{Combatant, Faction, StartingHexPos, Team, UnitToken, VictoryTarget};
+use crate::game::components::{
+    Combatant, Faction, StartingHexPos, Team, UnitSprite, UnitToken, VictoryTarget,
+};
 use crate::game::hex::{hex_from_offset, row_cols, Hex, GRID_COLS, GRID_ROWS, HEX_SIZE, LAYOUT};
 use crate::game::hex_map::HexMap;
 use crate::game::resources::HexPositions;
@@ -325,11 +327,47 @@ pub fn setup_hex_grid(
 /// Assigns hex positions and spawns visual tokens for combatants that still
 /// have a `StartingHexPos` marker. The marker is removed after assignment,
 /// so on subsequent rounds this is a no-op.
+/// Spawns the figurine sprite as a child of a unit's token circle. Shared by
+/// the initial spawn (`assign_hex_positions`) and the bridge summon path.
+pub fn spawn_figure_child(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    path: &str,
+    flip_x: bool,
+) {
+    let image: Handle<Image> = asset_server.load(format!("images/{path}"));
+    const FIGURE_PX: f32 = HEX_SIZE * 2.0 * 1.4; // hex height × 1.4; tunable vs real art
+    parent.spawn((
+        Sprite {
+            image,
+            custom_size: Some(Vec2::splat(FIGURE_PX)),
+            flip_x,
+            ..default()
+        },
+        Anchor::BOTTOM_CENTER,
+        // above token (abs z 0.17), below world-space badges (abs 0.2); -6 Y so circle reads as contact shadow
+        Transform::from_xyz(0.0, -6.0, 0.02),
+    ));
+}
+
+#[allow(clippy::type_complexity)]
 pub fn assign_hex_positions(
     mut commands: Commands,
     mut positions: ResMut<HexPositions>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    combatants: Query<(Entity, &StartingHexPos, &Faction, Option<&VictoryTarget>), With<Combatant>>,
+    // `Option` so headless test harnesses (MinimalPlugins, no AssetPlugin) can
+    // run this system — figures are purely visual and skipped when absent.
+    asset_server: Option<Res<AssetServer>>,
+    combatants: Query<
+        (
+            Entity,
+            &StartingHexPos,
+            &Faction,
+            Option<&VictoryTarget>,
+            Option<&UnitSprite>,
+        ),
+        With<Combatant>,
+    >,
     grid_offset: Res<HexGridOffset>,
     mats: Res<HexMaterials>,
     token_mesh: Res<TokenMesh>,
@@ -338,7 +376,8 @@ pub fn assign_hex_positions(
         return;
     }
     positions.clear();
-    for (entity, hex_pos, faction, target) in &combatants {
+    let asset_server = asset_server.as_deref();
+    for (entity, hex_pos, faction, target, sprite) in &combatants {
         positions.insert(entity, hex_pos.0);
         commands.entity(entity).remove::<StartingHexPos>();
 
@@ -365,6 +404,9 @@ pub fn assign_hex_positions(
                         // Behind the token (negative z relative to parent).
                         Transform::from_xyz(0.0, 0.0, -0.01),
                     ));
+                }
+                if let (Some(UnitSprite(path)), Some(srv)) = (sprite, asset_server) {
+                    spawn_figure_child(parent, srv, path, faction.0 == Team::Enemy);
                 }
             });
     }

@@ -632,6 +632,7 @@ mod validate_party_status_tests {
             class_id: "warrior".into(),
             hex_pos: hexx::Hex::ZERO,
             template: None,
+            sprite: None,
         }
     }
 

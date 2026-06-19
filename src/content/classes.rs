@@ -22,6 +22,10 @@ pub struct ClassDef {
     /// allowed and never listed. Empty = light-only (e.g. mage/healer).
     /// Camp-screen gate only — not enforced in combat.
     pub armor_proficiencies: Vec<ArmorWeight>,
+    /// Asset path relative to `assets/images/` for the battle figurine sprite.
+    /// May contain `{race}` placeholder substituted at spawn time.
+    /// `None` → colored-circle fallback.
+    pub sprite: Option<String>,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -58,6 +62,8 @@ struct ClassRecord {
     energy_max: i32,
     #[serde(default)]
     armor_proficiencies: Vec<ArmorWeight>,
+    #[serde(default)]
+    sprite: Option<String>,
 }
 
 pub const CLASSES_FILE: &str = "classes.toml";
@@ -103,6 +109,7 @@ pub fn parse_classes(path: &str, src: &str) -> Vec<ClassDef> {
             mana_max: r.mana_max,
             energy_max: r.energy_max,
             armor_proficiencies: r.armor_proficiencies,
+            sprite: r.sprite,
         })
         .collect()
 }
@@ -131,5 +138,38 @@ mod tests {
         );
         assert_eq!(find("ranger"), vec![ArmorWeight::Medium]);
         assert_eq!(find("mage"), Vec::<ArmorWeight>::new());
+    }
+
+    /// `sprite` is `#[serde(default)]` — present classes carry the `{race}`
+    /// pattern; a class TOML without the field parses to `None`.
+    #[test]
+    fn sprite_parses_with_serde_default() {
+        let src = include_str!("../../assets/data/classes.toml");
+        let classes = parse_classes("assets/data/classes.toml", src);
+        let warrior = classes.iter().find(|c| c.id == "warrior").unwrap();
+        assert_eq!(warrior.sprite.as_deref(), Some("units/warrior_{race}.png"));
+
+        let no_sprite = parse_classes(
+            "t.toml",
+            r#"
+[[classes]]
+id = "x"
+name = "X"
+max_hp = 1
+strength = 0
+dexterity = 0
+constitution = 0
+intelligence = 0
+wisdom = 0
+charisma = 0
+speed = 1
+main_hand = "unarmed"
+chest = "cloth"
+legs = "cloth"
+feet = "cloth"
+ability_ids = []
+"#,
+        );
+        assert_eq!(no_sprite[0].sprite, None);
     }
 }

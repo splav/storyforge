@@ -95,6 +95,12 @@ pub struct AiBehaviorOverride {
 #[derive(Component, Debug, Clone)]
 pub struct TemplateRef(pub String);
 
+/// App-side battle-sprite key (asset path relative to `assets/images/`),
+/// resolved at spawn. Absent → colored-circle fallback. Never seen by the
+/// pure engine crate (determinism contract).
+#[derive(Component, Debug, Clone)]
+pub struct UnitSprite(pub String);
+
 pub use combat_engine::state::Team;
 
 #[derive(Component)]

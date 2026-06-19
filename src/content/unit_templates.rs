@@ -34,6 +34,9 @@ pub struct UnitTemplateDef {
     /// default policy (Hp/Mana/Energy/Ap/Mp = max; Rage = 0).
     /// Populated from TOML `initial_pools = { hp = 6 }`.
     pub initial_pools: std::collections::HashMap<String, i32>,
+    /// Asset path relative to `assets/images/` for the battle figurine sprite.
+    /// `None` → colored-circle fallback.
+    pub sprite: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +81,8 @@ pub struct TemplateRecord {
     /// Absent keys → default per-kind policy (see `template_starting_pool`).
     #[serde(default)]
     pub initial_pools: std::collections::HashMap<String, i32>,
+    #[serde(default)]
+    pub sprite: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -190,5 +195,6 @@ pub fn convert_template_record(r: TemplateRecord) -> UnitTemplateDef {
         ai_tuning_override: r.ai_tuning_override,
         initial_statuses: r.initial_statuses,
         initial_pools: r.initial_pools,
+        sprite: r.sprite,
     }
 }

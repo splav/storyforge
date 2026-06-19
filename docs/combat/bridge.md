@@ -289,3 +289,29 @@ snapshot guard is now the named predicate `effect_changes_aura_membership(effect
 (`step.rs`), which enumerates the membership-input-mutating effects and includes
 `EnterPhase` (so phase tag changes diff aura membership). It still avoids
 "recompute every step" — `aura_membership_set` is hot on the AI-sim path.
+
+## 11. Battlefield figurines
+
+Each combatant token (`UnitToken` circle) optionally carries a **figurine sprite**
+as a Bevy child entity. The circle stays — it reads as the faction color / selection
+ring / contact shadow under the figure.
+
+- **Resolution** is app-side and happens at spawn (never in the engine — sprites are
+  outside the determinism contract). Per-path precedence + the `{race}` pattern rule
+  live in [Content Guide → Battle figurines](../content-guide.md#battle-figurines-sprite).
+  The resolved key lands on the ECS `UnitSprite(String)` component (path relative to
+  `assets/images/`).
+- **Two spawn paths**, both ending in the shared helper
+  `spawn_figure_child(parent, asset_server, path, flip_x)` (`ui/hex_grid/render.rs`):
+  - bootstrap / restart — `assign_hex_positions` reads `Option<&UnitSprite>` and adds
+    the figure inside the token's `.with_children`, after the `VictoryTarget` ring;
+  - summons — `spawn_ecs_entity_from_engine_unit` (`bridge/process.rs`) resolves the
+    summon template's literal `sprite`, inserts `UnitSprite`, and spawns the same
+    child on its freshly-built token. `AssetServer` rides in via the `VisualAssets`
+    `SystemParam`.
+- **Z-order** (figure transform local to the token at abs z `0.15`): figure at `+0.02`
+  → above the token, below the `VictoryTarget` ring child (`-0.01`) is *behind*; the
+  figure is anchored `BOTTOM_CENTER` and nudged `-6` Y so the circle reads as a contact
+  shadow. World-space HP/status badges sit at abs z `0.2`, above the figure.
+- **`flip_x`** = `faction == Team::Enemy`: art is authored facing right (player units
+  as-is, enemies mirrored).

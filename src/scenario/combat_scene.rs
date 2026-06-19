@@ -25,6 +25,31 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct BattleBackground;
 
+// ── Sprite resolution ─────────────────────────────────────────────────────────
+
+use crate::content::classes::ClassDef;
+use crate::content::scenarios::PartyMemberDef;
+use crate::content::unit_templates::UnitTemplateDef;
+
+/// Substitutes the unit's race id into a class sprite PATTERN's `{race}`
+/// placeholder; a pattern without it is returned verbatim.
+fn resolve_class_sprite(pattern: &str, race: &str) -> String {
+    pattern.replace("{race}", race)
+}
+
+fn hero_sprite(member: &PartyMemberDef, class: &ClassDef) -> Option<String> {
+    member.sprite.clone().or_else(|| {
+        class
+            .sprite
+            .as_ref()
+            .map(|p| resolve_class_sprite(p, &member.race))
+    })
+}
+
+fn template_member_sprite(member: &PartyMemberDef, tpl: &UnitTemplateDef) -> Option<String> {
+    member.sprite.clone().or_else(|| tpl.sprite.clone())
+}
+
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
 /// Спаунит героев и врагов по текущему сценарию/энкаунтеру. Только Commands.
@@ -178,6 +203,9 @@ pub fn spawn_combatants(
                     .collect();
                 ec.insert(StatusEffects(statuses));
             }
+            if let Some(s) = template_member_sprite(member, tpl) {
+                ec.insert(crate::game::components::UnitSprite(s));
+            }
             // initial_statuses are applied engine-side in bootstrap_combat_state
             // via CombatState::apply_initial_statuses (reads UnitTemplate from ContentView).
             continue;
@@ -305,6 +333,9 @@ pub fn spawn_combatants(
                 .collect();
             ec.insert(StatusEffects(statuses));
         }
+        if let Some(s) = hero_sprite(member, cls) {
+            ec.insert(crate::game::components::UnitSprite(s));
+        }
     }
 
     for enemy in &enc.enemies {
@@ -392,6 +423,9 @@ pub fn spawn_combatants(
         }
         if !enemy.tags.is_empty() {
             ec.insert(crate::game::components::Tags(enemy.tags.clone()));
+        }
+        if let Some(s) = enemy.sprite.clone() {
+            ec.insert(crate::game::components::UnitSprite(s));
         }
     }
 }
@@ -658,4 +692,117 @@ pub fn restart_combat_system(
     // 4. → StartRound, где assign_hex_positions создаст токены,
     //    а build_turn_order возьмёт инициативу из PresetInitiative.
     next_phase.set(CombatPhase::StartRound);
+}
+
+#[cfg(test)]
+mod sprite_tests {
+    use super::*;
+    use crate::content::unit_templates::{EquipmentBlock, ResourcesBlock};
+    use crate::game::components::CombatStats;
+
+    fn member(sprite: Option<&str>, race: &str) -> PartyMemberDef {
+        PartyMemberDef {
+            id: "m".into(),
+            name: "M".into(),
+            race: race.into(),
+            faction: None,
+            path: None,
+            class_id: "warrior".into(),
+            hex_pos: hexx::Hex::ZERO,
+            template: None,
+            sprite: sprite.map(Into::into),
+        }
+    }
+
+    fn class(sprite: Option<&str>) -> ClassDef {
+        ClassDef {
+            id: "warrior".into(),
+            name: "W".into(),
+            stats: CombatStats::default(),
+            speed: 3,
+            abilities: vec![],
+            main_hand: "unarmed".into(),
+            off_hand: None,
+            chest: "".into(),
+            legs: "".into(),
+            feet: "".into(),
+            rage_max: 0,
+            mana_max: 0,
+            energy_max: 0,
+            armor_proficiencies: vec![],
+            sprite: sprite.map(Into::into),
+        }
+    }
+
+    fn template(sprite: Option<&str>) -> UnitTemplateDef {
+        UnitTemplateDef {
+            id: "t".into(),
+            name: "T".into(),
+            race: "human".into(),
+            faction: None,
+            path: None,
+            speed: 3,
+            stats: CombatStats::default(),
+            equipment: EquipmentBlock {
+                main_hand: "unarmed".into(),
+                off_hand: None,
+                chest: "".into(),
+                legs: "".into(),
+                feet: "".into(),
+            },
+            resources: ResourcesBlock::default(),
+            ability_ids: vec![],
+            ai_tuning_override: None,
+            initial_statuses: vec![],
+            initial_pools: Default::default(),
+            sprite: sprite.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn class_sprite_substitutes_race_or_returns_verbatim() {
+        assert_eq!(
+            resolve_class_sprite("units/warrior_{race}.png", "elf"),
+            "units/warrior_elf.png"
+        );
+        assert_eq!(
+            resolve_class_sprite("units/hero.png", "elf"),
+            "units/hero.png"
+        );
+    }
+
+    #[test]
+    fn hero_sprite_precedence() {
+        // (member override, class pattern) -> expected
+        let cases = [
+            (
+                Some("units/custom.png"),
+                Some("units/w_{race}.png"),
+                Some("units/custom.png"),
+            ),
+            (None, Some("units/w_{race}.png"), Some("units/w_elf.png")),
+            (None, None, None),
+        ];
+        for (m, c, expected) in cases {
+            let got = hero_sprite(&member(m, "elf"), &class(c));
+            assert_eq!(got.as_deref(), expected);
+        }
+    }
+
+    #[test]
+    fn template_member_sprite_precedence() {
+        let cases = [
+            (
+                Some("units/custom.png"),
+                Some("units/t.png"),
+                Some("units/custom.png"),
+            ),
+            (None, Some("units/t.png"), Some("units/t.png")),
+            (None, None, None),
+        ];
+        for (m, t, expected) in cases {
+            let got = template_member_sprite(&member(m, "human"), &template(t));
+            assert_eq!(got.as_deref(), expected);
+        }
+    }
 }

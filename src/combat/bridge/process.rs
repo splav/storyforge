@@ -33,6 +33,9 @@ pub struct VisualAssets<'w, 's> {
     pub mats: Res<'w, HexMaterials>,
     pub token_mesh: Res<'w, TokenMesh>,
     pub tag_cache: Res<'w, AbilityTagCache>,
+    // `Option` so headless test harnesses without AssetPlugin can run the bridge
+    // schedule — summon figures are purely visual and skipped when absent.
+    pub asset_server: Option<Res<'w, AssetServer>>,
 }
 
 // ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
@@ -59,6 +62,7 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
     mats: &HexMaterials,
     token_mesh: &TokenMesh,
     grid_offset: &HexGridOffset,
+    asset_server: Option<&AssetServer>,
     log: &mut CombatLog,
 ) -> Option<Entity> {
     use crate::game::components::Team as EcsTeam;
@@ -122,6 +126,10 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
     if let Some(ref p) = template.path {
         ec.insert(CombatPath(p.clone()));
     }
+    let sprite_key = template.sprite.clone();
+    if let Some(ref s) = sprite_key {
+        ec.insert(crate::game::components::UnitSprite(s.clone()));
+    }
     let new_entity = ec.id();
 
     positions.insert(new_entity, pos);
@@ -132,12 +140,23 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
         EcsTeam::Player => mats.token_player.clone(),
         EcsTeam::Enemy => mats.token_enemy.clone(),
     };
-    commands.spawn((
-        UnitToken(new_entity),
-        Mesh2d(token_mesh.token.clone()),
-        MeshMaterial2d(token_material),
-        Transform::from_xyz(pixel.x, pixel.y, 0.15),
-    ));
+    commands
+        .spawn((
+            UnitToken(new_entity),
+            Mesh2d(token_mesh.token.clone()),
+            MeshMaterial2d(token_material),
+            Transform::from_xyz(pixel.x, pixel.y, 0.15),
+        ))
+        .with_children(|parent| {
+            if let (Some(path), Some(srv)) = (sprite_key.as_ref(), asset_server) {
+                crate::ui::hex_grid::spawn_figure_child(
+                    parent,
+                    srv,
+                    path,
+                    ecs_team == EcsTeam::Enemy,
+                );
+            }
+        });
 
     log.push(CombatEvent::Summoned {
         summoner: summoner_entity,
@@ -372,6 +391,7 @@ pub fn process_action_system(
                                     &visuals.mats,
                                     &visuals.token_mesh,
                                     &visuals.grid_offset,
+                                    visuals.asset_server.as_deref(),
                                     &mut log,
                                 ) {
                                     // The InitiativeRolled event for the summon was emitted

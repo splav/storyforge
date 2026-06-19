@@ -50,6 +50,7 @@ fn mage_class(chest_id: &str, mana_max: i32) -> ClassDef {
         mana_max,
         energy_max: 0,
         armor_proficiencies: vec![],
+        sprite: None,
     }
 }
 
@@ -120,6 +121,7 @@ fn scenario_with_mage(content: ActiveContentData) -> ScenarioDef {
         class_id: "mage".into(),
         hex_pos: hexx::Hex::ZERO,
         template: None,
+        sprite: None,
     };
 
     ScenarioDef {

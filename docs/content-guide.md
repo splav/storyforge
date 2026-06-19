@@ -275,6 +275,40 @@ armor_proficiencies  = ["medium"]   # optional; lists medium/heavy weights the c
 
 `armor_proficiencies` is an optional list of armor weight classes the hero is trained to wear. Light armor is always free and should **not** be listed. An empty list (or omitting the field) means the class can only wear light armor. This is a passive gate enforced only on the camp screen — it is not checked during combat.
 
+### Battle figurines (`sprite`)
+
+`sprite` is an optional asset path **relative to `assets/images/`** that renders a
+figurine as a child of the unit's battlefield token circle. Absent → the unit keeps
+the plain colored-circle token (no figure).
+
+Resolution per spawn path (first non-`None` wins):
+
+| Unit kind        | Precedence                                                            |
+|------------------|-----------------------------------------------------------------------|
+| Class hero       | party-member `sprite` override → class `sprite` (pattern)             |
+| Template member  | party-member `sprite` override → template `sprite` (literal)          |
+| Encounter enemy  | enemy `sprite` (literal) → template `sprite` (literal)                |
+| Summon           | template `sprite` (literal)                                           |
+
+- **Class `sprite` is a PATTERN**: a `{race}` placeholder is substituted with the
+  unit's race id at spawn (e.g. `units/warrior_{race}.png` + race `human` →
+  `units/warrior_human.png`). A pattern without `{race}` is used verbatim.
+- **`unit_template`, party-member, and enemy `sprite` are literal** — no substitution.
+
+```toml
+# classes.toml — race-parametrised pattern
+sprite = "units/warrior_{race}.png"
+
+# party member / enemy / unit_template — literal override
+sprite = "units/oren.png"
+```
+
+**Asset spec.** PNG, RGBA with transparency, 256×256, the figure's feet at the
+bottom-center of the canvas, authored **facing RIGHT** (player units render as-is;
+enemy units are auto-flipped horizontally). Naming convention:
+`images/units/<class>_<race>.png` for class patterns;
+`images/units/<id>.png` for per-unit overrides.
+
 ## Unit Templates
 
 Reusable combat stat blocks referenced by encounters, phases, and summon abilities.
@@ -295,6 +329,7 @@ equipment = { main_hand = "staff", chest = "chainmail", legs = "plate_greaves", 
 resources = { mana = 8 }         # optional; defaults to {mana=0, rage=0, energy=0}
 
 ability_ids = ["melee_attack", "thunderstrike", "heal"]
+sprite      = "units/stormborn_echo.png"   # optional literal figurine; see Classes → Battle figurines
 ```
 
 AI-роль не задаётся в контенте — `AxisProfile` (tank/melee/ranged/control/support) выводится из набора способностей, HP и брони через `infer_profile` при спауне юнита.
@@ -340,7 +375,7 @@ hex_row     = 2
 
 ### Enemy via template
 
-When `template` is set, scalar fields (`name`, `race`, `speed`, `ability_ids`, `faction`, `path`) can be overridden individually; blocks (`stats`, `equipment`, `resources`) are **all-or-nothing** — include the whole block to override, omit to inherit. `hex_col` / `hex_row` are always required.
+When `template` is set, scalar fields (`name`, `race`, `speed`, `ability_ids`, `faction`, `path`, `sprite`) can be overridden individually; blocks (`stats`, `equipment`, `resources`) are **all-or-nothing** — include the whole block to override, omit to inherit. `hex_col` / `hex_row` are always required. A `sprite` override is a literal path (see [Battle figurines](#battle-figurines-sprite)); absent → inherits the template's `sprite`.
 
 ```toml
 [[encounters.enemies]]
@@ -656,6 +691,8 @@ A `[[party]]` or `party_add` entry can be one of two shapes:
 - **Class-based hero** (regular playable character) — provides `class = "warrior"`. The hero gets full stats / equipment / abilities from the class, owns its own turn, is player-controllable.
 
 - **Template-based NPC ally** (non-acting or pre-statted unit) — provides `template = "wounded_magister"` instead of `class`. The unit is spawned from a `[[unit_templates]]` entry (stats, equipment, abilities, plus any `initial_statuses` like permanent `stunned`). Lives in `CombatState.units` as a full party member, but if its template carries permanent stun the engine auto-skips its turns via the standard `skip_stunned_turn_system`. Still healable by party AI; `keep_alive` victory tracks its HP.
+
+Either shape accepts an optional `sprite` field — a literal figurine path that **overrides** the class pattern or template literal for this one member (see [Battle figurines](#battle-figurines-sprite)).
 
 ```toml
 # Story scene that introduces a wounded NPC ally before combat.

@@ -631,6 +631,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         ai_tuning_override: None,
         initial_statuses: vec![],
         initial_pools: std::collections::HashMap::new(),
+        sprite: None,
     };
 
     let mut app = common::apps::bridge::bridge_app();
@@ -789,6 +790,7 @@ fn cast_summon_logs_initiative_rolled_for_summoned_entity() {
         ai_tuning_override: None,
         initial_statuses: vec![],
         initial_pools: std::collections::HashMap::new(),
+        sprite: None,
     };
 
     let mut app = common::apps::bridge::bridge_app();
