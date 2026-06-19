@@ -27,7 +27,7 @@ use crate::{
 /// Trace schema version. Bump on any change that adds/removes RNG calls or
 /// alters the trace record shape; most bumps are a clean break with older
 /// traces (additive ones note `#[serde(default)]` back-compat at the field).
-pub const SCHEMA_VERSION: u32 = 51;
+pub const SCHEMA_VERSION: u32 = 52;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

@@ -246,6 +246,40 @@ fn restore_pool_adds_clamps_and_only_emits_on_increase() {
     assert!(ctx.pool_events.is_empty(), "absent pool emits no event");
 }
 
+// ── GrantMP (the `rush` primitive) ──────────────────────────────────────────────
+
+#[test]
+fn grant_mp_adds_above_cap_unclamped() {
+    use storyforge::combat_engine::{PoolChangeCause, PoolKind};
+
+    // make_unit has Mp 4/4 (full). GrantMP +3 → 7, EXCEEDING max (4) — rush burst.
+    let mut state = state_with(vec![make_unit(1, 20, 20)]);
+    let (derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::GrantMP {
+            actor: UnitId(1),
+            amount: 3,
+        },
+        &StubContent::neutral(),
+    );
+    assert!(derived.is_empty());
+    assert_eq!(
+        state.unit(UnitId(1)).unwrap().pools[PoolKind::Mp],
+        Some((7, 4)),
+        "MP current exceeds max (no clamp) — rush grants above the speed cap"
+    );
+    assert_eq!(ctx.pool_events.len(), 1);
+    assert!(matches!(
+        ctx.pool_events[0],
+        Event::PoolChanged {
+            pool: PoolKind::Mp,
+            current: 7,
+            cause: PoolChangeCause::Gained,
+            ..
+        }
+    ));
+}
+
 // ── Damage ────────────────────────────────────────────────────────────────────
 
 /// Decision 6.3: Damage derives GainRage{source}, GainRage{target} for non-lethal.

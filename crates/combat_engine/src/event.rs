@@ -280,6 +280,7 @@ pub fn effect_to_event(
         }
         // Pool events emitted via ctx.pool_events, not effect_to_event.
         Effect::RestorePool { .. } => None,
+        Effect::GrantMP { .. } => None,
         Effect::DecrementReactions { .. } => None,
         Effect::Death { unit } => Some(Event::UnitDied { unit: *unit }),
         Effect::RefreshAggregates { .. } => None,

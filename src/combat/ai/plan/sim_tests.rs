@@ -673,10 +673,11 @@ fn aoe_circle_hits_all_enemies_in_radius() {
 
 // ── GrantMovement ───────────────────────────────────────────────────────
 
-// NOTE: GrantMovement is deferred to Phase 3 in the engine — `effect_for_target`
-// returns None for this variant so no MP is added.  The engine still pays AP.
+// `rush` grants bonus movement above the normal cap: the engine queues
+// `Effect::GrantMP`, adding `distance` to the Mp pool current (the sim sees it
+// via the real `step()`). AP cost is still paid.
 #[test]
-fn grant_movement_pays_ap_engine_defers_mp() {
+fn grant_movement_adds_bonus_mp() {
     let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 0);
     let actor_id = actor.entity;
 
@@ -702,14 +703,13 @@ fn grant_movement_pays_ap_engine_defers_mp() {
     );
 
     let a = sim.unit(actor_id).unwrap();
-    // Engine pays AP (cost_ap=1), but GrantMovement effect fanout is Phase 3 —
-    // MP stays at the initial value (3) since no GrantMovement Effect is emitted.
+    // rush adds distance(4) above the speed cap(3): MP current = 7.
     assert_eq!(
         a.pools[combat_engine::PoolKind::Mp]
             .map(|(c, _)| c)
             .unwrap_or(0),
-        3,
-        "engine defers GrantMovement to Phase 3; MP unchanged"
+        7,
+        "MP = speed(3) + rush distance(4), above the normal cap"
     );
     assert_eq!(
         a.pools[combat_engine::PoolKind::Ap]

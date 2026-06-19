@@ -635,6 +635,12 @@ fn step_inner(
                             amount: 1,
                         });
                     }
+                } else if let EffectDef::GrantMovement { distance } = def.effect {
+                    // `rush`: grant bonus movement above the normal cap this turn.
+                    effect_queue.push_back(Effect::GrantMP {
+                        actor: *actor,
+                        amount: distance,
+                    });
                 } else {
                     // Step 6d: target enumeration + damage/heal fanout.
                     let target_state = EngineTargetState { state };

@@ -326,9 +326,10 @@ mod tests {
     }
 
     /// `OutcomePrimary::GrantMovement` — engine defers MP-grant to Phase 3.
-    /// AP is still paid; MP stays unchanged.
+    /// `rush` / `GrantMovement` — engine grants bonus movement ABOVE the normal
+    /// cap (MP `current` = speed + distance, exceeding `max`); AP cost is paid.
     #[test]
-    fn grant_movement_pays_ap_engine_defers_mp() {
+    fn grant_movement_adds_bonus_mp_above_cap() {
         let actor = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .speed(3)
             .build();
@@ -354,13 +355,13 @@ mod tests {
         );
 
         let a = sim.unit(actor_id).unwrap();
-        // Phase 3 TODO: once engine emits GrantMovement effect, assert a.movement_points == 3 + 5.
+        // rush grants +distance MP above the speed cap: 3 + 5 = 8 (current > max).
         assert_eq!(
             a.pools[combat_engine::PoolKind::Mp]
                 .map(|(c, _)| c)
                 .unwrap_or(0),
-            3,
-            "engine defers GrantMovement to Phase 3; MP unchanged"
+            8,
+            "MP = speed(3) + rush distance(5), above the normal cap"
         );
         assert_eq!(
             a.pools[combat_engine::PoolKind::Ap]

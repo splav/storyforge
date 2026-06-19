@@ -107,6 +107,12 @@ pub enum Effect {
         kind: crate::PoolKind,
         amount: i32,
     },
+    /// Grant `amount` bonus movement to `actor` THIS turn, added above the normal
+    /// cap (rush burst — Mp `current` may exceed `max`/speed; reset at the next
+    /// turn-start RefillToMax). Unlike `RestorePool` this does NOT clamp to max.
+    /// Emits PoolChanged{Mp, Gained} (Mp is silent in the log, but the bridge uses
+    /// the over-cap Mp to surface the `BonusMovement` UI marker).
+    GrantMP { actor: UnitId, amount: i32 },
     /// Spend one reaction from the actor.
     DecrementReactions { actor: UnitId },
     /// Mark `unit` as dead (hp already 0 when this fires).
@@ -667,6 +673,28 @@ pub fn apply_effect(
                             pool: *kind,
                             current: *pc,
                             max: *pmax,
+                            cause: crate::PoolChangeCause::Gained,
+                        });
+                    }
+                }
+            }
+            (vec![], ctx)
+        }
+
+        Effect::GrantMP { actor, amount } => {
+            let mut ctx = ApplyCtx::default();
+            if let Some(u) = state.unit_mut(*actor) {
+                if let Some((pc, max)) = u.pools[crate::PoolKind::Mp].as_mut() {
+                    let before = *pc;
+                    // No clamp to max — rush grants movement ABOVE the normal cap.
+                    // RefillToMax resets current→effective_speed next turn start.
+                    *pc += amount;
+                    if *pc > before {
+                        ctx.pool_events.push(crate::event::Event::PoolChanged {
+                            unit: *actor,
+                            pool: crate::PoolKind::Mp,
+                            current: *pc,
+                            max: *max,
                             cause: crate::PoolChangeCause::Gained,
                         });
                     }

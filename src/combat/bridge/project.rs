@@ -90,14 +90,24 @@ pub fn project_state_to_ecs(
                 ap.action_points = ap_cur;
                 ap.max_ap = ap_max;
             }
-            if let Some((mp_cur, _mp_max)) = unit.pools[PoolKind::Mp] {
+            // mp_max is the turn-start cap (effective speed, set by RefillToMax);
+            // current can exceed it after a rush grant.
+            let mp_max = unit.pools[PoolKind::Mp].map(|(_, m)| m).unwrap_or(0);
+            if let Some((mp_cur, _)) = unit.pools[PoolKind::Mp] {
                 ap.movement_points = mp_cur;
             }
 
             reactions.remaining = unit.reactions_left as u8;
             reactions.max = unit.reactions_max as u8;
 
-            if has_bonus && ap.movement_points == 0 {
+            // BonusMovement marker: present iff the actor has movement banked
+            // beyond its normal turn budget (rush grants Mp above the speed cap).
+            // Insert when boosted; remove once spent down to 0 (or at turn end).
+            if ap.movement_points > mp_max {
+                if !has_bonus {
+                    commands.entity(entity).insert(BonusMovement);
+                }
+            } else if has_bonus && ap.movement_points == 0 {
                 commands.entity(entity).remove::<BonusMovement>();
             }
 

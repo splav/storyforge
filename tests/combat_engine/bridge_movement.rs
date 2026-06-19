@@ -430,6 +430,43 @@ fn projector_removes_bonus_movement_when_mp_zero() {
     );
 }
 
+#[test]
+fn projector_inserts_bonus_movement_when_mp_above_cap() {
+    use combat_engine::PoolKind;
+    use storyforge::game::components::ActionPoints;
+
+    let mut app = common::apps::bridge::bridge_app();
+    // speed 3 → Mp 3/3 at bootstrap.
+    let actor =
+        common::apps::bridge::spawn_caster_with_speed(&mut app, hex_from_offset(0, 0), vec![], 3);
+    common::apps::bridge::bootstrap(&mut app);
+
+    // Simulate a rush grant: bump engine Mp current above its cap (3 → 8).
+    common::apps::bridge::with_engine_unit(&mut app, actor, |u| {
+        if let Some((cur, _max)) = u.pools[PoolKind::Mp].as_mut() {
+            *cur += 5;
+        }
+    });
+    // A move action drives the Execute chain → project_state_to_ecs runs.
+    common::apps::bridge::write_move(&mut app, actor, vec![hex_from_offset(1, 0)]);
+    app.update();
+
+    assert!(
+        app.world().entity(actor).get::<BonusMovement>().is_some(),
+        "BonusMovement must be inserted when movement_points exceeds the cap (rush)"
+    );
+    // Moved one step from the boosted 8 → 7 still projected to ECS.
+    assert_eq!(
+        app.world()
+            .entity(actor)
+            .get::<ActionPoints>()
+            .unwrap()
+            .movement_points,
+        7,
+        "boosted MP (8) minus the 1-step move projects to ECS"
+    );
+}
+
 /// The bridge inserts `Dead` and emits `CombatEvent::UnitDied` when the mover
 /// is killed by an AoO mid-path.
 #[test]
