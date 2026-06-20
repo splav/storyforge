@@ -290,36 +290,47 @@ Resolution per spawn path (first non-`None` wins):
 | Encounter enemy  | enemy `sprite` (literal) → template `sprite` (literal)                |
 | Summon           | template `sprite` (literal)                                           |
 
-Any `sprite` (class pattern, literal override, template, enemy) may contain two
+Any `sprite` (class pattern, literal override, template, enemy) may contain three
 placeholders:
 
 - **`{race}`** ← the unit's race id (e.g. `human`), substituted **at spawn**.
+- **`{gender}`** ← the unit's gender (`male` / `female`, default `male`),
+  substituted **at spawn**. Gender lives on the character — `party` members,
+  `unit_templates`, and encounter `enemies` (the latter folds it from the
+  referenced template when omitted). It is **not** on the class (which is shared);
+  the class pattern is filled from each member's own gender.
 - **`{facing}`** ← screen orientation (`right` / `left`), substituted **dynamically
   at render time**. Facing is a runtime state: a unit starts facing the nearest
-  opposing-party member and (planned) turns toward its last interaction. So both
-  files must exist; the engine swaps between them as the unit turns.
+  opposing-party member and turns toward its last interaction. So both files must
+  exist; the engine swaps between them as the unit turns.
 
 A path without a placeholder is used verbatim. The class `sprite` is the
-race-parametrised default (`units/warrior_{race}_{facing}.png`); the other three
-are overrides — they may use `{facing}` (and `{race}`) too.
+race/gender-parametrised default (`units/warrior_{race}_{gender}_{facing}.png`);
+the other three are overrides — they may use `{race}`/`{gender}`/`{facing}` too.
 
 ```toml
-# classes.toml — race + facing parametrised default
-sprite = "units/warrior_{race}_{facing}.png"
+# classes.toml — race + gender + facing parametrised default
+sprite = "units/warrior_{race}_{gender}_{facing}.png"
 
-# party member / enemy / unit_template — override (facing still applies)
+# unit_templates.toml / encounter enemy — gender lives on the unit
+gender = "female"
+
+# party member / enemy / unit_template — override (placeholders still apply)
 sprite = "units/oren_{facing}.png"
 ```
 
-**Asset spec.** PNG, RGBA with transparency, 256×256, the figure's feet at the
-bottom-center of the canvas. **Two files per figure** — one facing right, one
-facing left — each **drawn separately, not mirrored**: the scene light is fixed
-top-left in screen space, so a horizontal flip would light the wrong side. A unit
-turns at runtime, so both orientations are needed for nearly every figure.
-Symmetric art (no clear left/right) may omit `{facing}` and ship a single file.
-Naming convention: `images/units/<class>_<race>_<facing>.png` for class
-patterns; `images/units/<id>_<facing>.png` for per-unit overrides
-(`<facing>` ∈ `right`, `left`).
+**Asset spec.** PNG, RGBA with transparency, feet at the bottom-center of the
+canvas. On-screen **width** is normalized to a fixed size; **height** follows the
+image aspect ratio, so non-square art is fine — taller canvases read as taller
+creatures (ogres), shorter ones as squatter (dwarves). **Two files per figure** —
+one facing right, one facing left — each **drawn separately, not mirrored**: the
+scene light is fixed top-left in screen space, so a horizontal flip would light
+the wrong side. A unit turns at runtime, so both orientations are needed for
+nearly every figure. Symmetric art (no clear left/right) may omit `{facing}` and
+ship a single file. Naming convention:
+`images/units/<class>_<race>_<gender>_<facing>.png` for class patterns;
+`images/units/<id>_<facing>.png` for per-unit overrides
+(`<gender>` ∈ `male`, `female`; `<facing>` ∈ `right`, `left`).
 
 ## Unit Templates
 

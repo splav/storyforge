@@ -633,6 +633,7 @@ mod validate_party_status_tests {
             hex_pos: hexx::Hex::ZERO,
             template: None,
             sprite: None,
+            gender: Default::default(),
         }
     }
 

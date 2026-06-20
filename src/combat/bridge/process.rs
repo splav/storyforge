@@ -135,7 +135,7 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
     let sprite_key = template
         .sprite
         .as_deref()
-        .map(|p| crate::game::components::resolve_race(p, &template.race));
+        .map(|p| crate::game::components::resolve_appearance(p, &template.race, template.gender));
     if let Some(ref s) = sprite_key {
         ec.insert(crate::game::components::UnitSprite(s.clone()));
     }

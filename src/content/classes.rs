@@ -23,7 +23,8 @@ pub struct ClassDef {
     /// Camp-screen gate only — not enforced in combat.
     pub armor_proficiencies: Vec<ArmorWeight>,
     /// Asset path relative to `assets/images/` for the battle figurine sprite.
-    /// May contain `{race}` placeholder substituted at spawn time.
+    /// May contain `{race}`/`{gender}` placeholders (substituted at spawn from the
+    /// member) and `{facing}` (substituted per-frame by the render layer).
     /// `None` → colored-circle fallback.
     pub sprite: Option<String>,
 }
@@ -141,7 +142,7 @@ mod tests {
     }
 
     /// `sprite` is `#[serde(default)]` — present classes carry the
-    /// `{race}`/`{facing}` pattern; a class TOML without the field parses to `None`.
+    /// `{race}`/`{gender}`/`{facing}` pattern; a class TOML without the field parses to `None`.
     #[test]
     fn sprite_parses_with_serde_default() {
         let src = include_str!("../../assets/data/classes.toml");
@@ -149,7 +150,7 @@ mod tests {
         let warrior = classes.iter().find(|c| c.id == "warrior").unwrap();
         assert_eq!(
             warrior.sprite.as_deref(),
-            Some("units/warrior_{race}_{facing}.png")
+            Some("units/warrior_{race}_{gender}_{facing}.png")
         );
 
         let no_sprite = parse_classes(

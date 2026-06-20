@@ -142,10 +142,29 @@ pub fn facing_toward(from: crate::game::hex::Hex, to: crate::game::hex::Hex) -> 
     }
 }
 
-/// Resolves the content `{race}` placeholder at spawn, leaving `{facing}` for the
-/// render layer. A pattern without `{race}` is returned verbatim.
-pub fn resolve_race(pattern: &str, race: &str) -> String {
-    pattern.replace("{race}", race)
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Gender {
+    #[default]
+    Male,
+    Female,
+}
+
+impl Gender {
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Male => "male",
+            Self::Female => "female",
+        }
+    }
+}
+
+/// Resolves `{race}` and `{gender}` placeholders at spawn, leaving `{facing}` for
+/// the render layer. Patterns without either placeholder are returned verbatim.
+pub fn resolve_appearance(pattern: &str, race: &str, gender: Gender) -> String {
+    pattern
+        .replace("{race}", race)
+        .replace("{gender}", gender.token())
 }
 
 /// Marks the figurine child entity of a unit token and links it back to the
@@ -477,12 +496,27 @@ mod tests {
     }
 
     #[test]
-    fn resolve_race_substitutes_or_returns_verbatim() {
+    fn resolve_appearance_substitutes_race_and_gender() {
         assert_eq!(
-            resolve_race("units/warrior_{race}_{facing}.png", "elf"),
-            "units/warrior_elf_{facing}.png" // {facing} stays — resolved later by render
+            resolve_appearance(
+                "units/warrior_{race}_{gender}_{facing}.png",
+                "elf",
+                Gender::Female
+            ),
+            "units/warrior_elf_female_{facing}.png"
         );
-        assert_eq!(resolve_race("units/oren.png", "elf"), "units/oren.png");
+        assert_eq!(
+            resolve_appearance(
+                "units/warrior_{race}_{gender}_{facing}.png",
+                "human",
+                Gender::default()
+            ),
+            "units/warrior_human_male_{facing}.png"
+        );
+        assert_eq!(
+            resolve_appearance("units/oren.png", "elf", Gender::Male),
+            "units/oren.png"
+        );
     }
 
     #[test]

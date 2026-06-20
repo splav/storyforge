@@ -2633,6 +2633,7 @@ mod tests {
             hex_pos: hexx::Hex::ZERO,
             template: None,
             sprite: None,
+            gender: Default::default(),
         };
         let scen = ScenarioDef {
             id: scen_id.clone(),

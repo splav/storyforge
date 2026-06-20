@@ -1,5 +1,6 @@
 use crate::content::content_view::ActiveContentData;
 use crate::content::encounters::EncounterDef;
+use crate::game::components::Gender;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -76,6 +77,7 @@ pub struct PartyMemberDef {
     /// `assets/images/`). Overrides class/template sprite when set.
     /// `None` → falls back to class or template sprite.
     pub sprite: Option<String>,
+    pub gender: Gender,
 }
 
 #[derive(Debug, Clone)]
@@ -263,6 +265,8 @@ struct PartyRecord {
     template: Option<String>,
     #[serde(default)]
     sprite: Option<String>,
+    #[serde(default)]
+    gender: Gender,
 }
 
 #[derive(Deserialize)]
@@ -343,6 +347,7 @@ fn convert_party_record(p: PartyRecord) -> PartyMemberDef {
         hex_pos: crate::game::hex::hex_from_offset(p.hex_col, p.hex_row),
         template: p.template,
         sprite: p.sprite,
+        gender: p.gender,
     }
 }
 
@@ -447,6 +452,7 @@ mod tests {
             hex_pos: hexx::Hex::ZERO,
             template: None,
             sprite: None,
+            gender: Default::default(),
         }];
         let bob = PartyMemberDef {
             id: "bob".into(),
@@ -458,6 +464,7 @@ mod tests {
             hex_pos: hexx::Hex::ZERO,
             template: None,
             sprite: None,
+            gender: Default::default(),
         };
         ScenarioDef {
             id: "s1".into(),
@@ -551,6 +558,7 @@ mod tests {
                 hex_pos: hexx::Hex::ZERO,
                 template: None,
                 sprite: None,
+                gender: Default::default(),
             }],
             scenes: vec![
                 SceneDef::Story {

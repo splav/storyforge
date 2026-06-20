@@ -7,7 +7,7 @@
 //! Templates have no hex position — supplied at the use site.
 
 use crate::combat::ai::config::tuning::AiTuningOverride;
-use crate::game::components::CombatStats;
+use crate::game::components::{CombatStats, Gender};
 use combat_engine::{AbilityId, ArmorId, WeaponId};
 use serde::Deserialize;
 
@@ -37,6 +37,7 @@ pub struct UnitTemplateDef {
     /// Asset path relative to `assets/images/` for the battle figurine sprite.
     /// `None` → colored-circle fallback.
     pub sprite: Option<String>,
+    pub gender: Gender,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +84,8 @@ pub struct TemplateRecord {
     pub initial_pools: std::collections::HashMap<String, i32>,
     #[serde(default)]
     pub sprite: Option<String>,
+    #[serde(default)]
+    pub gender: Gender,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -196,5 +199,6 @@ pub fn convert_template_record(r: TemplateRecord) -> UnitTemplateDef {
         initial_statuses: r.initial_statuses,
         initial_pools: r.initial_pools,
         sprite: r.sprite,
+        gender: r.gender,
     }
 }

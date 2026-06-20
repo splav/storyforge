@@ -297,10 +297,10 @@ as a Bevy child entity. The circle stays — it reads as the faction color / sel
 ring / contact shadow under the figure.
 
 - **Resolution** is app-side (never in the engine — sprites are outside the
-  determinism contract). At spawn only the content `{race}` placeholder is resolved
-  (`resolve_race`); the `{facing}` placeholder stays. Per-path precedence + the pattern
-  rules live in [Content Guide → Battle figurines](../content-guide.md#battle-figurines-sprite).
-  The `{race}`-resolved key lands on the ECS `UnitSprite(String)` component.
+  determinism contract). At spawn the content `{race}` + `{gender}` placeholders are
+  resolved (`resolve_appearance`); the `{facing}` placeholder stays. Per-path
+  precedence + the pattern rules live in [Content Guide → Battle figurines](../content-guide.md#battle-figurines-sprite).
+  The resolved key lands on the ECS `UnitSprite(String)` component.
 - **Two spawn paths**, both ending in the shared helper
   `spawn_figure_child(parent, asset_server, unit, pattern, facing)` (`ui/hex_grid/render.rs`),
   which substitutes `{facing}`, spawns the `Sprite`, and tags it `UnitFigure { unit, pattern, facing }`:

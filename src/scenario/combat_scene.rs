@@ -31,15 +31,15 @@ use crate::content::classes::ClassDef;
 use crate::content::scenarios::PartyMemberDef;
 use crate::content::unit_templates::UnitTemplateDef;
 
-use crate::game::components::resolve_race;
+use crate::game::components::resolve_appearance;
 
-// Resolve `{race}` at spawn; `{facing}` stays for the render layer (dynamic).
+// Resolve `{race}` and `{gender}` at spawn; `{facing}` stays for the render layer (dynamic).
 fn hero_sprite(member: &PartyMemberDef, class: &ClassDef) -> Option<String> {
     member
         .sprite
         .clone()
         .or_else(|| class.sprite.clone())
-        .map(|p| resolve_race(&p, &member.race))
+        .map(|p| resolve_appearance(&p, &member.race, member.gender))
 }
 
 fn template_member_sprite(member: &PartyMemberDef, tpl: &UnitTemplateDef) -> Option<String> {
@@ -47,7 +47,7 @@ fn template_member_sprite(member: &PartyMemberDef, tpl: &UnitTemplateDef) -> Opt
         .sprite
         .clone()
         .or_else(|| tpl.sprite.clone())
-        .map(|p| resolve_race(&p, &member.race))
+        .map(|p| resolve_appearance(&p, &member.race, member.gender))
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -427,7 +427,7 @@ pub fn spawn_combatants(
         if let Some(s) = enemy
             .sprite
             .as_deref()
-            .map(|p| resolve_race(p, &enemy.race))
+            .map(|p| resolve_appearance(p, &enemy.race, enemy.gender))
         {
             ec.insert(crate::game::components::UnitSprite(s));
         }
@@ -730,7 +730,11 @@ mod sprite_tests {
     use crate::content::unit_templates::{EquipmentBlock, ResourcesBlock};
     use crate::game::components::CombatStats;
 
-    fn member(sprite: Option<&str>, race: &str) -> PartyMemberDef {
+    fn member(
+        sprite: Option<&str>,
+        race: &str,
+        gender: crate::game::components::Gender,
+    ) -> PartyMemberDef {
         PartyMemberDef {
             id: "m".into(),
             name: "M".into(),
@@ -741,6 +745,7 @@ mod sprite_tests {
             hex_pos: hexx::Hex::ZERO,
             template: None,
             sprite: sprite.map(Into::into),
+            gender,
         }
     }
 
@@ -786,13 +791,15 @@ mod sprite_tests {
             initial_statuses: vec![],
             initial_pools: Default::default(),
             sprite: sprite.map(Into::into),
+            gender: Default::default(),
         }
     }
 
     #[test]
     fn hero_sprite_precedence_and_race_only() {
+        use crate::game::components::Gender;
         // (member override, class pattern) -> expected. Covers precedence AND that
-        // only {race} is resolved at spawn ({facing} stays for the render layer).
+        // {race}/{gender} are resolved at spawn ({facing} stays for the render layer).
         let cases = [
             (
                 Some("units/custom_{facing}.png"),
@@ -807,13 +814,14 @@ mod sprite_tests {
             (None, None, None),
         ];
         for (m, c, expected) in cases {
-            let got = hero_sprite(&member(m, "elf"), &class(c));
+            let got = hero_sprite(&member(m, "elf", Gender::Male), &class(c));
             assert_eq!(got.as_deref(), expected);
         }
     }
 
     #[test]
     fn template_member_sprite_precedence_and_race_only() {
+        use crate::game::components::Gender;
         let cases = [
             (
                 Some("units/custom_{facing}.png"),
@@ -828,8 +836,30 @@ mod sprite_tests {
             (None, None, None),
         ];
         for (m, t, expected) in cases {
-            let got = template_member_sprite(&member(m, "human"), &template(t));
+            let got = template_member_sprite(&member(m, "human", Gender::Male), &template(t));
             assert_eq!(got.as_deref(), expected);
         }
+    }
+
+    #[test]
+    fn gender_female_substituted() {
+        use crate::game::components::Gender;
+        let m = member(None, "elf", Gender::Female);
+        let c = class(Some("units/w_{race}_{gender}_{facing}.png"));
+        assert_eq!(
+            hero_sprite(&m, &c).as_deref(),
+            Some("units/w_elf_female_{facing}.png")
+        );
+    }
+
+    #[test]
+    fn gender_default_is_male() {
+        use crate::game::components::Gender;
+        let m = member(None, "human", Gender::default());
+        let c = class(Some("units/w_{race}_{gender}_{facing}.png"));
+        assert_eq!(
+            hero_sprite(&m, &c).as_deref(),
+            Some("units/w_human_male_{facing}.png")
+        );
     }
 }

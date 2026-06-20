@@ -122,6 +122,7 @@ fn scenario_with_mage(content: ActiveContentData) -> ScenarioDef {
         hex_pos: hexx::Hex::ZERO,
         template: None,
         sprite: None,
+        gender: Default::default(),
     };
 
     ScenarioDef {

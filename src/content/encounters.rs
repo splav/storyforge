@@ -1,7 +1,7 @@
 use crate::content::unit_templates::{
     EquipmentBlock, EquipmentRecord, ResourcesBlock, ResourcesRecord, StatsRecord, UnitTemplateDef,
 };
-use crate::game::components::CombatStats;
+use crate::game::components::{CombatStats, Gender};
 use combat_engine::{AbilityId, ArmorId, WeaponId};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -115,6 +115,7 @@ pub struct EnemyDef {
     pub race: String,
     pub faction: Option<String>,
     pub path: Option<String>,
+    pub gender: Gender,
     /// Asset path relative to `assets/images/` for the battle figurine sprite.
     /// Literal (no `{race}` substitution). Inherits the template's `sprite`
     /// when absent. `None` → colored-circle fallback.
@@ -299,6 +300,8 @@ struct EnemyRecord {
     #[serde(default)]
     sprite: Option<String>,
     #[serde(default)]
+    gender: Option<Gender>,
+    #[serde(default)]
     speed: Option<i32>,
     #[serde(default)]
     stats: Option<StatsRecord>,
@@ -480,6 +483,10 @@ fn resolve_enemy(
         .sprite
         .clone()
         .or_else(|| base.and_then(|t| t.sprite.clone()));
+    let gender = rec
+        .gender
+        .or_else(|| base.map(|t| t.gender))
+        .unwrap_or_default();
 
     // Block overrides — whole block replaced if present, otherwise taken from template, else panic.
     let stats: CombatStats = rec
@@ -516,6 +523,7 @@ fn resolve_enemy(
         faction,
         path: combat_path,
         sprite,
+        gender,
         stats,
         speed,
         main_hand: equipment.main_hand,
