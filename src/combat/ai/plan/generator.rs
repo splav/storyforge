@@ -54,6 +54,12 @@ pub fn generate_plans(
     };
     let max_depth = ctx.difficulty.plan_max_depth.max(1);
     let beam = ctx.difficulty.plan_beam_width.max(1);
+    // Turn-start Mp cap (effective speed incl. status/aura). A plan whose
+    // `residual_mp` exceeds this has banked bonus movement via a `rush`-like
+    // grant — see the beam-rescue at the truncation gate below.
+    let mp_cap = actor_u.pools[combat_engine::PoolKind::Mp]
+        .map(|(_, max)| max)
+        .unwrap_or(0);
 
     let seed = TurnPlan {
         steps: Vec::new(),
@@ -244,7 +250,23 @@ pub fn generate_plans(
         }
 
         next.sort_by(|a, b| b.partial_score.total_cmp(&a.partial_score));
+        // Beam-rescue (rush). A node sitting on unspent bonus MP isn't judgeable
+        // by `partial_score` yet: the banked movement realizes value only once
+        // spent, one depth later (`rush → move`). Carry such nodes past the
+        // truncation line so they get that expansion. `residual_mp > mp_cap`
+        // holds ONLY for rush-banked nodes, so this is purely additive (never
+        // displaces a legitimate top-beam node) and inert for non-rush actors.
+        // Phase-3 + the negative `scarcity` of the rage spend still reject bad
+        // rushes. NB: this rescues only the banking step; reaching the eventual
+        // attack still needs the post-rush approach node to survive the beam.
+        let reprieve: Vec<TurnPlan> = next
+            .iter()
+            .skip(beam)
+            .filter(|p| p.residual_mp > mp_cap)
+            .cloned()
+            .collect();
         next.truncate(beam);
+        next.extend(reprieve);
 
         all_plans.extend(next.iter().cloned());
         frontier = next;

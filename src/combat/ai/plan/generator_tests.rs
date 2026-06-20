@@ -1725,3 +1725,125 @@ fn apply_endturn_ticks_status_exactly_once_per_branch() {
         );
     }
 }
+
+// ── Beam-rescue for banked bonus MP (rush) ───────────────────────────────
+
+/// A self-targeted `rush`-style ability: grants `distance` bonus MP above the
+/// turn cap. Costs are left empty — the reprieve test only needs the cast to be
+/// legal and to bank MP, not to model the rage spend.
+fn rush_def(distance: i32) -> AbilityDef {
+    AbilityDef {
+        id: AbilityId::from("rush"),
+        name: "rush".to_string(),
+        magic_domains: Vec::new(),
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::Myself,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::GrantMovement { distance },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            key: None,
+            requires_los: false,
+            passive: vec![],
+            requires_tags: Default::default(),
+            excludes_tags: Default::default(),
+            power: None,
+        },
+    }
+}
+
+fn is_rush_cast(step: &PlanStep) -> bool {
+    matches!(step, PlanStep::Cast { ability, .. } if ability.0.as_str() == "rush")
+}
+
+/// The `[rush]` node has `damage=0` and no displacement, so its `partial_score`
+/// ranks below any attack node. With `beam=1` a single in-range strike fills the
+/// frontier and would prune `[rush]` at depth-1 — before the depth-2 move/attack
+/// that realizes the banked MP. The gate reprieve must carry it one more level:
+/// a depth-≥2 plan beginning with the rush cast can only exist if it survived.
+#[test]
+fn beam_rescue_carries_banked_mp_node_past_truncation() {
+    let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+        .hp(20)
+        .ap(3)
+        .speed(3)
+        .rage(10, 10)
+        .ability_names(&["rush", "strike"])
+        .build();
+    let actor_id = actor.entity;
+    // One enemy in strike range → exactly one positive-`partial_score` attack
+    // node at depth-1, which fills a width-1 beam and outranks the rush node.
+    let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+        .hp(20)
+        .ap(1)
+        .build();
+
+    let mut content = empty_content();
+    let strike = strike_def("strike", 10, 1);
+    content.abilities.insert(strike.id.clone(), strike);
+    let rush = rush_def(2);
+    content.abilities.insert(rush.id.clone(), rush);
+
+    let mut difficulty = DifficultyProfile::hard();
+    difficulty.plan_max_depth = 2;
+    difficulty.plan_beam_width = 1;
+    let ctx = make_ctx(&content, &difficulty);
+
+    let snap = snapshot_from(vec![actor, target], 1);
+    let maps = empty_maps();
+
+    let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+    // Sanity: the rush node banked MP above the cap (speed=3, distance=2 → 5).
+    assert!(
+        plans
+            .iter()
+            .any(|p| p.steps.first().is_some_and(is_rush_cast) && p.residual_mp > 3),
+        "expected a rush-first plan that banked MP above the speed cap"
+    );
+    // The actual guard: a depth-≥2 plan led by rush exists. At beam=1 the rush
+    // node cannot survive on score, so this proves the reprieve expanded it.
+    assert!(
+        plans
+            .iter()
+            .any(|p| p.steps.len() >= 2 && is_rush_cast(&p.steps[0])),
+        "beam-rescue must carry the rush node past truncation so `rush → …` \
+         is expanded; got plans: {:?}",
+        plans.iter().map(|p| p.steps.len()).collect::<Vec<_>>()
+    );
+}
+
+/// Companion (surgical invariant): an actor with no MP-granting ability can
+/// never bank MP above its cap, so the reprieve filter (`residual_mp > mp_cap`)
+/// is always empty → behaviour is identical to plain `truncate`.
+#[test]
+fn beam_rescue_inert_without_banked_mp() {
+    let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 3);
+    let actor_id = actor.entity;
+    let target = unit(2, Team::Player, hex_from_offset(2, 0), 20, 1);
+
+    let mut content = empty_content();
+    let strike = strike_def("strike", 10, 1);
+    content.abilities.insert(strike.id.clone(), strike);
+
+    let mut difficulty = DifficultyProfile::hard();
+    difficulty.plan_max_depth = 2;
+    difficulty.plan_beam_width = 2;
+    let ctx = make_ctx(&content, &difficulty);
+
+    let snap = snapshot_from(vec![actor, target], 1);
+    let maps = empty_maps();
+
+    let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+    // `unit()` has no grant-movement ability; nothing can exceed the speed cap.
+    assert!(
+        plans.iter().all(|p| p.residual_mp <= 3),
+        "no non-rush plan may bank MP above the cap"
+    );
+}

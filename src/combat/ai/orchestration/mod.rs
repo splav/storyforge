@@ -534,6 +534,73 @@ mod tests {
         result.pool.annotations
     }
 
+    /// End-to-end resolution of "can rush actually be SELECTED, not just survive
+    /// the beam?". Actor speed 3, melee range 1 → normal reach is distance 4; the
+    /// fragile target sits at distance 5 — unreachable without rush, reachable
+    /// with it (3 base + 2 banked MP brings the actor adjacent, then melee kills).
+    /// The best non-rush plan physically cannot land the kill, so if the beam
+    /// reprieve works end-to-end the chosen plan must contain the rush cast.
+    #[test]
+    fn rush_selected_to_reach_otherwise_unreachable_kill() {
+        let content = crate::content::content_view::ActiveContentData::load_global_for_tests();
+        let (status_tag_cache, ability_tag_cache) = build_caches(&content);
+        let difficulty = DifficultyProfile::hard();
+
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(5, 0);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .speed(3)
+            .ap(2)
+            .rage(10, 10)
+            .ability_names(&["melee_attack", "rush"])
+            .caster_ctx(CasterContext {
+                weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+                str_mod: 3,
+                ..Default::default()
+            })
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).hp(1).build();
+
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let memory = crate::combat::ai::intent::AiMemory::default();
+        let mut rng = DiceRng::with_seed(0);
+
+        let world = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: &ability_tag_cache,
+            status_tags: &status_tag_cache,
+        };
+
+        let result = pick_action(
+            actor.entity,
+            actor_pos,
+            &world,
+            &snap,
+            &maps,
+            &mut rng,
+            &memory,
+            &reservations,
+            false,
+            &HashMap::new(),
+        );
+
+        let best = &result.pool.plans[result.best_idx];
+        assert!(
+            best.steps.iter().any(|s| matches!(s,
+                crate::combat::ai::plan::types::PlanStep::Cast { ability, .. }
+                    if ability.0.as_str() == "rush")),
+            "rush must be SELECTED to reach the otherwise-unreachable kill; \
+             chosen steps = {:?}",
+            best.steps,
+        );
+    }
+
     #[test]
     fn pick_action_populates_effective_ai_tags_per_cast_step() {
         // Actor with melee_attack; any plan that casts it should have OFFENSIVE in tags.
