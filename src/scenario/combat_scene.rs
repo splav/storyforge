@@ -42,12 +42,39 @@ fn hero_sprite(member: &PartyMemberDef, class: &ClassDef) -> Option<String> {
         .map(|p| resolve_appearance(&p, &member.race, member.gender))
 }
 
-fn template_member_sprite(member: &PartyMemberDef, tpl: &UnitTemplateDef) -> Option<String> {
+fn template_member_sprite(
+    member: &PartyMemberDef,
+    tpl: &UnitTemplateDef,
+    classes: &std::collections::HashMap<String, ClassDef>,
+) -> Option<String> {
     member
         .sprite
         .clone()
         .or_else(|| tpl.sprite.clone())
+        .or_else(|| {
+            tpl.class
+                .as_deref()
+                .and_then(|c| classes.get(c))
+                .and_then(|cd| cd.sprite.clone())
+        })
         .map(|p| resolve_appearance(&p, &member.race, member.gender))
+}
+
+fn enemy_sprite(
+    enemy: &crate::content::encounters::EnemyDef,
+    classes: &std::collections::HashMap<String, ClassDef>,
+) -> Option<String> {
+    enemy
+        .sprite
+        .clone()
+        .or_else(|| {
+            enemy
+                .class
+                .as_deref()
+                .and_then(|c| classes.get(c))
+                .and_then(|cd| cd.sprite.clone())
+        })
+        .map(|p| resolve_appearance(&p, &enemy.race, enemy.gender))
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -203,7 +230,7 @@ pub fn spawn_combatants(
                     .collect();
                 ec.insert(StatusEffects(statuses));
             }
-            if let Some(s) = template_member_sprite(member, tpl) {
+            if let Some(s) = template_member_sprite(member, tpl, &content.classes) {
                 ec.insert(crate::game::components::UnitSprite(s));
             }
             // initial_statuses are applied engine-side in bootstrap_combat_state
@@ -424,11 +451,7 @@ pub fn spawn_combatants(
         if !enemy.tags.is_empty() {
             ec.insert(crate::game::components::Tags(enemy.tags.clone()));
         }
-        if let Some(s) = enemy
-            .sprite
-            .as_deref()
-            .map(|p| resolve_appearance(p, &enemy.race, enemy.gender))
-        {
+        if let Some(s) = enemy_sprite(enemy, &content.classes) {
             ec.insert(crate::game::components::UnitSprite(s));
         }
     }
@@ -792,6 +815,7 @@ mod sprite_tests {
             initial_pools: Default::default(),
             sprite: sprite.map(Into::into),
             gender: Default::default(),
+            class: None,
         }
     }
 
@@ -822,6 +846,7 @@ mod sprite_tests {
     #[test]
     fn template_member_sprite_precedence_and_race_only() {
         use crate::game::components::Gender;
+        let empty: std::collections::HashMap<String, ClassDef> = Default::default();
         let cases = [
             (
                 Some("units/custom_{facing}.png"),
@@ -836,7 +861,8 @@ mod sprite_tests {
             (None, None, None),
         ];
         for (m, t, expected) in cases {
-            let got = template_member_sprite(&member(m, "human", Gender::Male), &template(t));
+            let got =
+                template_member_sprite(&member(m, "human", Gender::Male), &template(t), &empty);
             assert_eq!(got.as_deref(), expected);
         }
     }
@@ -860,6 +886,141 @@ mod sprite_tests {
         assert_eq!(
             hero_sprite(&m, &c).as_deref(),
             Some("units/w_human_male_{facing}.png")
+        );
+    }
+
+    #[test]
+    fn enemy_sprite_class_fallback() {
+        use crate::content::encounters::EnemyDef;
+        use crate::game::components::Gender;
+        use std::collections::HashMap;
+
+        fn enemy(sprite: Option<&str>, class: Option<&str>) -> EnemyDef {
+            EnemyDef {
+                name: "Grunt".into(),
+                race: "human".into(),
+                faction: None,
+                path: None,
+                gender: Gender::Male,
+                sprite: sprite.map(Into::into),
+                class: class.map(Into::into),
+                stats: crate::game::components::CombatStats::default(),
+                speed: 3,
+                main_hand: "unarmed".into(),
+                off_hand: None,
+                chest: "".into(),
+                legs: "".into(),
+                feet: "".into(),
+                ability_ids: vec![],
+                rage_max: 0,
+                mana_max: 0,
+                energy_max: 0,
+                hex_pos: hexx::Hex::ZERO,
+                phases: vec![],
+                aura: None,
+                tags: Default::default(),
+            }
+        }
+
+        fn classes_map(sprite: Option<&str>) -> HashMap<String, ClassDef> {
+            let mut map = HashMap::new();
+            map.insert("warrior".into(), class(sprite));
+            map
+        }
+
+        // explicit sprite wins over class pattern
+        assert_eq!(
+            enemy_sprite(
+                &enemy(Some("units/custom_{facing}.png"), Some("warrior")),
+                &classes_map(Some("units/warrior_{race}_{gender}_{facing}.png")),
+            )
+            .as_deref(),
+            Some("units/custom_{facing}.png"),
+        );
+        // class pattern used when sprite None; {race}/{gender} substituted, {facing} kept
+        assert_eq!(
+            enemy_sprite(
+                &enemy(None, Some("warrior")),
+                &classes_map(Some("units/warrior_{race}_{gender}_{facing}.png")),
+            )
+            .as_deref(),
+            Some("units/warrior_human_male_{facing}.png"),
+        );
+        // class present but class has no sprite → None
+        assert_eq!(
+            enemy_sprite(&enemy(None, Some("warrior")), &classes_map(None)).as_deref(),
+            None,
+        );
+        // neither sprite nor class → None
+        assert_eq!(
+            enemy_sprite(&enemy(None, None), &classes_map(None)).as_deref(),
+            None,
+        );
+    }
+
+    #[test]
+    fn template_member_sprite_class_fallback() {
+        use crate::game::components::Gender;
+
+        fn template_with_class(sprite: Option<&str>, class_id: Option<&str>) -> UnitTemplateDef {
+            let mut t = template(sprite);
+            t.class = class_id.map(Into::into);
+            t
+        }
+
+        let classes_map = {
+            let mut m = std::collections::HashMap::new();
+            m.insert(
+                "warrior".into(),
+                class(Some("units/warrior_{race}_{gender}_{facing}.png")),
+            );
+            m
+        };
+        let empty_classes: std::collections::HashMap<String, ClassDef> = Default::default();
+
+        // member sprite wins
+        let m = member(Some("units/custom.png"), "human", Gender::Male);
+        assert_eq!(
+            template_member_sprite(
+                &m,
+                &template_with_class(None, Some("warrior")),
+                &classes_map,
+            )
+            .as_deref(),
+            Some("units/custom.png"),
+        );
+        // tpl.sprite wins over class
+        let m = member(None, "human", Gender::Male);
+        assert_eq!(
+            template_member_sprite(
+                &m,
+                &template_with_class(Some("units/t_{race}_{facing}.png"), Some("warrior")),
+                &classes_map,
+            )
+            .as_deref(),
+            Some("units/t_human_{facing}.png"),
+        );
+        // class fallback used; {race}/{gender} substituted
+        let m = member(None, "human", Gender::Male);
+        assert_eq!(
+            template_member_sprite(
+                &m,
+                &template_with_class(None, Some("warrior")),
+                &classes_map,
+            )
+            .as_deref(),
+            Some("units/warrior_human_male_{facing}.png"),
+        );
+        // class set but no sprite on class → None
+        let m = member(None, "human", Gender::Male);
+        assert_eq!(
+            template_member_sprite(
+                &m,
+                &template_with_class(None, Some("warrior")),
+                &empty_classes,
+            )
+            .as_deref(),
+            None,
         );
     }
 }

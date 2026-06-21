@@ -283,12 +283,17 @@ the plain colored-circle token (no figure).
 
 Resolution per spawn path (first non-`None` wins):
 
-| Unit kind        | Precedence                                                            |
-|------------------|-----------------------------------------------------------------------|
-| Class hero       | party-member `sprite` override → class `sprite` (pattern)             |
-| Template member  | party-member `sprite` override → template `sprite` (literal)          |
-| Encounter enemy  | enemy `sprite` (literal) → template `sprite` (literal)                |
-| Summon           | template `sprite` (literal)                                           |
+| Unit kind        | Precedence                                                                             |
+|------------------|----------------------------------------------------------------------------------------|
+| Class hero       | party-member `sprite` override → class `sprite` (pattern)                              |
+| Template member  | party-member `sprite` override → template `sprite` → `class` default pattern           |
+| Encounter enemy  | enemy `sprite` (literal) → template `sprite` → `class` default pattern                 |
+| Summon           | template `sprite` → `class` default pattern                                            |
+
+The `class` field on a unit template or enemy is a class id (from `classes.toml`) whose `sprite`
+pattern is used as the figurine when no explicit `sprite` is set on the unit. This is
+**sprite-only** — stats, abilities, and equipment are always defined directly on the unit itself,
+not inherited from the class.
 
 Any `sprite` (class pattern, literal override, template, enemy) may contain three
 placeholders:
@@ -353,6 +358,25 @@ resources = { mana = 8 }         # optional; defaults to {mana=0, rage=0, energy
 
 ability_ids = ["melee_attack", "thunderstrike", "heal"]
 sprite      = "units/stormborn_echo_{facing}.png"   # optional figurine override; see Classes → Battle figurines
+
+# Alternative to an explicit sprite: pick up the figurine from a class definition.
+# class = "warrior"  ← SPRITE-ONLY; stats/abilities/equipment are NOT inherited from the class.
+```
+
+The optional `class` field names a class id (from `classes.toml`) whose `sprite` pattern is used
+as the default figurine when the template has no explicit `sprite`. Only the sprite is borrowed —
+everything else (stats, abilities, equipment) stays on the template. Explicit `sprite` always wins:
+
+```toml
+# unit_templates.toml — use the warrior class figurine for this enemy type
+[[unit_templates]]
+id          = "cultist_grunt"
+race        = "human"
+class       = "warrior"          # default figure only; stats/abilities below are this unit's own
+speed       = 3
+ability_ids = ["melee_attack"]
+stats     = { max_hp = 12, strength = 4, dexterity = 0, constitution = 5, intelligence = -2, wisdom = -2, charisma = -2 }
+equipment = { main_hand = "long_sword", chest = "chainmail", legs = "leather_pants", feet = "leather_boots" }
 ```
 
 AI-роль не задаётся в контенте — `AxisProfile` (tank/melee/ranged/control/support) выводится из набора способностей, HP и брони через `infer_profile` при спауне юнита.
@@ -398,7 +422,7 @@ hex_row     = 2
 
 ### Enemy via template
 
-When `template` is set, scalar fields (`name`, `race`, `speed`, `ability_ids`, `faction`, `path`, `sprite`) can be overridden individually; blocks (`stats`, `equipment`, `resources`) are **all-or-nothing** — include the whole block to override, omit to inherit. `hex_col` / `hex_row` are always required. A `sprite` override is an asset path (the `{facing}` placeholder still applies; see [Battle figurines](#battle-figurines-sprite)); absent → inherits the template's `sprite`.
+When `template` is set, scalar fields (`name`, `race`, `speed`, `ability_ids`, `faction`, `path`, `sprite`, `class`) can be overridden individually; blocks (`stats`, `equipment`, `resources`) are **all-or-nothing** — include the whole block to override, omit to inherit. `hex_col` / `hex_row` are always required. A `sprite` override is an asset path (the `{facing}` placeholder still applies; see [Battle figurines](#battle-figurines-sprite)); absent → inherits the template's `sprite`. Similarly, `class` folds from the template when absent on the record — the record's `class` wins if both are set.
 
 ```toml
 [[encounters.enemies]]

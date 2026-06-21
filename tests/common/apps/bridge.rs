@@ -400,6 +400,7 @@ pub fn insert_summon(app: &mut App, ability_id: &str, template_id: &str) -> Abil
         initial_pools: std::collections::HashMap::new(),
         sprite: None,
         gender: Default::default(),
+        class: None,
     };
 
     let id = AbilityId::from(ability_id);

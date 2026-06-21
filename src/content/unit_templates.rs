@@ -38,6 +38,10 @@ pub struct UnitTemplateDef {
     /// `None` → colored-circle fallback.
     pub sprite: Option<String>,
     pub gender: Gender,
+    /// Class id whose default `sprite` pattern is used as the figurine when no explicit
+    /// `sprite` is set. SPRITE-ONLY — stats/abilities/equipment are defined directly on
+    /// this unit, not inherited from the class.
+    pub class: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +90,8 @@ pub struct TemplateRecord {
     pub sprite: Option<String>,
     #[serde(default)]
     pub gender: Gender,
+    #[serde(default)]
+    pub class: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -200,5 +206,6 @@ pub fn convert_template_record(r: TemplateRecord) -> UnitTemplateDef {
         initial_pools: r.initial_pools,
         sprite: r.sprite,
         gender: r.gender,
+        class: r.class,
     }
 }

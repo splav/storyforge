@@ -120,6 +120,10 @@ pub struct EnemyDef {
     /// Literal (no `{race}` substitution). Inherits the template's `sprite`
     /// when absent. `None` → colored-circle fallback.
     pub sprite: Option<String>,
+    /// Class id whose default `sprite` pattern is used as the figurine when no explicit
+    /// `sprite` is set. SPRITE-ONLY — stats/abilities/equipment are defined directly on
+    /// this unit, not inherited from the class.
+    pub class: Option<String>,
     pub stats: CombatStats,
     pub speed: i32,
     pub main_hand: WeaponId,
@@ -301,6 +305,8 @@ struct EnemyRecord {
     sprite: Option<String>,
     #[serde(default)]
     gender: Option<Gender>,
+    #[serde(default)]
+    class: Option<String>,
     #[serde(default)]
     speed: Option<i32>,
     #[serde(default)]
@@ -487,6 +493,10 @@ fn resolve_enemy(
         .gender
         .or_else(|| base.map(|t| t.gender))
         .unwrap_or_default();
+    let class = rec
+        .class
+        .clone()
+        .or_else(|| base.and_then(|t| t.class.clone()));
 
     // Block overrides — whole block replaced if present, otherwise taken from template, else panic.
     let stats: CombatStats = rec
@@ -523,6 +533,7 @@ fn resolve_enemy(
         faction,
         path: combat_path,
         sprite,
+        class,
         gender,
         stats,
         speed,
@@ -1019,5 +1030,96 @@ feet = "cloth"
             let resolved = resolve_enemy("test.toml", "enc1", rec, &templates);
             assert_eq!(resolved.sprite.as_deref(), expected);
         }
+    }
+
+    #[test]
+    fn resolve_enemy_class_folds_from_template() {
+        // EnemyRecord without class; template has class = "warrior"
+        // After resolve_enemy, EnemyDef.class should equal "warrior"
+        let tpl_src = r#"
+[[unit_templates]]
+id = "imp"
+name = "Imp"
+race = "imp"
+speed = 4
+ability_ids = []
+class = "warrior"
+
+[unit_templates.stats]
+max_hp = 8
+strength = 2
+dexterity = 5
+constitution = 8
+intelligence = 0
+wisdom = 5
+charisma = 5
+
+[unit_templates.equipment]
+main_hand = "unarmed"
+chest = "cloth"
+legs = "cloth"
+feet = "cloth"
+"#;
+        let templates: HashMap<String, UnitTemplateDef> =
+            crate::content::unit_templates::parse_unit_templates("test.toml", tpl_src)
+                .into_iter()
+                .map(|t| (t.id.clone(), t))
+                .collect();
+        let rec: EnemyRecord = toml::from_str(
+            r#"
+template = "imp"
+hex_col = 1
+hex_row = 1
+"#,
+        )
+        .expect("EnemyRecord must deserialize");
+        let resolved = resolve_enemy("test.toml", "enc1", rec, &templates);
+        assert_eq!(resolved.class.as_deref(), Some("warrior"));
+    }
+
+    #[test]
+    fn resolve_enemy_class_record_overrides_template() {
+        // EnemyRecord explicitly sets class = "mage"; template has class = "warrior"
+        // Record override wins.
+        let tpl_src = r#"
+[[unit_templates]]
+id = "imp"
+name = "Imp"
+race = "imp"
+speed = 4
+ability_ids = []
+class = "warrior"
+
+[unit_templates.stats]
+max_hp = 8
+strength = 2
+dexterity = 5
+constitution = 8
+intelligence = 0
+wisdom = 5
+charisma = 5
+
+[unit_templates.equipment]
+main_hand = "unarmed"
+chest = "cloth"
+legs = "cloth"
+feet = "cloth"
+"#;
+        let templates: HashMap<String, UnitTemplateDef> =
+            crate::content::unit_templates::parse_unit_templates("test.toml", tpl_src)
+                .into_iter()
+                .map(|t| (t.id.clone(), t))
+                .collect();
+        let rec: EnemyRecord = toml::from_str(
+            r#"
+template = "imp"
+hex_col = 1
+hex_row = 1
+class = "mage"
+"#,
+        )
+        .expect("EnemyRecord must deserialize");
+        let resolved = resolve_enemy("test.toml", "enc1", rec, &templates);
+        assert_eq!(resolved.class.as_deref(), Some("mage"));
     }
 }
