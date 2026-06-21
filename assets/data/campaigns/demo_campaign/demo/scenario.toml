@@ -15,6 +15,7 @@ hex_row = 5
 [[party]]
 name    = "Lyra"
 race    = "human"
+gender  = "female"
 faction = "askeria"
 path    = "will"
 class   = "mage"

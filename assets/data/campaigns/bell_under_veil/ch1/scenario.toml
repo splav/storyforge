@@ -19,6 +19,7 @@ hex_row = 2
 id      = "lyra"
 name    = "Lyra"
 race    = "human"
+gender  = "female"
 faction = "askeria"
 path    = "will"
 class   = "mage"
